@@ -1,0 +1,1 @@
+#define HAS_JPEG (1)
