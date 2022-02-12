@@ -1,2 +1,2 @@
 set PATH=%PATH%;%DEVKITARM%/bin
-python build-jpeg.py
+python build-hr.py

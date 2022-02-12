@@ -6,7 +6,6 @@
 #include <fcntl.h>
 #include <errno.h>
 #include "fastlz.h"
-#include "jpeglib.h"
 #include "gen.h"
 
 NS_CONTEXT* g_nsCtx = 0;
@@ -40,10 +39,6 @@ u8* rpAllocBuff = 0;
 u32 rpAllocBuffOffset = 0;
 u32 rpAllocBuffRemainSize = 0;
 int rpAllocDebug = 0;
-
-struct jpeg_compress_struct cinfo;
-struct jpeg_error_mgr jerr;
-
 u32 rpCurrentMode = 0;
 u32 rpQuality = 90;
 u32 rpQosValueInBytes = 0;
@@ -433,16 +428,8 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 
 
 
-void rpInitJpegCompress() {
-#ifdef HAS_JPEG
-	cinfo.err = jpeg_std_error(&jerr);
-	jpeg_create_compress(&cinfo);
-	jpeg_stdio_dest(&cinfo, 0);
-
-	cinfo.in_color_space = JCS_RGB;
-	jpeg_set_defaults(&cinfo);
-	cinfo.dct_method = JDCT_IFAST;
-	jpeg_set_quality(&cinfo, rpQuality, TRUE);
+void rpInitCompress() {
+#ifdef HAS_HUFFMAN_RLE
 #else
 	return;
 #endif
@@ -450,51 +437,7 @@ void rpInitJpegCompress() {
 }
 
 void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
-#ifdef HAS_JPEG
-	u8* srcBuff;
-	u32 row_stride, i;
-	u8* row_pointer[400];
-
-	dataBuf[0] = ctx->id;
-	dataBuf[1] = ctx->isTop;
-	dataBuf[2] = 2;
-	dataBuf[3] = 0;
-	
-	cinfo.image_width = ctx->height;      /* image width and height, in pixels */
-	cinfo.image_height = ctx->width;
-	cinfo.input_components = 3;
-	cinfo.in_color_space = JCS_RGB;
-
-	row_stride = cinfo.image_width * 3; /* JSAMPLEs per row in image_buffer */
-	srcBuff = ctx->transformDst;
-	if (ctx->directCompress) {
-		row_stride = ctx->src_pitch;
-		srcBuff = ctx->src;
-		cinfo.input_components = ctx->bpp;
-		if (ctx->bpp == 3) {
-			cinfo.in_color_space = JCS_EXT_BGR;
-		}
-		else {
-			cinfo.in_color_space = JCS_EXT_BGRX;
-		}
-	}
-
-
-	u32 bakAllocOffset = rpAllocBuffOffset;
-	u32 bakAllocRemainSize = rpAllocBuffRemainSize;
-
-	jpeg_start_compress(&cinfo, TRUE);
-
-	for (i = 0; i < cinfo.image_height; i++) {
-		row_pointer[i] = &(srcBuff[i * row_stride]);
-	}
-	jpeg_write_scanlines(&cinfo, row_pointer, cinfo.image_height);
-
-
-	jpeg_finish_compress(&cinfo);
-
-	rpAllocBuffOffset = bakAllocOffset;
-	rpAllocBuffRemainSize = bakAllocRemainSize;
+#ifdef HAS_HUFFMAN_RLE
 #else
 	return;
 #endif
@@ -773,7 +716,7 @@ void remotePlayThreadStart() {
 	else {
 		goto final;
 	}
-	rpInitJpegCompress();
+	rpInitCompress();
 
 	nsDbgPrint("imgBuffer: %08x\n", imgBuffer);
 	if (!imgBuffer) {
@@ -833,30 +776,6 @@ void remotePlayMain() {
 int nsIsRemotePlayStarted = 0;
 
 /*
-void testJpeg() {
-	int ret;
-	cinfo.err = jpeg_std_error(&jerr);
-	rpAllocBuff = plgRequestMemory(0x00100000);
-	rpAllocBuffRemainSize = 0x00100000;
-	rpAllocDebug = 1;
-
-	jpeg_create_compress(&cinfo);
-	jpeg_stdio_dest(&cinfo, 0);
-
-	cinfo.in_color_space = JCS_RGB;
-	jpeg_set_defaults(&cinfo);
-	jpeg_set_quality(&cinfo, 50, TRUE);
-
-	cinfo.image_width = 240;
-	cinfo.image_height = 400;
-	cinfo.input_components = 3;
-	showDbg("start compress", 0, 0);
-	jpeg_start_compress(&cinfo, TRUE);
-
-}
-
-
-
 void tickTest() {
 	svc_sleepThread(1000000000);
 	u32 time1 = svc_getSystemTick();
