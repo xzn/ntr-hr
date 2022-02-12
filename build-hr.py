@@ -30,7 +30,7 @@ def run(cmd):
 cwd = os.getcwd() 
 run("rm obj/*.o")
 run("rm bin/*.elf")
-run(CC+  " -O3 -s  -g -I include -I/opt/devkitpro/portlibs/3ds/include " +  allFile('source/dsp/*.c') + allFile('source/ns/*.c') + allFile('source/*.c') + allFile('source/libctru/*.c') + " -c  -march=armv6 -mlittle-endian   -fomit-frame-pointer -ffast-math -march=armv6k -mtune=mpcore -mfloat-abi=hard ");
+run(CC+  " -O3 -s -Wno-int-conversion -Wno-implicit-function-declaration -Wno-incompatible-pointer-types -Wno-implicit-int -Wno-return-type -g -I include -I/opt/devkitpro/portlibs/3ds/include " +  allFile('source/dsp/*.c') + allFile('source/ns/*.c') + allFile('source/*.c') + allFile('source/libctru/*.c') + " -c  -march=armv6 -mlittle-endian   -fomit-frame-pointer -ffast-math -march=armv6k -mtune=mpcore -mfloat-abi=hard ");
 run(CC+"  -O3 " +  allFile('source/ns/*.s')  + allFile('source/*.s') + allFile('source/libctru/*.s') + " -c -s -march=armv6 -mlittle-endian   -fomit-frame-pointer -ffast-math -march=armv6k -mtune=mpcore -mfloat-abi=hard ");
 
 run(LD + ' ' + LIBPATH + " -g -A armv6k -pie --print-gc-sections  -T 3ds.ld -Map=test.map " + allFile("*.o") + " -lc -lm -lgcc --nostdlib"  )

@@ -184,11 +184,12 @@ int remotePlayInited = 0;
 u8 remotePlayBuffer[2000] = { 0 };
 u8* dataBuf = remotePlayBuffer + 0x2a + 8;
 u8* imgBuffer = 0;
-int topFormat = 0, bottomFormat = 0;
-int frameSkipA = 1, frameSkipB = 1;
-u32 requireUpdateBottom = 0;
+// int topFormat = 0, bottomFormat = 0;
+// int frameSkipA = 1, frameSkipB = 1;
+// u32 requireUpdateBottom = 0;
 u32 currentTopId = 0;
 u32 currentBottomId = 0;
+u64 currentBatchTick = 0;
 
 static u32 tl_fbaddr[2];
 static u32 bl_fbaddr[2];
@@ -232,10 +233,10 @@ uint16_t ip_checksum(void* vdata, size_t length) {
 	return htons(~acc);
 }
 
-int	initUDPPacket(int dataLen) {
+int	initUDPPacket(int dataLen, int port) {
 	dataLen += 8;
 	*(u16*)(remotePlayBuffer + 0x22 + 8) = htons(8000); // src port
-	*(u16*)(remotePlayBuffer + 0x24 + 8) = htons(8001); // dest port
+	*(u16*)(remotePlayBuffer + 0x24 + 8) = htons(port); // dest port
 	*(u16*)(remotePlayBuffer + 0x26 + 8) = htons(dataLen);
 	*(u16*)(remotePlayBuffer + 0x28 + 8) = 0; // no checksum
 	dataLen += 20;
@@ -262,6 +263,7 @@ int	initUDPPacket(int dataLen) {
 #define GL_RGB565_LE (5)
 
 #define PACKET_SIZE (1448)
+#define REMOTE_PLAY_PORT (8001)
 
 
 int getBppForFormat(int format) {
@@ -282,7 +284,7 @@ int getBppForFormat(int format) {
 typedef struct _BLIT_CONTEXT {
 	int width, height, format, src_pitch;
 	int x, y;
-	u8* src;	
+	u8* src;
 	int outformat, bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
@@ -361,7 +363,7 @@ void rpSendBuffer(u8* buf, u32 size, u32 flag) {
 			dataBuf[1] |= flag;
 		}
 		memcpy(dataBuf + 4, buf, sendSize);
-		packetLen = initUDPPacket(sendSize + 4);
+		packetLen = initUDPPacket(sendSize + 4, REMOTE_PLAY_PORT);
 		nwmSendPacket(remotePlayBuffer, packetLen);
 		buf += sendSize;
 		dataBuf[3] += 1;
@@ -369,6 +371,10 @@ void rpSendBuffer(u8* buf, u32 size, u32 flag) {
 	}
 }
 
+void rpSendString(u32 size) {
+	packetLen = initUDPPacket(size, 8002);
+	nwmSendPacket(remotePlayBuffer, packetLen);
+}
 
 int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	int blockSize = 16;
@@ -476,7 +482,7 @@ int remotePlayBlit(BLIT_CONTEXT* ctx) {
 			}
 		}
 		else {
-			
+
 			while (ctx->y < height) {
 				if (dp - dataBuf >= PACKET_SIZE) {
 					return dp - dataBuf;
@@ -616,7 +622,7 @@ void rpCaptureScreen(int isTop) {
 	rpHDma[isTop] = 0;
 
 	if (isInVRAM(phys)) {
-		svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE, 
+		svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE,
 			dest, hProcess, 0x1F000000 + (phys - 0x18000000), bufSize, dmaConfig);
 		return;
 	}
@@ -668,27 +674,27 @@ void remotePlaySendFrames() {
 			// send top
 			rpCaptureScreen(1);
 			currentTopId += 1;
-			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer);
-			topContext.compressDst = 0;
-			topContext.transformDst = imgBuffer + 0x00150000;
-			topContext.reset = 1;
-			topContext.id = (u8)currentTopId;
-			topContext.isTop = 1;
-			remotePlayBlitCompressed(&topContext);
-			rpCompressAndSendPacket(&topContext);
+			// remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer);
+			// topContext.compressDst = 0;
+			// topContext.transformDst = imgBuffer + 0x00150000;
+			// topContext.reset = 1;
+			// topContext.id = (u8)currentTopId;
+			// topContext.isTop = 1;
+			// remotePlayBlitCompressed(&topContext);
+			// rpCompressAndSendPacket(&topContext);
 		}
 		else {
 			// send bottom
 			rpCaptureScreen(0);
 			currentBottomId += 1;
-			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer);
-			botContext.compressDst = 0;
-			botContext.transformDst = imgBuffer + 0x00150000;
-			botContext.reset = 1;
-			botContext.id = (u8)currentBottomId;
-			botContext.isTop = 0;
-			remotePlayBlitCompressed(&botContext);
-			rpCompressAndSendPacket(&botContext);
+			// remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer);
+			// botContext.compressDst = 0;
+			// botContext.transformDst = imgBuffer + 0x00150000;
+			// botContext.reset = 1;
+			// botContext.id = (u8)currentBottomId;
+			// botContext.isTop = 0;
+			// remotePlayBlitCompressed(&botContext);
+			// rpCompressAndSendPacket(&botContext);
 		}
 	}
 }
@@ -753,7 +759,7 @@ int nwmValParamCallback(u8* buf, int buflen) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
 			remotePlayInited = 1;
 			memcpy(remotePlayBuffer, buf, 0x22 + 8);
-			packetLen = initUDPPacket(PACKET_SIZE);
+			packetLen = initUDPPacket(PACKET_SIZE, REMOTE_PLAY_PORT);
 			threadStack = plgRequestMemory(stackSize);
 			ret = svc_createThread(&hThread, (void*)remotePlayThreadStart, 0, &threadStack[(stackSize / 4) - 10], 0x10, 2);
 			if (ret != 0) {
@@ -790,8 +796,8 @@ int nsHandleRemotePlay() {
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
 	u32 mode = pac->args[0];
 	u32 quality = pac->args[1];
-	u32 qosValue = pac->args[2];	
-	
+	u32 qosValue = pac->args[2];
+
 	if (!((quality >= 10) && (quality <= 100))) {
 		nsDbgPrint("illegal quality\n");
 		goto final;
