@@ -26,7 +26,6 @@
 #include "jpeglib.h"
 #include "jversion.h"
 #include "jerror.h"
-#include "global.h"
 
 #ifdef USE_WINDOWS_MESSAGEBOX
 #include <windows.h>
@@ -45,7 +44,7 @@
  * want to refer to it directly.
  */
 
-#define JMESSAGE(code,string)   string ,
+#define JMESSAGE(code, string)  string,
 
 const char * const jpeg_std_message_table[] = {
 #include "jerror.h"
@@ -67,16 +66,15 @@ const char * const jpeg_std_message_table[] = {
  */
 
 METHODDEF(void)
-error_exit (j_common_ptr cinfo)
+error_exit(j_common_ptr cinfo)
 {
-	showDbg("error_exit", 0, 0);
   /* Always display the message */
   (*cinfo->err->output_message) (cinfo);
 
   /* Let the memory manager delete any temp files before we die */
   jpeg_destroy(cinfo);
 
-  //exit(EXIT_FAILURE);
+  // exit(EXIT_FAILURE);
 }
 
 
@@ -96,9 +94,8 @@ error_exit (j_common_ptr cinfo)
  */
 
 METHODDEF(void)
-output_message (j_common_ptr cinfo)
+output_message(j_common_ptr cinfo)
 {
-	showDbg("output_message", 0, 0);
   char buffer[JMSG_LENGTH_MAX];
 
   /* Create the message */
@@ -110,6 +107,7 @@ output_message (j_common_ptr cinfo)
              MB_OK | MB_ICONERROR);
 #else
   /* Send it to stderr, adding a newline */
+  // fprintf(stderr, "%s\n", buffer);
   nsDbgPrint("%s\n", buffer);
   showDbg("%s\n", buffer, 0);
 #endif
@@ -128,7 +126,7 @@ output_message (j_common_ptr cinfo)
  */
 
 METHODDEF(void)
-emit_message (j_common_ptr cinfo, int msg_level)
+emit_message(j_common_ptr cinfo, int msg_level)
 {
   struct jpeg_error_mgr *err = cinfo->err;
 
@@ -157,7 +155,7 @@ emit_message (j_common_ptr cinfo, int msg_level)
  */
 
 METHODDEF(void)
-format_message (j_common_ptr cinfo, char *buffer)
+format_message(j_common_ptr cinfo, char *buffer)
 {
   struct jpeg_error_mgr *err = cinfo->err;
   int msg_code = err->msg_code;
@@ -212,7 +210,7 @@ format_message (j_common_ptr cinfo, char *buffer)
  */
 
 METHODDEF(void)
-reset_error_mgr (j_common_ptr cinfo)
+reset_error_mgr(j_common_ptr cinfo)
 {
   cinfo->err->num_warnings = 0;
   /* trace_level is not reset since it is an application-supplied parameter */
@@ -231,7 +229,7 @@ reset_error_mgr (j_common_ptr cinfo)
  */
 
 GLOBAL(struct jpeg_error_mgr *)
-jpeg_std_error (struct jpeg_error_mgr *err)
+jpeg_std_error(struct jpeg_error_mgr *err)
 {
   err->error_exit = error_exit;
   err->emit_message = emit_message;
@@ -245,7 +243,7 @@ jpeg_std_error (struct jpeg_error_mgr *err)
 
   /* Initialize message table pointers */
   err->jpeg_message_table = jpeg_std_message_table;
-  err->last_jpeg_message = (int) JMSG_LASTMSGCODE - 1;
+  err->last_jpeg_message = (int)JMSG_LASTMSGCODE - 1;
 
   err->addon_message_table = NULL;
   err->first_addon_message = 0; /* for safety */

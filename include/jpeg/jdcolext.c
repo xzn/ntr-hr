@@ -28,22 +28,22 @@
 
 INLINE
 LOCAL(void)
-ycc_rgb_convert_internal (j_decompress_ptr cinfo,
-                          JSAMPIMAGE input_buf, JDIMENSION input_row,
-                          JSAMPARRAY output_buf, int num_rows)
+ycc_rgb_convert_internal(j_decompress_ptr cinfo, JSAMPIMAGE input_buf,
+                         JDIMENSION input_row, JSAMPARRAY output_buf,
+                         int num_rows)
 {
-  my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
+  my_cconvert_ptr cconvert = (my_cconvert_ptr)cinfo->cconvert;
   register int y, cb, cr;
   register JSAMPROW outptr;
   register JSAMPROW inptr0, inptr1, inptr2;
   register JDIMENSION col;
   JDIMENSION num_cols = cinfo->output_width;
   /* copy these pointers into registers if possible */
-  register JSAMPLE * range_limit = cinfo->sample_range_limit;
-  register int * Crrtab = cconvert->Cr_r_tab;
-  register int * Cbbtab = cconvert->Cb_b_tab;
-  register JLONG * Crgtab = cconvert->Cr_g_tab;
-  register JLONG * Cbgtab = cconvert->Cb_g_tab;
+  register JSAMPLE *range_limit = cinfo->sample_range_limit;
+  register int *Crrtab = cconvert->Cr_r_tab;
+  register int *Cbbtab = cconvert->Cb_b_tab;
+  register JLONG *Crgtab = cconvert->Cr_g_tab;
+  register JLONG *Cbgtab = cconvert->Cb_g_tab;
   SHIFT_TEMPS
 
   while (--num_rows >= 0) {
@@ -53,14 +53,14 @@ ycc_rgb_convert_internal (j_decompress_ptr cinfo,
     input_row++;
     outptr = *output_buf++;
     for (col = 0; col < num_cols; col++) {
-      y  = GETJSAMPLE(inptr0[col]);
-      cb = GETJSAMPLE(inptr1[col]);
-      cr = GETJSAMPLE(inptr2[col]);
+      y  = inptr0[col];
+      cb = inptr1[col];
+      cr = inptr2[col];
       /* Range-limiting is essential due to noise introduced by DCT losses. */
       outptr[RGB_RED] =   range_limit[y + Crrtab[cr]];
       outptr[RGB_GREEN] = range_limit[y +
-                              ((int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr],
-                                                 SCALEBITS))];
+                              ((int)RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr],
+                                                SCALEBITS))];
       outptr[RGB_BLUE] =  range_limit[y + Cbbtab[cb]];
       /* Set unused byte to 0xFF so it can be interpreted as an opaque */
       /* alpha channel value */
@@ -81,9 +81,9 @@ ycc_rgb_convert_internal (j_decompress_ptr cinfo,
 
 INLINE
 LOCAL(void)
-gray_rgb_convert_internal (j_decompress_ptr cinfo,
-                           JSAMPIMAGE input_buf, JDIMENSION input_row,
-                           JSAMPARRAY output_buf, int num_rows)
+gray_rgb_convert_internal(j_decompress_ptr cinfo, JSAMPIMAGE input_buf,
+                          JDIMENSION input_row, JSAMPARRAY output_buf,
+                          int num_rows)
 {
   register JSAMPROW inptr, outptr;
   register JDIMENSION col;
@@ -93,7 +93,6 @@ gray_rgb_convert_internal (j_decompress_ptr cinfo,
     inptr = input_buf[0][input_row++];
     outptr = *output_buf++;
     for (col = 0; col < num_cols; col++) {
-      /* We can dispense with GETJSAMPLE() here */
       outptr[RGB_RED] = outptr[RGB_GREEN] = outptr[RGB_BLUE] = inptr[col];
       /* Set unused byte to 0xFF so it can be interpreted as an opaque */
       /* alpha channel value */
@@ -112,9 +111,9 @@ gray_rgb_convert_internal (j_decompress_ptr cinfo,
 
 INLINE
 LOCAL(void)
-rgb_rgb_convert_internal (j_decompress_ptr cinfo,
-                          JSAMPIMAGE input_buf, JDIMENSION input_row,
-                          JSAMPARRAY output_buf, int num_rows)
+rgb_rgb_convert_internal(j_decompress_ptr cinfo, JSAMPIMAGE input_buf,
+                         JDIMENSION input_row, JSAMPARRAY output_buf,
+                         int num_rows)
 {
   register JSAMPROW inptr0, inptr1, inptr2;
   register JSAMPROW outptr;
@@ -128,7 +127,6 @@ rgb_rgb_convert_internal (j_decompress_ptr cinfo,
     input_row++;
     outptr = *output_buf++;
     for (col = 0; col < num_cols; col++) {
-      /* We can dispense with GETJSAMPLE() here */
       outptr[RGB_RED] = inptr0[col];
       outptr[RGB_GREEN] = inptr1[col];
       outptr[RGB_BLUE] = inptr2[col];

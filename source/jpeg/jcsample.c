@@ -5,8 +5,8 @@
  * Copyright (C) 1991-1996, Thomas G. Lane.
  * libjpeg-turbo Modifications:
  * Copyright 2009 Pierre Ossman <ossman@cendio.se> for Cendio AB
- * Copyright (C) 2014, MIPS Technologies, Inc., California
- * Copyright (C) 2015, D. R. Commander.
+ * Copyright (C) 2014, MIPS Technologies, Inc., California.
+ * Copyright (C) 2015, 2019, D. R. Commander.
  * For conditions of distribution and use, see the accompanying README.ijg
  * file.
  *
@@ -79,7 +79,7 @@ typedef my_downsampler *my_downsample_ptr;
  */
 
 METHODDEF(void)
-start_pass_downsample (j_compress_ptr cinfo)
+start_pass_downsample(j_compress_ptr cinfo)
 {
   /* no work for now */
 }
@@ -91,19 +91,19 @@ start_pass_downsample (j_compress_ptr cinfo)
  */
 
 LOCAL(void)
-expand_right_edge (JSAMPARRAY image_data, int num_rows,
-                   JDIMENSION input_cols, JDIMENSION output_cols)
+expand_right_edge(JSAMPARRAY image_data, int num_rows, JDIMENSION input_cols,
+                  JDIMENSION output_cols)
 {
   register JSAMPROW ptr;
   register JSAMPLE pixval;
   register int count;
   int row;
-  int numcols = (int) (output_cols - input_cols);
+  int numcols = (int)(output_cols - input_cols);
 
   if (numcols > 0) {
     for (row = 0; row < num_rows; row++) {
       ptr = image_data[row] + input_cols;
-      pixval = ptr[-1];         /* don't need GETJSAMPLE() here */
+      pixval = ptr[-1];
       for (count = numcols; count > 0; count--)
         *ptr++ = pixval;
     }
@@ -118,11 +118,11 @@ expand_right_edge (JSAMPARRAY image_data, int num_rows,
  */
 
 METHODDEF(void)
-sep_downsample (j_compress_ptr cinfo,
-                JSAMPIMAGE input_buf, JDIMENSION in_row_index,
-                JSAMPIMAGE output_buf, JDIMENSION out_row_group_index)
+sep_downsample(j_compress_ptr cinfo, JSAMPIMAGE input_buf,
+               JDIMENSION in_row_index, JSAMPIMAGE output_buf,
+               JDIMENSION out_row_group_index)
 {
-  my_downsample_ptr downsample = (my_downsample_ptr) cinfo->downsample;
+  my_downsample_ptr downsample = (my_downsample_ptr)cinfo->downsample;
   int ci;
   jpeg_component_info *compptr;
   JSAMPARRAY in_ptr, out_ptr;
@@ -144,8 +144,8 @@ sep_downsample (j_compress_ptr cinfo,
  */
 
 METHODDEF(void)
-int_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
-                JSAMPARRAY input_data, JSAMPARRAY output_data)
+int_downsample(j_compress_ptr cinfo, jpeg_component_info *compptr,
+               JSAMPARRAY input_data, JSAMPARRAY output_data)
 {
   int inrow, outrow, h_expand, v_expand, numpix, numpix2, h, v;
   JDIMENSION outcol, outcol_h;  /* outcol_h == outcol*h_expand */
@@ -156,14 +156,14 @@ int_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
   h_expand = cinfo->max_h_samp_factor / compptr->h_samp_factor;
   v_expand = cinfo->max_v_samp_factor / compptr->v_samp_factor;
   numpix = h_expand * v_expand;
-  numpix2 = numpix/2;
+  numpix2 = numpix / 2;
 
   /* Expand input data enough to let all the output samples be generated
    * by the standard loop.  Special-casing padded output would be more
    * efficient.
    */
-  expand_right_edge(input_data, cinfo->max_v_samp_factor,
-                    cinfo->image_width, output_cols * h_expand);
+  expand_right_edge(input_data, cinfo->max_v_samp_factor, cinfo->image_width,
+                    output_cols * h_expand);
 
   inrow = 0;
   for (outrow = 0; outrow < compptr->v_samp_factor; outrow++) {
@@ -172,12 +172,12 @@ int_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
          outcol++, outcol_h += h_expand) {
       outvalue = 0;
       for (v = 0; v < v_expand; v++) {
-        inptr = input_data[inrow+v] + outcol_h;
+        inptr = input_data[inrow + v] + outcol_h;
         for (h = 0; h < h_expand; h++) {
-          outvalue += (JLONG) GETJSAMPLE(*inptr++);
+          outvalue += (JLONG)(*inptr++);
         }
       }
-      *outptr++ = (JSAMPLE) ((outvalue + numpix2) / numpix);
+      *outptr++ = (JSAMPLE)((outvalue + numpix2) / numpix);
     }
     inrow += v_expand;
   }
@@ -191,15 +191,15 @@ int_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
  */
 
 METHODDEF(void)
-fullsize_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
-                     JSAMPARRAY input_data, JSAMPARRAY output_data)
+fullsize_downsample(j_compress_ptr cinfo, jpeg_component_info *compptr,
+                    JSAMPARRAY input_data, JSAMPARRAY output_data)
 {
   /* Copy the data */
-  jcopy_sample_rows(input_data, 0, output_data, 0,
-                    cinfo->max_v_samp_factor, cinfo->image_width);
+  jcopy_sample_rows(input_data, 0, output_data, 0, cinfo->max_v_samp_factor,
+                    cinfo->image_width);
   /* Edge-expand */
-  expand_right_edge(output_data, cinfo->max_v_samp_factor,
-                    cinfo->image_width, compptr->width_in_blocks * DCTSIZE);
+  expand_right_edge(output_data, cinfo->max_v_samp_factor, cinfo->image_width,
+                    compptr->width_in_blocks * DCTSIZE);
 }
 
 
@@ -216,8 +216,8 @@ fullsize_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
  */
 
 METHODDEF(void)
-h2v1_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
-                 JSAMPARRAY input_data, JSAMPARRAY output_data)
+h2v1_downsample(j_compress_ptr cinfo, jpeg_component_info *compptr,
+                JSAMPARRAY input_data, JSAMPARRAY output_data)
 {
   int outrow;
   JDIMENSION outcol;
@@ -229,16 +229,15 @@ h2v1_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
    * by the standard loop.  Special-casing padded output would be more
    * efficient.
    */
-  expand_right_edge(input_data, cinfo->max_v_samp_factor,
-                    cinfo->image_width, output_cols * 2);
+  expand_right_edge(input_data, cinfo->max_v_samp_factor, cinfo->image_width,
+                    output_cols * 2);
 
   for (outrow = 0; outrow < compptr->v_samp_factor; outrow++) {
     outptr = output_data[outrow];
     inptr = input_data[outrow];
     bias = 0;                   /* bias = 0,1,0,1,... for successive samples */
     for (outcol = 0; outcol < output_cols; outcol++) {
-      *outptr++ = (JSAMPLE) ((GETJSAMPLE(*inptr) + GETJSAMPLE(inptr[1])
-                              + bias) >> 1);
+      *outptr++ = (JSAMPLE)((inptr[0] + inptr[1] + bias) >> 1);
       bias ^= 1;                /* 0=>1, 1=>0 */
       inptr += 2;
     }
@@ -253,8 +252,8 @@ h2v1_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
  */
 
 METHODDEF(void)
-h2v2_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
-                 JSAMPARRAY input_data, JSAMPARRAY output_data)
+h2v2_downsample(j_compress_ptr cinfo, jpeg_component_info *compptr,
+                JSAMPARRAY input_data, JSAMPARRAY output_data)
 {
   int inrow, outrow;
   JDIMENSION outcol;
@@ -266,21 +265,20 @@ h2v2_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
    * by the standard loop.  Special-casing padded output would be more
    * efficient.
    */
-  expand_right_edge(input_data, cinfo->max_v_samp_factor,
-                    cinfo->image_width, output_cols * 2);
+  expand_right_edge(input_data, cinfo->max_v_samp_factor, cinfo->image_width,
+                    output_cols * 2);
 
   inrow = 0;
   for (outrow = 0; outrow < compptr->v_samp_factor; outrow++) {
     outptr = output_data[outrow];
     inptr0 = input_data[inrow];
-    inptr1 = input_data[inrow+1];
+    inptr1 = input_data[inrow + 1];
     bias = 1;                   /* bias = 1,2,1,2,... for successive samples */
     for (outcol = 0; outcol < output_cols; outcol++) {
-      *outptr++ = (JSAMPLE) ((GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[1]) +
-                              GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[1])
-                              + bias) >> 2);
+      *outptr++ =
+        (JSAMPLE)((inptr0[0] + inptr0[1] + inptr1[0] + inptr1[1] + bias) >> 2);
       bias ^= 3;                /* 1=>2, 2=>1 */
-      inptr0 += 2; inptr1 += 2;
+      inptr0 += 2;  inptr1 += 2;
     }
     inrow += 2;
   }
@@ -296,8 +294,8 @@ h2v2_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
  */
 
 METHODDEF(void)
-h2v2_smooth_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
-                        JSAMPARRAY input_data, JSAMPARRAY output_data)
+h2v2_smooth_downsample(j_compress_ptr cinfo, jpeg_component_info *compptr,
+                       JSAMPARRAY input_data, JSAMPARRAY output_data)
 {
   int inrow, outrow;
   JDIMENSION colctr;
@@ -332,57 +330,45 @@ h2v2_smooth_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
   for (outrow = 0; outrow < compptr->v_samp_factor; outrow++) {
     outptr = output_data[outrow];
     inptr0 = input_data[inrow];
-    inptr1 = input_data[inrow+1];
-    above_ptr = input_data[inrow-1];
-    below_ptr = input_data[inrow+2];
+    inptr1 = input_data[inrow + 1];
+    above_ptr = input_data[inrow - 1];
+    below_ptr = input_data[inrow + 2];
 
     /* Special case for first column: pretend column -1 is same as column 0 */
-    membersum = GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[1]) +
-                GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[1]);
-    neighsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(above_ptr[1]) +
-               GETJSAMPLE(*below_ptr) + GETJSAMPLE(below_ptr[1]) +
-               GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[2]) +
-               GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[2]);
+    membersum = inptr0[0] + inptr0[1] + inptr1[0] + inptr1[1];
+    neighsum = above_ptr[0] + above_ptr[1] + below_ptr[0] + below_ptr[1] +
+               inptr0[0] + inptr0[2] + inptr1[0] + inptr1[2];
     neighsum += neighsum;
-    neighsum += GETJSAMPLE(*above_ptr) + GETJSAMPLE(above_ptr[2]) +
-                GETJSAMPLE(*below_ptr) + GETJSAMPLE(below_ptr[2]);
+    neighsum += above_ptr[0] + above_ptr[2] + below_ptr[0] + below_ptr[2];
     membersum = membersum * memberscale + neighsum * neighscale;
-    *outptr++ = (JSAMPLE) ((membersum + 32768) >> 16);
-    inptr0 += 2; inptr1 += 2; above_ptr += 2; below_ptr += 2;
+    *outptr++ = (JSAMPLE)((membersum + 32768) >> 16);
+    inptr0 += 2;  inptr1 += 2;  above_ptr += 2;  below_ptr += 2;
 
     for (colctr = output_cols - 2; colctr > 0; colctr--) {
       /* sum of pixels directly mapped to this output element */
-      membersum = GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[1]) +
-                  GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[1]);
+      membersum = inptr0[0] + inptr0[1] + inptr1[0] + inptr1[1];
       /* sum of edge-neighbor pixels */
-      neighsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(above_ptr[1]) +
-                 GETJSAMPLE(*below_ptr) + GETJSAMPLE(below_ptr[1]) +
-                 GETJSAMPLE(inptr0[-1]) + GETJSAMPLE(inptr0[2]) +
-                 GETJSAMPLE(inptr1[-1]) + GETJSAMPLE(inptr1[2]);
+      neighsum = above_ptr[0] + above_ptr[1] + below_ptr[0] + below_ptr[1] +
+                 inptr0[-1] + inptr0[2] + inptr1[-1] + inptr1[2];
       /* The edge-neighbors count twice as much as corner-neighbors */
       neighsum += neighsum;
       /* Add in the corner-neighbors */
-      neighsum += GETJSAMPLE(above_ptr[-1]) + GETJSAMPLE(above_ptr[2]) +
-                  GETJSAMPLE(below_ptr[-1]) + GETJSAMPLE(below_ptr[2]);
+      neighsum += above_ptr[-1] + above_ptr[2] + below_ptr[-1] + below_ptr[2];
       /* form final output scaled up by 2^16 */
       membersum = membersum * memberscale + neighsum * neighscale;
       /* round, descale and output it */
-      *outptr++ = (JSAMPLE) ((membersum + 32768) >> 16);
-      inptr0 += 2; inptr1 += 2; above_ptr += 2; below_ptr += 2;
+      *outptr++ = (JSAMPLE)((membersum + 32768) >> 16);
+      inptr0 += 2;  inptr1 += 2;  above_ptr += 2;  below_ptr += 2;
     }
 
     /* Special case for last column */
-    membersum = GETJSAMPLE(*inptr0) + GETJSAMPLE(inptr0[1]) +
-                GETJSAMPLE(*inptr1) + GETJSAMPLE(inptr1[1]);
-    neighsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(above_ptr[1]) +
-               GETJSAMPLE(*below_ptr) + GETJSAMPLE(below_ptr[1]) +
-               GETJSAMPLE(inptr0[-1]) + GETJSAMPLE(inptr0[1]) +
-               GETJSAMPLE(inptr1[-1]) + GETJSAMPLE(inptr1[1]);
+    membersum = inptr0[0] + inptr0[1] + inptr1[0] + inptr1[1];
+    neighsum = above_ptr[0] + above_ptr[1] + below_ptr[0] + below_ptr[1] +
+               inptr0[-1] + inptr0[1] + inptr1[-1] + inptr1[1];
     neighsum += neighsum;
-    neighsum += GETJSAMPLE(above_ptr[-1]) + GETJSAMPLE(above_ptr[1]) +
-                GETJSAMPLE(below_ptr[-1]) + GETJSAMPLE(below_ptr[1]);
+    neighsum += above_ptr[-1] + above_ptr[1] + below_ptr[-1] + below_ptr[1];
     membersum = membersum * memberscale + neighsum * neighscale;
-    *outptr = (JSAMPLE) ((membersum + 32768) >> 16);
+    *outptr = (JSAMPLE)((membersum + 32768) >> 16);
 
     inrow += 2;
   }
@@ -396,8 +382,8 @@ h2v2_smooth_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
  */
 
 METHODDEF(void)
-fullsize_smooth_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
-                            JSAMPARRAY input_data, JSAMPARRAY output_data)
+fullsize_smooth_downsample(j_compress_ptr cinfo, jpeg_component_info *compptr,
+                           JSAMPARRAY input_data, JSAMPARRAY output_data)
 {
   int outrow;
   JDIMENSION colctr;
@@ -425,36 +411,33 @@ fullsize_smooth_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
   for (outrow = 0; outrow < compptr->v_samp_factor; outrow++) {
     outptr = output_data[outrow];
     inptr = input_data[outrow];
-    above_ptr = input_data[outrow-1];
-    below_ptr = input_data[outrow+1];
+    above_ptr = input_data[outrow - 1];
+    below_ptr = input_data[outrow + 1];
 
     /* Special case for first column */
-    colsum = GETJSAMPLE(*above_ptr++) + GETJSAMPLE(*below_ptr++) +
-             GETJSAMPLE(*inptr);
-    membersum = GETJSAMPLE(*inptr++);
-    nextcolsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(*below_ptr) +
-                 GETJSAMPLE(*inptr);
+    colsum = (*above_ptr++) + (*below_ptr++) + inptr[0];
+    membersum = *inptr++;
+    nextcolsum = above_ptr[0] + below_ptr[0] + inptr[0];
     neighsum = colsum + (colsum - membersum) + nextcolsum;
     membersum = membersum * memberscale + neighsum * neighscale;
-    *outptr++ = (JSAMPLE) ((membersum + 32768) >> 16);
-    lastcolsum = colsum; colsum = nextcolsum;
+    *outptr++ = (JSAMPLE)((membersum + 32768) >> 16);
+    lastcolsum = colsum;  colsum = nextcolsum;
 
     for (colctr = output_cols - 2; colctr > 0; colctr--) {
-      membersum = GETJSAMPLE(*inptr++);
-      above_ptr++; below_ptr++;
-      nextcolsum = GETJSAMPLE(*above_ptr) + GETJSAMPLE(*below_ptr) +
-                   GETJSAMPLE(*inptr);
+      membersum = *inptr++;
+      above_ptr++;  below_ptr++;
+      nextcolsum = above_ptr[0] + below_ptr[0] + inptr[0];
       neighsum = lastcolsum + (colsum - membersum) + nextcolsum;
       membersum = membersum * memberscale + neighsum * neighscale;
-      *outptr++ = (JSAMPLE) ((membersum + 32768) >> 16);
-      lastcolsum = colsum; colsum = nextcolsum;
+      *outptr++ = (JSAMPLE)((membersum + 32768) >> 16);
+      lastcolsum = colsum;  colsum = nextcolsum;
     }
 
     /* Special case for last column */
-    membersum = GETJSAMPLE(*inptr);
+    membersum = *inptr;
     neighsum = lastcolsum + (colsum - membersum) + colsum;
     membersum = membersum * memberscale + neighsum * neighscale;
-    *outptr = (JSAMPLE) ((membersum + 32768) >> 16);
+    *outptr = (JSAMPLE)((membersum + 32768) >> 16);
 
   }
 }
@@ -468,7 +451,7 @@ fullsize_smooth_downsample (j_compress_ptr cinfo, jpeg_component_info *compptr,
  */
 
 GLOBAL(void)
-jinit_downsampler (j_compress_ptr cinfo)
+jinit_downsampler(j_compress_ptr cinfo)
 {
   my_downsample_ptr downsample;
   int ci;
@@ -476,9 +459,9 @@ jinit_downsampler (j_compress_ptr cinfo)
   boolean smoothok = TRUE;
 
   downsample = (my_downsample_ptr)
-    (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,
+    (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
                                 sizeof(my_downsampler));
-  cinfo->downsample = (struct jpeg_downsampler *) downsample;
+  cinfo->downsample = (struct jpeg_downsampler *)downsample;
   downsample->pub.start_pass = start_pass_downsample;
   downsample->pub.downsample = sep_downsample;
   downsample->pub.need_context_rows = FALSE;
