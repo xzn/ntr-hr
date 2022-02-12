@@ -10,8 +10,9 @@ CC = "arm-none-eabi-gcc"
 CP = "arm-none-eabi-g++"
 OC = "arm-none-eabi-objcopy" 
 LD = "arm-none-eabi-ld"
+COPY = 'cp'
 CTRULIB = '../libctru'
-DEVKITARM = 'c:/devkitPro/devkitARM'
+DEVKITARM = '/opt/devkitpro/devkitARM'
 LIBPATH = '-L .'
 
 def allFile(pattern):
@@ -40,4 +41,4 @@ run(OC+" -O binary a.out payload.bin -S")
 run("rm *.o")
 run("rm *.out")
 # run('copy payload.bin  \\\\3DS-8141\\microSD\\ntr.bin');
-run('copy payload.bin  release\\ntr.o3ds.bin');
+run(COPY + ' payload.bin  release/ntr.o3ds.bin');
