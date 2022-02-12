@@ -13,6 +13,7 @@ LD = "arm-none-eabi-ld"
 CTRULIB = '/opt/devkitpro/libctru'
 DEVKITARM = '/opt/devkitpro/devkitARM'
 LIBPATH = '-L .'
+COPY = 'cp'
 
 with open('include/gen.h', 'w') as f:
     f.write('#define HAS_JPEG (1)');
@@ -39,4 +40,4 @@ run(OC+" -O binary a.out payload.bin -S")
 run("rm *.o")
 run("rm *.out")
 # run('copy payload.bin  \\\\3DS-8141\\microSD\\ntr.bin');
-run('copy payload.bin  release\\ntr.n3ds.bin');
+run(COPY + ' payload.bin  release\\ntr.n3ds.bin');
