@@ -2,7 +2,7 @@
 #define MAIN_H
 
 #include "3dstypes.h"
-#include "..\..\BootNTR\source\ntr_config.h"
+#include "../../BootNTR/source/ntr_config.h"
 
 void createpad(void *counter, void *keyY, void *filename, u32 megabytes, u8 padnum);
 int main();
