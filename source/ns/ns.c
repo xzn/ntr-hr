@@ -189,6 +189,10 @@ return cmdbuf[1];
 
 RT_HOOK nwmValParamHook;
 
+int config_selectPredictions = 0;
+int config_useFrameDelta = 1;
+int config_predictFrameDelta = 0;
+
 int packetLen = 0;
 int remotePlayInited = 0;
 u8 remotePlayBuffer[2000] = { 0 };
@@ -481,24 +485,69 @@ static inline void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, i
 	}
 }
 
-#define BITS_PER_PIXEL 8
-#define ENCODE_SELECT_MASK_X_SCALE 8
-#define ENCODE_SELECT_MASK_Y_SCALE 8
-#define ENCODE_SELECT_MASK_FACTOR (BITS_PER_PIXEL * ENCODE_SELECT_MASK_X_SCALE * ENCODE_SELECT_MASK_Y_SCALE)
+#define BITS_PER_BYTE 8
+#define ENCODE_SELECT_MASK_X_SCALE BITS_PER_BYTE
+#define ENCODE_SELECT_MASK_Y_SCALE BITS_PER_BYTE
+#define ENCODE_SELECT_MASK_FACTOR (BITS_PER_BYTE * ENCODE_SELECT_MASK_X_SCALE * ENCODE_SELECT_MASK_Y_SCALE)
 
-static inline void selectImage(u8 *s_dst, u8 *m_dst, const u8 *p_fd, const u8 *p, int w, int h) {
-	// TODO implement this, currently this always select frame delta
-	u8 *s_dst_end = s_dst + w * h;
-	u32 i = 0;
-	while (s_dst != s_dst_end) {
-		*s_dst++ = *p_fd++;
-		if (i++ % ENCODE_SELECT_MASK_FACTOR == 0) {
-			*m_dst++ = 0xff;
+static inline void selectImage(u8 **p_s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int w, int h) {
+	if (!config_selectPredictions) {
+		*p_s_dst = p_fd;
+		memset(m_dst, 0xff, (w * h + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR);
+		return;
+	}
+
+	u8 *s_dst = *p_s_dst;
+	u16 sum_p_fd, sum_p;
+	u8 mask;
+	int x = 0, y, i, j, n;
+	u8 *m_dst_cur;
+	while (1) {
+		n = y = 0;
+		while (1) {
+			sum_p_fd = 0;
+			sum_p = 0;
+			for (i = x; i < x + ENCODE_SELECT_MASK_X_SCALE; ++i) {
+				if (i >= w) break;
+				for (j = x; j < y + ENCODE_SELECT_MASK_Y_SCALE; ++j) {
+					if (j >= h) break;
+					sum_p_fd += accessImageNoCheck(p_fd, i, j, w, h);
+					sum_p += accessImageNoCheck(p, i, j, w, h);
+				}
+			}
+			mask = sum_p_fd < sum_p;
+
+			for (i = x; i < x + ENCODE_SELECT_MASK_X_SCALE; ++i) {
+				if (i >= w) break;
+				for (j = x; j < y + ENCODE_SELECT_MASK_Y_SCALE; ++j) {
+					if (j >= h) break;
+					if (mask) {
+						s_dst[i * h + j] = accessImageNoCheck(p_fd, i, j, w, h);
+					} else {
+						s_dst[i * h + j] = accessImageNoCheck(p, i, j, w, h);
+					}
+				}
+			}
+
+			if (n % ENCODE_SELECT_MASK_Y_SCALE == 0) {
+				m_dst_cur = m_dst++;
+			}
+			mask <<= n++ % ENCODE_SELECT_MASK_Y_SCALE;
+			m_dst[x * ((h + ENCODE_SELECT_MASK_Y_SCALE - 1) / ENCODE_SELECT_MASK_Y_SCALE) + n] |= mask;
+
+			y += ENCODE_SELECT_MASK_Y_SCALE;
+			if (y >= h) break;
 		}
+		x += ENCODE_SELECT_MASK_X_SCALE;
+		if (x >= w) break;
 	}
 }
 
 static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
+	// if (!config_selectPredictions) {
+	// 	config_predictFrameDelta = 1;
+	// }
+
 	int blockSize = 16;
 	int bpp = ctx->bpp;
 	int width = ctx->width;
@@ -530,24 +579,6 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u8* dp_ds_u_pf;
 	u8* dp_ds_v_pf;
 
-	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
-		dp_y -= bottomScreenOffset;
-		dp_ds_u -= bottomScreenOffset;
-		dp_ds_v -= bottomScreenOffset;
-	}
-	if (frameId) {
-		dp_y_pf = dp_y;
-		dp_ds_u_pf = dp_ds_u;
-		dp_ds_v_pf = dp_ds_v;
-		dp_y -= frameOffset;
-		dp_ds_u -= frameOffset;
-		dp_ds_v -= frameOffset;
-	} else {
-		dp_y_pf = dp_y - frameOffset;
-		dp_ds_u_pf = dp_ds_u - frameOffset;
-		dp_ds_v_pf = dp_ds_v - frameOffset;
-	}
-
 	u8* dp_p_y = dp_ds_v + dp_ds_v_size;
 	u32 dp_p_y_size = dp_y_size; // 96'000, output for key
 	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;
@@ -560,19 +591,12 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u8* dp_v = dp_u + dp_u_size;
 	u32 dp_v_size = dp_y_size; // 96'000
 
-	u8* dp_fd_y = dp_u; // reuse from dp_u, after downsample, make sure dp_fd_y_size <= dp_u_size
+	u8* dp_fd_y = dp_u; // reuse from dp_u, after downsample, make sure dp_fd_y_size <= dp_u_size, maybe output
 	u32 dp_fd_y_size = dp_y_size;
-	u8* dp_fd_ds_u = dp_v; // reuse from dp_v, after downsample
+	u8* dp_fd_ds_u = dp_v; // reuse from dp_v, after downsample, maybe output, need to be consecutive in layout with dp_fd_ds_v
 	u32 dp_fd_ds_u_size = dp_ds_u_size;
-	u8* dp_fd_ds_v = dp_fd_ds_u + dp_fd_ds_u_size; // make sure dp_fd_ds_u_size + dp_fd_ds_v_size <= dp_v_size
+	u8* dp_fd_ds_v = dp_fd_ds_u + dp_fd_ds_u_size; // make sure dp_fd_ds_u_size + dp_fd_ds_v_size <= dp_v_size, maybe output
 	u32 dp_fd_ds_v_size = dp_ds_v_size;
-
-	u8* dp_p_fd_y = dp_fd_ds_v + dp_fd_ds_v_size;
-	u32 dp_p_fd_y_size = dp_fd_y_size; // 96'000
-	u8* dp_p_fd_ds_u = dp_p_fd_y + dp_p_fd_y_size;
-	u32 dp_p_fd_ds_u_size = dp_fd_ds_u_size; // 24'000
-	u8* dp_p_fd_ds_v = dp_p_fd_ds_u + dp_p_fd_ds_u_size;
-	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
 
 	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is done (prediction of frame delta), output
 	u32 dp_s_p_fd_y_size = dp_fd_y_size;
@@ -581,7 +605,14 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is done (prediction of frame delta), output
 	u32 dp_s_p_fd_ds_v_size = dp_fd_ds_v_size;
 
-	u8* dp_m_p_fd_y = dp_s_p_fd_ds_v + dp_fd_ds_v_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_u
+	u8* dp_p_fd_y = dp_fd_ds_v + dp_fd_ds_v_size;
+	u32 dp_p_fd_y_size = dp_fd_y_size; // 96'000
+	u8* dp_p_fd_ds_u = dp_p_fd_y + dp_p_fd_y_size;
+	u32 dp_p_fd_ds_u_size = dp_fd_ds_u_size; // 24'000
+	u8* dp_p_fd_ds_v = dp_p_fd_ds_u + dp_p_fd_ds_u_size;
+	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
+
+	u8* dp_m_p_fd_y = dp_p_fd_ds_v + dp_p_fd_ds_v_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_u
 	u32 dp_m_p_fd_y_size = (dp_p_fd_y_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR; // round up, divisor is bits-per-byte * horizontal downscale * vertical downscale
 	u8* dp_m_p_fd_ds_u = dp_m_p_fd_y + dp_m_p_fd_y_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_v
 	u32 dp_m_p_fd_ds_u_size = (dp_p_fd_ds_u_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
@@ -591,6 +622,25 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	// that's a total of 96'000 * 5 + 24'000 * 6 = 624'000
 	// make sure we have enough room in the buffer
 	// see imgBuffer in remotePlayThreadStart
+
+	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
+		dp_y -= bottomScreenOffset;
+		dp_ds_u -= bottomScreenOffset;
+		dp_ds_v -= bottomScreenOffset;
+	}
+	// apply frameOffset
+	if (frameId) {
+		dp_y_pf = dp_y;
+		dp_ds_u_pf = dp_ds_u;
+		dp_ds_v_pf = dp_ds_v;
+		dp_y -= frameOffset;
+		dp_ds_u -= frameOffset;
+		dp_ds_v -= frameOffset;
+	} else {
+		dp_y_pf = dp_y - frameOffset;
+		dp_ds_u_pf = dp_ds_u - frameOffset;
+		dp_ds_v_pf = dp_ds_v - frameOffset;
+	}
 
 	int x = 0, y = 0, i, j;
 	u8* rowp = ctx->src;
@@ -641,13 +691,19 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 
 	}
 
-	predictImage(dp_p_y, dp_y, width, height);
+	if (isKey || config_selectPredictions) {
+		predictImage(dp_p_y, dp_y, width, height);
+	}
 
 	downsampleImage(dp_ds_u, dp_u, width, height);
-	predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
+	if (isKey || config_selectPredictions) {
+		predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
+	}
 
 	downsampleImage(dp_ds_v, dp_v, width, height);
-	predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
+	if (isKey || config_selectPredictions) {
+		predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
+	}
 
 	if (isKey) {
 		ctx->transformDst = dp_p_y;
@@ -656,16 +712,28 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 		ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
 	} else {
 		differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
-		predictImage(dp_p_fd_y, dp_fd_y, width, height);
-		selectImage(dp_s_p_fd_y, dp_m_p_fd_y, dp_p_fd_y, dp_p_y, width, height);
+		if (config_predictFrameDelta) {
+			predictImage(dp_p_fd_y, dp_fd_y, width, height);
+			selectImage(&dp_s_p_fd_y, dp_m_p_fd_y, dp_p_fd_y, dp_p_y, width, height);
+		} else {
+			selectImage(&dp_s_p_fd_y, dp_m_p_fd_y, dp_fd_y, dp_p_y, width, height);
+		}
 
 		differenceImage(dp_fd_ds_u, dp_ds_u, dp_ds_u_pf, width / 2, height / 2);
-		predictImage(dp_p_fd_ds_u, dp_fd_ds_u, width / 2, height / 2);
-		selectImage(dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_p_fd_ds_u, dp_p_ds_u, width / 2, height / 2);
+		if (config_predictFrameDelta) {
+			predictImage(dp_p_fd_ds_u, dp_fd_ds_u, width / 2, height / 2);
+			selectImage(&dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_p_fd_ds_u, dp_p_ds_u, width / 2, height / 2);
+		} else {
+			selectImage(&dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_fd_ds_u, dp_p_ds_u, width / 2, height / 2);
+		}
 
 		differenceImage(dp_fd_ds_v, dp_ds_v, dp_ds_v_pf, width / 2, height / 2);
-		predictImage(dp_p_fd_ds_v, dp_fd_ds_v, width / 2, height / 2);
-		selectImage(dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_p_fd_ds_v, dp_p_ds_v, width / 2, height / 2);
+		if (config_predictFrameDelta) {
+			predictImage(dp_p_fd_ds_v, dp_fd_ds_v, width / 2, height / 2);
+			selectImage(&dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_p_fd_ds_v, dp_p_ds_v, width / 2, height / 2);
+		} else {
+			selectImage(&dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_fd_ds_v, dp_p_ds_v, width / 2, height / 2);
+		}
 
 		ctx->transformDst = dp_s_p_fd_y;
 		ctx->dst_size = dp_s_p_fd_y_size;
@@ -702,10 +770,10 @@ static inline void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	srcBuff = ctx->transformDst;
 	srcBuff2 = ctx->transformDst2;
 	srcBuff3 = ctx->transformDst3;
-	u8 *dst = ctx->isKey ? srcBuff3 + ctx->dst3_size : srcBuff2 + ctx->dst2_size;
+	u8 *dst = ctx->isKey ? srcBuff2 + ctx->dst2_size : srcBuff3 + ctx->dst3_size;
 	compressData(dst, srcBuff, ctx->dst_size);
 	compressData(dst, srcBuff2, ctx->dst2_size);
-	if (ctx->isKey) {
+	if (!ctx->isKey) {
 		compressData(dst, srcBuff3, ctx->dst3_size);
 	}
 }
@@ -917,7 +985,7 @@ void remotePlaySendFrames() {
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
 	int firstFrame = 1;
-	int isKey = firstFrame;
+	int isKey = 1;
 	u8 cnt;
 	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
 	u64 currentTick = 0;
@@ -936,9 +1004,11 @@ void remotePlaySendFrames() {
 
 		remotePlayKernelCallback();
 
+		if (config_useFrameDelta) {
+			isKey = firstFrame;
+		}
 		if (firstFrame) {
 			firstFrame = 0;
-			isKey = firstFrame;
 		}
 
 		if (currentUpdating) {
