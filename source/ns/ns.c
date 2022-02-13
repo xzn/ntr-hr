@@ -481,13 +481,18 @@ static inline void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, i
 	}
 }
 
-static inline void selectImage(u8 *s_dst, u8 *m_dst, const u8 *fd, const u8 *p, int w, int h) {
+#define BITS_PER_PIXEL 8
+#define ENCODE_SELECT_MASK_X_SCALE 8
+#define ENCODE_SELECT_MASK_Y_SCALE 8
+#define ENCODE_SELECT_MASK_FACTOR (BITS_PER_PIXEL * ENCODE_SELECT_MASK_X_SCALE * ENCODE_SELECT_MASK_Y_SCALE)
+
+static inline void selectImage(u8 *s_dst, u8 *m_dst, const u8 *p_fd, const u8 *p, int w, int h) {
 	// TODO implement this, currently this always select frame delta
 	u8 *s_dst_end = s_dst + w * h;
 	u32 i = 0;
 	while (s_dst != s_dst_end) {
-		*s_dst++ = *fd++;
-		if (i++ % 8 == 0) {
+		*s_dst++ = *p_fd++;
+		if (i++ % ENCODE_SELECT_MASK_FACTOR == 0) {
 			*m_dst++ = 0xff;
 		}
 	}
@@ -570,15 +575,18 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
 
 	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is done (prediction of frame delta), output
+	u32 dp_s_p_fd_y_size = dp_fd_y_size;
 	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is done (prediction of frame delta), output, need to be consecutive in layout with dp_s_p_fd_ds_v
+	u32 dp_s_p_fd_ds_u_size = dp_fd_ds_u_size;
 	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is done (prediction of frame delta), output
+	u32 dp_s_p_fd_ds_v_size = dp_fd_ds_v_size;
 
 	u8* dp_m_p_fd_y = dp_s_p_fd_ds_v + dp_fd_ds_v_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_u
-	u32 dp_m_p_fd_y_size = (dp_p_fd_y_size + 63) / 64; // round up, divisor is bits-per-byte * horizontal downscale (8) * vertical downscale (8)
+	u32 dp_m_p_fd_y_size = (dp_p_fd_y_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR; // round up, divisor is bits-per-byte * horizontal downscale * vertical downscale
 	u8* dp_m_p_fd_ds_u = dp_m_p_fd_y + dp_m_p_fd_y_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_v
-	u32 dp_m_p_fd_ds_u_size = (dp_p_fd_ds_u_size + 63) / 64;
+	u32 dp_m_p_fd_ds_u_size = (dp_p_fd_ds_u_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
 	u8* dp_m_p_fd_ds_v = dp_m_p_fd_ds_u + dp_m_p_fd_ds_u_size; // output
-	u32 dp_m_p_fd_ds_v_size = (dp_p_fd_ds_v_size + 63) / 64;
+	u32 dp_m_p_fd_ds_v_size = (dp_p_fd_ds_v_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
 
 	// that's a total of 96'000 * 5 + 24'000 * 6 = 624'000
 	// make sure we have enough room in the buffer
@@ -633,20 +641,38 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 
 	}
 
+	predictImage(dp_p_y, dp_y, width, height);
+
+	downsampleImage(dp_ds_u, dp_u, width, height);
+	predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
+
+	downsampleImage(dp_ds_v, dp_v, width, height);
+	predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
+
 	if (isKey) {
-		predictImage(dp_p_y, dp_y, width, height);
-
-		downsampleImage(dp_ds_u, dp_u, width, height);
-		predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
-
-		downsampleImage(dp_ds_v, dp_v, width, height);
-		predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
-
 		ctx->transformDst = dp_p_y;
 		ctx->dst_size = dp_p_y_size;
 		ctx->transformDst2 = dp_p_ds_u;
 		ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
 	} else {
+		differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
+		predictImage(dp_p_fd_y, dp_fd_y, width, height);
+		selectImage(dp_s_p_fd_y, dp_m_p_fd_y, dp_p_fd_y, dp_p_y, width, height);
+
+		differenceImage(dp_fd_ds_u, dp_ds_u, dp_ds_u_pf, width / 2, height / 2);
+		predictImage(dp_p_fd_ds_u, dp_fd_ds_u, width / 2, height / 2);
+		selectImage(dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_p_fd_ds_u, dp_p_ds_u, width / 2, height / 2);
+
+		differenceImage(dp_fd_ds_v, dp_ds_v, dp_ds_v_pf, width / 2, height / 2);
+		predictImage(dp_p_fd_ds_v, dp_fd_ds_v, width / 2, height / 2);
+		selectImage(dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_p_fd_ds_v, dp_p_ds_v, width / 2, height / 2);
+
+		ctx->transformDst = dp_s_p_fd_y;
+		ctx->dst_size = dp_s_p_fd_y_size;
+		ctx->transformDst2 = dp_s_p_fd_ds_u;
+		ctx->dst2_size = dp_s_p_fd_ds_u_size + dp_s_p_fd_ds_v_size;
+		ctx->transformDst3 = dp_m_p_fd_y;
+		ctx->dst3_size = dp_m_p_fd_y_size + dp_m_p_fd_ds_u_size + dp_m_p_fd_ds_v_size;
 	}
 
 	//ctx->compressedSize = fastlz_compress_level(2, ctx->transformDst, (ctx->width) * (ctx->height) * 2, ctx->compressDst);
