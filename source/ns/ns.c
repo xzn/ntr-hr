@@ -485,27 +485,51 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 
 	// This is a lot of variables.
 	// Take care to not clobber anything.
-	u8* dp_p_y = ctx->transformDst; // assume worst case width = 400, height = 240
-	u32 dp_p_y_size = width * height; // 96'000
-	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;
-	u32 dp_p_ds_u_size = dp_p_y_size / 4; // 24'000
-	u8* dp_p_ds_v = dp_p_ds_u + dp_p_ds_u_size;
-	u32 dp_p_ds_v_size = dp_p_ds_u_size; // 24'000
 
-	u8* dp_y = dp_p_ds_v + dp_p_ds_v_size;
-	u32 dp_y_size = dp_p_y_size; // 96'000
+	// assume worst case width = 400, height = 240
+	u8* dp_y = ctx->transformDst;
+	u32 dp_y_size = width * height; // 96'000, need for next frame
 	u8* dp_ds_u = dp_y + dp_y_size;
-	u32 dp_ds_u_size = dp_p_ds_u_size; // 24'000
+	u32 dp_ds_u_size = dp_y_size / 4; // 24'000, need for next frame
 	u8* dp_ds_v = dp_ds_u + dp_ds_u_size;
-	u32 dp_ds_v_size = dp_ds_u_size; // 24'000
+	u32 dp_ds_v_size = dp_ds_u_size; // 24'000, need for next frame
 
-	u8* dp_u = dp_ds_v + dp_ds_v_size;
+	u8* dp_y_pf;
+	u8* dp_ds_u_pf;
+	u8* dp_ds_v_pf;
+
+	u8* dp_p_y = dp_ds_v + dp_ds_v_size;
+	u32 dp_p_y_size = dp_y_size; // 96'000
+	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;
+	u32 dp_p_ds_u_size = dp_ds_u_size; // 24'000
+	u8* dp_p_ds_v = dp_p_ds_u + dp_p_ds_u_size;
+	u32 dp_p_ds_v_size = dp_ds_v_size; // 24'000
+
+	u8* dp_u = dp_p_ds_v + dp_p_ds_v_size;
 	u32 dp_u_size = dp_y_size; // 96'000
 	u8* dp_v = dp_u + dp_u_size;
-	u32 dp_v_size = dp_u_size; // 96'000
+	u32 dp_v_size = dp_y_size; // 96'000
 
-	// that's a total of 96'000 * 3 + 24'000 * 4 = 480'000
-	// we have enough room in the buffer
+	u8* dp_fd_y = dp_u; // reuse from dp_u, after downsample, make sure dp_fd_y_size <= dp_u_size
+	u32 dp_fd_y_size = dp_y_size;
+	u8* dp_fd_ds_u = dp_v; // reuse from dp_v, after downsample
+	u32 dp_fd_ds_u_size = dp_ds_u_size;
+	u8* dp_fd_ds_v = dp_fd_ds_u + dp_fd_ds_u_size; // make sure dp_fd_ds_u_size + dp_fd_ds_v_size <= dp_v_size
+	u32 dp_fd_ds_v_size = dp_ds_v_size;
+
+	u8* dp_p_fd_y = dp_fd_ds_v + dp_fd_ds_v_size;
+	u32 dp_p_fd_y_size = dp_fd_y_size; // 96'000
+	u8* dp_p_fd_ds_u = dp_p_fd_y + dp_p_fd_y_size;
+	u32 dp_p_fd_ds_u_size = dp_fd_ds_u_size; // 24'000
+	u8* dp_p_fd_ds_v = dp_p_fd_ds_u + dp_p_fd_ds_u_size;
+	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
+
+	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is done (prediction of frame delta), output
+	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is done (prediction of frame delta), output, need to be consecutive in layout with dp_s_p_fd_ds_v
+	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is done (prediction of frame delta), output
+
+	// that's a total of 96'000 * 5 + 24'000 * 6 = 624'000
+	// make sure we have enough room in the buffer
 	// see imgBuffer in remotePlayThreadStart
 
 	int x = 0, y = 0, i, j;
@@ -565,6 +589,7 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	downsampleImage(dp_ds_v, dp_v, width, height);
 	predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
 
+	ctx->transformDst = dp_p_y;
 	ctx->dst_size = dp_p_y_size;
 	ctx->transformDst2 = dp_p_ds_u;
 	ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
@@ -892,7 +917,8 @@ void remotePlayThreadStart() {
 	imgBuffer = plgRequestMemorySpecifyRegion(0x00200000, 1);
 
 	// rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
-	rpAllocBuff = imgBuffer + 0x00200000 - 0x2200;
+	rpAllocBuff = imgBuffer + 0x00200000 - huffman_malloc_usage(); // need for huffman + rle, see qsort.h
+
 	// if (rpAllocBuff) {
 	// 	rpAllocBuffRemainSize = 0x00100000;
 	// }

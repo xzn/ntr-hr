@@ -1,6 +1,5 @@
 #include <huffmancodec.h>
 #include "commondef.h"
-#include "qsort.h"
 #include "bitenc.h"
 
 #include <string.h>
@@ -44,6 +43,11 @@ static inline void heap_sift(HuffmanHeapElem *h, int root, int size)
     }
 }
 
+#define rpAllocBuff_h (sizeof(HuffmanHeapElem) * 256)
+#define rpAllocBuff_up (rpAllocBuff_h + sizeof(int) * 2 * 256)
+#define rpAllocBuff_len (rpAllocBuff_up + sizeof(uint8_t) * 2 * 256)
+#define rpAllocBuff_map (rpAllocBuff_len + sizeof(uint16_t) * 256)
+
 static inline void ff_huff_gen_len_table(uint8_t *dst, const uint32_t *counts)
 {
     // HuffmanHeapElem *h = HR_MALLOC(sizeof(*h) * 256);
@@ -51,10 +55,15 @@ static inline void ff_huff_gen_len_table(uint8_t *dst, const uint32_t *counts)
     // uint8_t *len = HR_MALLOC(sizeof(*len) * 2 * 256);
     // uint16_t *map = HR_MALLOC(sizeof(*map) * 256);
 
+    // HuffmanHeapElem *h = rpAllocBuff;
+    // int *up = rpAllocBuff + 0x800;
+    // uint8_t *len = rpAllocBuff + 0x800 + 0x800;
+    // uint16_t *map = rpAllocBuff + 0x800 + 0x800 + 0x200;
+
     HuffmanHeapElem *h = rpAllocBuff;
-    int *up = rpAllocBuff + 0x800;
-    uint8_t *len = rpAllocBuff + 0x800 + 0x800;
-    uint16_t *map = rpAllocBuff + 0x800 + 0x800 + 0x200;
+    int *up = rpAllocBuff + rpAllocBuff_h;
+    uint8_t *len = rpAllocBuff + rpAllocBuff_up;
+    uint16_t *map = rpAllocBuff + rpAllocBuff_len;
 
     int offset, i, next;
     int size = 0;
@@ -123,6 +132,11 @@ static inline int huff_cmp_sym(const void *a, const void *b)
     return aa->sym - bb->sym;
 }
 
+#define rpAllocBuff_counts (rpAllocBuff_map + sizeof(uint32_t) * 256)
+#define rpAllocBuff_he (rpAllocBuff_counts + sizeof(HuffmanEntry) * 256)
+
+#include "qsort.h"
+
 static inline void calculate_codes(HuffmanEntry *he)
 {
     int last, i;
@@ -177,8 +191,13 @@ int huffman_encode(uint8_t *dst, const uint8_t *src, int src_size)
 {
     // uint32_t *counts = HR_MALLOC(sizeof(*counts) * 256);
     // HuffmanEntry *he = HR_MALLOC(sizeof(*he) * 256);
-    uint32_t *counts = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200;
-    HuffmanEntry *he = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200 + 0x400;
+
+    // uint32_t *counts = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200;
+    // HuffmanEntry *he = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200 + 0x400;
+
+    uint32_t *counts = rpAllocBuff + rpAllocBuff_map;
+    HuffmanEntry *he = rpAllocBuff + rpAllocBuff_counts;
+
     memset(counts, 0, sizeof(*counts) * 256);
     int i;
 
@@ -200,4 +219,10 @@ int huffman_encode(uint8_t *dst, const uint8_t *src, int src_size)
     // HR_FREE(counts);
 
     return 256 + ret;
+}
+
+int huffman_malloc_usage()
+{
+    // should be 0x2200
+    return rpAllocBuff_stack;
 }
