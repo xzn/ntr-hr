@@ -808,6 +808,9 @@ void remotePlaySendFrames() {
 	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
 	u64 currentTick = 0;
 
+	u32 tl_pitch_max = 0;
+	u32 bl_pitch_max = 0;
+
 	while (1) {
 		currentUpdating = isPriorityTop;
 		frameCount += 1;
@@ -825,6 +828,7 @@ void remotePlaySendFrames() {
 			rpCaptureScreen(1);
 			currentTopId += 1;
 			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer);
+			tl_pitch_max = tl_pitch_max > tl_pitch ? tl_pitch_max : tl_pitch;
 			// topContext.compressDst = 0;
 			topContext.transformDst = imgBuffer + 0x00150000;
 			// botContext.transformDst2 = 0;
@@ -839,6 +843,7 @@ void remotePlaySendFrames() {
 			rpCaptureScreen(0);
 			currentBottomId += 1;
 			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer);
+			bl_pitch_max = bl_pitch_max > bl_pitch ? bl_pitch_max : bl_pitch;
 			// botContext.compressDst = 0;
 			botContext.transformDst = imgBuffer + 0x00150000;
 			// botContext.transformDst2 = 0;
@@ -854,8 +859,10 @@ void remotePlaySendFrames() {
 			u64 nextTick = svc_getSystemTick();
 			if (currentTick) {
 				u32 ms = (nextTick - currentTick) / 1000 / SYSTICK_PER_US;
-				xsprintf(dataBuf, "%d ms for %d frames\n", ms, SEND_STAT_EVERY_X_FRAMES);
+				xsprintf(dataBuf, "%d ms for %d frames; max tpitch %d, bpitch %d\n",
+					ms, SEND_STAT_EVERY_X_FRAMES, tl_pitch_max, bl_pitch_max);
 				rpSendString(strlen(dataBuf));
+				tl_pitch_max = bl_pitch_max = 0;
 			}
 			currentTick = nextTick;
 		}
