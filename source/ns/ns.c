@@ -8,6 +8,11 @@
 #include "fastlz.h"
 #include "gen.h"
 
+#ifdef HAS_HUFFMAN_RLE
+#include "huffmancodec.h"
+#include "rlecodec.h"
+#endif
+
 NS_CONTEXT* g_nsCtx = 0;
 NS_CONFIG* g_nsConfig;
 
@@ -36,8 +41,8 @@ void tje_log(char* str) {
 #define RP_MODE_3D 10
 
 u8* rpAllocBuff = 0;
-u32 rpAllocBuffOffset = 0;
-u32 rpAllocBuffRemainSize = 0;
+// u32 rpAllocBuffOffset = 0;
+// u32 rpAllocBuffRemainSize = 0;
 int rpAllocDebug = 0;
 u32 rpCurrentMode = 0;
 u32 rpQuality = 90;
@@ -46,9 +51,10 @@ u64 rpMinIntervalBetweenPacketsInTick = 0;
 
 #define SYSTICK_PER_US (268);
 
+extern u8* dataBuf;
+void rpSendString(u32 size);
 
-
-
+/*
 void*  rpMalloc( u32 size)
 
 {
@@ -58,6 +64,9 @@ void*  rpMalloc( u32 size)
 		totalSize += 32 - (totalSize % 32);
 	}
 	if (rpAllocBuffRemainSize < totalSize) {
+		xsprintf(dataBuf, "bad alloc,  size: %d\n", size);
+		rpSendString(strlen(dataBuf));
+
 		nsDbgPrint("bad alloc,  size: %d\n", size);
 		if (rpAllocDebug) {
 			showDbg("bad alloc,  size: %d\n", size, 0);
@@ -66,7 +75,7 @@ void*  rpMalloc( u32 size)
 	}
 	rpAllocBuffOffset += totalSize;
 	rpAllocBuffRemainSize -= totalSize;
-	memset(ret, 0, totalSize);
+	// memset(ret, 0, totalSize);
 	nsDbgPrint("alloc size: %d, ptr: %08x\n", size, ret);
 	if (rpAllocDebug) {
 		showDbg("alloc size: %d, ptr: %08x\n", size, ret);
@@ -79,6 +88,7 @@ void  rpFree(void* ptr)
 	nsDbgPrint("free: %08x\n", ptr);
 	return;
 }
+*/
 
 
 void nsDbgPutc(char ch) {
@@ -189,7 +199,6 @@ u8* imgBuffer = 0;
 // u32 requireUpdateBottom = 0;
 u32 currentTopId = 0;
 u32 currentBottomId = 0;
-u64 currentBatchTick = 0;
 
 static u32 tl_fbaddr[2];
 static u32 bl_fbaddr[2];
@@ -290,8 +299,11 @@ typedef struct _BLIT_CONTEXT {
 	u32 blankInColumn;
 
 	u8* transformDst;
-	u8* compressDst;
-	u32 compressedSize;
+	u8* transformDst2;
+	u32 dst_size;
+	u32 dst2_size;
+	// u8* compressDst;
+	// u32 compressedSize;
 
 	u8 id;
 	u8 isTop;
@@ -303,7 +315,7 @@ typedef struct _BLIT_CONTEXT {
 } BLIT_CONTEXT;
 
 
-void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src) {
+static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src) {
 
 	format &= 0x0f;
 	if (format == 0){
@@ -330,8 +342,8 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 	else {
 		ctx->outformat = GL_RGB565_LE;
 	}
-	ctx->compressDst = 0;
-	ctx->compressedSize;
+	// ctx->compressDst = 0;
+	// ctx->compressedSize;
 	ctx->frameCount = 0;
 	ctx->lastSize = 0;
 }
@@ -376,7 +388,90 @@ void rpSendString(u32 size) {
 	nwmSendPacket(remotePlayBuffer, packetLen);
 }
 
-int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
+static inline void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
+	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
+	u16 u = -43 * (u16)r + -84 * (u16)g + 127 * (u16)b;
+	u16 v = 127 * (u16)r + -106 * (u16)g + -21 * (u16)b;
+
+	*y_out = (y + 128) >> 8;
+	*u_out = (u + 128) >> 8;
+	*v_out = (v + 128) >> 8;
+}
+
+static inline u8 accessImageNoCheck(const u8 *image, int x, int y, int w, int h) {
+	return image[x * h + y];
+}
+
+static inline u8 medianOf3Ints(int a, int b, int c) {
+	u8 max = a > b ? a : b;
+	max = max > c ? max : c;
+
+	u8 min = a < b ? a : b;
+	min = min < c ? min : c;
+
+	return a + b + c - max - min;
+}
+
+static inline u8 predictPixel(const u8 *image, int x, int y, int w, int h) {
+	if (x == 0 && y == 0) {
+		return 0;
+	}
+
+	if (x == 0) {
+		return accessImageNoCheck(image, x, y - 1, w, h);
+	}
+
+	if (y == 0) {
+		return accessImageNoCheck(image, x - 1, y, w, h);
+	}
+
+	u8 t = accessImageNoCheck(image, x, y - 1, w, h);
+	u8 l = accessImageNoCheck(image, x - 1, y, w, h);
+	u8 tl = accessImageNoCheck(image, x - 1, y - 1, w, h);
+
+	return medianOf3Ints(t, l, t + l - tl);
+}
+
+static inline void predictImage(u8 *dst, const u8 *src, int w, int h) {
+	for (int i = 0; i < w; ++i) {
+		for (int j = 0; j < h; ++j) {
+			dst[i * h + j] = src[i * h + j] - predictPixel(src, i, j, w, h);
+		}
+	}
+}
+
+static inline u16 accessDownsampledImageUnscaled(const u8 *image, int x, int y, int w, int h) {
+    int x0 = x; // / 2 * 2;
+    int x1 = x0 + 1;
+    int y0 = y; // / 2 * 2;
+    int y1 = y0 + 1;
+
+	// x1 = x1 >= w ? w - 1 : x1;
+	// y1 = y1 >= h ? h - 1 : y1;
+
+    u8 a = accessImageNoCheck(image, x0, y0, w, h);
+    u8 b = accessImageNoCheck(image, x1, y0, w, h);
+    u8 c = accessImageNoCheck(image, x0, y1, w, h);
+    u8 d = accessImageNoCheck(image, x1, y1, w, h);
+
+    return (u16)a + b + c + d;
+}
+
+static inline u8 accessDownsampledImage(const u8 *image, int x, int y, int w, int h) {
+    return (accessDownsampledImageUnscaled(image, x, y, w, h) + 2) / 4;
+}
+
+static inline void downsampleImage(u8 *dst, const u8 *src, int wOrig, int hOrig) {
+	int i = 0, j = 0, k = 0, l = 0;
+	for (; i < wOrig; i += 2, ++k) {
+		j = 0; l = 0;
+		for (; j < hOrig; j += 2, ++l) {
+			dst[k * hOrig / 2 + l] = accessDownsampledImage(src, i, j, wOrig, hOrig);
+		}
+	}
+}
+
+static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	int blockSize = 16;
 	int bpp = ctx->bpp;
 	int width = ctx->width;
@@ -387,44 +482,90 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u16 tmp;
 	u8* blitBuffer = ctx->src;
 	u8* sp = ctx->src;
-	u8* dp = ctx->transformDst;
+
+	u8* dp_p_y = ctx->transformDst; // assume worst case width = 400, height = 240
+	u32 dp_p_y_size = width * height; // 96'000
+	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;
+	u32 dp_p_ds_u_size = dp_p_y_size / 4; // 24'000
+	u8* dp_p_ds_v = dp_p_ds_u + dp_p_ds_u_size;
+	u32 dp_p_ds_v_size = dp_p_ds_u_size; // 24'000
+
+	u8* dp_y = dp_p_ds_v + dp_p_ds_v_size;
+	u32 dp_y_size = dp_p_y_size; // 96'000
+	u8* dp_ds_u = dp_y + dp_y_size;
+	u32 dp_ds_u_size = dp_p_ds_u_size; // 24'000
+	u8* dp_ds_v = dp_ds_u + dp_ds_u_size;
+	u32 dp_ds_v_size = dp_ds_u_size; // 24'000
+
+	u8* dp_u = dp_ds_v + dp_ds_v_size;
+	u32 dp_u_size = dp_y_size; // 96'000
+	u8* dp_v = dp_u + dp_u_size;
+	u32 dp_v_size = dp_u_size; // 96'000
+
+	// that's a total of 96'000 * 3 + 24'000 * 4 = 480'000
+	// we have enough room in the buffer
+	// see imgBuffer in remotePlayThreadStart
+
 	int x = 0, y = 0, i, j;
 	u8* rowp = ctx->src;
 	u8* blkp;
 	u8* pixp;
+	u8 r, g, b;
+
+	u8* dp_y_out = dp_y;
+	u8* dp_u_out = dp_u;
+	u8* dp_v_out = dp_v;
 
 	ctx->directCompress = 0;
 	if ((bpp == 3) || (bpp == 4)){
+		/*
 		ctx->directCompress = 1;
 		return 0;
-		/*
+		*/
 		for (x = 0; x < width; x++) {
 			for (y = 0; y < height; y++) {
-				dp[0] = sp[2];
-				dp[1] = sp[1];
-				dp[2] = sp[0];
-				dp += 3;
+				r = sp[2];
+				g = sp[1];
+				b = sp[0];
+				convertYUV(r, g, b, &r, &g, &b);
+				*dp_y_out++ = r;
+				*dp_u_out++ = g;
+				*dp_v_out++ = b;
 				sp += bpp;
 			}
 			sp += ctx->blankInColumn;
 		}
-		*/
 	}
 	else {
 		svc_sleepThread(500000);
 		for (x = 0; x < width; x++) {
 			for (y = 0; y < height; y++) {
 				u16 pix = *(u16*)sp;
-				dp[0] = ((pix >> 11) & 0x1f) << 3;
-				dp[1] = ((pix >> 5) & 0x3f) << 2;
-				dp[2] = (pix & 0x1f) << 3;
-				dp += 3;
+				r = ((pix >> 11) & 0x1f) << 3;
+				g = ((pix >> 5) & 0x3f) << 2;
+				b = (pix & 0x1f) << 3;
+				convertYUV(r, g, b, &r, &g, &b);
+				*dp_y_out++ = r;
+				*dp_u_out++ = g;
+				*dp_v_out++ = b;
 				sp += bpp;
 			}
 			sp += ctx->blankInColumn;
 		}
 
 	}
+
+	predictImage(dp_p_y, dp_y, width, height);
+
+	downsampleImage(dp_ds_u, dp_u, width, height);
+	predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
+
+	downsampleImage(dp_ds_v, dp_v, width, height);
+	predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
+
+	ctx->dst_size = dp_p_y_size;
+	ctx->transformDst2 = dp_p_ds_u;
+	ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
 
 	//ctx->compressedSize = fastlz_compress_level(2, ctx->transformDst, (ctx->width) * (ctx->height) * 2, ctx->compressDst);
 	return 0;
@@ -432,21 +573,29 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 
 
 
+static inline void compressData(u8 *dst, const u8 *data, int size) {
+	// u32 bakAllocOffset = rpAllocBuffOffset;
+	// u32 bakAllocRemainSize = rpAllocBuffRemainSize;
 
-
-void rpInitCompress() {
 #ifdef HAS_HUFFMAN_RLE
-#else
-	return;
+	int huffman_size = huffman_encode(dst, data, size);
+	// xsprintf(dataBuf, "Huffman %d from %d\n", huffman_size, size);
+	int rle_size = rle_encode(dst + huffman_size, dst, huffman_size);
+	xsprintf(dataBuf, "Huffman %d then RLE %d from %d\n", huffman_size, rle_size, size);
+	rpSendString(strlen(dataBuf));
 #endif
 
+	// rpAllocBuffOffset = bakAllocOffset;
+	// rpAllocBuffRemainSize = bakAllocRemainSize;
 }
 
-void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
-#ifdef HAS_HUFFMAN_RLE
-#else
-	return;
-#endif
+static inline void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
+	u8 *srcBuff, *srcBuff2;
+	srcBuff = ctx->transformDst;
+	srcBuff2 = ctx->transformDst2;
+	u8 *dst = srcBuff2 + ctx->dst2_size;
+	compressData(dst, srcBuff, ctx->dst_size);
+	compressData(dst, srcBuff2, ctx->dst2_size);
 }
 
 
@@ -590,7 +739,7 @@ Handle rpGetGameHandle() {
 	return rpHandleGame;
 }
 
-int isInVRAM(u32 phys) {
+static inline int isInVRAM(u32 phys) {
 	if (phys >= 0x18000000) {
 		if (phys < 0x18000000 + 0x00600000) {
 			return 1;
@@ -599,7 +748,7 @@ int isInVRAM(u32 phys) {
 	return 0;
 }
 
-int isInFCRAM(u32 phys) {
+static inline int isInFCRAM(u32 phys) {
 	if (phys >= 0x20000000) {
 		if (phys < 0x20000000 + 0x10000000) {
 			return 1;
@@ -608,7 +757,7 @@ int isInFCRAM(u32 phys) {
 	return 0;
 }
 
-void rpCaptureScreen(int isTop) {
+static inline void rpCaptureScreen(int isTop) {
 	u8 dmaConfig[80] = { 0, 0, 4 };
 	u32 bufSize = isTop? (tl_pitch * 400) : (bl_pitch * 320);
 	u32 phys = isTop ? tl_current : bl_current;
@@ -657,6 +806,7 @@ void remotePlaySendFrames() {
 	u32 frameCount = 0;
 	u8 cnt;
 	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
+	u64 currentTick = 0;
 
 	while (1) {
 		currentUpdating = isPriorityTop;
@@ -674,32 +824,49 @@ void remotePlaySendFrames() {
 			// send top
 			rpCaptureScreen(1);
 			currentTopId += 1;
-			// remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer);
+			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer);
 			// topContext.compressDst = 0;
-			// topContext.transformDst = imgBuffer + 0x00150000;
-			// topContext.reset = 1;
-			// topContext.id = (u8)currentTopId;
-			// topContext.isTop = 1;
-			// remotePlayBlitCompressed(&topContext);
-			// rpCompressAndSendPacket(&topContext);
+			topContext.transformDst = imgBuffer + 0x00150000;
+			// botContext.transformDst2 = 0;
+			topContext.reset = 1;
+			topContext.id = (u8)currentTopId;
+			topContext.isTop = 1;
+			remotePlayBlitCompressed(&topContext);
+			rpCompressAndSendPacket(&topContext);
 		}
 		else {
 			// send bottom
 			rpCaptureScreen(0);
 			currentBottomId += 1;
-			// remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer);
+			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer);
 			// botContext.compressDst = 0;
-			// botContext.transformDst = imgBuffer + 0x00150000;
-			// botContext.reset = 1;
-			// botContext.id = (u8)currentBottomId;
-			// botContext.isTop = 0;
-			// remotePlayBlitCompressed(&botContext);
-			// rpCompressAndSendPacket(&botContext);
+			botContext.transformDst = imgBuffer + 0x00150000;
+			// botContext.transformDst2 = 0;
+			botContext.reset = 1;
+			botContext.id = (u8)currentBottomId;
+			botContext.isTop = 0;
+			remotePlayBlitCompressed(&botContext);
+			rpCompressAndSendPacket(&botContext);
+		}
+
+#define SEND_STAT_EVERY_X_FRAMES 16
+		if (frameCount % SEND_STAT_EVERY_X_FRAMES == 0) {
+			u64 nextTick = svc_getSystemTick();
+			if (currentTick) {
+				u32 ms = (nextTick - currentTick) / 1000 / SYSTICK_PER_US;
+				xsprintf(dataBuf, "%d ms for %d frames\n", ms, SEND_STAT_EVERY_X_FRAMES);
+				rpSendString(strlen(dataBuf));
+			}
+			currentTick = nextTick;
 		}
 	}
 }
 
 void remotePlayThreadStart() {
+#ifndef HAS_HUFFMAN_RLE
+	return;
+#endif
+
 	u32 i, ret;
 
 	rpCurrentMode = g_nsConfig->startupInfo[8];
@@ -715,14 +882,15 @@ void remotePlayThreadStart() {
 
 	imgBuffer = plgRequestMemorySpecifyRegion(0x00200000, 1);
 
-	rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
-	if (rpAllocBuff) {
-		rpAllocBuffRemainSize = 0x00100000;
-	}
-	else {
-		goto final;
-	}
-	rpInitCompress();
+	// rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
+	rpAllocBuff = imgBuffer + 0x00200000 - 0x2200;
+	// if (rpAllocBuff) {
+	// 	rpAllocBuffRemainSize = 0x00100000;
+	// }
+	// else {
+	// 	goto final;
+	// }
+	// rpInitCompress();
 
 	nsDbgPrint("imgBuffer: %08x\n", imgBuffer);
 	if (!imgBuffer) {
