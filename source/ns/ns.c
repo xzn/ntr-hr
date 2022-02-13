@@ -483,6 +483,8 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u8* blitBuffer = ctx->src;
 	u8* sp = ctx->src;
 
+	// This is a lot of variables.
+	// Take care to not clobber anything.
 	u8* dp_p_y = ctx->transformDst; // assume worst case width = 400, height = 240
 	u32 dp_p_y_size = width * height; // 96'000
 	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;

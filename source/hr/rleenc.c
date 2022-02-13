@@ -15,7 +15,6 @@ int rle_encode(uint8_t *dst, const uint8_t *src, int src_size)
         {                                             \
             *next_dst = next_len - RLE_MIN_LIT - 128; \
             next_len = 0;                             \
-            ;                                         \
         }                                             \
         else                                          \
         {                                             \
@@ -59,7 +58,7 @@ int rle_encode(uint8_t *dst, const uint8_t *src, int src_size)
                     --curr_len;
 
                     ++next_len;
-                    if (next_len == RLE_MAX_LIT || !next_good)
+                    if (next_len == RLE_MAX_LIT || (!next_good && !curr_len))
                     {
                         *next_dst = next_len - RLE_MIN_LIT - 128;
                         next_len = 0;
