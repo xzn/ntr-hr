@@ -474,6 +474,25 @@ static inline void downsampleImage(u8 *dst, const u8 *src, int wOrig, int hOrig)
 	}
 }
 
+static inline void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, int w, int h) {
+	u8 *dst_end = dst + w * h;
+	while (dst != dst_end) {
+		*dst++ = *src++ - *src_prev++;
+	}
+}
+
+static inline void selectImage(u8 *s_dst, u8 *m_dst, const u8 *fd, const u8 *p, int w, int h) {
+	// TODO implement this, currently this always select frame delta
+	u8 *s_dst_end = s_dst + w * h;
+	u32 i = 0;
+	while (s_dst != s_dst_end) {
+		*s_dst++ = *fd++;
+		if (i++ % 8 == 0) {
+			*m_dst++ = 0xff;
+		}
+	}
+}
+
 static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	int blockSize = 16;
 	int bpp = ctx->bpp;
@@ -506,7 +525,7 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u8* dp_ds_u_pf;
 	u8* dp_ds_v_pf;
 
-	if (!isTop) { // apply bottomScreenOffset (which is offset from top) 
+	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
 		dp_y -= bottomScreenOffset;
 		dp_ds_u -= bottomScreenOffset;
 		dp_ds_v -= bottomScreenOffset;
@@ -551,11 +570,15 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
 
 	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is done (prediction of frame delta), output
-	u32 dp_s_p_fd_y_size = dp_p_fd_y_size / 8 / 8 / 8; // and
-	u8* dp_s_p_fd_ds_u = dp_s_p_fd_y + dp_s_p_fd_y_size; // after dp_p_fd_ds_u is done (prediction of frame delta), output, need to be consecutive in layout with dp_s_p_fd_ds_v
-	u32 dp_s_p_fd_ds_u_size = dp_p_fd_ds_u_size / 8 / 8 / 8; // and
-	u8* dp_s_p_fd_ds_v = dp_s_p_fd_ds_u + dp_s_p_fd_ds_u_size; // after dp_p_fd_ds_v is done (prediction of frame delta), output
-	u32 dp_s_p_fd_ds_v_size = dp_p_fd_ds_v_size / 8 / 8 / 8;
+	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is done (prediction of frame delta), output, need to be consecutive in layout with dp_s_p_fd_ds_v
+	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is done (prediction of frame delta), output
+
+	u8* dp_m_p_fd_y = dp_s_p_fd_ds_v + dp_fd_ds_v_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_u
+	u32 dp_m_p_fd_y_size = (dp_p_fd_y_size + 63) / 64; // round up, divisor is bits-per-byte * horizontal downscale (8) * vertical downscale (8)
+	u8* dp_m_p_fd_ds_u = dp_m_p_fd_y + dp_m_p_fd_y_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_v
+	u32 dp_m_p_fd_ds_u_size = (dp_p_fd_ds_u_size + 63) / 64;
+	u8* dp_m_p_fd_ds_v = dp_m_p_fd_ds_u + dp_m_p_fd_ds_u_size; // output
+	u32 dp_m_p_fd_ds_v_size = (dp_p_fd_ds_v_size + 63) / 64;
 
 	// that's a total of 96'000 * 5 + 24'000 * 6 = 624'000
 	// make sure we have enough room in the buffer
