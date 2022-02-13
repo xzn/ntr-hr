@@ -298,10 +298,12 @@ typedef struct _BLIT_CONTEXT {
 	u32 bytesInColumn ;
 	u32 blankInColumn;
 
-	u8* transformDst;
-	u8* transformDst2;
+	u8* transformDst; // Y
+	u8* transformDst2; // UV
+	u8* transformDst3; // YUV mask for frame delta
 	u32 dst_size;
 	u32 dst2_size;
+	u32 dst3_size;
 	// u8* compressDst;
 	// u32 compressedSize;
 
@@ -310,8 +312,9 @@ typedef struct _BLIT_CONTEXT {
 	u8 frameCount;
 	u32 lastSize;
 
-	int reset;
-	int directCompress;
+	// int reset;
+	// int directCompress;
+	int isKey;
 } BLIT_CONTEXT;
 
 
@@ -477,6 +480,9 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	int width = ctx->width;
 	int height = ctx->height;
 	int pitch = ctx->src_pitch;
+	int isKey = ctx->isKey;
+	int isTop = ctx->isTop;
+	int frameId = ctx->id % 2;
 
 	u32 px;
 	u16 tmp;
@@ -486,7 +492,7 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	// This is a lot of variables.
 	// Take care to not clobber anything.
 
-	// assume worst case width = 400, height = 240
+	// assume worst case width = 400, height = 240 for top screen
 	u8* dp_y = ctx->transformDst;
 	u32 dp_y_size = width * height; // 96'000, need for next frame
 	u8* dp_ds_u = dp_y + dp_y_size;
@@ -494,16 +500,36 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u8* dp_ds_v = dp_ds_u + dp_ds_u_size;
 	u32 dp_ds_v_size = dp_ds_u_size; // 24'000, need for next frame
 
+	int frameOffset = (400 + 320) * 240 * 3 / 2; // dp_y_size + dp_ds_u_size + dp_ds_v_size for both screens
+	int bottomScreenOffset = 400 * 240 * 3 / 2; // offset from top
 	u8* dp_y_pf;
 	u8* dp_ds_u_pf;
 	u8* dp_ds_v_pf;
 
+	if (!isTop) { // apply bottomScreenOffset (which is offset from top) 
+		dp_y -= bottomScreenOffset;
+		dp_ds_u -= bottomScreenOffset;
+		dp_ds_v -= bottomScreenOffset;
+	}
+	if (frameId) {
+		dp_y_pf = dp_y;
+		dp_ds_u_pf = dp_ds_u;
+		dp_ds_v_pf = dp_ds_v;
+		dp_y -= frameOffset;
+		dp_ds_u -= frameOffset;
+		dp_ds_v -= frameOffset;
+	} else {
+		dp_y_pf = dp_y - frameOffset;
+		dp_ds_u_pf = dp_ds_u - frameOffset;
+		dp_ds_v_pf = dp_ds_v - frameOffset;
+	}
+
 	u8* dp_p_y = dp_ds_v + dp_ds_v_size;
-	u32 dp_p_y_size = dp_y_size; // 96'000
+	u32 dp_p_y_size = dp_y_size; // 96'000, output for key
 	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;
-	u32 dp_p_ds_u_size = dp_ds_u_size; // 24'000
+	u32 dp_p_ds_u_size = dp_ds_u_size; // 24'000, output for key
 	u8* dp_p_ds_v = dp_p_ds_u + dp_p_ds_u_size;
-	u32 dp_p_ds_v_size = dp_ds_v_size; // 24'000
+	u32 dp_p_ds_v_size = dp_ds_v_size; // 24'000, output for key
 
 	u8* dp_u = dp_p_ds_v + dp_p_ds_v_size;
 	u32 dp_u_size = dp_y_size; // 96'000
@@ -525,8 +551,11 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
 
 	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is done (prediction of frame delta), output
-	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is done (prediction of frame delta), output, need to be consecutive in layout with dp_s_p_fd_ds_v
-	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is done (prediction of frame delta), output
+	u32 dp_s_p_fd_y_size = dp_p_fd_y_size / 8 / 8 / 8; // and
+	u8* dp_s_p_fd_ds_u = dp_s_p_fd_y + dp_s_p_fd_y_size; // after dp_p_fd_ds_u is done (prediction of frame delta), output, need to be consecutive in layout with dp_s_p_fd_ds_v
+	u32 dp_s_p_fd_ds_u_size = dp_p_fd_ds_u_size / 8 / 8 / 8; // and
+	u8* dp_s_p_fd_ds_v = dp_s_p_fd_ds_u + dp_s_p_fd_ds_u_size; // after dp_p_fd_ds_v is done (prediction of frame delta), output
+	u32 dp_s_p_fd_ds_v_size = dp_p_fd_ds_v_size / 8 / 8 / 8;
 
 	// that's a total of 96'000 * 5 + 24'000 * 6 = 624'000
 	// make sure we have enough room in the buffer
@@ -542,7 +571,7 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u8* dp_u_out = dp_u;
 	u8* dp_v_out = dp_v;
 
-	ctx->directCompress = 0;
+	// ctx->directCompress = 0;
 	if ((bpp == 3) || (bpp == 4)){
 		/*
 		ctx->directCompress = 1;
@@ -581,18 +610,21 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 
 	}
 
-	predictImage(dp_p_y, dp_y, width, height);
+	if (isKey) {
+		predictImage(dp_p_y, dp_y, width, height);
 
-	downsampleImage(dp_ds_u, dp_u, width, height);
-	predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
+		downsampleImage(dp_ds_u, dp_u, width, height);
+		predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
 
-	downsampleImage(dp_ds_v, dp_v, width, height);
-	predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
+		downsampleImage(dp_ds_v, dp_v, width, height);
+		predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
 
-	ctx->transformDst = dp_p_y;
-	ctx->dst_size = dp_p_y_size;
-	ctx->transformDst2 = dp_p_ds_u;
-	ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
+		ctx->transformDst = dp_p_y;
+		ctx->dst_size = dp_p_y_size;
+		ctx->transformDst2 = dp_p_ds_u;
+		ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
+	} else {
+	}
 
 	//ctx->compressedSize = fastlz_compress_level(2, ctx->transformDst, (ctx->width) * (ctx->height) * 2, ctx->compressDst);
 	return 0;
@@ -617,12 +649,16 @@ static inline void compressData(u8 *dst, const u8 *data, int size) {
 }
 
 static inline void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
-	u8 *srcBuff, *srcBuff2;
+	u8 *srcBuff, *srcBuff2, *srcBuff3;
 	srcBuff = ctx->transformDst;
 	srcBuff2 = ctx->transformDst2;
-	u8 *dst = srcBuff2 + ctx->dst2_size;
+	srcBuff3 = ctx->transformDst3;
+	u8 *dst = ctx->isKey ? srcBuff3 + ctx->dst3_size : srcBuff2 + ctx->dst2_size;
 	compressData(dst, srcBuff, ctx->dst_size);
 	compressData(dst, srcBuff2, ctx->dst2_size);
+	if (ctx->isKey) {
+		compressData(dst, srcBuff3, ctx->dst3_size);
+	}
 }
 
 
@@ -831,6 +867,8 @@ void remotePlaySendFrames() {
 
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
+	int firstFrame = 1;
+	int isKey = firstFrame;
 	u8 cnt;
 	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
 	u64 currentTick = 0;
@@ -849,6 +887,10 @@ void remotePlaySendFrames() {
 
 		remotePlayKernelCallback();
 
+		if (firstFrame) {
+			firstFrame = 0;
+			isKey = firstFrame;
+		}
 
 		if (currentUpdating) {
 			// send top
@@ -859,9 +901,10 @@ void remotePlaySendFrames() {
 			// topContext.compressDst = 0;
 			topContext.transformDst = imgBuffer + 0x00150000;
 			// botContext.transformDst2 = 0;
-			topContext.reset = 1;
+			// topContext.reset = 1;
 			topContext.id = (u8)currentTopId;
 			topContext.isTop = 1;
+			topContext.isKey = isKey;
 			remotePlayBlitCompressed(&topContext);
 			rpCompressAndSendPacket(&topContext);
 		}
@@ -874,9 +917,10 @@ void remotePlaySendFrames() {
 			// botContext.compressDst = 0;
 			botContext.transformDst = imgBuffer + 0x00150000;
 			// botContext.transformDst2 = 0;
-			botContext.reset = 1;
+			// botContext.reset = 1;
 			botContext.id = (u8)currentBottomId;
 			botContext.isTop = 0;
+			botContext.isKey = isKey;
 			remotePlayBlitCompressed(&botContext);
 			rpCompressAndSendPacket(&botContext);
 		}
