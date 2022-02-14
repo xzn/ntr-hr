@@ -55,6 +55,12 @@ typedef struct _NS_BREAKPOINT {
 #define NS_BPTYPE_CODEONESHOT	2
 
 
+typedef struct _RP_CONFIG {
+	u32 currentMode;
+	u32 quality;
+	u32 qosValueInBytes;
+	u32 control;
+} RP_CONFIG;
 
 typedef struct _NS_CONFIG {
 	u32 initMode;
@@ -74,6 +80,7 @@ typedef struct _NS_CONFIG {
 
 	u32 sharedFunc[100];
 	NTR_CONFIG ntrConfig;
+	RP_CONFIG rp;
 } NS_CONFIG;
 
 #define NS_INITMODE_FROMBOOT	0

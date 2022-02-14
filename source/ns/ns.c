@@ -44,9 +44,9 @@ int rpAllocDebug = 0;
 struct jpeg_compress_struct cinfo;
 struct jpeg_error_mgr jerr;
 
-u32 rpCurrentMode = 0;
-u32 rpQuality = 90;
-u32 rpQosValueInBytes = 0;
+#define rpCurrentMode (g_nsConfig->rp.currentMode)
+#define rpQuality (g_nsConfig->rp.quality)
+#define rpQosValueInBytes (g_nsConfig->rp.qosValueInBytes)
 u64 rpMinIntervalBetweenPacketsInTick = 0;
 
 #define SYSTICK_PER_US (268);
@@ -287,7 +287,7 @@ int getBppForFormat(int format) {
 typedef struct _BLIT_CONTEXT {
 	int width, height, format, src_pitch;
 	int x, y;
-	u8* src;	
+	u8* src;
 	int outformat, bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
@@ -442,7 +442,6 @@ void rpInitJpegCompress() {
 	cinfo.in_color_space = JCS_RGB;
 	jpeg_set_defaults(&cinfo);
 	cinfo.dct_method = JDCT_IFAST;
-	jpeg_set_quality(&cinfo, rpQuality, TRUE);
 #else
 	return;
 #endif
@@ -459,7 +458,7 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	dataBuf[1] = ctx->isTop;
 	dataBuf[2] = 2;
 	dataBuf[3] = 0;
-	
+
 	cinfo.image_width = ctx->height;      /* image width and height, in pixels */
 	cinfo.image_height = ctx->width;
 	cinfo.input_components = 3;
@@ -533,7 +532,7 @@ int remotePlayBlit(BLIT_CONTEXT* ctx) {
 			}
 		}
 		else {
-			
+
 			while (ctx->y < height) {
 				if (dp - dataBuf >= PACKET_SIZE) {
 					return dp - dataBuf;
@@ -673,7 +672,7 @@ void rpCaptureScreen(int isTop) {
 	rpHDma[isTop] = 0;
 
 	if (isInVRAM(phys)) {
-		svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE, 
+		svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE,
 			dest, hProcess, 0x1F000000 + (phys - 0x18000000), bufSize, dmaConfig);
 		return;
 	}
@@ -695,6 +694,15 @@ void rpCaptureScreen(int isTop) {
 
 
 void remotePlaySendFrames() {
+	// rpCurrentMode = g_nsConfig->startupInfo[8];
+	// rpQuality = g_nsConfig->startupInfo[9];
+	// rpQosValueInBytes = g_nsConfig->startupInfo[10];
+	if (rpQosValueInBytes < 500 * 1024) {
+		rpQosValueInBytes = 2 * 1024 * 1024;
+	}
+	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpQosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
+	jpeg_set_quality(&cinfo, rpQuality, TRUE);
+
 	u32 isPriorityTop = 1;
 	u32 priorityFactor = 0;
 	u32 mode = (rpCurrentMode & 0xff00) >> 8;
@@ -747,20 +755,17 @@ void remotePlaySendFrames() {
 			remotePlayBlitCompressed(&botContext);
 			rpCompressAndSendPacket(&botContext);
 		}
+
+		if (g_nsConfig->rp.control) {
+			g_nsConfig->rp.control = 0;
+			svc_sleepThread(1000000000);
+			break;
+		}
 	}
 }
 
 void remotePlayThreadStart() {
 	u32 i, ret;
-
-	rpCurrentMode = g_nsConfig->startupInfo[8];
-	rpQuality = g_nsConfig->startupInfo[9];
-	rpQosValueInBytes = g_nsConfig->startupInfo[10];
-	if (rpQosValueInBytes < 500 * 1024) {
-		rpQosValueInBytes = 2 * 1024 * 1024;
-	}
-	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpQosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
-
 	u8* dataBuf = remotePlayBuffer + 0x2a + 8;
 	u32 remainSize;
 
@@ -866,20 +871,64 @@ void tickTest() {
 }
 */
 
+static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
+	Handle hProcess;
+	u32 pid = 0x1a;
+	int ret = svc_openProcess(&hProcess, pid);
+	if (ret != 0) {
+		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
+		hProcess = 0;
+		return;
+	}
+
+	RP_CONFIG rp = {
+		.currentMode = mode,
+		.quality = quality,
+		.qosValueInBytes = qos,
+		.control = 0
+	};
+
+	ret = copyRemoteMemory(
+		hProcess,
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rp),
+		0xffff8001,
+		&rp,
+		sizeof(rp));
+	if (ret != 0) {
+		nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
+		svc_closeHandle(hProcess);
+		return;
+	}
+
+	u32 control = 1;
+	ret = copyRemoteMemory(
+		hProcess,
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rp) + offsetof(RP_CONFIG, control),
+		0xffff8001,
+		&control,
+		sizeof(control));
+	if (ret != 0) {
+		nsDbgPrint("copyRemoteMemory (2) failed: %08x\n", ret, 0);
+	}
+
+	svc_closeHandle(hProcess);
+}
+
 int nsHandleRemotePlay() {
 
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
 	u32 mode = pac->args[0];
 	u32 quality = pac->args[1];
-	u32 qosValue = pac->args[2];	
-	
+	u32 qosValue = pac->args[2];
+
 	if (!((quality >= 10) && (quality <= 100))) {
 		nsDbgPrint("illegal quality\n");
 		goto final;
 	}
 
 	if (nsIsRemotePlayStarted) {
-		nsDbgPrint("remote play already started\n");
+		nsDbgPrint("remote play already started, updating params\n");
+		nsRemotePlayControl(mode, quality, qosValue);
 		goto final;
 	}
 	nsIsRemotePlayStarted = 1;
@@ -892,9 +941,12 @@ int nsHandleRemotePlay() {
 
 	memset(&cfg, 0, sizeof(NS_CONFIG));
 	cfg.startupCommand = NS_STARTCMD_DEBUG;
-	cfg.startupInfo[8] = mode;
-	cfg.startupInfo[9] = quality;
-	cfg.startupInfo[10] = qosValue;
+	// cfg.startupInfo[8] = mode;
+	// cfg.startupInfo[9] = quality;
+	// cfg.startupInfo[10] = qosValue;
+	cfg.rp.currentMode = mode;
+	cfg.rp.quality = quality;
+	cfg.rp.qosValueInBytes = qosValue;
 	ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
