@@ -15,7 +15,6 @@
 
 NS_CONTEXT* g_nsCtx = 0;
 NS_CONFIG* g_nsConfig;
-RP_CONFIG rpConfig;
 
 u32 heapStart, heapEnd;
 
@@ -43,6 +42,7 @@ void tje_log(char* str) {
 u8* rpAllocBuff = 0;
 // u32 rpAllocBuffOffset = 0;
 // u32 rpAllocBuffRemainSize = 0;
+RP_CONFIG rpConfig;
 int rpAllocDebug = 0;
 u64 rpMinIntervalBetweenPacketsInTick = 0;
 
@@ -389,6 +389,9 @@ void rpSendString(u32 size) {
 	nwmSendPacket(remotePlayBuffer, packetLen);
 }
 
+#define HR_MAX(a, b) ((a) > (b) ? (a) : (b))
+#define HR_MIN(a, b) ((a) < (b) ? (a) : (b))
+
 static inline void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
 	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
 	u16 u = -43 * (u16)r + -84 * (u16)g + 127 * (u16)b;
@@ -401,6 +404,10 @@ static inline void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out)
 
 static inline u8 accessImageNoCheck(const u8 *image, int x, int y, int w, int h) {
 	return image[x * h + y];
+}
+
+static inline u8 accessImage(const u8 *image, int x, int y, int w, int h) {
+	return accessImageNoCheck(image, HR_MAX(HR_MIN(x, w), 0), HR_MAX(HR_MIN(y, h), 0), w, h);
 }
 
 static inline u8 medianOf3Ints(int a, int b, int c) {
@@ -441,33 +448,92 @@ static inline void predictImage(u8 *dst, const u8 *src, int w, int h) {
 	}
 }
 
-static inline u16 accessDownsampledImageUnscaled(const u8 *image, int x, int y, int w, int h) {
-    int x0 = x; // / 2 * 2;
-    int x1 = x0 + 1;
-    int y0 = y; // / 2 * 2;
-    int y1 = y0 + 1;
+// x and y are % 2 == 0
+static inline u16 accessImageDownsampleUnscaled(const u8 *image, int x, int y, int w, int h) {
+	int x0 = x; // / 2 * 2;
+	int x1 = x0 + 1;
+	int y0 = y; // / 2 * 2;
+	int y1 = y0 + 1;
 
 	// x1 = x1 >= w ? w - 1 : x1;
 	// y1 = y1 >= h ? h - 1 : y1;
 
-    u8 a = accessImageNoCheck(image, x0, y0, w, h);
-    u8 b = accessImageNoCheck(image, x1, y0, w, h);
-    u8 c = accessImageNoCheck(image, x0, y1, w, h);
-    u8 d = accessImageNoCheck(image, x1, y1, w, h);
+	u8 a = accessImageNoCheck(image, x0, y0, w, h);
+	u8 b = accessImageNoCheck(image, x1, y0, w, h);
+	u8 c = accessImageNoCheck(image, x0, y1, w, h);
+	u8 d = accessImageNoCheck(image, x1, y1, w, h);
 
-    return (u16)a + b + c + d;
+	return (u16)a + b + c + d;
 }
 
-static inline u8 accessDownsampledImage(const u8 *image, int x, int y, int w, int h) {
-    return (accessDownsampledImageUnscaled(image, x, y, w, h) + 2) / 4;
+// x and y are % 2 == 0, see accessImageDownsampleUnscaled
+static inline u8 accessImageDownsample(const u8 *image, int x, int y, int w, int h) {
+	return (accessImageDownsampleUnscaled(image, x, y, w, h) + 2) / 4;
 }
 
-static inline void downsampleImage(u8 *dst, const u8 *src, int wOrig, int hOrig) {
-	int i = 0, j = 0, k = 0, l = 0;
-	for (; i < wOrig; i += 2, ++k) {
-		j = 0; l = 0;
-		for (; j < hOrig; j += 2, ++l) {
-			dst[k * hOrig / 2 + l] = accessDownsampledImage(src, i, j, wOrig, hOrig);
+static inline void downsampleImage(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
+	int i = 0, j = 0;
+	for (; i < wOrig; i += 2) {
+		j = 0;
+		for (; j < hOrig; j += 2) {
+			*ds_dst++ = accessImageDownsample(src, i, j, wOrig, hOrig);
+		}
+	}
+}
+
+static inline u16 accessImageUpsampleUnscaled(const u8 *ds_image, int xOrig, int yOrig, int wOrig, int hOrig) {
+	int ds_w = wOrig / 2;
+	int ds_h = hOrig / 2;
+
+	int ds_x0 = xOrig / 2;
+	int ds_x1 = ds_x0;
+	int ds_y0 = yOrig / 2;
+	int ds_y1 = ds_y0;
+
+	if (xOrig > ds_x0 * 2) {
+		++ds_x1;
+	} else {
+		--ds_x0;
+	}
+
+	if (yOrig > ds_y0 * 2) {
+		++ds_y1;
+	} else {
+		--ds_y0;
+	}
+
+    u16 a = accessImage(ds_image, ds_x0, ds_y0, ds_w, ds_h);
+    u16 b = accessImage(ds_image, ds_x1, ds_y0, ds_w, ds_h);
+    u16 c = accessImage(ds_image, ds_x0, ds_y1, ds_w, ds_h);
+    u16 d = accessImage(ds_image, ds_x1, ds_y1, ds_w, ds_h);
+
+    if (xOrig < ds_x1 * 2) {
+        a = (a * 3 + b);
+        c = (c * 3 + d);
+    } else {
+        a = (a + b * 3);
+        c = (c + d * 3);
+    }
+
+    if (yOrig < ds_y1 * 2) {
+        a = (a * 3 + c);
+    } else {
+        a = (a + c * 3);
+    }
+
+	return a;
+}
+
+static inline u16 accessImageUpsample(const u8 *ds_image, int xOrig, int yOrig, int wOrig, int hOrig) {
+	return (accessImageUpsampleUnscaled(ds_image, xOrig, yOrig, wOrig, hOrig) + 8) / 16;
+}
+
+static inline void upsampleImage(u8 *dst, const u8 *ds_src, int w, int h) {
+	int i = 0, j = 0;
+	for (; i < w; ++i) {
+		j = 0;
+		for (; j < h; ++j) {
+			*dst++ = accessImageUpsample(ds_src, i, j, w, h);
 		}
 	}
 }
@@ -479,22 +545,42 @@ static inline void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, i
 	}
 }
 
+static inline void differenceFromDownsampled(u8 *dst, const u8 *src, const u8 *ds_src_prev, int w, int h) {
+	int i = 0, j = 0;
+	for (; i < w; ++i) {
+		j = 0;
+		for (; j < h; ++j) {
+			*dst++ = *src++ - accessImageUpsample(ds_src_prev, i, j, w, h);
+		}
+	}
+}
+
+static inline void downsampledDifference(u8 *ds_dst, const u8 *src, const u8 *src_prev, int w, int h) {
+	int i = 0, j = 0;
+	for (; i < w; i += 2) {
+		j = 0;
+		for (; j < h; j += 2) {
+			*ds_dst++ = accessImageDownsample(src, i, j, w, h) - accessImageDownsample(src_prev, i, j, w, h);
+		}
+	}
+}
+
+static inline void downsampledDifferenceFromDownsampled(u8 *ds_dst, const u8 *src, const u8 *ds_src_prev, int w, int h) {
+	int i = 0, j = 0;
+	for (; i < w; i += 2) {
+		j = 0;
+		for (; j < h; j += 2) {
+			*ds_dst++ = accessImageDownsample(src, i, j, w, h) - *ds_src_prev++;
+		}
+	}
+}
+
 #define BITS_PER_BYTE 8
 #define ENCODE_SELECT_MASK_X_SCALE 1
 #define ENCODE_SELECT_MASK_Y_SCALE 8
 #define ENCODE_SELECT_MASK_FACTOR (BITS_PER_BYTE * ENCODE_SELECT_MASK_X_SCALE * ENCODE_SELECT_MASK_Y_SCALE)
 
-#define HR_MAX(a, b) ((a) > (b) ? (a) : (b))
-#define HR_MIN(a, b) ((a) < (b) ? (a) : (b))
-
-static inline void selectImage(u8 **p_s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int w, int h) {
-	if (!(rpConfig.flags & RP_SELECT_PREDICTION)) {
-		*p_s_dst = p_fd;
-		memset(m_dst, 0xff, (w * h + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR);
-		return;
-	}
-
-	u8 *s_dst = *p_s_dst;
+static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int w, int h) {
 	u16 sum_p_fd, sum_p;
 	u8 mask, m = 0;
 	int x = 0, y, i, j, n;
@@ -543,6 +629,19 @@ static inline void selectImage(u8 **p_s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, i
 	}
 }
 
+typedef struct _COMPRESS_CONTEXT {
+	const u8* data;
+	u32 data_size;
+	const u8* data2;
+	u32 data2_size;
+} COMPRESS_CONTEXT;
+
+static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
+	if (skipTest)
+		return 1;
+	return -1;
+}
+
 static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	if (ctx->src_end <= ctx->src)
 		return  -1;
@@ -565,10 +664,14 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	// Take care to not clobber anything.
 
 	u8 *dp_begin = ctx->transformDst;
+
 	 // need for next frame
 	u8 *dp_save_begin = dp_begin;
 	u8* dp_flags = dp_save_begin;
 	u8 flags = 0;
+#define RP_DOWNSAMPLE_Y (1 << 0)
+#define RP_DOWNSAMPLE2_UV (1 << 1)
+
 	// assume worst case width = 400, height = 240 for top screen
 	u8* dp_y = dp_flags + 1;
 	u32 dp_y_size = width * height; // 96'000
@@ -577,37 +680,41 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_ds_v = dp_ds_u + dp_ds_u_size;
 	u32 dp_ds_v_size = dp_ds_u_size; // 24'000
 
-	u8 *dp_save_end = dp_ds_v + dp_ds_v_size;;
+	// dynamic encoding
+	u8* dp_ds_y = dp_ds_v + dp_ds_v_size;
+	u32 dp_ds_y_size = dp_ds_u_size;
+	u8* dp_ds_ds_u = dp_ds_y + dp_ds_y_size;
+	u32 dp_ds_ds_u_size = dp_ds_y_size / 4;
+	u8* dp_ds_ds_v = dp_ds_ds_u + dp_ds_ds_u_size;
+	u32 dp_ds_ds_v_size = dp_ds_ds_u_size;
+
+	u8 *dp_save_end = dp_ds_ds_v + dp_ds_ds_v_size;
 	u32 dp_save_size = dp_save_end - dp_begin;
 
-	int frameOffset = dp_save_size * (400 + 320) / width; // dp_y_size + dp_ds_u_size + dp_ds_v_size for both screens
-	int bottomScreenOffset = dp_save_size * 400 / width; // offset from top
-	u8* dp_y_pf;
-	u8* dp_ds_u_pf;
-	u8* dp_ds_v_pf;
-
+	// output when isKey and not downsample
 	u8* dp_p_y = dp_save_end;
-	u32 dp_p_y_size = dp_y_size; // 96'000, output for key
+	u32 dp_p_y_size = dp_y_size; // 96'000
 	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;
-	u32 dp_p_ds_u_size = dp_ds_u_size; // 24'000, output for key
+	u32 dp_p_ds_u_size = dp_ds_u_size; // 24'000
 	u8* dp_p_ds_v = dp_p_ds_u + dp_p_ds_u_size;
-	u32 dp_p_ds_v_size = dp_ds_v_size; // 24'000, output for key
+	u32 dp_p_ds_v_size = dp_ds_v_size; // 24'000
 
 	u8* dp_u = dp_p_ds_v + dp_p_ds_v_size;
 	u32 dp_u_size = dp_y_size; // 96'000
 	u8* dp_v = dp_u + dp_u_size;
 	u32 dp_v_size = dp_y_size; // 96'000
 
+	// output when not isKey
 	// output when not RP_SELECT_PREDICTION and not RP_PREDICT_FRAME_DELTA
-	u8* dp_fd_y = dp_u; // reuse from dp_u, after downsample, make sure dp_fd_y_size <= dp_u_size
+	u8* dp_fd_y = dp_u; // reuse from dp_u, after dp_ds_u is ready, make sure dp_fd_y_size <= dp_u_size
 	u32 dp_fd_y_size = dp_y_size;
-	u8* dp_fd_ds_u = dp_v; // reuse from dp_v, after downsample, need to be consecutive in layout with dp_fd_ds_v
+	u8* dp_fd_ds_u = dp_v; // reuse from dp_v, after dp_ds_v is ready, need to be consecutive in layout with dp_fd_ds_v
 	u32 dp_fd_ds_u_size = dp_ds_u_size;
 	u8* dp_fd_ds_v = dp_fd_ds_u + dp_fd_ds_u_size; // make sure dp_fd_ds_u_size + dp_fd_ds_v_size <= dp_v_size
 	u32 dp_fd_ds_v_size = dp_ds_v_size;
 
 	// output when not RP_SELECT_PREDICTION and RP_PREDICT_FRAME_DELTA
-	u8* dp_p_fd_y = dp_p_ds_v + dp_p_ds_v_size;
+	u8* dp_p_fd_y = dp_v + dp_v_size;
 	u32 dp_p_fd_y_size = dp_fd_y_size; // 96'000
 	u8* dp_p_fd_ds_u = dp_p_fd_y + dp_p_fd_y_size; // need to be consecutive in layout with dp_p_fd_ds_v
 	u32 dp_p_fd_ds_u_size = dp_fd_ds_u_size; // 24'000
@@ -615,11 +722,11 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
 
 	// output when RP_SELECT_PREDICTION
-	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is done (prediction of frame delta)
+	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is ready
 	u32 dp_s_p_fd_y_size = dp_fd_y_size;
-	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is done (prediction of frame delta), need to be consecutive in layout with dp_s_p_fd_ds_v
+	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is ready
 	u32 dp_s_p_fd_ds_u_size = dp_fd_ds_u_size;
-	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is done (prediction of frame delta)
+	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is ready
 	u32 dp_s_p_fd_ds_v_size = dp_fd_ds_v_size;
 
 	// output when RP_SELECT_PREDICTION
@@ -630,47 +737,109 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_m_p_fd_ds_v = dp_m_p_fd_ds_u + dp_m_p_fd_ds_u_size;
 	u32 dp_m_p_fd_ds_v_size = (dp_p_fd_ds_v_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
 
-	u8* dp_end = dp_m_p_fd_ds_v + dp_m_p_fd_ds_v_size;
-	if (dp_end > rpAllocBuff) {
-		const char *msg = "Internal error (remotePlayBlitCompressAndSend): allocated buffer too small\n";
-		const int msg_len = strlen(msg);
-		memcpy(dataBuf, msg, msg_len);
-		rpSendString(msg_len);
-		return -1;
-	}
+	// output when isKey and downsample
+	u8* dp_p_ds_y = dp_m_p_fd_ds_v + dp_m_p_fd_ds_v_size;
+	u32 dp_p_ds_y_size = dp_ds_y_size;
+	u8* dp_p_ds_ds_u = dp_p_ds_y + dp_p_ds_y_size;
+	u32 dp_p_ds_ds_u_size = dp_ds_ds_u_size;
+	u8* dp_p_ds_ds_v = dp_p_ds_ds_u + dp_p_ds_ds_u_size;
+	u32 dp_p_ds_ds_v_size = dp_ds_ds_v_size;
 
-	// that's a total of 96'000 * 5 + 24'000 * 6 = 624'000
+	// dynamic encoding
+	u8* dp_fd_ds_y = dp_fd_y; // reuse from dp_fd_y
+	u32 dp_fd_ds_y_size = dp_ds_y_size;
+	u8* dp_fd_ds_ds_u = dp_fd_ds_y + dp_fd_ds_y_size;
+	u32 dp_fd_ds_ds_u_size = dp_ds_ds_u_size;
+	u8* dp_fd_ds_ds_v = dp_fd_ds_ds_u + dp_fd_ds_ds_u_size;
+	u32 dp_fd_ds_ds_v_size = dp_ds_ds_v_size;
+
+	u8* dp_p_fd_ds_y = dp_fd_ds_ds_v + dp_fd_ds_ds_v_size; // reuse continued
+	u32 dp_p_fd_ds_y_size = dp_fd_ds_y_size;
+	u8* dp_p_fd_ds_ds_u = dp_p_fd_ds_y + dp_p_fd_ds_y_size;
+	u32 dp_p_fd_ds_ds_u_size = dp_fd_ds_ds_u_size;
+	u8* dp_p_fd_ds_ds_v = dp_p_fd_ds_ds_u + dp_p_fd_ds_ds_u_size;
+	u32 dp_p_fd_ds_ds_v_size = dp_fd_ds_ds_v_size;
+
+	u8* dp_s_p_fd_ds_y = dp_fd_ds_y; // reuse from dp_fd_ds_y, after dp_p_fd_ds_y is ready
+	u32 dp_s_p_fd_ds_y_size = dp_fd_ds_y_size;
+	u8* dp_s_p_fd_ds_ds_u = dp_fd_ds_ds_u; // reuse from dp_fd_ds_ds_u, after dp_p_fd_ds_ds_u is ready, need to be consecutive in layout with dp_s_p_fd_ds_ds_v
+	u32 dp_s_p_fd_ds_ds_u_size = dp_fd_ds_ds_u_size;
+	u8* dp_s_p_fd_ds_ds_v = dp_fd_ds_ds_v; // reuse from dp_fd_ds_ds_v, after dp_p_fd_ds_ds_v is ready
+	u32 dp_s_p_fd_ds_ds_v_size = dp_fd_ds_ds_v_size;
+
+	u8* dp_m_p_fd_ds_y = dp_p_fd_ds_ds_v + dp_p_fd_ds_ds_v_size; // need to be consecutive in layout with dp_m_p_fd_ds_ds_u
+	u32 dp_m_p_fd_ds_y_size = (dp_p_fd_ds_y_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u8* dp_m_p_fd_ds_ds_u = dp_m_p_fd_ds_y + dp_m_p_fd_ds_y_size; // need to be consecutive in layout with dp_m_p_fd_ds_ds_v
+	u32 dp_m_p_fd_ds_ds_u_size = (dp_p_fd_ds_ds_u_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u8* dp_m_p_fd_ds_ds_v = dp_m_p_fd_ds_ds_u + dp_m_p_fd_ds_ds_u_size;
+	u32 dp_m_p_fd_ds_ds_v_size = (dp_p_fd_ds_ds_v_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+
+	// that's a total of ???
 	// make sure we have enough room in the buffer
 	// see imgBuffer in remotePlayThreadStart and transformDst in remotePlaySendFrames
 
+	u8* dp_end = dp_p_fd_ds_ds_v + dp_p_fd_ds_ds_v_size;
+	if (dp_end > rpAllocBuff) {
+		xsprintf(dataBuf,
+			"Allocated buffer too small: %d needed (%d available)\n",
+			dp_end - dp_begin, rpAllocBuff - dp_begin);
+		rpSendString(strlen(dataBuf));
+		return -1;
+	}
+
+	int frameOffset = dp_save_size * (400 + 320) / width; // dp_y_size + dp_ds_u_size + dp_ds_v_size for both screens
+	int bottomScreenOffset = dp_save_size * 400 / width; // offset from top
+
+	u8* dp_flags_pf;
+	u8* dp_y_pf;
+	u8* dp_ds_u_pf;
+	u8* dp_ds_v_pf;
+	u8* dp_ds_y_pf;
+	u8* dp_ds_ds_u_pf;
+	u8* dp_ds_ds_v_pf;
+
 	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
+		dp_flags -= bottomScreenOffset;
 		dp_y -= bottomScreenOffset;
 		dp_ds_u -= bottomScreenOffset;
 		dp_ds_v -= bottomScreenOffset;
+		dp_ds_y -= bottomScreenOffset;
+		dp_ds_ds_u -= bottomScreenOffset;
+		dp_ds_ds_v -= bottomScreenOffset;
 	}
 	// apply frameOffset
 	if (frameId) {
+		dp_flags_pf = dp_flags;
 		dp_y_pf = dp_y;
 		dp_ds_u_pf = dp_ds_u;
 		dp_ds_v_pf = dp_ds_v;
+		dp_ds_y_pf = dp_ds_y;
+		dp_ds_ds_u_pf = dp_ds_ds_u;
+		dp_ds_ds_v_pf = dp_ds_ds_v;
+
+		dp_flags -= frameOffset;
 		dp_y -= frameOffset;
 		dp_ds_u -= frameOffset;
 		dp_ds_v -= frameOffset;
+		dp_ds_y -= frameOffset;
+		dp_ds_ds_u -= frameOffset;
+		dp_ds_ds_v -= frameOffset;
 	} else {
+		dp_flags_pf -= frameOffset;
 		dp_y_pf = dp_y - frameOffset;
 		dp_ds_u_pf = dp_ds_u - frameOffset;
 		dp_ds_v_pf = dp_ds_v - frameOffset;
+		dp_ds_y_pf = dp_ds_y - frameOffset;
+		dp_ds_ds_u_pf = dp_ds_ds_u - frameOffset;
+		dp_ds_ds_v_pf = dp_ds_ds_v - frameOffset;
 	}
 
 	int x = 0, y = 0, i, j;
-	u8* rowp = ctx->src;
-	u8* blkp;
-	u8* pixp;
 	u8 r, g, b;
 
-	u8* dp_y_out = dp_y;
-	u8* dp_u_out = dp_u;
-	u8* dp_v_out = dp_v;
+	u8* dp_y_in = dp_y;
+	u8* dp_u_in = dp_u;
+	u8* dp_v_in = dp_v;
 
 	// ctx->directCompress = 0;
 	if ((bpp == 3) || (bpp == 4)){
@@ -684,9 +853,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 				g = sp[1];
 				b = sp[0];
 				convertYUV(r, g, b, &r, &g, &b);
-				*dp_y_out++ = r;
-				*dp_u_out++ = g;
-				*dp_v_out++ = b;
+				*dp_y_in++ = r;
+				*dp_u_in++ = g;
+				*dp_v_in++ = b;
 				sp += bpp;
 			}
 			sp += ctx->blankInColumn;
@@ -701,9 +870,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 				g = ((pix >> 5) & 0x3f) << 2;
 				b = (pix & 0x1f) << 3;
 				convertYUV(r, g, b, &r, &g, &b);
-				*dp_y_out++ = r;
-				*dp_u_out++ = g;
-				*dp_v_out++ = b;
+				*dp_y_in++ = r;
+				*dp_u_in++ = g;
+				*dp_v_in++ = b;
 				sp += bpp;
 			}
 			sp += ctx->blankInColumn;
@@ -711,57 +880,182 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	}
 
-	if (isKey || (rpConfig.flags & RP_SELECT_PREDICTION)) {
-		predictImage(dp_p_y, dp_y, width, height);
-	}
+	u8 flags_pf = *dp_flags_pf;
+	int ds_width = width / 2;
+	int ds_height = height / 2;
+	int ds_ds_width = ds_width / 2;
+	int ds_ds_height = ds_height / 2;
 
-	downsampleImage(dp_ds_u, dp_u, width, height);
-	if (isKey || (rpConfig.flags & RP_SELECT_PREDICTION)) {
-		predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
-	}
+	u8* dp_y_out;
+	u32 dp_y_out_size;
+	u8* dp_uv_out;
+	u32 dp_uv_out_size;
 
-	downsampleImage(dp_ds_v, dp_v, width, height);
-	if (isKey || (rpConfig.flags & RP_SELECT_PREDICTION)) {
-		predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
-	}
+	u8* dp_dummy_out;
+
+	COMPRESS_CONTEXT cctx = { 0 };
 
 	if (isKey) {
-		// ctx->transformDst = dp_p_y;
-		// ctx->dst_size = dp_p_y_size;
-		// ctx->transformDst2 = dp_p_ds_u;
-		// ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
+		// Y
+		predictImage(dp_p_y, dp_y, width, height);
+		dp_y_out = dp_p_y;
+		dp_y_out_size = dp_p_y_size;
+
+		cctx.data = dp_y_out;
+		cctx.data_size = dp_y_out_size;
+
+		if (rpTestCompressAndSend(&cctx, 0) < 0) {
+			// Y downsampled
+			flags |= RP_DOWNSAMPLE_Y;
+			downsampleImage(dp_ds_y, dp_y, width, height);
+			predictImage(dp_p_ds_y, dp_ds_y, ds_width, ds_height);
+			dp_y_out = dp_p_ds_y;
+			dp_y_out_size = dp_p_ds_y_size;
+
+			cctx.data = dp_y_out;
+			cctx.data_size = dp_y_out_size;
+			rpTestCompressAndSend(&cctx, 1);
+		}
+
+		// UV
+		downsampleImage(dp_ds_u, dp_u, width, height);
+		predictImage(dp_p_ds_u, dp_ds_u, ds_width, ds_height);
+		dp_uv_out = dp_p_ds_u;
+		dp_uv_out_size = dp_p_ds_u_size;
+		downsampleImage(dp_ds_v, dp_v, width, height);
+		predictImage(dp_p_ds_v, dp_ds_v, ds_width, ds_height);
+		dp_uv_out_size += dp_p_ds_v_size;
+
+		cctx.data = dp_uv_out;
+		cctx.data_size = dp_uv_out_size;
+
+		if (rpTestCompressAndSend(&cctx, 0) < 0) {
+			// UV downsampled
+			flags |= RP_DOWNSAMPLE2_UV;
+
+			downsampleImage(dp_ds_ds_u, dp_ds_u, ds_width, ds_height);
+			predictImage(dp_p_ds_ds_u, dp_ds_ds_u, ds_ds_width, ds_ds_height);
+			dp_uv_out = dp_p_ds_ds_u;
+			dp_uv_out_size = dp_p_ds_ds_u_size;
+			downsampleImage(dp_ds_ds_v, dp_ds_v, ds_width, ds_height);
+			predictImage(dp_p_ds_ds_v, dp_ds_ds_v, ds_ds_width, ds_ds_height);
+			dp_uv_out_size += dp_p_ds_ds_v_size;
+
+			cctx.data = dp_uv_out;
+			cctx.data_size = dp_uv_out_size;
+			rpTestCompressAndSend(&cctx, 1);
+		}
+
 		*dp_flags = flags;
 	} else {
-		differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
-		if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) {
-			predictImage(dp_p_fd_y, dp_fd_y, width, height);
-			selectImage(&dp_s_p_fd_y, dp_m_p_fd_y, dp_p_fd_y, dp_p_y, width, height);
+
+#define predictImage2(out_dst, dst, src, w, h) do { \
+	if (rpConfig.flags & RP_SELECT_PREDICTION) { \
+		predictImage(dst, src, w, h); \
+		out_dst = dst; \
+	} else { \
+		out_dst = src; \
+	} \
+} while (0)
+
+#define selectImage2(out_dst, s_dst, m_dst, p_fd, p, w, h) do { \
+	if (rpConfig.flags & RP_SELECT_PREDICTION) { \
+		selectImage(s_dst, m_dst, p_fd, p, w, h); \
+		out_dst = s_dst; \
+	} else { \
+		out_dst = p_fd; \
+	} \
+} while (0)
+
+#define predictAndSelectImage2(out_dst, s_dst, m_dst, p_fd, fd, p, w, h) do { \
+	if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) { \
+		predictImage(p_fd, fd, w, h); \
+		selectImage2(out_dst, s_dst, m_dst, p_fd, p, w, h); \
+	} else { \
+		selectImage2(out_dst, s_dst, m_dst, fd, p, w, h); \
+	} \
+} while (0)
+
+		// Y
+		if (flags_pf & RP_DOWNSAMPLE_Y) {
+			differenceFromDownsampled(dp_fd_y, dp_y, dp_ds_y_pf, width, height);
 		} else {
-			selectImage(&dp_s_p_fd_y, dp_m_p_fd_y, dp_fd_y, dp_p_y, width, height);
+			differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
+		}
+		predictImage2(dp_dummy_out, dp_p_y, dp_y, width, height);
+		predictAndSelectImage2(dp_y_out, dp_s_p_fd_y, dp_m_p_fd_y, dp_p_fd_y, dp_fd_y, dp_p_y, width, height);
+
+		cctx.data = dp_y_out;
+		cctx.data_size = dp_s_p_fd_y_size;
+
+		if (rpTestCompressAndSend(&cctx, 0) < 0) {
+			// Y downsampled
+			flags |= RP_DOWNSAMPLE_Y;
+
+			if (flags_pf & RP_DOWNSAMPLE_Y) {
+				downsampledDifferenceFromDownsampled(dp_fd_ds_y, dp_y, dp_ds_y_pf, width, height);
+			} else {
+				downsampledDifference(dp_fd_ds_y, dp_y, dp_y_pf, width, height);
+			}
+			predictImage2(dp_dummy_out, dp_p_ds_y, dp_ds_y, ds_width, ds_height);
+			predictAndSelectImage2(dp_y_out, dp_s_p_fd_ds_y, dp_m_p_fd_ds_y, dp_p_fd_ds_y, dp_fd_ds_y, dp_p_ds_y, ds_width, ds_height);
+
+			cctx.data = dp_y_out;
+			cctx.data_size = dp_s_p_fd_ds_y_size;
+
+			rpTestCompressAndSend(&cctx, 1);
 		}
 
-		differenceImage(dp_fd_ds_u, dp_ds_u, dp_ds_u_pf, width / 2, height / 2);
-		if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) {
-			predictImage(dp_p_fd_ds_u, dp_fd_ds_u, width / 2, height / 2);
-			selectImage(&dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_p_fd_ds_u, dp_p_ds_u, width / 2, height / 2);
+		// UV
+		if (flags_pf & RP_DOWNSAMPLE2_UV) {
+			differenceFromDownsampled(dp_fd_ds_u, dp_ds_u, dp_ds_ds_u_pf, ds_width, ds_height);
 		} else {
-			selectImage(&dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_fd_ds_u, dp_p_ds_u, width / 2, height / 2);
+			differenceImage(dp_fd_ds_u, dp_ds_u, dp_ds_u_pf, ds_width, ds_height);
+		}
+		predictImage2(dp_dummy_out, dp_p_ds_u, dp_ds_u, ds_width, ds_height);
+		predictAndSelectImage2(dp_uv_out, dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_p_fd_ds_u, dp_fd_ds_u, dp_p_ds_u, ds_width, ds_height);
+		dp_uv_out_size = dp_s_p_fd_ds_u_size;
+
+		if (flags_pf & RP_DOWNSAMPLE2_UV) {
+			differenceFromDownsampled(dp_fd_ds_v, dp_ds_v, dp_ds_ds_v_pf, ds_width, ds_height);
+		} else {
+			differenceImage(dp_fd_ds_v, dp_ds_v, dp_ds_v_pf, ds_width, ds_height);
+		}
+		predictImage2(dp_dummy_out, dp_p_ds_v, dp_ds_v, ds_width, ds_height);
+		predictAndSelectImage2(dp_dummy_out, dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_p_fd_ds_v, dp_fd_ds_v, dp_p_ds_v, ds_width, ds_height);
+		dp_uv_out_size += dp_s_p_fd_ds_u_size;
+
+		cctx.data = dp_uv_out;
+		cctx.data_size = dp_uv_out_size;
+
+		if (rpTestCompressAndSend(&cctx, 0) < 0) {
+			// UV downsampled
+			flags |= RP_DOWNSAMPLE2_UV;
+
+			if (flags_pf & RP_DOWNSAMPLE2_UV) {
+				downsampledDifferenceFromDownsampled(dp_fd_ds_ds_u, dp_ds_u, dp_ds_ds_u_pf, ds_width, ds_height);
+			} else {
+				downsampledDifference(dp_fd_ds_ds_u, dp_ds_u, dp_ds_u_pf, ds_width, ds_height);
+			}
+			predictImage2(dp_dummy_out, dp_p_ds_ds_u, dp_ds_ds_u, ds_ds_width, ds_ds_height);
+			predictAndSelectImage2(dp_uv_out, dp_s_p_fd_ds_ds_u, dp_m_p_fd_ds_ds_u, dp_p_fd_ds_ds_u, dp_fd_ds_ds_u, dp_p_ds_ds_u, ds_ds_width, ds_ds_height);
+			dp_uv_out_size = dp_s_p_fd_ds_ds_u_size;
+
+			if (flags_pf & RP_DOWNSAMPLE2_UV) {
+				downsampledDifferenceFromDownsampled(dp_fd_ds_ds_v, dp_ds_v, dp_ds_ds_v_pf, ds_width, ds_height);
+			} else {
+				downsampledDifference(dp_fd_ds_ds_v, dp_ds_v, dp_ds_v_pf, ds_width, ds_height);
+			}
+			predictImage2(dp_dummy_out, dp_p_ds_ds_v, dp_ds_ds_v, ds_ds_width, ds_ds_height);
+			predictAndSelectImage2(dp_dummy_out, dp_s_p_fd_ds_ds_v, dp_m_p_fd_ds_ds_v, dp_p_fd_ds_ds_v, dp_fd_ds_ds_v, dp_p_ds_ds_v, ds_ds_width, ds_ds_height);
+			dp_uv_out_size += dp_s_p_fd_ds_ds_v_size;
+
+			cctx.data = dp_uv_out;
+			cctx.data_size = dp_uv_out_size;
+
+			rpTestCompressAndSend(&cctx, 1);
 		}
 
-		differenceImage(dp_fd_ds_v, dp_ds_v, dp_ds_v_pf, width / 2, height / 2);
-		if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) {
-			predictImage(dp_p_fd_ds_v, dp_fd_ds_v, width / 2, height / 2);
-			selectImage(&dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_p_fd_ds_v, dp_p_ds_v, width / 2, height / 2);
-		} else {
-			selectImage(&dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_fd_ds_v, dp_p_ds_v, width / 2, height / 2);
-		}
-
-		// ctx->transformDst = dp_s_p_fd_y;
-		// ctx->dst_size = dp_s_p_fd_y_size;
-		// ctx->transformDst2 = dp_s_p_fd_ds_u;
-		// ctx->dst2_size = dp_s_p_fd_ds_u_size + dp_s_p_fd_ds_v_size;
-		// ctx->transformDst3 = dp_m_p_fd_y;
-		// ctx->dst3_size = dp_m_p_fd_y_size + dp_m_p_fd_ds_u_size + dp_m_p_fd_ds_v_size;
 		*dp_flags = flags;
 	}
 
@@ -1242,7 +1536,7 @@ int nsHandleRemotePlay() {
 #endif
 
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
-	
+
 	rpConfig.mode = pac->args[0];
 	u32 rp_magic = pac->args[1];
 	rpConfig.qos = pac->args[2];
