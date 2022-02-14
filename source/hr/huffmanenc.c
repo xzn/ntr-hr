@@ -187,24 +187,24 @@ static inline int write_huff_codes(uint8_t *dst, const uint8_t *src, int src_siz
     return put_bytes_output(&pb);
 }
 
-int huffman_encode(uint8_t *dst, const uint8_t *src, int src_size)
+uint32_t *huffman_len_table(uint8_t *dst, const uint8_t *src, int src_size)
 {
-    // uint32_t *counts = HR_MALLOC(sizeof(*counts) * 256);
-    // HuffmanEntry *he = HR_MALLOC(sizeof(*he) * 256);
-
-    // uint32_t *counts = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200;
-    // HuffmanEntry *he = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200 + 0x400;
-
     uint32_t *counts = rpAllocBuff + rpAllocBuff_map;
-    HuffmanEntry *he = rpAllocBuff + rpAllocBuff_counts;
 
     memset(counts, 0, sizeof(*counts) * 256);
-    int i;
 
     count_usage(src, src_size, counts);
 
     ff_huff_gen_len_table(dst, counts);
 
+    return counts;
+}
+
+int huffman_encode_with_len_table(const uint32_t *counts, uint8_t *dst, const uint8_t *src, int src_size)
+{
+    HuffmanEntry *he = rpAllocBuff + rpAllocBuff_counts;
+
+    int i;
     for (i = 0; i < 256; ++i)
     {
         he[i].len = *dst++;
@@ -215,10 +215,30 @@ int huffman_encode(uint8_t *dst, const uint8_t *src, int src_size)
 
     int ret = write_huff_codes(dst, src, src_size, he);
 
+    return 256 + ret;
+}
+
+int huffman_encode(uint8_t *dst, const uint8_t *src, int src_size)
+{
+    // uint32_t *counts = HR_MALLOC(sizeof(*counts) * 256);
+    // HuffmanEntry *he = HR_MALLOC(sizeof(*he) * 256);
+
+    // uint32_t *counts = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200;
+    // HuffmanEntry *he = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200 + 0x400;
+
+    return huffman_encode_with_len_table(huffman_len_table(dst, src, src_size), dst, src, src_size);
+
     // HR_FREE(he);
     // HR_FREE(counts);
+}
 
-    return 256 + ret;
+int huffman_compressed_size(const uint32_t *counts, const uint8_t *lens)
+{
+    int i = 0, n = 0;
+    for (; i < 256; ++i) {
+        n += counts[i] * lens[i];
+    }
+    return (n + 7) / 8;
 }
 
 int huffman_malloc_usage()

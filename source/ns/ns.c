@@ -192,7 +192,7 @@ RT_HOOK nwmValParamHook;
 int config_selectPredictions = 0; // very slow
 int config_useFrameDelta = 1;
 int config_predictFrameDelta = 0; // no gains
-int config_progressiveEncode = 1; // WIP
+int config_dynamicEncode = 1;
 
 int packetLen = 0;
 int remotePlayInited = 0;
@@ -305,11 +305,11 @@ typedef struct _BLIT_CONTEXT {
 	u32 blankInColumn;
 
 	u8* transformDst; // Y
-	u8* transformDst2; // UV
-	u8* transformDst3; // YUV mask for frame delta
-	u32 dst_size;
-	u32 dst2_size;
-	u32 dst3_size;
+	// u8* transformDst2; // UV
+	// u8* transformDst3; // YUV mask for frame delta
+	// u32 dst_size;
+	// u32 dst2_size;
+	// u32 dst3_size;
 	// u8* compressDst;
 	// u32 compressedSize;
 
@@ -551,7 +551,7 @@ static inline void selectImage(u8 **p_s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, i
 	}
 }
 
-static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
+static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	// if (!config_selectPredictions) {
 	// 	config_predictFrameDelta = 1;
 	// }
@@ -717,10 +717,10 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	}
 
 	if (isKey) {
-		ctx->transformDst = dp_p_y;
-		ctx->dst_size = dp_p_y_size;
-		ctx->transformDst2 = dp_p_ds_u;
-		ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
+		// ctx->transformDst = dp_p_y;
+		// ctx->dst_size = dp_p_y_size;
+		// ctx->transformDst2 = dp_p_ds_u;
+		// ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
 	} else {
 		differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
 		if (config_predictFrameDelta) {
@@ -746,12 +746,12 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 			selectImage(&dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_fd_ds_v, dp_p_ds_v, width / 2, height / 2);
 		}
 
-		ctx->transformDst = dp_s_p_fd_y;
-		ctx->dst_size = dp_s_p_fd_y_size;
-		ctx->transformDst2 = dp_s_p_fd_ds_u;
-		ctx->dst2_size = dp_s_p_fd_ds_u_size + dp_s_p_fd_ds_v_size;
-		ctx->transformDst3 = dp_m_p_fd_y;
-		ctx->dst3_size = dp_m_p_fd_y_size + dp_m_p_fd_ds_u_size + dp_m_p_fd_ds_v_size;
+		// ctx->transformDst = dp_s_p_fd_y;
+		// ctx->dst_size = dp_s_p_fd_y_size;
+		// ctx->transformDst2 = dp_s_p_fd_ds_u;
+		// ctx->dst2_size = dp_s_p_fd_ds_u_size + dp_s_p_fd_ds_v_size;
+		// ctx->transformDst3 = dp_m_p_fd_y;
+		// ctx->dst3_size = dp_m_p_fd_y_size + dp_m_p_fd_ds_u_size + dp_m_p_fd_ds_v_size;
 	}
 
 	//ctx->compressedSize = fastlz_compress_level(2, ctx->transformDst, (ctx->width) * (ctx->height) * 2, ctx->compressDst);
@@ -767,37 +767,43 @@ static inline void compressAndSendData(u8 *dst, const u8 *data, int size) {
 	// u32 bakAllocRemainSize = rpAllocBuffRemainSize;
 
 #ifdef HAS_HUFFMAN_RLE
-	int huffman_size = huffman_encode(dst, data, size);
+	// int huffman_size = huffman_encode(dst, data, size);
 	// xsprintf(dataBuf, "Huffman %d from %d\n", huffman_size, size);
-	int rle_size = rle_encode(dst + huffman_size, dst, huffman_size);
-	xsprintf(dataBuf, "Huffman %d then RLE %d from %d\n", huffman_size, rle_size, size);
-	rpSendString(strlen(dataBuf));
+	// int rle_size = rle_encode(dst + huffman_size, dst, huffman_size);
+	// xsprintf(dataBuf, "Huffman %d then RLE %d from %d\n", huffman_size, rle_size, size);
+	// rpSendString(strlen(dataBuf));
+
+	// uint32_t *counts = huffman_len_table(dst, data, size);
+	// int huffman_size_calculated = huffman_compressed_size(counts, dst) + 256;
+	// int huffman_size = huffman_encode_with_len_table(counts, dst, data, size);
+	// xsprintf(dataBuf, "Huffman %d (%d expected) from %d\n", huffman_size, huffman_size_calculated, size);
+	// rpSendString(strlen(dataBuf));
 #endif
 
 	// rpAllocBuffOffset = bakAllocOffset;
 	// rpAllocBuffRemainSize = bakAllocRemainSize;
 
-	if (rle_size < huffman_size) {
-		sendData(dst + huffman_size, rle_size);
-	} else {
-		sendData(dst, huffman_size);
-	}
+	// if (rle_size < huffman_size) {
+	// 	sendData(dst + huffman_size, rle_size);
+	// } else {
+	// 	sendData(dst, huffman_size);
+	// }
 }
 
 static inline void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
-	if (ctx->src_end <= ctx->src)
-		return;
+	// if (ctx->src_end <= ctx->src)
+	// 	return;
 
-	u8 *srcBuff, *srcBuff2, *srcBuff3;
-	srcBuff = ctx->transformDst;
-	srcBuff2 = ctx->transformDst2;
-	srcBuff3 = ctx->transformDst3;
-	u8 *dst = ctx->src_end;
-	compressAndSendData(dst, srcBuff, ctx->dst_size);
-	compressAndSendData(dst, srcBuff2, ctx->dst2_size);
-	if (!ctx->isKey) {
-		sendData(srcBuff3, ctx->dst3_size);
-	}
+	// u8 *srcBuff, *srcBuff2, *srcBuff3;
+	// srcBuff = ctx->transformDst;
+	// srcBuff2 = ctx->transformDst2;
+	// srcBuff3 = ctx->transformDst3;
+	// u8 *dst = ctx->src_end;
+	// compressAndSendData(dst, srcBuff, ctx->dst_size);
+	// compressAndSendData(dst, srcBuff2, ctx->dst2_size);
+	// if (!ctx->isKey) {
+	// 	sendData(srcBuff3, ctx->dst3_size);
+	// }
 }
 
 
@@ -1047,8 +1053,8 @@ void remotePlaySendFrames() {
 			topContext.id = (u8)currentTopId;
 			topContext.isTop = 1;
 			topContext.isKey = isKey;
-			remotePlayBlitCompressed(&topContext);
-			rpCompressAndSendPacket(&topContext);
+			remotePlayBlitCompressAndSend(&topContext);
+			// rpCompressAndSendPacket(&topContext);
 		}
 		else {
 			// send bottom
@@ -1063,8 +1069,8 @@ void remotePlaySendFrames() {
 			botContext.id = (u8)currentBottomId;
 			botContext.isTop = 0;
 			botContext.isKey = isKey;
-			remotePlayBlitCompressed(&botContext);
-			rpCompressAndSendPacket(&botContext);
+			remotePlayBlitCompressAndSend(&botContext);
+			// rpCompressAndSendPacket(&botContext);
 		}
 
 #define SEND_STAT_EVERY_X_FRAMES 16
