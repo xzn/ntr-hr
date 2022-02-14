@@ -67,7 +67,7 @@ typedef struct _RP_CONFIG {
 	u32 mode;
 	u32 quality;
 	u32 qos;
-	u32 control; // control
+	volatile u32 control; // control
 } RP_CONFIG;
 
 typedef struct _NS_CONFIG {

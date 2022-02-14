@@ -480,8 +480,8 @@ static inline void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, i
 }
 
 #define BITS_PER_BYTE 8
-#define ENCODE_SELECT_MASK_X_SCALE BITS_PER_BYTE
-#define ENCODE_SELECT_MASK_Y_SCALE BITS_PER_BYTE
+#define ENCODE_SELECT_MASK_X_SCALE 1
+#define ENCODE_SELECT_MASK_Y_SCALE 8
 #define ENCODE_SELECT_MASK_FACTOR (BITS_PER_BYTE * ENCODE_SELECT_MASK_X_SCALE * ENCODE_SELECT_MASK_Y_SCALE)
 
 #define HR_MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -564,21 +564,29 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	// This is a lot of variables.
 	// Take care to not clobber anything.
 
+	u8 *dp_begin = ctx->transformDst;
+	 // need for next frame
+	u8 *dp_save_begin = dp_begin;
+	u8* dp_flags = dp_save_begin;
+	u8 flags = 0;
 	// assume worst case width = 400, height = 240 for top screen
-	u8* dp_y = ctx->transformDst;
-	u32 dp_y_size = width * height; // 96'000, need for next frame
+	u8* dp_y = dp_flags + 1;
+	u32 dp_y_size = width * height; // 96'000
 	u8* dp_ds_u = dp_y + dp_y_size;
-	u32 dp_ds_u_size = dp_y_size / 4; // 24'000, need for next frame
+	u32 dp_ds_u_size = dp_y_size / 4; // 24'000
 	u8* dp_ds_v = dp_ds_u + dp_ds_u_size;
-	u32 dp_ds_v_size = dp_ds_u_size; // 24'000, need for next frame
+	u32 dp_ds_v_size = dp_ds_u_size; // 24'000
 
-	int frameOffset = (400 + 320) * 240 * 3 / 2; // dp_y_size + dp_ds_u_size + dp_ds_v_size for both screens
-	int bottomScreenOffset = 400 * 240 * 3 / 2; // offset from top
+	u8 *dp_save_end = dp_ds_v + dp_ds_v_size;;
+	u32 dp_save_size = dp_save_end - dp_begin;
+
+	int frameOffset = dp_save_size * (400 + 320) / width; // dp_y_size + dp_ds_u_size + dp_ds_v_size for both screens
+	int bottomScreenOffset = dp_save_size * 400 / width; // offset from top
 	u8* dp_y_pf;
 	u8* dp_ds_u_pf;
 	u8* dp_ds_v_pf;
 
-	u8* dp_p_y = dp_ds_v + dp_ds_v_size;
+	u8* dp_p_y = dp_save_end;
 	u32 dp_p_y_size = dp_y_size; // 96'000, output for key
 	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;
 	u32 dp_p_ds_u_size = dp_ds_u_size; // 24'000, output for key
@@ -590,37 +598,50 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_v = dp_u + dp_u_size;
 	u32 dp_v_size = dp_y_size; // 96'000
 
-	u8* dp_fd_y = dp_u; // reuse from dp_u, after downsample, make sure dp_fd_y_size <= dp_u_size, maybe output
+	// output when not RP_SELECT_PREDICTION and not RP_PREDICT_FRAME_DELTA
+	u8* dp_fd_y = dp_u; // reuse from dp_u, after downsample, make sure dp_fd_y_size <= dp_u_size
 	u32 dp_fd_y_size = dp_y_size;
-	u8* dp_fd_ds_u = dp_v; // reuse from dp_v, after downsample, maybe output, need to be consecutive in layout with dp_fd_ds_v
+	u8* dp_fd_ds_u = dp_v; // reuse from dp_v, after downsample, need to be consecutive in layout with dp_fd_ds_v
 	u32 dp_fd_ds_u_size = dp_ds_u_size;
-	u8* dp_fd_ds_v = dp_fd_ds_u + dp_fd_ds_u_size; // make sure dp_fd_ds_u_size + dp_fd_ds_v_size <= dp_v_size, maybe output
+	u8* dp_fd_ds_v = dp_fd_ds_u + dp_fd_ds_u_size; // make sure dp_fd_ds_u_size + dp_fd_ds_v_size <= dp_v_size
 	u32 dp_fd_ds_v_size = dp_ds_v_size;
 
-	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is done (prediction of frame delta), output
-	u32 dp_s_p_fd_y_size = dp_fd_y_size;
-	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is done (prediction of frame delta), output, need to be consecutive in layout with dp_s_p_fd_ds_v
-	u32 dp_s_p_fd_ds_u_size = dp_fd_ds_u_size;
-	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is done (prediction of frame delta), output
-	u32 dp_s_p_fd_ds_v_size = dp_fd_ds_v_size;
-
-	u8* dp_p_fd_y = dp_fd_ds_v + dp_fd_ds_v_size;
+	// output when not RP_SELECT_PREDICTION and RP_PREDICT_FRAME_DELTA
+	u8* dp_p_fd_y = dp_p_ds_v + dp_p_ds_v_size;
 	u32 dp_p_fd_y_size = dp_fd_y_size; // 96'000
-	u8* dp_p_fd_ds_u = dp_p_fd_y + dp_p_fd_y_size;
+	u8* dp_p_fd_ds_u = dp_p_fd_y + dp_p_fd_y_size; // need to be consecutive in layout with dp_p_fd_ds_v
 	u32 dp_p_fd_ds_u_size = dp_fd_ds_u_size; // 24'000
 	u8* dp_p_fd_ds_v = dp_p_fd_ds_u + dp_p_fd_ds_u_size;
 	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
 
-	u8* dp_m_p_fd_y = dp_p_fd_ds_v + dp_p_fd_ds_v_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_u
-	u32 dp_m_p_fd_y_size = (dp_p_fd_y_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR; // round up, divisor is bits-per-byte * horizontal downscale * vertical downscale
-	u8* dp_m_p_fd_ds_u = dp_m_p_fd_y + dp_m_p_fd_y_size; // output, need to be consecutive in layout with dp_m_p_fd_ds_v
+	// output when RP_SELECT_PREDICTION
+	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is done (prediction of frame delta)
+	u32 dp_s_p_fd_y_size = dp_fd_y_size;
+	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is done (prediction of frame delta), need to be consecutive in layout with dp_s_p_fd_ds_v
+	u32 dp_s_p_fd_ds_u_size = dp_fd_ds_u_size;
+	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is done (prediction of frame delta)
+	u32 dp_s_p_fd_ds_v_size = dp_fd_ds_v_size;
+
+	// output when RP_SELECT_PREDICTION
+	u8* dp_m_p_fd_y = dp_p_fd_ds_v + dp_p_fd_ds_v_size; // need to be consecutive in layout with dp_m_p_fd_ds_u
+	u32 dp_m_p_fd_y_size = (dp_p_fd_y_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u8* dp_m_p_fd_ds_u = dp_m_p_fd_y + dp_m_p_fd_y_size; // need to be consecutive in layout with dp_m_p_fd_ds_v
 	u32 dp_m_p_fd_ds_u_size = (dp_p_fd_ds_u_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
-	u8* dp_m_p_fd_ds_v = dp_m_p_fd_ds_u + dp_m_p_fd_ds_u_size; // output
+	u8* dp_m_p_fd_ds_v = dp_m_p_fd_ds_u + dp_m_p_fd_ds_u_size;
 	u32 dp_m_p_fd_ds_v_size = (dp_p_fd_ds_v_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+
+	u8* dp_end = dp_m_p_fd_ds_v + dp_m_p_fd_ds_v_size;
+	if (dp_end > rpAllocBuff) {
+		const char *msg = "Internal error (remotePlayBlitCompressAndSend): allocated buffer too small\n";
+		const int msg_len = strlen(msg);
+		memcpy(dataBuf, msg, msg_len);
+		rpSendString(msg_len);
+		return -1;
+	}
 
 	// that's a total of 96'000 * 5 + 24'000 * 6 = 624'000
 	// make sure we have enough room in the buffer
-	// see imgBuffer in remotePlayThreadStart
+	// see imgBuffer in remotePlayThreadStart and transformDst in remotePlaySendFrames
 
 	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
 		dp_y -= bottomScreenOffset;
@@ -709,6 +730,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		// ctx->dst_size = dp_p_y_size;
 		// ctx->transformDst2 = dp_p_ds_u;
 		// ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
+		*dp_flags = flags;
 	} else {
 		differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
 		if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) {
@@ -740,6 +762,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		// ctx->dst2_size = dp_s_p_fd_ds_u_size + dp_s_p_fd_ds_v_size;
 		// ctx->transformDst3 = dp_m_p_fd_y;
 		// ctx->dst3_size = dp_m_p_fd_y_size + dp_m_p_fd_ds_u_size + dp_m_p_fd_ds_v_size;
+		*dp_flags = flags;
 	}
 
 	//ctx->compressedSize = fastlz_compress_level(2, ctx->transformDst, (ctx->width) * (ctx->height) * 2, ctx->compressDst);
