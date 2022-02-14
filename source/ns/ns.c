@@ -189,9 +189,10 @@ return cmdbuf[1];
 
 RT_HOOK nwmValParamHook;
 
-int config_selectPredictions = 0;
+int config_selectPredictions = 0; // very slow
 int config_useFrameDelta = 1;
-int config_predictFrameDelta = 0;
+int config_predictFrameDelta = 0; // no gains
+int config_progressiveEncode = 1; // WIP
 
 int packetLen = 0;
 int remotePlayInited = 0;
@@ -298,6 +299,7 @@ typedef struct _BLIT_CONTEXT {
 	int width, height, format, src_pitch;
 	int x, y;
 	u8* src;
+	u8* src_end;
 	int outformat, bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
@@ -322,8 +324,7 @@ typedef struct _BLIT_CONTEXT {
 } BLIT_CONTEXT;
 
 
-static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src) {
-
+static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src, int src_size) {
 	format &= 0x0f;
 	if (format == 0){
 		ctx->bpp = 4;
@@ -341,6 +342,7 @@ static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, 
 	ctx->height = height;
 	ctx->src_pitch = src_pitch;
 	ctx->src = src;
+	ctx->src_end = src_size > 0 ? src + src_size : src;
 	ctx->x = 0;
 	ctx->y = 0;
 	if (ctx->bpp == 2) {
@@ -490,6 +492,9 @@ static inline void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, i
 #define ENCODE_SELECT_MASK_Y_SCALE BITS_PER_BYTE
 #define ENCODE_SELECT_MASK_FACTOR (BITS_PER_BYTE * ENCODE_SELECT_MASK_X_SCALE * ENCODE_SELECT_MASK_Y_SCALE)
 
+#define HR_MAX(a, b) ((a) > (b) ? (a) : (b))
+#define HR_MIN(a, b) ((a) < (b) ? (a) : (b))
+
 static inline void selectImage(u8 **p_s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int w, int h) {
 	if (!config_selectPredictions) {
 		*p_s_dst = p_fd;
@@ -499,45 +504,48 @@ static inline void selectImage(u8 **p_s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, i
 
 	u8 *s_dst = *p_s_dst;
 	u16 sum_p_fd, sum_p;
-	u8 mask;
+	u8 mask, m = 0;
 	int x = 0, y, i, j, n;
-	u8 *m_dst_cur;
 	while (1) {
 		n = y = 0;
 		while (1) {
 			sum_p_fd = 0;
 			sum_p = 0;
-			for (i = x; i < x + ENCODE_SELECT_MASK_X_SCALE; ++i) {
-				if (i >= w) break;
-				for (j = x; j < y + ENCODE_SELECT_MASK_Y_SCALE; ++j) {
-					if (j >= h) break;
+			for (i = x; i < HR_MIN(x + ENCODE_SELECT_MASK_X_SCALE, w); ++i) {
+				for (j = y; j < HR_MIN(y + ENCODE_SELECT_MASK_Y_SCALE, h); ++j) {
 					sum_p_fd += accessImageNoCheck(p_fd, i, j, w, h);
 					sum_p += accessImageNoCheck(p, i, j, w, h);
 				}
 			}
 			mask = sum_p_fd < sum_p;
 
-			for (i = x; i < x + ENCODE_SELECT_MASK_X_SCALE; ++i) {
-				if (i >= w) break;
-				for (j = x; j < y + ENCODE_SELECT_MASK_Y_SCALE; ++j) {
-					if (j >= h) break;
-					if (mask) {
+			if (mask) {
+				for (i = x; i < HR_MIN(x + ENCODE_SELECT_MASK_X_SCALE, w); ++i)
+					for (j = y; j < HR_MIN(y + ENCODE_SELECT_MASK_Y_SCALE, h); ++j)
 						s_dst[i * h + j] = accessImageNoCheck(p_fd, i, j, w, h);
-					} else {
+			} else {
+				for (i = x; i < HR_MIN(x + ENCODE_SELECT_MASK_X_SCALE, w); ++i)
+					for (j = y; j < HR_MIN(y + ENCODE_SELECT_MASK_Y_SCALE, h); ++j)
 						s_dst[i * h + j] = accessImageNoCheck(p, i, j, w, h);
-					}
-				}
 			}
 
-			if (n % ENCODE_SELECT_MASK_Y_SCALE == 0) {
-				m_dst_cur = m_dst++;
+			mask <<= n++;
+			m |= mask;
+			n %= BITS_PER_BYTE;
+			if (n == 0) {
+				*m_dst++ = m;
+				m = 0;
 			}
-			mask <<= n++ % ENCODE_SELECT_MASK_Y_SCALE;
-			m_dst[x * ((h + ENCODE_SELECT_MASK_Y_SCALE - 1) / ENCODE_SELECT_MASK_Y_SCALE) + n] |= mask;
 
 			y += ENCODE_SELECT_MASK_Y_SCALE;
 			if (y >= h) break;
 		}
+
+		if (n != 0) {
+			*m_dst++ = m;
+			m = 0;
+		}
+
 		x += ENCODE_SELECT_MASK_X_SCALE;
 		if (x >= w) break;
 	}
@@ -547,6 +555,9 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	// if (!config_selectPredictions) {
 	// 	config_predictFrameDelta = 1;
 	// }
+
+	if (ctx->src_end <= ctx->src)
+		return  -1;
 
 	int blockSize = 16;
 	int bpp = ctx->bpp;
@@ -747,9 +758,11 @@ static inline int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	return 0;
 }
 
+static inline void sendData(const u8 *data, int size) {
+	return;
+}
 
-
-static inline void compressData(u8 *dst, const u8 *data, int size) {
+static inline void compressAndSendData(u8 *dst, const u8 *data, int size) {
 	// u32 bakAllocOffset = rpAllocBuffOffset;
 	// u32 bakAllocRemainSize = rpAllocBuffRemainSize;
 
@@ -763,18 +776,27 @@ static inline void compressData(u8 *dst, const u8 *data, int size) {
 
 	// rpAllocBuffOffset = bakAllocOffset;
 	// rpAllocBuffRemainSize = bakAllocRemainSize;
+
+	if (rle_size < huffman_size) {
+		sendData(dst + huffman_size, rle_size);
+	} else {
+		sendData(dst, huffman_size);
+	}
 }
 
 static inline void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
+	if (ctx->src_end <= ctx->src)
+		return;
+
 	u8 *srcBuff, *srcBuff2, *srcBuff3;
 	srcBuff = ctx->transformDst;
 	srcBuff2 = ctx->transformDst2;
 	srcBuff3 = ctx->transformDst3;
-	u8 *dst = ctx->isKey ? srcBuff2 + ctx->dst2_size : srcBuff3 + ctx->dst3_size;
-	compressData(dst, srcBuff, ctx->dst_size);
-	compressData(dst, srcBuff2, ctx->dst2_size);
+	u8 *dst = ctx->src_end;
+	compressAndSendData(dst, srcBuff, ctx->dst_size);
+	compressAndSendData(dst, srcBuff2, ctx->dst2_size);
 	if (!ctx->isKey) {
-		compressData(dst, srcBuff3, ctx->dst3_size);
+		sendData(srcBuff3, ctx->dst3_size);
 	}
 }
 
@@ -937,7 +959,7 @@ static inline int isInFCRAM(u32 phys) {
 	return 0;
 }
 
-static inline void rpCaptureScreen(int isTop) {
+static inline int rpCaptureScreen(int isTop) {
 	u8 dmaConfig[80] = { 0, 0, 4 };
 	u32 bufSize = isTop? (tl_pitch * 400) : (bl_pitch * 320);
 	u32 phys = isTop ? tl_current : bl_current;
@@ -953,7 +975,7 @@ static inline void rpCaptureScreen(int isTop) {
 	if (isInVRAM(phys)) {
 		svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE,
 			dest, hProcess, 0x1F000000 + (phys - 0x18000000), bufSize, dmaConfig);
-		return;
+		return bufSize;
 	}
 	else if (isInFCRAM(phys)) {
 		hProcess = rpGetGameHandle();
@@ -962,12 +984,10 @@ static inline void rpCaptureScreen(int isTop) {
 				dest, hProcess, rpGameFCRAMBase + (phys - 0x20000000), bufSize, dmaConfig);
 
 		}
-
-		return;
+		return bufSize;
 	}
 	svc_sleepThread(1000000000);
-
-
+	return -1;
 }
 
 
@@ -992,6 +1012,7 @@ void remotePlaySendFrames() {
 
 	u32 tl_pitch_max = 0;
 	u32 bl_pitch_max = 0;
+	int bufSize = 0;
 
 	while (1) {
 		currentUpdating = isPriorityTop;
@@ -1006,6 +1027,8 @@ void remotePlaySendFrames() {
 
 		if (config_useFrameDelta) {
 			isKey = firstFrame;
+		} else {
+			isKey = 1;
 		}
 		if (firstFrame) {
 			firstFrame = 0;
@@ -1013,9 +1036,9 @@ void remotePlaySendFrames() {
 
 		if (currentUpdating) {
 			// send top
-			rpCaptureScreen(1);
+			bufSize = rpCaptureScreen(1);
 			currentTopId += 1;
-			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer);
+			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer, bufSize);
 			tl_pitch_max = tl_pitch_max > tl_pitch ? tl_pitch_max : tl_pitch;
 			// topContext.compressDst = 0;
 			topContext.transformDst = imgBuffer + 0x00150000;
@@ -1029,9 +1052,9 @@ void remotePlaySendFrames() {
 		}
 		else {
 			// send bottom
-			rpCaptureScreen(0);
+			bufSize = rpCaptureScreen(0);
 			currentBottomId += 1;
-			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer);
+			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer, bufSize);
 			bl_pitch_max = bl_pitch_max > bl_pitch ? bl_pitch_max : bl_pitch;
 			// botContext.compressDst = 0;
 			botContext.transformDst = imgBuffer + 0x00150000;
