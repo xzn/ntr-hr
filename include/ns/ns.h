@@ -54,7 +54,12 @@ typedef struct _NS_BREAKPOINT {
 #define NS_BPTYPE_CODE		1
 #define NS_BPTYPE_CODEONESHOT	2
 
-
+typedef struct _RP_CONFIG {
+	u8 selectPredictions;
+	u8 useFrameDelta;
+	u8 predictFrameDelta;
+	u8 dynamicEncode;
+} RP_CONFIG;
 
 typedef struct _NS_CONFIG {
 	u32 initMode;
@@ -74,6 +79,7 @@ typedef struct _NS_CONFIG {
 
 	u32 sharedFunc[100];
 	NTR_CONFIG ntrConfig;
+	RP_CONFIG rpConfig;
 } NS_CONFIG;
 
 #define NS_INITMODE_FROMBOOT	0
