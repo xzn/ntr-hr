@@ -54,11 +54,20 @@ typedef struct _NS_BREAKPOINT {
 #define NS_BPTYPE_CODE		1
 #define NS_BPTYPE_CODEONESHOT	2
 
+#define RP_SELECT_PREDICTION (1 << 0)
+#define RP_USE_FRAME_DELTA (1 << 1)
+#define RP_PREDICT_FRAME_DELTA (1 << 2)
+#define RP_DYNAMIC_ENCODE (1 << 3)
+
+#define RP_EXTENDED_MODE (1 << 31)
+#define RP_MAGIC 0xfff54321
+
 typedef struct _RP_CONFIG {
-	u8 selectPredictions;
-	u8 useFrameDelta;
-	u8 predictFrameDelta;
-	u8 dynamicEncode;
+	u32 flags; // flags
+	u32 mode;
+	u32 quality;
+	u32 qos;
+	u32 control; // control
 } RP_CONFIG;
 
 typedef struct _NS_CONFIG {

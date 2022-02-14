@@ -15,7 +15,7 @@
 
 NS_CONTEXT* g_nsCtx = 0;
 NS_CONFIG* g_nsConfig;
-#define g_rpConfig (g_nsConfig->rpConfig)
+RP_CONFIG rpConfig;
 
 u32 heapStart, heapEnd;
 
@@ -44,9 +44,6 @@ u8* rpAllocBuff = 0;
 // u32 rpAllocBuffOffset = 0;
 // u32 rpAllocBuffRemainSize = 0;
 int rpAllocDebug = 0;
-u32 rpCurrentMode = 0;
-u32 rpQuality = 90;
-u32 rpQosValueInBytes = 0;
 u64 rpMinIntervalBetweenPacketsInTick = 0;
 
 #define SYSTICK_PER_US (268);
@@ -491,7 +488,7 @@ static inline void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, i
 #define HR_MIN(a, b) ((a) < (b) ? (a) : (b))
 
 static inline void selectImage(u8 **p_s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int w, int h) {
-	if (!g_rpConfig.selectPredictions) {
+	if (!(rpConfig.flags & RP_SELECT_PREDICTION)) {
 		*p_s_dst = p_fd;
 		memset(m_dst, 0xff, (w * h + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR);
 		return;
@@ -547,10 +544,6 @@ static inline void selectImage(u8 **p_s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, i
 }
 
 static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
-	// if (!g_rpConfig.selectPredictions) {
-	// 	g_rpConfig.predictFrameDelta = 1;
-	// }
-
 	if (ctx->src_end <= ctx->src)
 		return  -1;
 
@@ -697,17 +690,17 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	}
 
-	if (isKey || g_rpConfig.selectPredictions) {
+	if (isKey || (rpConfig.flags & RP_SELECT_PREDICTION)) {
 		predictImage(dp_p_y, dp_y, width, height);
 	}
 
 	downsampleImage(dp_ds_u, dp_u, width, height);
-	if (isKey || g_rpConfig.selectPredictions) {
+	if (isKey || (rpConfig.flags & RP_SELECT_PREDICTION)) {
 		predictImage(dp_p_ds_u, dp_ds_u, width / 2, height / 2);
 	}
 
 	downsampleImage(dp_ds_v, dp_v, width, height);
-	if (isKey || g_rpConfig.selectPredictions) {
+	if (isKey || (rpConfig.flags & RP_SELECT_PREDICTION)) {
 		predictImage(dp_p_ds_v, dp_ds_v, width / 2, height / 2);
 	}
 
@@ -718,7 +711,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		// ctx->dst2_size = dp_p_ds_u_size + dp_p_ds_v_size;
 	} else {
 		differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
-		if (g_rpConfig.predictFrameDelta) {
+		if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) {
 			predictImage(dp_p_fd_y, dp_fd_y, width, height);
 			selectImage(&dp_s_p_fd_y, dp_m_p_fd_y, dp_p_fd_y, dp_p_y, width, height);
 		} else {
@@ -726,7 +719,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		}
 
 		differenceImage(dp_fd_ds_u, dp_ds_u, dp_ds_u_pf, width / 2, height / 2);
-		if (g_rpConfig.predictFrameDelta) {
+		if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) {
 			predictImage(dp_p_fd_ds_u, dp_fd_ds_u, width / 2, height / 2);
 			selectImage(&dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_p_fd_ds_u, dp_p_ds_u, width / 2, height / 2);
 		} else {
@@ -734,7 +727,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		}
 
 		differenceImage(dp_fd_ds_v, dp_ds_v, dp_ds_v_pf, width / 2, height / 2);
-		if (g_rpConfig.predictFrameDelta) {
+		if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) {
 			predictImage(dp_p_fd_ds_v, dp_fd_ds_v, width / 2, height / 2);
 			selectImage(&dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_p_fd_ds_v, dp_p_ds_v, width / 2, height / 2);
 		} else {
@@ -996,12 +989,17 @@ static inline int rpCaptureScreen(int isTop) {
 void remotePlaySendFrames() {
 	u32 isPriorityTop = 1;
 	u32 priorityFactor = 0;
-	u32 mode = (rpCurrentMode & 0xff00) >> 8;
-	u32 factor = (rpCurrentMode & 0xff);
+	u32 mode = (rpConfig.mode & 0xff00) >> 8;
+	u32 factor = (rpConfig.mode & 0xff);
 	if (mode == 0) {
 		isPriorityTop = 0;
 	}
 	priorityFactor = factor;
+
+	if (rpConfig.qos < 500 * 1024) {
+		rpConfig.qos = 2 * 1024 * 1024;
+	}
+	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpConfig.qos / PACKET_SIZE)) * SYSTICK_PER_US;
 
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
@@ -1026,7 +1024,7 @@ void remotePlaySendFrames() {
 
 		remotePlayKernelCallback();
 
-		if (g_rpConfig.useFrameDelta) {
+		if (rpConfig.flags & RP_USE_FRAME_DELTA) {
 			isKey = firstFrame;
 		} else {
 			isKey = 1;
@@ -1080,23 +1078,18 @@ void remotePlaySendFrames() {
 			}
 			currentTick = nextTick;
 		}
+
+		if (g_nsConfig->rpConfig.control == 1) {
+			rpConfig = g_nsConfig->rpConfig;
+			g_nsConfig->rpConfig.control = 0;
+			svc_sleepThread(100000000);
+			break;
+		}
 	}
 }
 
 void remotePlayThreadStart() {
-#ifndef HAS_HUFFMAN_RLE
-	return;
-#endif
-
 	u32 i, ret;
-
-	rpCurrentMode = g_nsConfig->startupInfo[8];
-	rpQuality = g_nsConfig->startupInfo[9];
-	rpQosValueInBytes = g_nsConfig->startupInfo[10];
-	if (rpQosValueInBytes < 500 * 1024) {
-		rpQosValueInBytes = 2 * 1024 * 1024;
-	}
-	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpQosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
 
 	u8* dataBuf = remotePlayBuffer + 0x2a + 8;
 	u32 remainSize;
@@ -1184,6 +1177,8 @@ void tickTest() {
 static inline void nsRemotePlayControl() {
 	Handle hProcess;
 	u32 pid = 0x1a;
+	u32 control;
+
 	int ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
@@ -1195,28 +1190,54 @@ static inline void nsRemotePlayControl() {
 		hProcess,
 		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig),
 		0xffff8001,
-		&g_rpConfig,
-		sizeof(g_rpConfig));
+		&rpConfig,
+		sizeof(rpConfig));
 	if (ret != 0) {
-		nsDbgPrint("copyRemoteMemory failed: %08x\n", ret, 0);
+		nsDbgPrint("copyRemoteMemory failed (1) : %08x\n", ret, 0);
+		svc_closeHandle(hProcess);
+		return;
 	}
+
+	control = 1;
+	ret = copyRemoteMemory(
+		hProcess,
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig) + offsetof(RP_CONFIG, control),
+		0xffff8001,
+		&control,
+		sizeof(control));
+	if (ret != 0) {
+		nsDbgPrint("copyRemoteMemory failed (2) : %08x\n", ret, 0);
+	}
+
 	svc_closeHandle(hProcess);
 }
 
 int nsHandleRemotePlay() {
+#ifndef HAS_HUFFMAN_RLE
+	nsDbgPrint("Remote play not enabled in this build\n");
+	return;
+#endif
 
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
-	u32 mode = pac->args[0];
-	u32 quality = pac->args[1];
-	u32 qosValue = pac->args[2];
+	
+	rpConfig.mode = pac->args[0];
+	u32 rp_magic = pac->args[1];
+	rpConfig.qos = pac->args[2];
+	rpConfig.flags = pac->args[3];
+	rpConfig.quality = pac->args[4];
+	rpConfig.control = 0;
 
-	if (!((quality >= 10) && (quality <= 100))) {
-		nsDbgPrint("illegal quality\n");
+	if ((rp_magic >= 10) && (rp_magic <= 100)) {
+		nsDbgPrint("JPEG encoder not supported in this build\n");
+		goto final;
+	} else if (rp_magic != RP_MAGIC) {
+		nsDbgPrint("Illegal params. Please update your NTR viewer client\n");
 		goto final;
 	}
 
 	if (nsIsRemotePlayStarted) {
-		nsDbgPrint("remote play already started\n");
+		nsDbgPrint("remote play already started, updating params\n");
+		nsRemotePlayControl();
 		goto final;
 	}
 	nsIsRemotePlayStarted = 1;
@@ -1229,9 +1250,7 @@ int nsHandleRemotePlay() {
 
 	memset(&cfg, 0, sizeof(NS_CONFIG));
 	cfg.startupCommand = NS_STARTCMD_DEBUG;
-	cfg.startupInfo[8] = mode;
-	cfg.startupInfo[9] = quality;
-	cfg.startupInfo[10] = qosValue;
+	cfg.rpConfig = rpConfig;
 	ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
@@ -1275,13 +1294,6 @@ int nsHandleRemotePlay() {
 	setCpuClockLock(3);
 	nsDbgPrint("cpu was locked on 804MHz, L2 Enabled\n");
 	nsDbgPrint("starting remoteplay...\n");
-
-	// nsRemotePlayControl();
-	g_rpConfig.selectPredictions = 0; // very slow
-	g_rpConfig.useFrameDelta = 1;
-	g_rpConfig.predictFrameDelta = 0; // no gains
-	g_rpConfig.dynamicEncode = 1;
-	cfg.rpConfig = g_rpConfig;
 
 	nsAttachProcess(hProcess, remotePC, &cfg, 1);
 
