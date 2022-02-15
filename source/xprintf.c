@@ -15,7 +15,6 @@
 
 
 #if _USE_XFUNC_OUT
-#include <stdarg.h>
 void (*xfunc_out)(unsigned char);	/* Pointer to the output stream */
 static char *outptr;
 
@@ -193,6 +192,13 @@ void xsprintf (			/* Put a formatted string to the memory */
 	outptr = 0;			/* Switch destination for device */
 }
 
+void xvsprintf (char* buff, const char* fmt, va_list arp)
+{
+	outptr = buff;		/* Switch destination for memory */
+	xvprintf(fmt, arp);
+	*outptr = 0;		/* Terminate output string with a \0 */
+	outptr = 0;			/* Switch destination for device */
+}
 
 void xfprintf (					/* Put a formatted string to the specified device */
 	void(*func)(unsigned char),	/* Pointer to the output function */

@@ -50,6 +50,7 @@ u64 rpMinIntervalBetweenPacketsInTick = 0;
 
 extern u8* dataBuf;
 void rpSendString(u32 size);
+void rpSendStringFmt(const char* fmt, ...);
 
 /*
 void*  rpMalloc( u32 size)
@@ -317,6 +318,7 @@ typedef struct _BLIT_CONTEXT {
 
 
 static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src, int src_size) {
+
 	format &= 0x0f;
 	if (format == 0){
 		ctx->bpp = 4;
@@ -387,6 +389,16 @@ void rpSendBuffer(u8* buf, u32 size, u32 flag) {
 void rpSendString(u32 size) {
 	packetLen = initUDPPacket(size, 8002);
 	nwmSendPacket(remotePlayBuffer, packetLen);
+}
+
+void rpSendStringFmt(const char* fmt, ...)
+{
+	va_list arp;
+	va_start(arp, fmt);
+	xvsprintf(dataBuf, fmt, arp);
+	va_end(arp);
+
+	rpSendString(strlen(dataBuf));
 }
 
 #define HR_MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -637,6 +649,7 @@ typedef struct _COMPRESS_CONTEXT {
 } COMPRESS_CONTEXT;
 
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
+	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 	if (skipTest)
 		return 1;
 	return -1;
@@ -646,12 +659,13 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	if (ctx->src_end <= ctx->src)
 		return  -1;
 
+
 	int blockSize = 16;
 	int bpp = ctx->bpp;
 	int width = ctx->width;
 	int height = ctx->height;
 	int pitch = ctx->src_pitch;
-	int isKey = ctx->isKey;
+	int isKey = !(rpConfig.flags & RP_USE_FRAME_DELTA) || ctx->isKey;
 	int isTop = ctx->isTop;
 	int frameId = ctx->id % 2;
 
@@ -666,14 +680,15 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8 *dp_begin = ctx->transformDst;
 
 	 // need for next frame
-	u8 *dp_save_begin = dp_begin;
-	u8* dp_flags = dp_save_begin;
+	u8* dp_flags = dp_begin;
 	u8 flags = 0;
 #define RP_DOWNSAMPLE_Y (1 << 0)
 #define RP_DOWNSAMPLE2_UV (1 << 1)
 
 	// assume worst case width = 400, height = 240 for top screen
-	u8* dp_y = dp_flags + 1;
+
+	u8 *dp_save_begin = dp_flags + 1; // dp_flags need to be saved as well, its size is calculated separately however
+	u8* dp_y = dp_save_begin;
 	u32 dp_y_size = width * height; // 96'000
 	u8* dp_ds_u = dp_y + dp_y_size;
 	u32 dp_ds_u_size = dp_y_size / 4; // 24'000
@@ -778,17 +793,16 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	// make sure we have enough room in the buffer
 	// see imgBuffer in remotePlayThreadStart and transformDst in remotePlaySendFrames
 
-	u8* dp_end = dp_p_fd_ds_ds_v + dp_p_fd_ds_ds_v_size;
+	u8* dp_end = dp_m_p_fd_ds_ds_v + dp_m_p_fd_ds_ds_v_size;
 	if (dp_end > rpAllocBuff) {
-		xsprintf(dataBuf,
-			"Allocated buffer too small: %d needed (%d available)\n",
-			dp_end - dp_begin, rpAllocBuff - dp_begin);
-		rpSendString(strlen(dataBuf));
+		rpSendStringFmt("Allocated buffer too small: %d needed (%d available)\n", dp_end - dp_begin, rpAllocBuff - dp_begin);
 		return -1;
 	}
 
 	int frameOffset = dp_save_size * (400 + 320) / width; // dp_y_size + dp_ds_u_size + dp_ds_v_size for both screens
 	int bottomScreenOffset = dp_save_size * 400 / width; // offset from top
+	frameOffset += 2; // add offset for dp_flags, twice for both screens;
+	bottomScreenOffset += 1; // add offset for dp_flags;
 
 	u8* dp_flags_pf;
 	u8* dp_y_pf;
@@ -825,7 +839,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		dp_ds_ds_u -= frameOffset;
 		dp_ds_ds_v -= frameOffset;
 	} else {
-		dp_flags_pf -= frameOffset;
+		dp_flags_pf = dp_flags - frameOffset;
 		dp_y_pf = dp_y - frameOffset;
 		dp_ds_u_pf = dp_ds_u - frameOffset;
 		dp_ds_v_pf = dp_ds_v - frameOffset;
@@ -1063,55 +1077,6 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	return 0;
 }
 
-static inline void sendData(const u8 *data, int size) {
-	return;
-}
-
-static inline void compressAndSendData(u8 *dst, const u8 *data, int size) {
-	// u32 bakAllocOffset = rpAllocBuffOffset;
-	// u32 bakAllocRemainSize = rpAllocBuffRemainSize;
-
-#ifdef HAS_HUFFMAN_RLE
-	// int huffman_size = huffman_encode(dst, data, size);
-	// xsprintf(dataBuf, "Huffman %d from %d\n", huffman_size, size);
-	// int rle_size = rle_encode(dst + huffman_size, dst, huffman_size);
-	// xsprintf(dataBuf, "Huffman %d then RLE %d from %d\n", huffman_size, rle_size, size);
-	// rpSendString(strlen(dataBuf));
-
-	// uint32_t *counts = huffman_len_table(dst, data, size);
-	// int huffman_size_calculated = huffman_compressed_size(counts, dst) + 256;
-	// int huffman_size = huffman_encode_with_len_table(counts, dst, data, size);
-	// xsprintf(dataBuf, "Huffman %d (%d expected) from %d\n", huffman_size, huffman_size_calculated, size);
-	// rpSendString(strlen(dataBuf));
-#endif
-
-	// rpAllocBuffOffset = bakAllocOffset;
-	// rpAllocBuffRemainSize = bakAllocRemainSize;
-
-	// if (rle_size < huffman_size) {
-	// 	sendData(dst + huffman_size, rle_size);
-	// } else {
-	// 	sendData(dst, huffman_size);
-	// }
-}
-
-static inline void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
-	// if (ctx->src_end <= ctx->src)
-	// 	return;
-
-	// u8 *srcBuff, *srcBuff2, *srcBuff3;
-	// srcBuff = ctx->transformDst;
-	// srcBuff2 = ctx->transformDst2;
-	// srcBuff3 = ctx->transformDst3;
-	// u8 *dst = ctx->src_end;
-	// compressAndSendData(dst, srcBuff, ctx->dst_size);
-	// compressAndSendData(dst, srcBuff2, ctx->dst2_size);
-	// if (!ctx->isKey) {
-	// 	sendData(srcBuff3, ctx->dst3_size);
-	// }
-}
-
-
 int remotePlayBlit(BLIT_CONTEXT* ctx) {
 	int bpp = ctx->bpp;
 	int width = ctx->width;
@@ -1271,6 +1236,7 @@ static inline int isInFCRAM(u32 phys) {
 }
 
 static inline int rpCaptureScreen(int isTop) {
+
 	u8 dmaConfig[80] = { 0, 0, 4 };
 	u32 bufSize = isTop? (tl_pitch * 400) : (bl_pitch * 320);
 	u32 phys = isTop ? tl_current : bl_current;
@@ -1326,8 +1292,8 @@ void remotePlaySendFrames() {
 	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
 	u64 currentTick = 0;
 
-	u32 tl_pitch_max = 0;
-	u32 bl_pitch_max = 0;
+	// u32 tl_pitch_max = 0;
+	// u32 bl_pitch_max = 0;
 	int bufSize = 0;
 
 	while (1) {
@@ -1355,7 +1321,7 @@ void remotePlaySendFrames() {
 			bufSize = rpCaptureScreen(1);
 			currentTopId += 1;
 			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer, bufSize);
-			tl_pitch_max = tl_pitch_max > tl_pitch ? tl_pitch_max : tl_pitch;
+			// tl_pitch_max = tl_pitch_max > tl_pitch ? tl_pitch_max : tl_pitch;
 			// topContext.compressDst = 0;
 			topContext.transformDst = imgBuffer + 0x00150000;
 			// botContext.transformDst2 = 0;
@@ -1364,14 +1330,13 @@ void remotePlaySendFrames() {
 			topContext.isTop = 1;
 			topContext.isKey = isKey;
 			remotePlayBlitCompressAndSend(&topContext);
-			// rpCompressAndSendPacket(&topContext);
 		}
 		else {
 			// send bottom
 			bufSize = rpCaptureScreen(0);
 			currentBottomId += 1;
 			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer, bufSize);
-			bl_pitch_max = bl_pitch_max > bl_pitch ? bl_pitch_max : bl_pitch;
+			// bl_pitch_max = bl_pitch_max > bl_pitch ? bl_pitch_max : bl_pitch;
 			// botContext.compressDst = 0;
 			botContext.transformDst = imgBuffer + 0x00150000;
 			// botContext.transformDst2 = 0;
@@ -1380,7 +1345,6 @@ void remotePlaySendFrames() {
 			botContext.isTop = 0;
 			botContext.isKey = isKey;
 			remotePlayBlitCompressAndSend(&botContext);
-			// rpCompressAndSendPacket(&botContext);
 		}
 
 #define SEND_STAT_EVERY_X_FRAMES 16
@@ -1388,10 +1352,8 @@ void remotePlaySendFrames() {
 			u64 nextTick = svc_getSystemTick();
 			if (currentTick) {
 				u32 ms = (nextTick - currentTick) / 1000 / SYSTICK_PER_US;
-				xsprintf(dataBuf, "%d ms for %d frames; max tpitch %d, bpitch %d\n",
-					ms, SEND_STAT_EVERY_X_FRAMES, tl_pitch_max, bl_pitch_max);
-				rpSendString(strlen(dataBuf));
-				tl_pitch_max = bl_pitch_max = 0;
+				rpSendStringFmt("%d ms for %d frames\n", ms, SEND_STAT_EVERY_X_FRAMES);
+				// tl_pitch_max = bl_pitch_max = 0;
 			}
 			currentTick = nextTick;
 		}
@@ -1472,6 +1434,7 @@ int nwmValParamCallback(u8* buf, int buflen) {
 
 void remotePlayMain() {
 	nwmSendPacket = g_nsConfig->startupInfo[12];
+	rpConfig = g_nsConfig->rpConfig;
 	rtInitHookThumb(&nwmValParamHook, g_nsConfig->startupInfo[11], nwmValParamCallback);
 	rtEnableHook(&nwmValParamHook);
 
@@ -1541,6 +1504,7 @@ int nsHandleRemotePlay() {
 	u32 rp_magic = pac->args[1];
 	rpConfig.qos = pac->args[2];
 	rpConfig.flags = pac->args[3];
+	rpConfig.flags |= RP_FLAG_ALL;
 	rpConfig.quality = pac->args[4];
 	rpConfig.control = 0;
 
