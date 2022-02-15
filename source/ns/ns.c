@@ -50,7 +50,7 @@ u64 rpMinIntervalBetweenPacketsInTick = 0;
 
 extern u8* dataBuf;
 void rpSendString(u32 size);
-void rpSendStringFmt(const char* fmt, ...);
+void rpDbg(const char* fmt, ...);
 
 /*
 void*  rpMalloc( u32 size)
@@ -391,7 +391,7 @@ void rpSendString(u32 size) {
 	nwmSendPacket(remotePlayBuffer, packetLen);
 }
 
-void rpSendStringFmt(const char* fmt, ...)
+void rpDbg(const char* fmt, ...)
 {
 	va_list arp;
 	va_start(arp, fmt);
@@ -646,13 +646,47 @@ typedef struct _COMPRESS_CONTEXT {
 	u32 data_size;
 	const u8* data2;
 	u32 data2_size;
+	u8 *dp, *dp_end;
+	u32 max_compressed_size;
 } COMPRESS_CONTEXT;
+
+struct {
+	u32 targetBitsPerSec;
+	u32 targetFrameRate;
+	u32 bitsPerFrame;
+	u32 bitsPerY;
+	u32 bitsPerUV;
+} rpNetworkParams;
 
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
-	if (skipTest)
-		return 1;
-	return -1;
+
+	u8* dst = cctx->dp;
+	uint32_t* counts = huffman_len_table(dst, cctx->data, cctx->data_size);
+	int huffman_size = huffman_compressed_size(counts, dst) + 256;
+	int dst_size = huffman_size + rle_max_compressed_size(huffman_size);
+	if (!skipTest) {
+		if (dst + dst_size >= cctx->dp_end) {
+			rpDbg("Not enough memory for compression: %d needed (%d available)\n",
+				dst_size, cctx->dp_end - dst
+			);
+			return -1;
+		}
+		if (huffman_size > cctx->max_compressed_size) {
+			rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
+			return -1;
+		}
+	}
+	huffman_size = huffman_encode_with_len_table(counts, dst, cctx->data, cctx->data_size);
+	u8* rle_dst = dst + huffman_size;
+	int rle_size = rle_encode(rle_dst, dst, huffman_size);
+
+	rpDbg("Huffman %d RLE %d from %d", huffman_size, rle_size, cctx->data_size);
+	if (rle_size < huffman_size) {
+		return rle_size;
+	} else {
+		return huffman_size;
+	}
 }
 
 static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
@@ -795,7 +829,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	u8* dp_end = dp_m_p_fd_ds_ds_v + dp_m_p_fd_ds_ds_v_size;
 	if (dp_end > rpAllocBuff) {
-		rpSendStringFmt("Allocated buffer too small: %d needed (%d available)\n", dp_end - dp_begin, rpAllocBuff - dp_begin);
+		rpDbg("Allocated buffer too small: %d needed (%d available)\n", dp_end - dp_begin, rpAllocBuff - dp_begin);
 		return -1;
 	}
 
@@ -811,6 +845,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_ds_y_pf;
 	u8* dp_ds_ds_u_pf;
 	u8* dp_ds_ds_v_pf;
+	u8* dp_pf = dp_flags - frameOffset * 2;
 
 	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
 		dp_flags -= bottomScreenOffset;
@@ -907,7 +942,13 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	u8* dp_dummy_out;
 
-	COMPRESS_CONTEXT cctx = { 0 };
+	COMPRESS_CONTEXT cctx = {
+		.dp = ctx->src_end,
+		.dp_end = dp_pf,
+	};
+
+	downsampleImage(dp_ds_u, dp_u, width, height);
+	downsampleImage(dp_ds_v, dp_v, width, height);
 
 	if (isKey) {
 		// Y
@@ -915,6 +956,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		dp_y_out = dp_p_y;
 		dp_y_out_size = dp_p_y_size;
 
+		cctx.max_compressed_size = rpNetworkParams.bitsPerY / 8;
 		cctx.data = dp_y_out;
 		cctx.data_size = dp_y_out_size;
 
@@ -928,18 +970,19 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 			cctx.data = dp_y_out;
 			cctx.data_size = dp_y_out_size;
-			rpTestCompressAndSend(&cctx, 1);
+			if (rpTestCompressAndSend(&cctx, 1) < 0) {
+				return -1;
+			}
 		}
 
 		// UV
-		downsampleImage(dp_ds_u, dp_u, width, height);
 		predictImage(dp_p_ds_u, dp_ds_u, ds_width, ds_height);
 		dp_uv_out = dp_p_ds_u;
 		dp_uv_out_size = dp_p_ds_u_size;
-		downsampleImage(dp_ds_v, dp_v, width, height);
 		predictImage(dp_p_ds_v, dp_ds_v, ds_width, ds_height);
 		dp_uv_out_size += dp_p_ds_v_size;
 
+		cctx.max_compressed_size = rpNetworkParams.bitsPerUV / 8;
 		cctx.data = dp_uv_out;
 		cctx.data_size = dp_uv_out_size;
 
@@ -957,7 +1000,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 			cctx.data = dp_uv_out;
 			cctx.data_size = dp_uv_out_size;
-			rpTestCompressAndSend(&cctx, 1);
+			if (rpTestCompressAndSend(&cctx, 1) < 0) {
+				return -1;
+			}
 		}
 
 		*dp_flags = flags;
@@ -990,17 +1035,38 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	} \
 } while (0)
 
+#define cctx_data2(m, m_size) do { \
+	if (rpConfig.flags & RP_SELECT_PREDICTION) { \
+		cctx.data2 = m; \
+		cctx.data2_size = m_size; \
+	} else { \
+		cctx.data2 = 0; \
+		cctx.data2_size = 0; \
+	} \
+} while(0)
+
 		// Y
 		if (flags_pf & RP_DOWNSAMPLE_Y) {
 			differenceFromDownsampled(dp_fd_y, dp_y, dp_ds_y_pf, width, height);
 		} else {
 			differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
 		}
+
+		if (flags_pf & RP_DOWNSAMPLE2_UV) {
+			differenceFromDownsampled(dp_fd_ds_u, dp_ds_u, dp_ds_ds_u_pf, ds_width, ds_height);
+			differenceFromDownsampled(dp_fd_ds_v, dp_ds_v, dp_ds_ds_v_pf, ds_width, ds_height);
+		} else {
+			differenceImage(dp_fd_ds_u, dp_ds_u, dp_ds_u_pf, ds_width, ds_height);
+			differenceImage(dp_fd_ds_v, dp_ds_v, dp_ds_v_pf, ds_width, ds_height);
+		}
+
 		predictImage2(dp_dummy_out, dp_p_y, dp_y, width, height);
 		predictAndSelectImage2(dp_y_out, dp_s_p_fd_y, dp_m_p_fd_y, dp_p_fd_y, dp_fd_y, dp_p_y, width, height);
 
+		cctx.max_compressed_size = rpNetworkParams.bitsPerY / 8;
 		cctx.data = dp_y_out;
 		cctx.data_size = dp_s_p_fd_y_size;
+		cctx_data2(dp_m_p_fd_y, dp_m_p_fd_y_size);
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// Y downsampled
@@ -1016,29 +1082,24 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 			cctx.data = dp_y_out;
 			cctx.data_size = dp_s_p_fd_ds_y_size;
+			cctx_data2(dp_m_p_fd_ds_y, dp_m_p_fd_ds_y_size);
 
-			rpTestCompressAndSend(&cctx, 1);
+			if (rpTestCompressAndSend(&cctx, 1) < 0) {
+				return -1;
+			}
 		}
 
 		// UV
-		if (flags_pf & RP_DOWNSAMPLE2_UV) {
-			differenceFromDownsampled(dp_fd_ds_u, dp_ds_u, dp_ds_ds_u_pf, ds_width, ds_height);
-		} else {
-			differenceImage(dp_fd_ds_u, dp_ds_u, dp_ds_u_pf, ds_width, ds_height);
-		}
 		predictImage2(dp_dummy_out, dp_p_ds_u, dp_ds_u, ds_width, ds_height);
 		predictAndSelectImage2(dp_uv_out, dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_p_fd_ds_u, dp_fd_ds_u, dp_p_ds_u, ds_width, ds_height);
 		dp_uv_out_size = dp_s_p_fd_ds_u_size;
+		cctx_data2(dp_m_p_fd_ds_u, dp_m_p_fd_ds_u_size + dp_m_p_fd_ds_v_size);
 
-		if (flags_pf & RP_DOWNSAMPLE2_UV) {
-			differenceFromDownsampled(dp_fd_ds_v, dp_ds_v, dp_ds_ds_v_pf, ds_width, ds_height);
-		} else {
-			differenceImage(dp_fd_ds_v, dp_ds_v, dp_ds_v_pf, ds_width, ds_height);
-		}
 		predictImage2(dp_dummy_out, dp_p_ds_v, dp_ds_v, ds_width, ds_height);
 		predictAndSelectImage2(dp_dummy_out, dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_p_fd_ds_v, dp_fd_ds_v, dp_p_ds_v, ds_width, ds_height);
 		dp_uv_out_size += dp_s_p_fd_ds_u_size;
 
+		cctx.max_compressed_size = rpNetworkParams.bitsPerUV / 8;
 		cctx.data = dp_uv_out;
 		cctx.data_size = dp_uv_out_size;
 
@@ -1054,6 +1115,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			predictImage2(dp_dummy_out, dp_p_ds_ds_u, dp_ds_ds_u, ds_ds_width, ds_ds_height);
 			predictAndSelectImage2(dp_uv_out, dp_s_p_fd_ds_ds_u, dp_m_p_fd_ds_ds_u, dp_p_fd_ds_ds_u, dp_fd_ds_ds_u, dp_p_ds_ds_u, ds_ds_width, ds_ds_height);
 			dp_uv_out_size = dp_s_p_fd_ds_ds_u_size;
+			cctx_data2(dp_m_p_fd_ds_ds_u, dp_m_p_fd_ds_ds_u_size + dp_m_p_fd_ds_ds_v_size);
 
 			if (flags_pf & RP_DOWNSAMPLE2_UV) {
 				downsampledDifferenceFromDownsampled(dp_fd_ds_ds_v, dp_ds_v, dp_ds_ds_v_pf, ds_width, ds_height);
@@ -1067,7 +1129,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			cctx.data = dp_uv_out;
 			cctx.data_size = dp_uv_out_size;
 
-			rpTestCompressAndSend(&cctx, 1);
+			if (rpTestCompressAndSend(&cctx, 1) < 0) {
+				return -1;
+			}
 		}
 
 		*dp_flags = flags;
@@ -1267,7 +1331,15 @@ static inline int rpCaptureScreen(int isTop) {
 	return -1;
 }
 
-
+void updateNetworkParams() {
+	// rpNetworkParams.targetBitsPerSec = 12 * 1024 * 1024;
+	rpNetworkParams.targetBitsPerSec = rpConfig.qos * 8;
+	// rpNetworkParams.targetFrameRate = 45;
+	rpNetworkParams.targetFrameRate = 30;
+	rpNetworkParams.bitsPerFrame = rpNetworkParams.targetBitsPerSec / rpNetworkParams.targetFrameRate;
+	rpNetworkParams.bitsPerY = rpNetworkParams.bitsPerFrame * 2 / 3;
+	rpNetworkParams.bitsPerUV = rpNetworkParams.bitsPerFrame / 3;
+}
 
 void remotePlaySendFrames() {
 	u32 isPriorityTop = 1;
@@ -1278,11 +1350,9 @@ void remotePlaySendFrames() {
 		isPriorityTop = 0;
 	}
 	priorityFactor = factor;
-
-	if (rpConfig.qos < 500 * 1024) {
-		rpConfig.qos = 2 * 1024 * 1024;
-	}
+	rpConfig.qos = HR_MAX(rpConfig.qos, 1024 * 512 * 3);
 	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpConfig.qos / PACKET_SIZE)) * SYSTICK_PER_US;
+	updateNetworkParams();
 
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
@@ -1295,6 +1365,7 @@ void remotePlaySendFrames() {
 	// u32 tl_pitch_max = 0;
 	// u32 bl_pitch_max = 0;
 	int bufSize = 0;
+	int forceKey = 0;
 
 	while (1) {
 		currentUpdating = isPriorityTop;
@@ -1308,12 +1379,17 @@ void remotePlaySendFrames() {
 		remotePlayKernelCallback();
 
 		if (rpConfig.flags & RP_USE_FRAME_DELTA) {
-			isKey = firstFrame;
-		} else {
+			isKey = 0;
+		}
+		if (forceKey || firstFrame) {
 			isKey = 1;
+			forceKey = 0;
 		}
 		if (firstFrame) {
 			firstFrame = 0;
+		}
+		if (isKey) {
+			rpDbg("Keyframe at %d\n", frameCount);
 		}
 
 		if (currentUpdating) {
@@ -1329,7 +1405,7 @@ void remotePlaySendFrames() {
 			topContext.id = (u8)currentTopId;
 			topContext.isTop = 1;
 			topContext.isKey = isKey;
-			remotePlayBlitCompressAndSend(&topContext);
+			forceKey = remotePlayBlitCompressAndSend(&topContext) < 0;
 		}
 		else {
 			// send bottom
@@ -1344,7 +1420,7 @@ void remotePlaySendFrames() {
 			botContext.id = (u8)currentBottomId;
 			botContext.isTop = 0;
 			botContext.isKey = isKey;
-			remotePlayBlitCompressAndSend(&botContext);
+			forceKey = remotePlayBlitCompressAndSend(&botContext) < 0;
 		}
 
 #define SEND_STAT_EVERY_X_FRAMES 16
@@ -1352,7 +1428,7 @@ void remotePlaySendFrames() {
 			u64 nextTick = svc_getSystemTick();
 			if (currentTick) {
 				u32 ms = (nextTick - currentTick) / 1000 / SYSTICK_PER_US;
-				rpSendStringFmt("%d ms for %d frames\n", ms, SEND_STAT_EVERY_X_FRAMES);
+				rpDbg("%d ms for %d frames\n", ms, SEND_STAT_EVERY_X_FRAMES);
 				// tl_pitch_max = bl_pitch_max = 0;
 			}
 			currentTick = nextTick;

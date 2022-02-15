@@ -76,3 +76,8 @@ int rle_encode(uint8_t *dst, const uint8_t *src, int src_size)
 
     return --dst - dst_begin;
 }
+
+int rle_max_compressed_size(int src_size)
+{
+    return (src_size + RLE_MAX_LIT - 1) / RLE_MAX_LIT + src_size;
+}

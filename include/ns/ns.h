@@ -64,7 +64,7 @@ typedef struct _NS_BREAKPOINT {
 #define RP_SELECT_PREDICTION 0
 #define RP_USE_FRAME_DELTA 1
 #define RP_PREDICT_FRAME_DELTA 0
-#define RP_DYNAMIC_ENCODE 1
+#define RP_DYNAMIC_ENCODE 0
 #define RP_FLAG_ALL 1
 #endif
 
