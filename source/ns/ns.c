@@ -653,6 +653,8 @@ typedef struct _COMPRESS_CONTEXT {
 struct {
 	u32 targetBitsPerSec;
 	u32 targetFrameRate;
+	u32 qualityFactorNum;
+	u32 qualityFactorDenum;
 	u32 bitsPerFrame;
 	u32 bitsPerY;
 	u32 bitsPerUV;
@@ -1337,11 +1339,20 @@ static inline int rpCaptureScreen(int isTop) {
 }
 
 void updateNetworkParams() {
-	// rpNetworkParams.targetBitsPerSec = 12 * 1024 * 1024;
 	rpNetworkParams.targetBitsPerSec = rpConfig.qos * 8;
-	// rpNetworkParams.targetFrameRate = 45;
-	rpNetworkParams.targetFrameRate = 30;
-	rpNetworkParams.bitsPerFrame = rpNetworkParams.targetBitsPerSec / rpNetworkParams.targetFrameRate;
+	rpNetworkParams.targetFrameRate = 45;
+	u32 qualityFN = (rpConfig.quality & 0xff00) >> 8;
+	u32 qualityFD = (rpConfig.quality & 0xff);
+	if (qualityFN == 0 || qualityFD == 0)
+	{
+		rpNetworkParams.qualityFactorNum = 2;
+		rpNetworkParams.qualityFactorDenum = 1;
+	} else if ((qualityFD + qualityFN - 1) / qualityFN > 2) {
+		rpNetworkParams.qualityFactorNum = 1;
+		rpNetworkParams.qualityFactorDenum = 2;
+	}
+	rpNetworkParams.bitsPerFrame =
+		rpNetworkParams.targetBitsPerSec * rpNetworkParams.qualityFactorNum / rpNetworkParams.targetFrameRate / rpNetworkParams.qualityFactorDenum;
 	rpNetworkParams.bitsPerY = rpNetworkParams.bitsPerFrame * 2 / 3;
 	rpNetworkParams.bitsPerUV = rpNetworkParams.bitsPerFrame / 3;
 }

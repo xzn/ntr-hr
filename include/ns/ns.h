@@ -54,7 +54,7 @@ typedef struct _NS_BREAKPOINT {
 #define NS_BPTYPE_CODE		1
 #define NS_BPTYPE_CODEONESHOT	2
 
-#if 0
+#if 1
 #define RP_SELECT_PREDICTION (1 << 0)
 #define RP_USE_FRAME_DELTA (1 << 1)
 #define RP_PREDICT_FRAME_DELTA (1 << 2)
