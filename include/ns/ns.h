@@ -62,7 +62,7 @@ typedef struct _NS_BREAKPOINT {
 #define RP_DEBUG (1 << 30)
 // #define RP_EXTENDED (1 << 31)
 // #define RP_FLAG_DBG 0
-#define RP_FLAG_DBG (RP_RLE_ENCODE | RP_DEBUG)
+#define RP_FLAG_DBG 0
 
 #define RP_MAGIC 0xfff54321
 
@@ -71,7 +71,7 @@ typedef struct _RP_CONFIG {
 	u32 mode;
 	u32 quality;
 	u32 qos;
-	volatile u32 control; // control
+	vu32 control; // control
 } RP_CONFIG;
 
 typedef struct _NS_CONFIG {

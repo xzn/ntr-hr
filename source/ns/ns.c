@@ -47,7 +47,7 @@ RP_CONFIG rpConfig;
 int rpAllocDebug = 0;
 u64 rpMinIntervalBetweenPacketsInTick = 0;
 
-#define SYSTICK_PER_US (268);
+#define SYSTICK_PER_US (268)
 
 extern u8* dataBuf;
 void rpSendString(u32 size);
@@ -293,7 +293,6 @@ typedef struct _BLIT_CONTEXT {
 	int width, height, format, src_pitch;
 	int x, y;
 	u8* src;
-	u8* src_end;
 	int outformat, bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
@@ -337,7 +336,6 @@ static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, 
 	ctx->height = height;
 	ctx->src_pitch = src_pitch;
 	ctx->src = src;
-	ctx->src_end = src_size > 0 ? src + src_size : src;
 	ctx->x = 0;
 	ctx->y = 0;
 	if (ctx->bpp == 2) {
@@ -357,6 +355,7 @@ static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, 
 
 vu64 rpLastSendTick = 0;
 
+/*
 void rpSendBuffer(u8* buf, u32 size, u32 flag) {
 	if (rpAllocDebug) {
 		showDbg("sendbuf: %08x, %d", buf, size);
@@ -386,6 +385,7 @@ void rpSendBuffer(u8* buf, u32 size, u32 flag) {
 		rpLastSendTick = svc_getSystemTick();
 	}
 }
+*/
 
 void rpSendString(u32 size) {
 	packetLen = initUDPPacket(size, 8002);
@@ -669,45 +669,56 @@ struct {
 	u32 bitsPerUV;
 } rpNetworkParams;
 
+struct {
+} rpDataHeader;
+
+static inline int rpSendData(u8* data, int size) {
+	return size;
+}
+
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
-	u8* dst = cctx->dp;
+	u8* dst = cctx->dp + sizeof(rpDataHeader);
 	uint32_t* counts = huffman_len_table(dst, cctx->data, cctx->data_size);
 	int huffman_size = huffman_compressed_size(counts, dst) + 256;
-	int dst_size = huffman_size + rle_max_compressed_size(huffman_size);
-	if (!skipTest) {
-		if (dst + dst_size >= cctx->dp_end) {
-			rpDbg("Not enough memory for compression: %d needed (%d available)\n",
-				dst_size, cctx->dp_end - dst
-			);
-			return -1;
-		}
-		if (huffman_size > cctx->max_compressed_size) {
-			rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
-			return -1;
-		}
+	if (!skipTest && huffman_size > cctx->max_compressed_size) {
+		rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
+		return -1;
+	}
+	int dst_size = huffman_size;
+	if (rpConfig.flags & RP_RLE_ENCODE) {
+		dst_size += rle_max_compressed_size(huffman_size);
+	}
+	if (dst + dst_size >= cctx->dp_end) {
+		rpDbg("Not enough memory for compression: %d needed (%d available)\n",
+			dst_size, cctx->dp_end - dst
+		);
+		return -1;
 	}
 	huffman_size = huffman_encode_with_len_table(counts, dst, cctx->data, cctx->data_size);
 	u8* rle_dst = dst + huffman_size;
 	int rle_size = INT_MAX;
-	if (RP_RLE_ENCODE) {
+	if (rpConfig.flags & RP_RLE_ENCODE) {
 		rle_size = rle_encode(rle_dst, dst, huffman_size);
+		rpDbg("Huffman %d RLE %d from %d", huffman_size, rle_size, cctx->data_size);
+	} else {
+		rpDbg("Huffman %d from %d", huffman_size, cctx->data_size);
 	}
 
-	rpDbg("Huffman %d RLE %d from %d", huffman_size, rle_size, cctx->data_size);
+	u8* dh_dst;
 	if (rle_size < huffman_size) {
-		return rle_size;
+		dh_dst = rle_dst - sizeof(rpDataHeader);
+		memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
+		return rpSendData(dh_dst, rle_size + sizeof(rpDataHeader));
 	} else {
-		return huffman_size;
+		dh_dst = dst - sizeof(rpDataHeader);
+		memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
+		return rpSendData(dst, huffman_size + sizeof(rpDataHeader));
 	}
 }
 
 static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
-	if (ctx->src_end <= ctx->src)
-		return  -1;
-
-
 	int blockSize = 16;
 	int bpp = ctx->bpp;
 	int width = ctx->width;
@@ -955,7 +966,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u32 dp_v_out_size;
 
 	COMPRESS_CONTEXT cctx = {
-		.dp = ctx->src_end,
+		.dp = ctx->src,
 		.dp_end = dp_pf,
 	};
 
@@ -1478,11 +1489,11 @@ void remotePlayThreadStart() {
 #define RP_IMG_BUFFER_SIZE 0x00200000
 	// (from the beginning of imgBuffer)
 	// imgBuffer: dma work memory (rpCaptureScreen)
-	// -> imgBuffer + bufSize: huffman + RLE compression dst memory (rpTestCompressAndSend)
+	// -> imgBuffer: huffman + RLE compression dst memory (rpTestCompressAndSend)
 	// -> imgBuffer + RP_TRANSFORM_DST_OFFSET - frameOffset * 2: transform process work memory (remotePlayBlitCompressAndSend)
 	// (from the end of imgBuffer)
 	// -> - huffman_malloc_usage: huffman compression work memory, see qsort.h
-	// 
+	//
 	// adjust RP_IMG_BUFFER_SIZE and/or RP_TRANSFORM_DST_OFFSET is out of memory
 	imgBuffer = plgRequestMemorySpecifyRegion(RP_IMG_BUFFER_SIZE, 1);
 	// rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
