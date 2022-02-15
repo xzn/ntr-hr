@@ -567,22 +567,22 @@ static inline void differenceFromDownsampled(u8 *dst, const u8 *src, const u8 *d
 	}
 }
 
-static inline void downsampledDifference(u8 *ds_dst, const u8 *src, const u8 *src_prev, int w, int h) {
+static inline void downsampledDifference(u8 *ds_pf, u8 *fd_ds_dst, const u8 *src, const u8 *src_prev, int w, int h) {
 	int i = 0, j = 0;
 	for (; i < w; i += 2) {
 		j = 0;
 		for (; j < h; j += 2) {
-			*ds_dst++ = accessImageDownsample(src, i, j, w, h) - accessImageDownsample(src_prev, i, j, w, h);
+			*fd_ds_dst++ = (*ds_pf++ = accessImageDownsample(src, i, j, w, h)) - accessImageDownsample(src_prev, i, j, w, h);
 		}
 	}
 }
 
-static inline void downsampledDifferenceFromDownsampled(u8 *ds_dst, const u8 *src, const u8 *ds_src_prev, int w, int h) {
+static inline void downsampledDifferenceFromDownsampled(u8 *ds_pf, u8 *fd_ds_dst, const u8 *src, const u8 *ds_src_prev, int w, int h) {
 	int i = 0, j = 0;
 	for (; i < w; i += 2) {
 		j = 0;
 		for (; j < h; j += 2) {
-			*ds_dst++ = accessImageDownsample(src, i, j, w, h) - *ds_src_prev++;
+			*fd_ds_dst++ = (*ds_pf++ = accessImageDownsample(src, i, j, w, h)) - *ds_src_prev++;
 		}
 	}
 }
@@ -937,69 +937,68 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	u8* dp_y_out;
 	u32 dp_y_out_size;
-	u8* dp_uv_out;
-	u32 dp_uv_out_size;
-
-	u8* dp_dummy_out;
+	u8* dp_u_out;
+	u32 dp_u_out_size;
+	u8* dp_v_out;
+	u32 dp_v_out_size;
 
 	COMPRESS_CONTEXT cctx = {
 		.dp = ctx->src_end,
 		.dp_end = dp_pf,
 	};
 
-	downsampleImage(dp_ds_u, dp_u, width, height);
-	downsampleImage(dp_ds_v, dp_v, width, height);
+#define downsampleImage1(c, w, h) downsampleImage(dp_ds_ ## c, dp_ ## c, w, h)
+#define predictImage1(c, w, h) predictImage(dp_p_ ## c, dp_ ## c, w, h)
+#define predictImage1out(o, c, w, h) do { \
+	predictImage1(c, w, h); \
+	dp_ ## o ## _out = dp_p_ ## c; \
+	dp_ ## o ## _out ## _size = dp_p_ ## c ## _size; \
+} while (0)
+
+#define cctx_data_y do { \
+	cctx.max_compressed_size = rpNetworkParams.bitsPerY / 8; \
+	cctx.data = dp_y_out; \
+	cctx.data_size = dp_y_out_size; \
+} while (0)
+
+#define cctx_data_uv do { \
+	cctx.max_compressed_size = rpNetworkParams.bitsPerUV / 8; \
+	cctx.data = dp_u_out; \
+	cctx.data_size = dp_u_out_size + dp_v_out_size; \
+} while (0)
+
+	downsampleImage1(u, width, height);
+	downsampleImage1(v, width, height);
 
 	if (isKey) {
 		// Y
-		predictImage(dp_p_y, dp_y, width, height);
-		dp_y_out = dp_p_y;
-		dp_y_out_size = dp_p_y_size;
-
-		cctx.max_compressed_size = rpNetworkParams.bitsPerY / 8;
-		cctx.data = dp_y_out;
-		cctx.data_size = dp_y_out_size;
+		predictImage1out(y, y, width, height);
+		cctx_data_y;
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// Y downsampled
 			flags |= RP_DOWNSAMPLE_Y;
-			downsampleImage(dp_ds_y, dp_y, width, height);
-			predictImage(dp_p_ds_y, dp_ds_y, ds_width, ds_height);
-			dp_y_out = dp_p_ds_y;
-			dp_y_out_size = dp_p_ds_y_size;
-
-			cctx.data = dp_y_out;
-			cctx.data_size = dp_y_out_size;
+			downsampleImage1(y, width, height);
+			predictImage1out(y, ds_y, ds_width, ds_height);
+			cctx_data_y;
 			if (rpTestCompressAndSend(&cctx, 1) < 0) {
 				return -1;
 			}
 		}
 
 		// UV
-		predictImage(dp_p_ds_u, dp_ds_u, ds_width, ds_height);
-		dp_uv_out = dp_p_ds_u;
-		dp_uv_out_size = dp_p_ds_u_size;
-		predictImage(dp_p_ds_v, dp_ds_v, ds_width, ds_height);
-		dp_uv_out_size += dp_p_ds_v_size;
-
-		cctx.max_compressed_size = rpNetworkParams.bitsPerUV / 8;
-		cctx.data = dp_uv_out;
-		cctx.data_size = dp_uv_out_size;
+		predictImage1out(u, ds_u, ds_width, ds_height);
+		predictImage1out(v, ds_v, ds_width, ds_height);
+		cctx_data_uv;
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// UV downsampled
 			flags |= RP_DOWNSAMPLE2_UV;
-
-			downsampleImage(dp_ds_ds_u, dp_ds_u, ds_width, ds_height);
-			predictImage(dp_p_ds_ds_u, dp_ds_ds_u, ds_ds_width, ds_ds_height);
-			dp_uv_out = dp_p_ds_ds_u;
-			dp_uv_out_size = dp_p_ds_ds_u_size;
-			downsampleImage(dp_ds_ds_v, dp_ds_v, ds_width, ds_height);
-			predictImage(dp_p_ds_ds_v, dp_ds_ds_v, ds_ds_width, ds_ds_height);
-			dp_uv_out_size += dp_p_ds_ds_v_size;
-
-			cctx.data = dp_uv_out;
-			cctx.data_size = dp_uv_out_size;
+			downsampleImage1(ds_u, ds_width, ds_height);
+			predictImage1out(u, ds_ds_u, ds_ds_width, ds_ds_height);
+			downsampleImage1(ds_v, ds_width, ds_height);
+			predictImage1out(v, ds_ds_v, ds_ds_width, ds_ds_height);
+			cctx_data_uv;
 			if (rpTestCompressAndSend(&cctx, 1) < 0) {
 				return -1;
 			}
@@ -1008,81 +1007,98 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		*dp_flags = flags;
 	} else {
 
-#define predictImage2(out_dst, dst, src, w, h) do { \
+#define predictImage2(c, w, h) do { \
 	if (rpConfig.flags & RP_SELECT_PREDICTION) { \
-		predictImage(dst, src, w, h); \
-		out_dst = dst; \
+		predictImage1(c, w, h); \
 	} else { \
-		out_dst = src; \
+		dp_p_ ## c = dp_ ## c; \
 	} \
 } while (0)
 
-#define selectImage2(out_dst, s_dst, m_dst, p_fd, p, w, h) do { \
+#define selectImage2(s, c, w, h) selectImage(dp_s_p_fd_ ## c, dp_m_p_fd_ ## c, dp_ ## s ## c, dp_p_ ## c, w, h);
+#define selectImage2out(o, s, c, w, h) do { \
 	if (rpConfig.flags & RP_SELECT_PREDICTION) { \
-		selectImage(s_dst, m_dst, p_fd, p, w, h); \
-		out_dst = s_dst; \
+		selectImage2(s, c, w, h); \
+		dp_ ## o ## _out = dp_s_p_fd_ ## c; \
+		dp_ ## o ## _out_size = dp_s_p_fd_ ## c ## _size; \
 	} else { \
-		out_dst = p_fd; \
+		dp_ ## o ## _out = dp_ ## s ## c; \
+		dp_ ## o ## _out_size = dp_ ## s ## c ## _size; \
 	} \
 } while (0)
 
-#define predictAndSelectImage2(out_dst, s_dst, m_dst, p_fd, fd, p, w, h) do { \
+#define predictAndSelectImage2out(o, c, w, h) do { \
 	if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) { \
-		predictImage(p_fd, fd, w, h); \
-		selectImage2(out_dst, s_dst, m_dst, p_fd, p, w, h); \
+		predictImage1(fd_ ## c, w, h); \
+		selectImage2out(o, p_fd_, c, w, h); \
 	} else { \
-		selectImage2(out_dst, s_dst, m_dst, fd, p, w, h); \
+		selectImage2out(o, fd_, c, w, h); \
 	} \
 } while (0)
 
-#define cctx_data2(m, m_size) do { \
+#define cctx_data2(m) do { \
 	if (rpConfig.flags & RP_SELECT_PREDICTION) { \
-		cctx.data2 = m; \
-		cctx.data2_size = m_size; \
+		cctx.data2 = dp_m_p_fd_ ## m; \
+		cctx.data2_size = dp_m_p_fd_ ## m ## _size; \
 	} else { \
 		cctx.data2 = 0; \
 		cctx.data2_size = 0; \
 	} \
 } while(0)
 
+#define cctx_data2_size(m) do { \
+	if (rpConfig.flags & RP_SELECT_PREDICTION) { \
+		cctx.data2_size += dp_m_p_fd_ ## m ## _size; \
+	} \
+} while(0)
+
+#define cctx_data2_y(y) do { \
+	cctx_data_y; \
+	cctx_data2(y); \
+} while (0)
+
+#define cctx_data2_uv(u, v) do { \
+	cctx_data_uv; \
+	cctx_data2(u); \
+	cctx_data2_size(v); \
+} while (0)
+
+#define differenceImage1(c, w, h) differenceImage(dp_fd_ ## c, dp_ ## c, dp_ ## c ## _pf, w, h)
+#define differenceFromDownsampled1(c, w, h) differenceFromDownsampled(dp_fd_ ## c, dp_ ## c, dp_ds_ ## c ## _pf, w, h)
+#define downsampledDifference1(c, w, h) downsampledDifference(dp_ds_ ## c, dp_fd_ds_ ## c, dp_ ## c, dp_ ## c ## _pf, w, h)
+#define downsampledDifferenceFromDownsampled1(c, w, h) downsampledDifferenceFromDownsampled(dp_ds_ ## c, dp_fd_ds_ ## c, dp_ ## c, dp_ds_ ## c ## _pf, w, h)
+
 		// Y
 		if (flags_pf & RP_DOWNSAMPLE_Y) {
-			differenceFromDownsampled(dp_fd_y, dp_y, dp_ds_y_pf, width, height);
+			differenceFromDownsampled1(y, width, height);
 		} else {
-			differenceImage(dp_fd_y, dp_y, dp_y_pf, width, height);
+			differenceImage1(y, width, height);
 		}
 
 		if (flags_pf & RP_DOWNSAMPLE2_UV) {
-			differenceFromDownsampled(dp_fd_ds_u, dp_ds_u, dp_ds_ds_u_pf, ds_width, ds_height);
-			differenceFromDownsampled(dp_fd_ds_v, dp_ds_v, dp_ds_ds_v_pf, ds_width, ds_height);
+			differenceFromDownsampled1(ds_u, ds_width, ds_height);
+			differenceFromDownsampled1(ds_v, ds_width, ds_height);
 		} else {
-			differenceImage(dp_fd_ds_u, dp_ds_u, dp_ds_u_pf, ds_width, ds_height);
-			differenceImage(dp_fd_ds_v, dp_ds_v, dp_ds_v_pf, ds_width, ds_height);
+			differenceImage1(ds_u, ds_width, ds_height);
+			differenceImage1(ds_v, ds_width, ds_height);
 		}
 
-		predictImage2(dp_dummy_out, dp_p_y, dp_y, width, height);
-		predictAndSelectImage2(dp_y_out, dp_s_p_fd_y, dp_m_p_fd_y, dp_p_fd_y, dp_fd_y, dp_p_y, width, height);
-
-		cctx.max_compressed_size = rpNetworkParams.bitsPerY / 8;
-		cctx.data = dp_y_out;
-		cctx.data_size = dp_s_p_fd_y_size;
-		cctx_data2(dp_m_p_fd_y, dp_m_p_fd_y_size);
+		predictImage2(y, width, height);
+		predictAndSelectImage2out(y, y, width, height);
+		cctx_data2_y(y);
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// Y downsampled
 			flags |= RP_DOWNSAMPLE_Y;
 
 			if (flags_pf & RP_DOWNSAMPLE_Y) {
-				downsampledDifferenceFromDownsampled(dp_fd_ds_y, dp_y, dp_ds_y_pf, width, height);
+				downsampledDifferenceFromDownsampled1(y, width, height);
 			} else {
-				downsampledDifference(dp_fd_ds_y, dp_y, dp_y_pf, width, height);
+				downsampledDifference1(y, width, height);
 			}
-			predictImage2(dp_dummy_out, dp_p_ds_y, dp_ds_y, ds_width, ds_height);
-			predictAndSelectImage2(dp_y_out, dp_s_p_fd_ds_y, dp_m_p_fd_ds_y, dp_p_fd_ds_y, dp_fd_ds_y, dp_p_ds_y, ds_width, ds_height);
-
-			cctx.data = dp_y_out;
-			cctx.data_size = dp_s_p_fd_ds_y_size;
-			cctx_data2(dp_m_p_fd_ds_y, dp_m_p_fd_ds_y_size);
+			predictImage2(ds_y, ds_width, ds_height);
+			predictAndSelectImage2out(y, ds_y, ds_width, ds_height);
+			cctx_data2_y(ds_y);
 
 			if (rpTestCompressAndSend(&cctx, 1) < 0) {
 				return -1;
@@ -1090,44 +1106,33 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		}
 
 		// UV
-		predictImage2(dp_dummy_out, dp_p_ds_u, dp_ds_u, ds_width, ds_height);
-		predictAndSelectImage2(dp_uv_out, dp_s_p_fd_ds_u, dp_m_p_fd_ds_u, dp_p_fd_ds_u, dp_fd_ds_u, dp_p_ds_u, ds_width, ds_height);
-		dp_uv_out_size = dp_s_p_fd_ds_u_size;
-		cctx_data2(dp_m_p_fd_ds_u, dp_m_p_fd_ds_u_size + dp_m_p_fd_ds_v_size);
-
-		predictImage2(dp_dummy_out, dp_p_ds_v, dp_ds_v, ds_width, ds_height);
-		predictAndSelectImage2(dp_dummy_out, dp_s_p_fd_ds_v, dp_m_p_fd_ds_v, dp_p_fd_ds_v, dp_fd_ds_v, dp_p_ds_v, ds_width, ds_height);
-		dp_uv_out_size += dp_s_p_fd_ds_u_size;
-
-		cctx.max_compressed_size = rpNetworkParams.bitsPerUV / 8;
-		cctx.data = dp_uv_out;
-		cctx.data_size = dp_uv_out_size;
+		predictImage2(ds_u, ds_width, ds_height);
+		predictAndSelectImage2out(u, ds_u, ds_width, ds_height);
+		predictImage2(ds_v, ds_width, ds_height);
+		predictAndSelectImage2out(v, ds_v, ds_width, ds_height);
+		cctx_data2_uv(ds_u, ds_v);
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// UV downsampled
 			flags |= RP_DOWNSAMPLE2_UV;
 
 			if (flags_pf & RP_DOWNSAMPLE2_UV) {
-				downsampledDifferenceFromDownsampled(dp_fd_ds_ds_u, dp_ds_u, dp_ds_ds_u_pf, ds_width, ds_height);
+				downsampledDifferenceFromDownsampled1(ds_u, ds_width, ds_height);
 			} else {
-				downsampledDifference(dp_fd_ds_ds_u, dp_ds_u, dp_ds_u_pf, ds_width, ds_height);
+				downsampledDifference1(ds_u, ds_width, ds_height);
 			}
-			predictImage2(dp_dummy_out, dp_p_ds_ds_u, dp_ds_ds_u, ds_ds_width, ds_ds_height);
-			predictAndSelectImage2(dp_uv_out, dp_s_p_fd_ds_ds_u, dp_m_p_fd_ds_ds_u, dp_p_fd_ds_ds_u, dp_fd_ds_ds_u, dp_p_ds_ds_u, ds_ds_width, ds_ds_height);
-			dp_uv_out_size = dp_s_p_fd_ds_ds_u_size;
-			cctx_data2(dp_m_p_fd_ds_ds_u, dp_m_p_fd_ds_ds_u_size + dp_m_p_fd_ds_ds_v_size);
+			predictImage2(ds_ds_u, ds_ds_width, ds_ds_height);
+			predictAndSelectImage2out(u, ds_ds_u, ds_ds_width, ds_ds_height);
 
 			if (flags_pf & RP_DOWNSAMPLE2_UV) {
-				downsampledDifferenceFromDownsampled(dp_fd_ds_ds_v, dp_ds_v, dp_ds_ds_v_pf, ds_width, ds_height);
+				downsampledDifferenceFromDownsampled1(ds_v, ds_width, ds_height);
 			} else {
-				downsampledDifference(dp_fd_ds_ds_v, dp_ds_v, dp_ds_v_pf, ds_width, ds_height);
+				downsampledDifference1(ds_v, ds_width, ds_height);
 			}
-			predictImage2(dp_dummy_out, dp_p_ds_ds_v, dp_ds_ds_v, ds_ds_width, ds_ds_height);
-			predictAndSelectImage2(dp_dummy_out, dp_s_p_fd_ds_ds_v, dp_m_p_fd_ds_ds_v, dp_p_fd_ds_ds_v, dp_fd_ds_ds_v, dp_p_ds_ds_v, ds_ds_width, ds_ds_height);
-			dp_uv_out_size += dp_s_p_fd_ds_ds_v_size;
+			predictImage2(ds_ds_v, ds_ds_width, ds_ds_height);
+			predictAndSelectImage2out(v, ds_ds_v, ds_ds_width, ds_ds_height);
 
-			cctx.data = dp_uv_out;
-			cctx.data_size = dp_uv_out_size;
+			cctx_data2_uv(ds_ds_u, ds_ds_v);
 
 			if (rpTestCompressAndSend(&cctx, 1) < 0) {
 				return -1;
