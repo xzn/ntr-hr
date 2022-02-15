@@ -422,7 +422,7 @@ static inline u8 accessImage(const u8 *image, int x, int y, int w, int h) {
 	return accessImageNoCheck(image, HR_MAX(HR_MIN(x, w), 0), HR_MAX(HR_MIN(y, h), 0), w, h);
 }
 
-static inline u8 medianOf3Ints(int a, int b, int c) {
+static inline u8 medianOf3_u8(u8 a, u8 b, u8 c) {
 	u8 max = a > b ? a : b;
 	max = max > c ? max : c;
 
@@ -449,13 +449,14 @@ static inline u8 predictPixel(const u8 *image, int x, int y, int w, int h) {
 	u8 l = accessImageNoCheck(image, x - 1, y, w, h);
 	u8 tl = accessImageNoCheck(image, x - 1, y - 1, w, h);
 
-	return medianOf3Ints(t, l, t + l - tl);
+	return medianOf3_u8(t, l, t + l - tl);
 }
 
 static inline void predictImage(u8 *dst, const u8 *src, int w, int h) {
+	const u8* src_begin = src;
 	for (int i = 0; i < w; ++i) {
 		for (int j = 0; j < h; ++j) {
-			dst[i * h + j] = src[i * h + j] - predictPixel(src, i, j, w, h);
+			*dst++ = *src++ - predictPixel(src_begin, i, j, w, h);
 		}
 	}
 }
@@ -502,9 +503,9 @@ static inline u16 accessImageUpsampleUnscaled(const u8 *ds_image, int xOrig, int
 	int ds_y0 = yOrig / 2;
 	int ds_y1 = ds_y0;
 
-	if (xOrig > ds_x0 * 2) {
+	if (xOrig > ds_x0 * 2) { // xOrig is odd -> ds_x0 * 2 + 1 = xOrig = ds_x1 * 2 - 1
 		++ds_x1;
-	} else {
+	} else { // xOrig is even -> ds_x0 * 2 + 2 = xOrig = ds_x1 * 2
 		--ds_x0;
 	}
 
