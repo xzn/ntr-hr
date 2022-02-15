@@ -835,7 +835,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		return -1;
 	}
 
-	int frameOffset = dp_save_size * (400 + 320) / width; // dp_y_size + dp_ds_u_size + dp_ds_v_size for both screens
+	int frameOffset = dp_save_size * (400 + 320) / width; // offset for both screens
 	int bottomScreenOffset = dp_save_size * 400 / width; // offset from top
 	frameOffset += 2; // add offset for dp_flags, twice for both screens;
 	bottomScreenOffset += 1; // add offset for dp_flags;
