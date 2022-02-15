@@ -393,6 +393,9 @@ void rpSendString(u32 size) {
 
 void rpDbg(const char* fmt, ...)
 {
+	if (!(rpConfig.flags & RP_DEBUG))
+		return;
+
 	va_list arp;
 	va_start(arp, fmt);
 	xvsprintf(dataBuf, fmt, arp);
@@ -1599,7 +1602,7 @@ int nsHandleRemotePlay() {
 	u32 rp_magic = pac->args[1];
 	rpConfig.qos = pac->args[2];
 	rpConfig.flags = pac->args[3];
-	rpConfig.flags |= RP_FLAG_ALL;
+	rpConfig.flags |= RP_FLAG_DBG;
 	rpConfig.quality = pac->args[4];
 	rpConfig.control = 0;
 
