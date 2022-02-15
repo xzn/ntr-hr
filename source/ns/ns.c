@@ -592,9 +592,13 @@ static inline void downsampledDifferenceFromDownsampled(u8 *ds_pf, u8 *fd_ds_dst
 #define ENCODE_SELECT_MASK_Y_SCALE 8
 #define ENCODE_SELECT_MASK_FACTOR (BITS_PER_BYTE * ENCODE_SELECT_MASK_X_SCALE * ENCODE_SELECT_MASK_Y_SCALE)
 
+static inline u8 abs_s8(s8 s) {
+	return s > 0 ? s : -s;
+}
+
 static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int w, int h) {
 	u16 sum_p_fd, sum_p;
-	u8 mask, m = 0;
+	u8 mask_bit, mask = 0;
 	int x = 0, y, i, j, n;
 	while (1) {
 		n = y = 0;
@@ -603,13 +607,13 @@ static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int 
 			sum_p = 0;
 			for (i = x; i < HR_MIN(x + ENCODE_SELECT_MASK_X_SCALE, w); ++i) {
 				for (j = y; j < HR_MIN(y + ENCODE_SELECT_MASK_Y_SCALE, h); ++j) {
-					sum_p_fd += accessImageNoCheck(p_fd, i, j, w, h);
-					sum_p += accessImageNoCheck(p, i, j, w, h);
+					sum_p_fd += abs_s8(accessImageNoCheck(p_fd, i, j, w, h));
+					sum_p += abs_s8(accessImageNoCheck(p, i, j, w, h));
 				}
 			}
-			mask = sum_p_fd < sum_p;
+			mask_bit = sum_p_fd < sum_p;
 
-			if (mask) {
+			if (mask_bit) {
 				for (i = x; i < HR_MIN(x + ENCODE_SELECT_MASK_X_SCALE, w); ++i)
 					for (j = y; j < HR_MIN(y + ENCODE_SELECT_MASK_Y_SCALE, h); ++j)
 						s_dst[i * h + j] = accessImageNoCheck(p_fd, i, j, w, h);
@@ -619,12 +623,12 @@ static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int 
 						s_dst[i * h + j] = accessImageNoCheck(p, i, j, w, h);
 			}
 
-			mask <<= n++;
-			m |= mask;
+			mask_bit <<= n++;
+			mask |= mask_bit;
 			n %= BITS_PER_BYTE;
 			if (n == 0) {
-				*m_dst++ = m;
-				m = 0;
+				*m_dst++ = mask;
+				mask = 0;
 			}
 
 			y += ENCODE_SELECT_MASK_Y_SCALE;
@@ -632,8 +636,8 @@ static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int 
 		}
 
 		if (n != 0) {
-			*m_dst++ = m;
-			m = 0;
+			*m_dst++ = mask;
+			mask = 0;
 		}
 
 		x += ENCODE_SELECT_MASK_X_SCALE;
@@ -1437,7 +1441,7 @@ void remotePlaySendFrames() {
 			forceKey = remotePlayBlitCompressAndSend(&botContext) < 0;
 		}
 
-#define SEND_STAT_EVERY_X_FRAMES 16
+#define SEND_STAT_EVERY_X_FRAMES 64
 		if (frameCount % SEND_STAT_EVERY_X_FRAMES == 0) {
 			u64 nextTick = svc_getSystemTick();
 			if (currentTick) {
