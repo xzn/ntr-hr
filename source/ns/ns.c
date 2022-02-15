@@ -759,7 +759,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	// output when not RP_SELECT_PREDICTION and not RP_PREDICT_FRAME_DELTA
 	u8* dp_fd_y = dp_u; // reuse from dp_u, after dp_ds_u is ready, make sure dp_fd_y_size <= dp_u_size
 	u32 dp_fd_y_size = dp_y_size;
-	u8* dp_fd_ds_u = dp_v; // reuse from dp_v, after dp_ds_v is ready, need to be consecutive in layout with dp_fd_ds_v
+	u8* dp_fd_ds_u = dp_fd_y + dp_fd_y_size; // reuse from dp_v, after dp_ds_v is ready, need to be consecutive in layout with dp_fd_ds_v
 	u32 dp_fd_ds_u_size = dp_ds_u_size;
 	u8* dp_fd_ds_v = dp_fd_ds_u + dp_fd_ds_u_size; // make sure dp_fd_ds_u_size + dp_fd_ds_v_size <= dp_v_size
 	u32 dp_fd_ds_v_size = dp_ds_v_size;
@@ -829,7 +829,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	// make sure we have enough room in the buffer
 	// see imgBuffer in remotePlayThreadStart and transformDst in remotePlaySendFrames
 
-	u8* dp_end = dp_m_p_fd_ds_ds_v + dp_m_p_fd_ds_ds_v_size;
+	u8* dp_end = HR_MAX(dp_p_ds_ds_v + dp_p_ds_ds_v_size, dp_m_p_fd_ds_ds_v + dp_m_p_fd_ds_ds_v_size);
 	if (dp_end > rpAllocBuff) {
 		rpDbg("Allocated buffer too small: %d needed (%d available)\n", dp_end - dp_begin, rpAllocBuff - dp_begin);
 		return -1;
