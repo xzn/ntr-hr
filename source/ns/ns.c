@@ -315,7 +315,7 @@ typedef struct _BLIT_CONTEXT {
 	// int directCompress;
 	int isKey;
 } BLIT_CONTEXT;
-
+#define RP_TRANSFORM_DST_OFFSET 0x00150000
 
 static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src, int src_size) {
 
@@ -1421,7 +1421,7 @@ void remotePlaySendFrames() {
 			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer, bufSize);
 			// tl_pitch_max = tl_pitch_max > tl_pitch ? tl_pitch_max : tl_pitch;
 			// topContext.compressDst = 0;
-			topContext.transformDst = imgBuffer + 0x00150000;
+			topContext.transformDst = imgBuffer + RP_TRANSFORM_DST_OFFSET;
 			// botContext.transformDst2 = 0;
 			// topContext.reset = 1;
 			topContext.id = (u8)currentTopId;
@@ -1436,7 +1436,7 @@ void remotePlaySendFrames() {
 			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer, bufSize);
 			// bl_pitch_max = bl_pitch_max > bl_pitch ? bl_pitch_max : bl_pitch;
 			// botContext.compressDst = 0;
-			botContext.transformDst = imgBuffer + 0x00150000;
+			botContext.transformDst = imgBuffer + RP_TRANSFORM_DST_OFFSET;
 			// botContext.transformDst2 = 0;
 			// botContext.reset = 1;
 			botContext.id = (u8)currentBottomId;
@@ -1471,10 +1471,18 @@ void remotePlayThreadStart() {
 	u8* dataBuf = remotePlayBuffer + 0x2a + 8;
 	u32 remainSize;
 
-	imgBuffer = plgRequestMemorySpecifyRegion(0x00200000, 1);
-
+#define RP_IMG_BUFFER_SIZE 0x00200000
+	// (from the beginning of imgBuffer)
+	// imgBuffer: dma work memory (rpCaptureScreen)
+	// -> imgBuffer + bufSize: huffman + RLE compression dst memory (rpTestCompressAndSend)
+	// -> imgBuffer + RP_TRANSFORM_DST_OFFSET - frameOffset * 2: transform process work memory (remotePlayBlitCompressAndSend)
+	// (from the end of imgBuffer)
+	// -> - huffman_malloc_usage: huffman compression work memory, see qsort.h
+	// 
+	// adjust RP_IMG_BUFFER_SIZE and/or RP_TRANSFORM_DST_OFFSET is out of memory
+	imgBuffer = plgRequestMemorySpecifyRegion(RP_IMG_BUFFER_SIZE, 1);
 	// rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
-	rpAllocBuff = imgBuffer + 0x00200000 - huffman_malloc_usage(); // need for huffman + rle, see qsort.h
+	rpAllocBuff = imgBuffer + RP_IMG_BUFFER_SIZE - huffman_malloc_usage();
 
 	// if (rpAllocBuff) {
 	// 	rpAllocBuffRemainSize = 0x00100000;
