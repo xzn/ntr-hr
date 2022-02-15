@@ -717,12 +717,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	 // need for next frame
 	u8* dp_flags = dp_begin;
-	u8 flags = 0;
-#define RP_DOWNSAMPLE_Y (1 << 0)
-#define RP_DOWNSAMPLE2_UV (1 << 1)
-
 	// assume worst case width = 400, height = 240 for top screen
-
 	u8 *dp_save_begin = dp_flags + 1; // dp_flags need to be saved as well, its size is calculated separately however
 	u8* dp_y = dp_save_begin;
 	u32 dp_y_size = width * height; // 96'000
@@ -931,6 +926,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	}
 
+#define RP_DOWNSAMPLE_Y (1 << 0)
+#define RP_DOWNSAMPLE2_UV (1 << 1)
+	u8 flags = 0;
 	u8 flags_pf = *dp_flags_pf;
 	int ds_width = width / 2;
 	int ds_height = height / 2;
