@@ -5,6 +5,7 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <limits.h>
 #include "fastlz.h"
 #include "gen.h"
 
@@ -689,7 +690,10 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	}
 	huffman_size = huffman_encode_with_len_table(counts, dst, cctx->data, cctx->data_size);
 	u8* rle_dst = dst + huffman_size;
-	int rle_size = rle_encode(rle_dst, dst, huffman_size);
+	int rle_size = INT_MAX;
+	if (RP_RLE_ENCODE) {
+		rle_size = rle_encode(rle_dst, dst, huffman_size);
+	}
 
 	rpDbg("Huffman %d RLE %d from %d", huffman_size, rle_size, cctx->data_size);
 	if (rle_size < huffman_size) {
