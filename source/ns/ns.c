@@ -659,7 +659,7 @@ typedef struct _COMPRESS_CONTEXT {
 	u32 max_compressed_size;
 } COMPRESS_CONTEXT;
 
-struct {
+static struct {
 	u32 targetBitsPerSec;
 	u32 targetFrameRate;
 	u32 qualityFactorNum;
@@ -669,19 +669,53 @@ struct {
 	u32 bitsPerUV;
 } rpNetworkParams;
 
-struct {
+#define RP_DATA_Y ((u32)1 << 0)
+#define RP_DATA_DS ((u32)1 << 1)
+#define RP_DATA_FD ((u32)1 << 2)
+#define RP_DATA_PFD ((u32)1 << 3)
+#define RP_DATA_SPFD ((u32)1 << 4)
+#define RP_DATA_RLE ((u32)1 << 5)
+
+static struct {
+	u32 flags;
+	u32 len;
 } rpDataHeader;
 
-static inline int rpSendData(u8* data, int size) {
-	return size;
+static u8 rpPacketId = 0;
+static inline int rpSendData(u8* data) {
+	u32 size = rpDataHeader.len;
+	u64 tickDiff;
+	u64 sleepValue;
+	memset(dataBuf, 0, 4);
+	while (size) {
+		tickDiff = svc_getSystemTick() - rpLastSendTick;
+		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
+			sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
+			svc_sleepThread(sleepValue);
+		}
+		u32 sendSize = size;
+		if (sendSize > (PACKET_SIZE - 4)) {
+			sendSize = (PACKET_SIZE - 4);
+		}
+		size -= sendSize;
+		if (size == 0) {
+			dataBuf[1] = 0x10;
+		}
+		dataBuf[3] = rpPacketId++;
+		memcpy(dataBuf + 4, data, sendSize);
+		packetLen = initUDPPacket(sendSize + 4, REMOTE_PLAY_PORT);
+		nwmSendPacket(remotePlayBuffer, packetLen);
+		data += sendSize;
+		rpLastSendTick = svc_getSystemTick();
+	}
 }
 
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
-	u8* dst = cctx->dp + sizeof(rpDataHeader);
-	uint32_t* counts = huffman_len_table(dst, cctx->data, cctx->data_size);
-	int huffman_size = huffman_compressed_size(counts, dst) + 256;
+	u8* huffman_dst = cctx->dp + sizeof(rpDataHeader);
+	uint32_t* counts = huffman_len_table(huffman_dst, cctx->data, cctx->data_size);
+	int huffman_size = huffman_compressed_size(counts, huffman_dst) + 256;
 	if (!skipTest && huffman_size > cctx->max_compressed_size) {
 		rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
 		return -1;
@@ -690,17 +724,17 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	if (rpConfig.flags & RP_RLE_ENCODE) {
 		dst_size += rle_max_compressed_size(huffman_size);
 	}
-	if (dst + dst_size >= cctx->dp_end) {
+	if (huffman_dst + dst_size >= cctx->dp_end) {
 		rpDbg("Not enough memory for compression: %d needed (%d available)\n",
-			dst_size, cctx->dp_end - dst
+			dst_size, cctx->dp_end - huffman_dst
 		);
 		return -1;
 	}
-	huffman_size = huffman_encode_with_len_table(counts, dst, cctx->data, cctx->data_size);
-	u8* rle_dst = dst + huffman_size;
+	huffman_size = huffman_encode_with_len_table(counts, huffman_dst, cctx->data, cctx->data_size);
+	u8* rle_dst = huffman_dst + huffman_size;
 	int rle_size = INT_MAX;
 	if (rpConfig.flags & RP_RLE_ENCODE) {
-		rle_size = rle_encode(rle_dst, dst, huffman_size);
+		rle_size = rle_encode(rle_dst, huffman_dst, huffman_size);
 		rpDbg("Huffman %d RLE %d from %d", huffman_size, rle_size, cctx->data_size);
 	} else {
 		rpDbg("Huffman %d from %d", huffman_size, cctx->data_size);
@@ -708,14 +742,16 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 
 	u8* dh_dst;
 	if (rle_size < huffman_size) {
+		rpDataHeader.flags |= RP_DATA_RLE;
+		rpDataHeader.len = rle_size + sizeof(rpDataHeader);
 		dh_dst = rle_dst - sizeof(rpDataHeader);
-		memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
-		return rpSendData(dh_dst, rle_size + sizeof(rpDataHeader));
 	} else {
-		dh_dst = dst - sizeof(rpDataHeader);
-		memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
-		return rpSendData(dst, huffman_size + sizeof(rpDataHeader));
+		rpDataHeader.flags &= ~RP_DATA_RLE;
+		rpDataHeader.len = huffman_size + sizeof(rpDataHeader);
+		dh_dst = huffman_dst - sizeof(rpDataHeader);
 	}
+	memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
+	return rpSendData(dh_dst);
 }
 
 static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
@@ -978,25 +1014,39 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	dp_ ## o ## _out ## _size = dp_p_ ## c ## _size; \
 } while (0)
 
+#define RP_HEADER_SET(f) do { \
+	rpDataHeader.flags |= f; \
+} while (0)
+
+#define RP_HEADER_RESET(f) do { \
+	rpDataHeader.flags &= ~f; \
+} while (0)
+
 #define cctx_data_y do { \
 	cctx.max_compressed_size = rpNetworkParams.bitsPerY / 8; \
 	cctx.data = dp_y_out; \
 	cctx.data_size = dp_y_out_size; \
+	RP_HEADER_SET(RP_DATA_Y); \
 } while (0)
 
 #define cctx_data_uv do { \
 	cctx.max_compressed_size = rpNetworkParams.bitsPerUV / 8; \
 	cctx.data = dp_u_out; \
 	cctx.data_size = dp_u_out_size + dp_v_out_size; \
+	RP_HEADER_RESET(RP_DATA_Y); \
 } while (0)
 
 	downsampleImage1(u, width, height);
 	downsampleImage1(v, width, height);
 
+	RP_HEADER_RESET((u32)-1);
+
 	if (isKey) {
+		RP_HEADER_RESET(RP_DATA_FD);
 		// Y
 		predictImage1out(y, y, width, height);
 		cctx_data_y;
+		RP_HEADER_RESET(RP_DATA_DS);
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// Y downsampled
@@ -1004,6 +1054,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			downsampleImage1(y, width, height);
 			predictImage1out(y, ds_y, ds_width, ds_height);
 			cctx_data_y;
+			RP_HEADER_SET(RP_DATA_DS);
 			if (rpTestCompressAndSend(&cctx, 1) < 0) {
 				return -1;
 			}
@@ -1013,6 +1064,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		predictImage1out(u, ds_u, ds_width, ds_height);
 		predictImage1out(v, ds_v, ds_width, ds_height);
 		cctx_data_uv;
+		RP_HEADER_RESET(RP_DATA_DS);
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// UV downsampled
@@ -1022,6 +1074,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			downsampleImage1(ds_v, ds_width, ds_height);
 			predictImage1out(v, ds_ds_v, ds_ds_width, ds_ds_height);
 			cctx_data_uv;
+			RP_HEADER_SET(RP_DATA_DS);
 			if (rpTestCompressAndSend(&cctx, 1) < 0) {
 				return -1;
 			}
@@ -1091,6 +1144,18 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 #define downsampledDifference1(c, w, h) downsampledDifference(dp_ds_ ## c, dp_fd_ds_ ## c, dp_ ## c, dp_ ## c ## _pf, w, h)
 #define downsampledDifferenceFromDownsampled1(c, w, h) downsampledDifferenceFromDownsampled(dp_ds_ ## c, dp_fd_ds_ ## c, dp_ ## c, dp_ds_ ## c ## _pf, w, h)
 
+		RP_HEADER_SET(RP_DATA_FD);
+		if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) {
+			RP_HEADER_SET(RP_DATA_PFD);
+		} else {
+			RP_HEADER_RESET(RP_DATA_PFD);
+		}
+		if (rpConfig.flags & RP_SELECT_PREDICTION) {
+			RP_HEADER_SET(RP_DATA_SPFD);
+		} else {
+			RP_HEADER_RESET(RP_DATA_SPFD);
+		}
+
 		// Y
 		if (flags_pf & RP_DOWNSAMPLE_Y) {
 			differenceFromDownsampled1(y, width, height);
@@ -1109,6 +1174,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		predictImage2(y, width, height);
 		predictAndSelectImage2out(y, y, width, height);
 		cctx_data2_y(y);
+		RP_HEADER_RESET(RP_DATA_DS);
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// Y downsampled
@@ -1122,6 +1188,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			predictImage2(ds_y, ds_width, ds_height);
 			predictAndSelectImage2out(y, ds_y, ds_width, ds_height);
 			cctx_data2_y(ds_y);
+			RP_HEADER_SET(RP_DATA_DS);
 
 			if (rpTestCompressAndSend(&cctx, 1) < 0) {
 				return -1;
@@ -1134,6 +1201,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		predictImage2(ds_v, ds_width, ds_height);
 		predictAndSelectImage2out(v, ds_v, ds_width, ds_height);
 		cctx_data2_uv(ds_u, ds_v);
+		RP_HEADER_RESET(RP_DATA_DS);
 
 		if (rpTestCompressAndSend(&cctx, 0) < 0) {
 			// UV downsampled
@@ -1156,6 +1224,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			predictAndSelectImage2out(v, ds_ds_v, ds_ds_width, ds_ds_height);
 
 			cctx_data2_uv(ds_ds_u, ds_ds_v);
+			RP_HEADER_SET(RP_DATA_DS);
 
 			if (rpTestCompressAndSend(&cctx, 1) < 0) {
 				return -1;
@@ -1374,6 +1443,8 @@ void updateNetworkParams() {
 	}
 	rpNetworkParams.bitsPerFrame =
 		rpNetworkParams.targetBitsPerSec * rpNetworkParams.qualityFactorNum / rpNetworkParams.targetFrameRate / rpNetworkParams.qualityFactorDenum;
+	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpConfig.qos / PACKET_SIZE)) * SYSTICK_PER_US
+		* rpNetworkParams.qualityFactorDenum / rpNetworkParams.qualityFactorNum;
 	rpNetworkParams.bitsPerY = rpNetworkParams.bitsPerFrame * 2 / 3;
 	rpNetworkParams.bitsPerUV = rpNetworkParams.bitsPerFrame / 3;
 }
@@ -1388,7 +1459,6 @@ void remotePlaySendFrames() {
 	}
 	priorityFactor = factor;
 	rpConfig.qos = HR_MAX(rpConfig.qos, 1024 * 512 * 3);
-	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpConfig.qos / PACKET_SIZE)) * SYSTICK_PER_US;
 	updateNetworkParams();
 
 	u32 currentUpdating = isPriorityTop;

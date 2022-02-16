@@ -54,15 +54,15 @@ typedef struct _NS_BREAKPOINT {
 #define NS_BPTYPE_CODE		1
 #define NS_BPTYPE_CODEONESHOT	2
 
-#define RP_USE_FRAME_DELTA (1 << 0)
-#define RP_PREDICT_FRAME_DELTA (1 << 1)
-#define RP_SELECT_PREDICTION (1 << 2)
-#define RP_DYNAMIC_ENCODE (1 << 3)
-#define RP_RLE_ENCODE (1 << 4)
-#define RP_DEBUG (1 << 30)
-// #define RP_EXTENDED (1 << 31)
+#define RP_USE_FRAME_DELTA ((u32)1 << 0)
+#define RP_PREDICT_FRAME_DELTA ((u32)1 << 1)
+#define RP_SELECT_PREDICTION ((u32)1 << 2)
+#define RP_DYNAMIC_ENCODE ((u32)1 << 3)
+#define RP_RLE_ENCODE ((u32)1 << 4)
+#define RP_DEBUG ((u32)1 << 30)
+#define RP_EXTENDED ((u32)1 << 31)
 // #define RP_FLAG_DBG 0
-#define RP_FLAG_DBG 0
+#define RP_FLAG_DBG (RP_DEBUG | RP_RLE_ENCODE | RP_DYNAMIC_ENCODE | RP_USE_FRAME_DELTA)
 
 #define RP_MAGIC 0xfff54321
 

@@ -238,7 +238,7 @@ int huffman_compressed_size(const uint32_t *counts, const uint8_t *lens)
     for (; i < 256; ++i) {
         n += counts[i] * lens[i];
     }
-    return (n + 7) / 8;
+    return (n + 31) / 32;
 }
 
 int huffman_malloc_usage()
