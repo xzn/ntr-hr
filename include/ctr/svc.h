@@ -39,6 +39,7 @@ typedef enum{
 	void svc_sleepThread(s64 ns);
 	Result svc_createMutex(Handle* mutex, bool initialLocked);
 	Result svc_releaseMutex(Handle handle);
+	Result svc_createSemaphore(Handle* semaphore, s32 initial_count, s32 max_count);
 	Result svc_releaseSemaphore(s32* count, Handle semaphore, s32 releaseCount);
 	Result svc_createEvent(Handle* event, u8 resettype);
 	Result svc_signalEvent(Handle handle);

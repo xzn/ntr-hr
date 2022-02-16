@@ -14,6 +14,9 @@
 #include "rlecodec.h"
 #endif
 
+#define HR_MAX(a, b) ((a) > (b) ? (a) : (b))
+#define HR_MIN(a, b) ((a) < (b) ? (a) : (b))
+
 NS_CONTEXT* g_nsCtx = 0;
 NS_CONFIG* g_nsConfig;
 
@@ -49,7 +52,7 @@ u64 rpMinIntervalBetweenPacketsInTick = 0;
 
 #define SYSTICK_PER_US (268)
 
-extern u8* dataBuf;
+extern u8* dbgBuf;
 void rpSendString(u32 size);
 void rpDbg(const char* fmt, ...);
 
@@ -188,10 +191,17 @@ return cmdbuf[1];
 
 RT_HOOK nwmValParamHook;
 
-int packetLen = 0;
 int remotePlayInited = 0;
 u8 remotePlayBuffer[2000] = { 0 };
+u8 rpDbgBuffer[2000] = { 0 };
 u8* dataBuf = remotePlayBuffer + 0x2a + 8;
+u8* dbgBuf = rpDbgBuffer + 0x2a + 8;
+Handle rpReadySendSem;
+Handle rpDoneSendSem;
+u8* rp_huffman_rle_dst_a;
+u8* rp_huffman_rle_dst_b;
+u8* volatile rp_send_buffer_a;
+u8* volatile rp_send_buffer_b;
 u8* imgBuffer = 0;
 // int topFormat = 0, bottomFormat = 0;
 // int frameSkipA = 1, frameSkipB = 1;
@@ -241,23 +251,23 @@ uint16_t ip_checksum(void* vdata, size_t length) {
 	return htons(~acc);
 }
 
-int	initUDPPacket(int dataLen, int port) {
+int	initUDPPacket(u8* rpBuf, int dataLen, int port) {
 	dataLen += 8;
-	*(u16*)(remotePlayBuffer + 0x22 + 8) = htons(8000); // src port
-	*(u16*)(remotePlayBuffer + 0x24 + 8) = htons(port); // dest port
-	*(u16*)(remotePlayBuffer + 0x26 + 8) = htons(dataLen);
-	*(u16*)(remotePlayBuffer + 0x28 + 8) = 0; // no checksum
+	*(u16*)(rpBuf + 0x22 + 8) = htons(8000); // src port
+	*(u16*)(rpBuf + 0x24 + 8) = htons(port); // dest port
+	*(u16*)(rpBuf + 0x26 + 8) = htons(dataLen);
+	*(u16*)(rpBuf + 0x28 + 8) = 0; // no checksum
 	dataLen += 20;
 
-	*(u16*)(remotePlayBuffer + 0x10 + 8) = htons(dataLen);
-	*(u16*)(remotePlayBuffer + 0x12 + 8) = 0xaf01; // packet id is a random value since we won't use the fragment
-	*(u16*)(remotePlayBuffer + 0x14 + 8) = 0x0040; // no fragment
-	*(u16*)(remotePlayBuffer + 0x16 + 8) = 0x1140; // ttl 64, udp
-	*(u16*)(remotePlayBuffer + 0x18 + 8) = 0;
-	*(u16*)(remotePlayBuffer + 0x18 + 8) = ip_checksum(remotePlayBuffer + 0xE + 8, 0x14);
+	*(u16*)(rpBuf + 0x10 + 8) = htons(dataLen);
+	*(u16*)(rpBuf + 0x12 + 8) = 0xaf01; // packet id is a random value since we won't use the fragment
+	*(u16*)(rpBuf + 0x14 + 8) = 0x0040; // no fragment
+	*(u16*)(rpBuf + 0x16 + 8) = 0x1140; // ttl 64, udp
+	*(u16*)(rpBuf + 0x18 + 8) = 0;
+	*(u16*)(rpBuf + 0x18 + 8) = ip_checksum(rpBuf + 0xE + 8, 0x14);
 
 	dataLen += 22;
-	*(u16*)(remotePlayBuffer + 12) = htons(dataLen);
+	*(u16*)(rpBuf + 12) = htons(dataLen);
 
 	return dataLen;
 }
@@ -272,6 +282,7 @@ int	initUDPPacket(int dataLen, int port) {
 
 #define PACKET_SIZE (1448)
 #define REMOTE_PLAY_PORT (8001)
+#define RP_DBG_PORT (8002)
 
 
 int getBppForFormat(int format) {
@@ -293,6 +304,7 @@ typedef struct _BLIT_CONTEXT {
 	int width, height, format, src_pitch;
 	int x, y;
 	u8* src;
+	u8 bufSize;
 	int outformat, bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
@@ -336,6 +348,7 @@ static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, 
 	ctx->height = height;
 	ctx->src_pitch = src_pitch;
 	ctx->src = src;
+	ctx->bufSize = HR_MAX(src_size, 0);
 	ctx->x = 0;
 	ctx->y = 0;
 	if (ctx->bpp == 2) {
@@ -388,8 +401,8 @@ void rpSendBuffer(u8* buf, u32 size, u32 flag) {
 */
 
 void rpSendString(u32 size) {
-	packetLen = initUDPPacket(size, 8002);
-	nwmSendPacket(remotePlayBuffer, packetLen);
+	int packetLen = initUDPPacket(rpDbgBuffer, size, RP_DBG_PORT);
+	nwmSendPacket(rpDbgBuffer, packetLen);
 }
 
 void rpDbg(const char* fmt, ...)
@@ -399,14 +412,11 @@ void rpDbg(const char* fmt, ...)
 
 	va_list arp;
 	va_start(arp, fmt);
-	xvsprintf(dataBuf, fmt, arp);
+	xvsprintf(dbgBuf, fmt, arp);
 	va_end(arp);
 
-	rpSendString(strlen(dataBuf));
+	rpSendString(strlen(dbgBuf));
 }
-
-#define HR_MAX(a, b) ((a) > (b) ? (a) : (b))
-#define HR_MIN(a, b) ((a) < (b) ? (a) : (b))
 
 static inline void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
 	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
@@ -655,7 +665,6 @@ typedef struct _COMPRESS_CONTEXT {
 	u32 data_size;
 	const u8* data2;
 	u32 data2_size;
-	u8 *dp, *dp_end;
 	u32 max_compressed_size;
 } COMPRESS_CONTEXT;
 
@@ -676,59 +685,85 @@ static struct {
 #define RP_DATA_SPFD ((u32)1 << 4)
 #define RP_DATA_RLE ((u32)1 << 5)
 
-static struct {
+static struct RP_DATA_HEADER {
 	u32 flags;
 	u32 len;
 } rpDataHeader;
 
+static u8 rpFrameId = 0;
 static u8 rpPacketId = 0;
-static inline int rpSendData(u8* data) {
-	u32 size = rpDataHeader.len;
-	u64 tickDiff;
-	u64 sleepValue;
-	memset(dataBuf, 0, 4);
-	while (size) {
-		tickDiff = svc_getSystemTick() - rpLastSendTick;
-		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
-			sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
-			svc_sleepThread(sleepValue);
-		}
-		u32 sendSize = size;
-		if (sendSize > (PACKET_SIZE - 4)) {
-			sendSize = (PACKET_SIZE - 4);
-		}
-		size -= sendSize;
-		if (size == 0) {
-			dataBuf[1] = 0x10;
-		}
-		dataBuf[3] = rpPacketId++;
-		memcpy(dataBuf + 4, data, sendSize);
-		packetLen = initUDPPacket(sendSize + 4, REMOTE_PLAY_PORT);
-		nwmSendPacket(remotePlayBuffer, packetLen);
-		data += sendSize;
-		rpLastSendTick = svc_getSystemTick();
+static inline void rpSendData(u8* data) {
+	if (rpFrameId % 2) {
+		rp_send_buffer_b = data;
+	} else {
+		rp_send_buffer_a = data;
 	}
+	++rpFrameId;
+}
+
+static u8 rpThreadFrameId = 0;
+void rpSendDataThread() {
+	while (1) {
+		svc_waitSynchronization1(rpReadySendSem, U64_MAX);
+
+		u8* data;
+		if (rpThreadFrameId % 2) {
+			data = rp_send_buffer_b;
+		} else {
+			data = rp_send_buffer_a;
+		}
+		++rpThreadFrameId;
+		struct RP_DATA_HEADER header;
+		memcpy(&header, data, sizeof(header));
+		u32 size = header.len;
+		u64 tickDiff;
+		u64 sleepValue;
+		memset(dataBuf, 0, 4);
+		while (size) {
+			tickDiff = svc_getSystemTick() - rpLastSendTick;
+			if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
+				sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
+				svc_sleepThread(sleepValue);
+			}
+			u32 sendSize = size;
+			if (sendSize > (PACKET_SIZE - 4)) {
+				sendSize = (PACKET_SIZE - 4);
+			}
+			size -= sendSize;
+			if (size == 0) {
+				dataBuf[1] = 0x10;
+			}
+			dataBuf[3] = rpPacketId++;
+			memcpy(dataBuf + 4, data, sendSize);
+			int packetLen = initUDPPacket(remotePlayBuffer, sendSize + 4, REMOTE_PLAY_PORT);
+			nwmSendPacket(remotePlayBuffer, packetLen);
+			data += sendSize;
+			rpLastSendTick = svc_getSystemTick();
+		}
+
+		s32 count;
+		svc_releaseSemaphore(&count, rpDoneSendSem, 1);
+	}
+	svc_exitThread();
 }
 
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
-	u8* huffman_dst = cctx->dp + sizeof(rpDataHeader);
+	svc_waitSynchronization1(rpDoneSendSem, U64_MAX);
+	u8* dst = rpFrameId % 2 ? rp_huffman_rle_dst_b : rp_huffman_rle_dst_a;
+	u8* huffman_dst = dst + sizeof(rpDataHeader);
 	uint32_t* counts = huffman_len_table(huffman_dst, cctx->data, cctx->data_size);
 	int huffman_size = huffman_compressed_size(counts, huffman_dst) + 256;
 	if (!skipTest && huffman_size > cctx->max_compressed_size) {
 		rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
+		s32 count;
+		svc_releaseSemaphore(&count, rpDoneSendSem, 1);
 		return -1;
 	}
 	int dst_size = huffman_size;
 	if (rpConfig.flags & RP_RLE_ENCODE) {
 		dst_size += rle_max_compressed_size(huffman_size);
-	}
-	if (huffman_dst + dst_size >= cctx->dp_end) {
-		rpDbg("Not enough memory for compression: %d needed (%d available)\n",
-			dst_size, cctx->dp_end - huffman_dst
-		);
-		return -1;
 	}
 	huffman_size = huffman_encode_with_len_table(counts, huffman_dst, cctx->data, cctx->data_size);
 	u8* rle_dst = huffman_dst + huffman_size;
@@ -751,7 +786,10 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 		dh_dst = huffman_dst - sizeof(rpDataHeader);
 	}
 	memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
-	return rpSendData(dh_dst);
+	rpSendData(dh_dst);
+	s32 count;
+	svc_releaseSemaphore(&count, rpReadySendSem, 1);
+	return 0;
 }
 
 static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
@@ -762,7 +800,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	int pitch = ctx->src_pitch;
 	int isKey = !(rpConfig.flags & RP_USE_FRAME_DELTA) || ctx->isKey;
 	int isTop = ctx->isTop;
-	int frameId = ctx->id % 2;
+	int screenFrameId = ctx->id % 2;
 
 	u32 px;
 	u16 tmp;
@@ -901,7 +939,30 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_ds_y_pf;
 	u8* dp_ds_ds_u_pf;
 	u8* dp_ds_ds_v_pf;
+
 	u8* dp_pf = dp_flags - frameOffset * 2;
+
+	const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(rpDataHeader); // for 400 * 240 of data
+	u8* dp_compression_a = dp_pf - huffman_rle_dst_offset;
+	u8* dp_compression_b = dp_compression_a - huffman_rle_dst_offset;
+	if (dp_compression_b < ctx->src + ctx->bufSize) {
+		rpDbg("Not enough memory: need additional %d\n", ctx->src + ctx->bufSize - dp_compression_b);
+		return -1;
+	}
+
+	if (rp_huffman_rle_dst_a == 0) {
+		rp_huffman_rle_dst_a = dp_compression_a;
+	} else if (rp_huffman_rle_dst_a != dp_compression_a) {
+		rpDbg("Remote play compression buffer error (1)\n");
+		return -1;
+	}
+
+	if (rp_huffman_rle_dst_b == 0) {
+		rp_huffman_rle_dst_b = dp_compression_b;
+	} else if (rp_huffman_rle_dst_b != dp_compression_b) {
+		rpDbg("Remote play compression buffer error (2)\n");
+		return -1;
+	}
 
 	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
 		dp_flags -= bottomScreenOffset;
@@ -913,7 +974,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		dp_ds_ds_v -= bottomScreenOffset;
 	}
 	// apply frameOffset
-	if (frameId) {
+	if (screenFrameId) {
 		dp_flags_pf = dp_flags;
 		dp_y_pf = dp_y;
 		dp_ds_u_pf = dp_ds_u;
@@ -1001,10 +1062,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_v_out;
 	u32 dp_v_out_size;
 
-	COMPRESS_CONTEXT cctx = {
-		.dp = ctx->src,
-		.dp_end = dp_pf,
-	};
+	COMPRESS_CONTEXT cctx = { 0 };
 
 #define downsampleImage1(c, w, h) downsampleImage(dp_ds_ ## c, dp_ ## c, w, h)
 #define predictImage1(c, w, h) predictImage(dp_p_ ## c, dp_ ## c, w, h)
@@ -1238,6 +1296,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	return 0;
 }
 
+#if 0
 int remotePlayBlit(BLIT_CONTEXT* ctx) {
 	int bpp = ctx->bpp;
 	int width = ctx->width;
@@ -1289,6 +1348,7 @@ int remotePlayBlit(BLIT_CONTEXT* ctx) {
 	}
 	return dp - dataBuf;
 }
+#endif
 
 
 void remotePlayKernelCallback() {
@@ -1443,8 +1503,7 @@ void updateNetworkParams() {
 	}
 	rpNetworkParams.bitsPerFrame =
 		rpNetworkParams.targetBitsPerSec * rpNetworkParams.qualityFactorNum / rpNetworkParams.targetFrameRate / rpNetworkParams.qualityFactorDenum;
-	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpConfig.qos / PACKET_SIZE)) * SYSTICK_PER_US
-		* rpNetworkParams.qualityFactorDenum / rpNetworkParams.qualityFactorNum;
+	rpMinIntervalBetweenPacketsInTick = (1000000 / (2 * rpConfig.qos * rpNetworkParams.qualityFactorNum / rpNetworkParams.qualityFactorDenum / PACKET_SIZE)) * SYSTICK_PER_US;
 	rpNetworkParams.bitsPerY = rpNetworkParams.bitsPerFrame * 2 / 3;
 	rpNetworkParams.bitsPerUV = rpNetworkParams.bitsPerFrame / 3;
 }
@@ -1495,9 +1554,6 @@ void remotePlaySendFrames() {
 		if (firstFrame) {
 			firstFrame = 0;
 		}
-		if (isKey) {
-			rpDbg("Keyframe at %d\n", frameCount);
-		}
 
 		if (currentUpdating) {
 			// send top
@@ -1530,6 +1586,10 @@ void remotePlaySendFrames() {
 			forceKey = remotePlayBlitCompressAndSend(&botContext) < 0;
 		}
 
+		if (forceKey) {
+			rpDbg("Compress and send faileed at frame %d\n", frameCount);
+		}
+
 #define SEND_STAT_EVERY_X_FRAMES 64
 		if (frameCount % SEND_STAT_EVERY_X_FRAMES == 0) {
 			u64 nextTick = svc_getSystemTick();
@@ -1551,11 +1611,6 @@ void remotePlaySendFrames() {
 }
 
 void remotePlayThreadStart() {
-	u32 i, ret;
-
-	u8* dataBuf = remotePlayBuffer + 0x2a + 8;
-	u32 remainSize;
-
 #define RP_IMG_BUFFER_SIZE 0x00200000
 	// (from the beginning of imgBuffer)
 	// imgBuffer: dma work memory (rpCaptureScreen)
@@ -1566,7 +1621,7 @@ void remotePlayThreadStart() {
 	//
 	// adjust RP_IMG_BUFFER_SIZE and/or RP_TRANSFORM_DST_OFFSET is out of memory
 	imgBuffer = plgRequestMemorySpecifyRegion(RP_IMG_BUFFER_SIZE, 1);
-	// rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
+// rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
 	rpAllocBuff = imgBuffer + RP_IMG_BUFFER_SIZE - huffman_malloc_usage();
 
 	// if (rpAllocBuff) {
@@ -1577,16 +1632,39 @@ void remotePlayThreadStart() {
 	// }
 	// rpInitCompress();
 
-	nsDbgPrint("imgBuffer: %08x\n", imgBuffer);
+	rpDbg("imgBuffer: %08x\n", imgBuffer);
 	if (!imgBuffer) {
 		goto final;
 	}
 	rpInitDmaHome();
 	kRemotePlayCallback();
+
+	u32* threadStack;
+	int stackSize = 0x1000;
+	int ret;
+	Handle hThread;
+	/*
+	if (buf[31] != 6) {
+	nsDbgPrint("buflen: %d\n", buflen);
+	for (i = 0; i < buflen; i++) {
+	nsDbgPrint("%02x ", buf[i]);
+	}
+	}*/
+	svc_createSemaphore(&rpReadySendSem, 0, 2);
+	svc_createSemaphore(&rpDoneSendSem, 2, 2);
+
+	threadStack = plgRequestMemory(stackSize);
+	ret = svc_createThread(&hThread, (void*)rpSendDataThread, 0, &threadStack[(stackSize / 4) - 10], 0x10, 3);
+	if (ret != 0) {
+		rpDbg("Create rpSendDataThread Failed: %08x\n", ret);
+		goto final;
+	}
+
 	while (1) {
 		remotePlaySendFrames();
 	}
 	final:
+
 	svc_exitThread();
 }
 
@@ -1612,7 +1690,8 @@ int nwmValParamCallback(u8* buf, int buflen) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
 			remotePlayInited = 1;
 			memcpy(remotePlayBuffer, buf, 0x22 + 8);
-			packetLen = initUDPPacket(PACKET_SIZE, REMOTE_PLAY_PORT);
+			memcpy(rpDbgBuffer, buf, 0x22 + 8);
+			// packetLen = initUDPPacket(PACKET_SIZE, REMOTE_PLAY_PORT);
 			threadStack = plgRequestMemory(stackSize);
 			ret = svc_createThread(&hThread, (void*)remotePlayThreadStart, 0, &threadStack[(stackSize / 4) - 10], 0x10, 2);
 			if (ret != 0) {

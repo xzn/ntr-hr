@@ -61,8 +61,8 @@ typedef struct _NS_BREAKPOINT {
 #define RP_RLE_ENCODE ((u32)1 << 4)
 #define RP_DEBUG ((u32)1 << 30)
 #define RP_EXTENDED ((u32)1 << 31)
-// #define RP_FLAG_DBG 0
-#define RP_FLAG_DBG (RP_DEBUG | RP_RLE_ENCODE | RP_DYNAMIC_ENCODE | RP_USE_FRAME_DELTA)
+#define RP_FLAG_DBG 0
+// #define RP_FLAG_DBG RP_DEBUG
 
 #define RP_MAGIC 0xfff54321
 
