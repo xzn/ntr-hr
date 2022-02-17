@@ -770,9 +770,9 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	int rle_size = INT_MAX;
 	if (rpConfig.flags & RP_RLE_ENCODE) {
 		rle_size = rle_encode(rle_dst, huffman_dst, huffman_size);
-		rpDbg("Huffman %d RLE %d from %d", huffman_size, rle_size, cctx->data_size);
+		// rpDbg("Huffman %d RLE %d from %d", huffman_size, rle_size, cctx->data_size);
 	} else {
-		rpDbg("Huffman %d from %d", huffman_size, cctx->data_size);
+		// rpDbg("Huffman %d from %d", huffman_size, cctx->data_size);
 	}
 
 	u8* dh_dst;
@@ -1587,9 +1587,10 @@ void remotePlaySendFrames() {
 		}
 
 		if (forceKey) {
-			rpDbg("Compress and send faileed at frame %d\n", frameCount);
+			rpDbg("Compress and send failed at frame %d\n", frameCount);
 		}
 
+/*
 #define SEND_STAT_EVERY_X_FRAMES 64
 		if (frameCount % SEND_STAT_EVERY_X_FRAMES == 0) {
 			u64 nextTick = svc_getSystemTick();
@@ -1600,6 +1601,7 @@ void remotePlaySendFrames() {
 			}
 			currentTick = nextTick;
 		}
+*/
 
 		if (g_nsConfig->rpConfig.control == 1) {
 			rpConfig = g_nsConfig->rpConfig;
@@ -1632,7 +1634,21 @@ void remotePlayThreadStart() {
 	// }
 	// rpInitCompress();
 
-	rpDbg("imgBuffer: %08x\n", imgBuffer);
+	// rpDbg("remotePlayBuffer: { %x, %x, %x, %x, %x, %x, %x, %x, %x, %x, %x, %x }\n",
+	// 	*(u32 *)remotePlayBuffer,
+	// 	*(u32 *)(remotePlayBuffer + 0x04),
+	// 	*(u32 *)(remotePlayBuffer + 0x08),
+	// 	*(u32 *)(remotePlayBuffer + 0x0c),
+	// 	*(u32 *)(remotePlayBuffer + 0x10),
+	// 	*(u32 *)(remotePlayBuffer + 0x14),
+	// 	*(u32 *)(remotePlayBuffer + 0x18),
+	// 	*(u32 *)(remotePlayBuffer + 0x1c),
+	// 	*(u32 *)(remotePlayBuffer + 0x20),
+	// 	*(u32 *)(remotePlayBuffer + 0x24),
+	// 	*(u32 *)(remotePlayBuffer + 0x28),
+	// 	*(u32 *)(remotePlayBuffer + 0x2c));
+
+	// rpDbg("imgBuffer: %08x\n", imgBuffer);
 	if (!imgBuffer) {
 		goto final;
 	}
