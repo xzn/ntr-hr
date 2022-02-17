@@ -747,6 +747,7 @@ void rpSendDataThread() {
 	svc_exitThread();
 }
 
+const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(rpDataHeader); // for 400 * 240 of data
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
@@ -764,6 +765,9 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	int dst_size = huffman_size;
 	if (rpConfig.flags & RP_RLE_ENCODE) {
 		dst_size += rle_max_compressed_size(huffman_size);
+	}
+	if (dst_size > huffman_rle_dst_offset) {
+		rpDbg("Not enough memory for compression: need %d (%d available)", dst_size, huffman_rle_dst_offset);
 	}
 	huffman_size = huffman_encode_with_len_table(counts, huffman_dst, cctx->data, cctx->data_size);
 	u8* rle_dst = huffman_dst + huffman_size;
@@ -942,7 +946,6 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	u8* dp_pf = dp_flags - frameOffset * 2;
 
-	const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(rpDataHeader); // for 400 * 240 of data
 	u8* dp_compression_a = dp_pf - huffman_rle_dst_offset;
 	u8* dp_compression_b = dp_compression_a - huffman_rle_dst_offset;
 	if (dp_compression_b < ctx->src + ctx->bufSize) {

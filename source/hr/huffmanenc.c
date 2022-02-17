@@ -176,10 +176,10 @@ static inline int write_huff_codes(uint8_t *dst, const uint8_t *src, int src_siz
     }
 
     /* Pad output to a 32-bit boundary */
-    count = put_bits_count(&pb) & 0x1F;
+    // count = put_bits_count(&pb) & 0x1F;
 
-    if (count)
-        put_bits(&pb, 32 - count, 0);
+    // if (count)
+    //     put_bits(&pb, 32 - count, 0);
 
     /* Flush the rest with zeroes */
     flush_put_bits(&pb);
@@ -238,7 +238,8 @@ int huffman_compressed_size(const uint32_t *counts, const uint8_t *lens)
     for (; i < 256; ++i) {
         n += counts[i] * lens[i];
     }
-    return (n + 31) / 32;
+    // return (n + 31) / 32;
+    return (n + 7) / 8;
 }
 
 int huffman_malloc_usage()
