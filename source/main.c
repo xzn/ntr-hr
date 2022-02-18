@@ -519,11 +519,6 @@ int main() {
 		u32 currentPid = getCurrentProcessId();
 		Handle handle;
 
-		if (currentPid == 0x1a) {
-			disp(100, 0x1ff00ff);
-			remotePlayMain();
-		}
-
 		if (currentPid == ntrConfig->HomeMenuPid) {
 			// load from HomeMenu
 			threadStack = (u32*)((u32)NS_CONFIGURE_ADDR + 0x1000);
@@ -541,7 +536,10 @@ int main() {
 				// load from pm
 				initFromInjectPM();
 			}
-			else {
+			else if (currentPid == 0x1a) {
+				disp(100, 0x1ff00ff);
+				remotePlayMain();
+			} else {
 				if (g_nsConfig->startupCommand == NS_STARTCMD_INJECTGAME) {
 					disp(100, 0x100ff00);
 					initFromInjectGame();
