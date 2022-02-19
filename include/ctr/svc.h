@@ -14,21 +14,44 @@ typedef enum{
 	MEMOP_LINEAR = 0x1000,
 }MEMORY_OPERATION;
 
+/// Arbitration modes.
+typedef enum {
+	ARBITRATION_SIGNAL                                  = 0, ///< Signal #value threads for wake-up.
+	ARBITRATION_WAIT_IF_LESS_THAN                       = 1, ///< If the memory at the address is strictly lower than #value, then wait for signal.
+	ARBITRATION_DECREMENT_AND_WAIT_IF_LESS_THAN         = 2, ///< If the memory at the address is strictly lower than #value, then decrement it and wait for signal.
+	ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT               = 3, ///< If the memory at the address is strictly lower than #value, then wait for signal or timeout.
+	ARBITRATION_DECREMENT_AND_WAIT_IF_LESS_THAN_TIMEOUT = 4, ///< If the memory at the address is strictly lower than #value, then decrement it and wait for signal or timeout.
+} ArbitrationType;
+
+/// Reset types (for use with events and timers)
+typedef enum {
+	RESET_ONESHOT = 0, ///< When the primitive is signaled, it will wake up exactly one thread and will clear itself automatically.
+	RESET_STICKY  = 1, ///< When the primitive is signaled, it will wake up all threads and it won't clear itself automatically.
+	RESET_PULSE   = 2, ///< Only meaningful for timers: same as ONESHOT but it will periodically signal the timer instead of just once.
+} ResetType;
+
+#define ARBITRATION_SIGNAL_ALL (-1)
+
 	u32* getThreadCommandBuffer(void);
 	u32* getThreadStaticBuffers(void);
-	
+	static inline void* getThreadLocalStorage(void) {
+		void* ret;
+		__asm__ ("mrc p15, 0, %[data], c13, c0, 3" : [data] "=r" (ret));
+		return ret;
+	}
+
 	Result svc_backDoor(void* callback);
 	Result svc_getThreadList(u32* threadCount, u32* threadIds, s32 threadIdMaxCount, Handle hProcess);
 	Result svc_getDmaState(u32* state, Handle dma);
 	Result svc_startInterProcessDma(Handle* hdma, Handle dstProcess, void* dst, Handle srcProcess, const void* src, u32 size, u32* config);
-	
+
 	Result svc_writeProcessMemory(Handle debug, void const* buffer, u32 addr, u32 size);
 	Result svc_readProcessMemory(void* buffer, Handle debug, u32 addr, u32 size);
 	Result svc_debugActiveProcess(s32* handle_out, u32 pid);
 	Result svc_getProcessList(s32* processCount, u32* processIds, s32 processIdMaxCount);
-	
+
 	Result svc_controlProcessMemory(Handle hProcess, void* Addr0, void* Addr1, u32 size, u32 Type, u32 Permissions);
-	
+
 	Result svc_openProcess(Handle* process, u32 processId);
 	Result svc_addCodeSegment(u32 addr, u32 size);
 	Result svc_flushProcessDataCache(Handle handle, u32 addr, u32 size);
@@ -50,7 +73,6 @@ typedef enum{
 	Result svc_unmapMemoryBlock(Handle memblock, u32 addr);
 	Result svc_waitSynchronization1(Handle handle, s64 nanoseconds);
 	Result svc_waitSynchronizationN(s32* out, Handle* handles, s32 handlecount, bool waitAll, s64 nanoseconds);
-	Result svc_arbitrateAddress(Handle arbiter, u32 addr, u8 type, s32 value, s64 nanoseconds);
 	Result svc_closeHandle(Handle handle);
 	u64 svc_getSystemTick();
 	Result svc_getSystemInfo(s64* out, u32 type, s32 param);
@@ -61,6 +83,10 @@ typedef enum{
 	Result svc_setThreadIdealProcessor(Handle handle, u32 processorid);
 	Result svc_restartDma(Handle h, void * dst, void const* src, unsigned int size, signed char flag);
 	Result svc_kernelSetState(unsigned int Type, unsigned int Param0, unsigned int Param1, unsigned int Param2);
+
+	Result svc_createAddressArbiter(Handle *arbiter);
+	Result svc_arbitrateAddress(Handle arbiter, u32 addr, ArbitrationType type, s32 value, s64 timeout_ns);
+	Result svc_arbitrateAddressNoTimeout(Handle arbiter, u32 addr, ArbitrationType type, s32 value);
 
 	/**
 	* @brief Maps a block of process memory.

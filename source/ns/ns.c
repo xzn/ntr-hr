@@ -1,5 +1,7 @@
 #include "global.h"
 #include <ctr/SOC.h>
+#include <ctr/syn.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -196,8 +198,8 @@ u8 remotePlayBuffer[2000] = { 0 };
 // u8 rpDbgBuffer[2000] = { 0 };
 u8* dataBuf = remotePlayBuffer + 0x2a + 8;
 // u8* dbgBuf = rpDbgBuffer + 0x2a + 8;
-Handle rpReadySendSem;
-Handle rpDoneSendSem;
+LightSemaphore rpReadySendSem;
+LightSemaphore rpDoneSendSem;
 u8* rp_huffman_rle_dst[3] = { 0 };
 u8* rp_send_buffer[3] = { 0 };
 u8* imgBuffer = 0;
@@ -701,7 +703,7 @@ static inline void rpSendData(u8* data) {
 static u8 rpThreadFrameId = 0;
 void rpSendDataThread(void) {
 	while (1) {
-		svc_waitSynchronization1(rpReadySendSem, U64_MAX);
+		LightSemaphore_Acquire(&rpReadySendSem, 1);
 
 		u8* data;
 		data = rp_send_buffer[rpThreadFrameId];
@@ -733,8 +735,7 @@ void rpSendDataThread(void) {
 			data += sendSize;
 			rpLastSendTick = svc_getSystemTick();
 		}
-		s32 count;
-		svc_releaseSemaphore(&count, rpDoneSendSem, 1);
+		LightSemaphore_Release(&rpDoneSendSem, 1);
 	}
 	svc_exitThread();
 }
@@ -743,7 +744,7 @@ const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 +
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
-	svc_waitSynchronization1(rpDoneSendSem, U64_MAX);
+	LightSemaphore_Acquire(&rpDoneSendSem, 1);
 	u8* dst = rp_huffman_rle_dst[rpFrameId];
 	u8* huffman_dst = dst + sizeof(rpDataHeader);
 	uint32_t* counts = huffman_len_table(huffman_dst, cctx->data, cctx->data_size);
@@ -751,7 +752,7 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	if (!skipTest && huffman_size > cctx->max_compressed_size) {
 		nsDbgPrint("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
 		s32 count;
-		svc_releaseSemaphore(&count, rpDoneSendSem, 1);
+		LightSemaphore_Release(&rpDoneSendSem, 1);
 		return -1;
 	}
 	int dst_size = huffman_size;
@@ -783,8 +784,7 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	}
 	memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
 	rpSendData(dh_dst);
-	s32 count;
-	svc_releaseSemaphore(&count, rpReadySendSem, 1);
+	LightSemaphore_Release(&rpReadySendSem, 1);
 	return 0;
 }
 
@@ -1518,7 +1518,7 @@ void updateNetworkParams(void) {
 	u32 qualityFD = (rpConfig.quality & 0xff);
 	if (qualityFN == 0 || qualityFD == 0)
 	{
-		rpNetworkParams.qualityFactorNum = 2;
+		rpNetworkParams.qualityFactorNum = 1;
 		rpNetworkParams.qualityFactorDenum = 1;
 	} else if ((qualityFD + qualityFN - 1) / qualityFN > 2) {
 		rpNetworkParams.qualityFactorNum = 1;
@@ -1526,7 +1526,7 @@ void updateNetworkParams(void) {
 	}
 	rpNetworkParams.bitsPerFrame =
 		rpNetworkParams.targetBitsPerSec * rpNetworkParams.qualityFactorNum / rpNetworkParams.targetFrameRate / rpNetworkParams.qualityFactorDenum;
-	rpMinIntervalBetweenPacketsInTick = (1000000 / (2 * rpConfig.qos * rpNetworkParams.qualityFactorNum / rpNetworkParams.qualityFactorDenum / PACKET_SIZE)) * SYSTICK_PER_US;
+	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpConfig.qos * rpNetworkParams.qualityFactorNum / rpNetworkParams.qualityFactorDenum / PACKET_SIZE)) * SYSTICK_PER_US;
 	rpNetworkParams.bitsPerY = rpNetworkParams.bitsPerFrame * 2 / 3;
 	rpNetworkParams.bitsPerUV = rpNetworkParams.bitsPerFrame / 3;
 }
@@ -1707,8 +1707,8 @@ void remotePlayThreadStart(void) {
 	nsDbgPrint("%02x ", buf[i]);
 	}
 	}*/
-	svc_createSemaphore(&rpReadySendSem, 0, 3);
-	svc_createSemaphore(&rpDoneSendSem, 3, 3);
+	LightSemaphore_Init(&rpReadySendSem, 0, 3);
+	LightSemaphore_Init(&rpDoneSendSem, 3, 3);
 
 	threadStack = plgRequestMemory(stackSize);
 	ret = svc_createThread(&hThread, (void*)rpSendDataThread, 0, &threadStack[(stackSize / 4) - 10], 0x10, 3);

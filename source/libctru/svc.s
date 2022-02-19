@@ -143,12 +143,6 @@ svc_unmapMemoryBlock:
 	svc 0x20
 	bx lr
 
-.global svc_arbitrateAddress
-.type svc_arbitrateAddress, %function
-svc_arbitrateAddress:
-        svc 0x22
-        bx lr
-
 .global svc_closeHandle
 .type svc_closeHandle, %function
 svc_closeHandle:
@@ -225,7 +219,7 @@ svc_getProcessId:
 	ldr r3, [sp], #4
 	str r1, [r3]
 	bx lr
-	
+
 .global svc_getThreadId
 .type svc_getThreadId, %function
 svc_getThreadId:
@@ -233,15 +227,15 @@ svc_getThreadId:
 	svc 0x37
 	ldr r3, [sp], #4
 	str r1, [r3]
-	bx lr 
-	
-	
+	bx lr
+
+
 .global svc_setThreadIdealProcessor
 .type svc_setThreadIdealProcessor, %function
 svc_setThreadIdealProcessor:
 	svc 0x10
 	bx lr
-	
+
 .global svc_openThread
 .type svc_openThread, %function
 svc_openThread:
@@ -249,26 +243,26 @@ svc_openThread:
 	svc 0x34
 	ldr r3, [sp], #4
 	str r1, [r3]
-	bx lr 
+	bx lr
 
 .global svc_flushProcessDataCache
 .type svc_flushProcessDataCache, %function
 svc_flushProcessDataCache:
 	svc 0x54
 	bx lr
-	
+
 .global svc_invalidateProcessDataCache
 .type svc_invalidateProcessDataCache, %function
 svc_invalidateProcessDataCache:
 	svc 0x52
 	bx lr
-	
+
 .global svc_queryMemory
 .type svc_queryMemory, %function
 svc_queryMemory:
 	svc 0x02
 	bx lr
-	
+
 .global svc_addCodeSegment
 .type svc_addCodeSegment, %function
 svc_addCodeSegment:
@@ -280,7 +274,7 @@ svc_addCodeSegment:
 svc_terminateProcess:
 	svc 0x76
 	bx lr
-	
+
 .global svc_openProcess
 .type svc_openProcess, %function
 svc_openProcess:
@@ -288,7 +282,7 @@ svc_openProcess:
 	svc 0x33
 	ldr r3, [sp], #4
 	str r1, [r3]
-	bx lr 
+	bx lr
 
 
 
@@ -313,15 +307,15 @@ svc_restartDma:
 	svc 0x58
 	ldmfd sp!, {r2, r4, r5}
 	bx lr
-	
-	
+
+
 .global svc_mapProcessMemory
 .type svc_mapProcessMemory, %function
 svc_mapProcessMemory:
 
 	svc 0x71
 	bx lr
-	
+
 .global svc_startInterProcessDma
 .type svc_startInterProcessDma, %function
 svc_startInterProcessDma:
@@ -343,15 +337,15 @@ svc_getDmaState:
 	svc 0x57
 	ldr r3, [sp], #4
 	str r1, [r3]
-	bx lr 
+	bx lr
 
-	
+
 .global svc_backDoor
 .type svc_backDoor, %function
 svc_backDoor:
 	svc 0x7b
 	bx lr
-	
+
 
 .global svc_getProcessList
 .type svc_getProcessList, %function
@@ -360,8 +354,8 @@ svc_getProcessList:
 	svc 0x65
 	ldr r3, [sp], #4
 	str r1, [r3]
-	bx lr 
-	
+	bx lr
+
 
 .global svc_getThreadList
 .type svc_getThreadList, %function
@@ -370,16 +364,16 @@ svc_getThreadList:
 	svc 0x66
 	ldr r3, [sp], #4
 	str r1, [r3]
-	bx lr 
-	
+	bx lr
+
 .global svc_getThreadContext
 .type svc_getThreadContext, %function
 svc_getThreadContext:
 	svc 0x3b
-	bx lr 
-	
+	bx lr
 
-	
+
+
 .global svc_debugActiveProcess
 .type svc_debugActiveProcess, %function
 svc_debugActiveProcess:
@@ -387,31 +381,52 @@ svc_debugActiveProcess:
 	svc 0x60
 	ldr r3, [sp], #4
 	str r1, [r3]
-	bx lr 
+	bx lr
 
-.global svc_readProcessMemory	
+.global svc_readProcessMemory
 .type svc_readProcessMemory, %function
 svc_readProcessMemory:
 	svc 0x6a
 	bx lr
-	
-.global svc_writeProcessMemory	
+
+.global svc_writeProcessMemory
 .type svc_writeProcessMemory, %function
 svc_writeProcessMemory:
 	svc 0x6b
 	bx lr
-	
-	
-	
-	
-	
-	
-		
-	.global svc_kernelSetState	
+
+
+.global svc_createAddressArbiter
+.type svc_createAddressArbiter, %function
+svc_createAddressArbiter:
+	push {r0}
+	svc 0x21
+	pop {r2}
+	str r1, [r2]
+	bx  lr
+
+
+.global svc_arbitrateAddress
+.type svc_arbitrateAddress, %function
+svc_arbitrateAddress:
+	push {r4, r5}
+	ldr r4, [sp, #8]
+	ldr r5, [sp, #12]
+	svc 0x22
+	pop {r4, r5}
+	bx  lr
+
+
+.global svc_arbitrateAddressNoTimeout
+.type svc_arbitrateAddressNoTimeout, %function
+svc_arbitrateAddressNoTimeout:
+	svc 0x22
+	bx  lr
+
+	.global svc_kernelSetState
 .type svc_kernelSetState, %function
 svc_kernelSetState:
 	svc 0x7c
 	bx lr
-	
-	
-	
+
+

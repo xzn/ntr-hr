@@ -7,6 +7,7 @@
 #include <ctr/srv.h>
 #include <ctr/SOC.h>
 
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
