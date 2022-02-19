@@ -17,7 +17,7 @@ struct pollfd
 };
 
 int poll2(struct pollfd *fds, nfds_t nfds, int timeout);
-int select2(struct pollfd *pollinfo, int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
+int select2(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
 
 #define POLLIN		0x01
 #define POLLPRI		0x02

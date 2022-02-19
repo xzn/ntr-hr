@@ -198,10 +198,8 @@ u8* dataBuf = remotePlayBuffer + 0x2a + 8;
 // u8* dbgBuf = rpDbgBuffer + 0x2a + 8;
 Handle rpReadySendSem;
 Handle rpDoneSendSem;
-u8* rp_huffman_rle_dst_a;
-u8* rp_huffman_rle_dst_b;
-u8* volatile rp_send_buffer_a;
-u8* volatile rp_send_buffer_b;
+u8* rp_huffman_rle_dst[3] = { 0 };
+u8* rp_send_buffer[3] = { 0 };
 u8* imgBuffer = 0;
 // int topFormat = 0, bottomFormat = 0;
 // int frameSkipA = 1, frameSkipB = 1;
@@ -327,7 +325,7 @@ typedef struct _BLIT_CONTEXT {
 	// int directCompress;
 	int isKey;
 } BLIT_CONTEXT;
-#define RP_TRANSFORM_DST_OFFSET 0x00150000
+#define RP_TRANSFORM_DST_OFFSET 0x00250000
 
 static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src, int src_size) {
 
@@ -695,12 +693,8 @@ static struct RP_DATA_HEADER {
 static u8 rpFrameId = 0;
 static u8 rpPacketId = 0;
 static inline void rpSendData(u8* data) {
-	if (rpFrameId % 2) {
-		rp_send_buffer_b = data;
-	} else {
-		rp_send_buffer_a = data;
-	}
-	++rpFrameId;
+	rp_send_buffer[rpFrameId] = data;
+	rpFrameId = (rpFrameId + 1) % 3;
 }
 
 #define END_OF_FRAME_MARKER 0x10
@@ -710,12 +704,8 @@ void rpSendDataThread(void) {
 		svc_waitSynchronization1(rpReadySendSem, U64_MAX);
 
 		u8* data;
-		if (rpThreadFrameId % 2) {
-			data = rp_send_buffer_b;
-		} else {
-			data = rp_send_buffer_a;
-		}
-		++rpThreadFrameId;
+		data = rp_send_buffer[rpThreadFrameId];
+		rpThreadFrameId = (rpThreadFrameId + 1) % 3;
 		struct RP_DATA_HEADER header;
 		memcpy(&header, data, sizeof(header));
 		u32 size = header.len + sizeof(header);
@@ -739,11 +729,10 @@ void rpSendDataThread(void) {
 			dataBuf[3] = rpPacketId++;
 			memcpy(dataBuf + 4, data, sendSize);
 			int packetLen = initUDPPacket(remotePlayBuffer, sendSize + 4, REMOTE_PLAY_PORT);
-			// nwmSendPacket(remotePlayBuffer, packetLen);
+			nwmSendPacket(remotePlayBuffer, packetLen);
 			data += sendSize;
 			rpLastSendTick = svc_getSystemTick();
 		}
-
 		s32 count;
 		svc_releaseSemaphore(&count, rpDoneSendSem, 1);
 	}
@@ -755,7 +744,7 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
 	svc_waitSynchronization1(rpDoneSendSem, U64_MAX);
-	u8* dst = rpFrameId % 2 ? rp_huffman_rle_dst_b : rp_huffman_rle_dst_a;
+	u8* dst = rp_huffman_rle_dst[rpFrameId];
 	u8* huffman_dst = dst + sizeof(rpDataHeader);
 	uint32_t* counts = huffman_len_table(huffman_dst, cctx->data, cctx->data_size);
 	int huffman_size = huffman_compressed_size(counts, huffman_dst) + 256;
@@ -799,7 +788,40 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	return 0;
 }
 
+static u8 rpControlRecvBuf[2000];
+static inline void rpControlRecv(void) {
+	int ret = recv(rpControlSocket, rpControlRecvBuf, sizeof(rpControlRecvBuf), 0);
+	if (ret == 0)
+	{
+		nsDbgPrint("rpControlRecv nothing\n");
+		return;
+	}
+	else if (ret < 0)
+	{
+		int err = SOC_GetErrno();
+		nsDbgPrint("rpControlRecv failed: %d\n", ret);
+		return;
+	}
+}
+
+static inline void rpControlPollAndRecv(void) {
+	struct pollfd pollinfo;
+	pollinfo.fd = rpControlSocket;
+	pollinfo.events = POLLIN;
+	pollinfo.revents = 0;
+	int ret = poll2(&pollinfo, 1, 1);
+	if (ret < 0) {
+		nsDbgPrint("rpControlPollAndRecv failed: %d\n", ret);
+		return;
+	}
+	if (pollinfo.revents & (POLLIN | POLLHUP)) {
+		rpControlRecv();
+	}
+}
+
 static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
+	// rpControlPollAndRecv();
+
 	int blockSize = 16;
 	int bpp = ctx->bpp;
 	int width = ctx->width;
@@ -949,25 +971,20 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	u8* dp_pf = dp_flags - frameOffset * 2;
 
-	u8* dp_compression_a = dp_pf - huffman_rle_dst_offset;
-	u8* dp_compression_b = dp_compression_a - huffman_rle_dst_offset;
-	if (dp_compression_b < ctx->src + ctx->bufSize) {
-		nsDbgPrint("Not enough memory: need additional %d\n", ctx->src + ctx->bufSize - dp_compression_b);
+	u8* dp_compression[3];
+	dp_compression[0] = dp_pf - huffman_rle_dst_offset;
+	dp_compression[1] = dp_compression[0] - huffman_rle_dst_offset;
+	dp_compression[2] = dp_compression[1] - huffman_rle_dst_offset;
+	if (dp_compression[2] < ctx->src + ctx->bufSize) {
+		nsDbgPrint("Not enough memory: need additional %d\n", ctx->src + ctx->bufSize - dp_compression[2]);
 		return -1;
 	}
 
-	if (rp_huffman_rle_dst_a == 0) {
-		rp_huffman_rle_dst_a = dp_compression_a;
-	} else if (rp_huffman_rle_dst_a != dp_compression_a) {
-		nsDbgPrint("Remote play compression buffer error (1)\n");
-		return -1;
-	}
-
-	if (rp_huffman_rle_dst_b == 0) {
-		rp_huffman_rle_dst_b = dp_compression_b;
-	} else if (rp_huffman_rle_dst_b != dp_compression_b) {
-		nsDbgPrint("Remote play compression buffer error (2)\n");
-		return -1;
+	if (rp_huffman_rle_dst[0] == 0) {
+		rp_huffman_rle_dst[0] = dp_compression[0];
+		rp_huffman_rle_dst[1] = dp_compression[1];
+		rp_huffman_rle_dst[2] = dp_compression[2];
+		nsDbgPrint("Memory available %d\n", dp_compression[2] - ctx->src + ctx->bufSize);
 	}
 
 	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
@@ -1619,7 +1636,7 @@ void remotePlaySendFrames(void) {
 }
 
 void remotePlayThreadStart(void) {
-#define RP_IMG_BUFFER_SIZE 0x00200000
+#define RP_IMG_BUFFER_SIZE 0x00300000
 	// (from the beginning of imgBuffer)
 	// imgBuffer: dma work memory (rpCaptureScreen)
 	// -> imgBuffer: huffman + RLE compression dst memory (rpTestCompressAndSend)
@@ -1663,6 +1680,23 @@ void remotePlayThreadStart(void) {
 	kRemotePlayCallback();
 	int ret;
 
+	// rpControlSocket = socket(AF_INET, SOCK_DGRAM, 0);
+	// if (rpControlSocket < 0) {
+	// 	showDbg("rpControlSocket open failed: %d\n", rpControlSocket, 0);
+	// 	goto final;
+	// }
+
+	// struct sockaddr_in sai = {0};
+	// sai.sin_family = AF_INET;
+	// sai.sin_port = htons(8001);
+	// sai.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	// ret = bind(rpControlSocket, (struct sockaddr *)&sai, sizeof(sai));
+	// if (ret < 0) {
+	// 	showDbg("rpControlSocket bind failed: %d\n", ret, 0);
+	// 	goto final;
+	// }
+
 	u32* threadStack;
 	int stackSize = 0x1000;
 	Handle hThread;
@@ -1673,8 +1707,8 @@ void remotePlayThreadStart(void) {
 	nsDbgPrint("%02x ", buf[i]);
 	}
 	}*/
-	svc_createSemaphore(&rpReadySendSem, 0, 2);
-	svc_createSemaphore(&rpDoneSendSem, 2, 2);
+	svc_createSemaphore(&rpReadySendSem, 0, 3);
+	svc_createSemaphore(&rpDoneSendSem, 3, 3);
 
 	threadStack = plgRequestMemory(stackSize);
 	ret = svc_createThread(&hThread, (void*)rpSendDataThread, 0, &threadStack[(stackSize / 4) - 10], 0x10, 3);
@@ -2673,27 +2707,11 @@ void nsHandlePacket(void) {
 		return;
 	}
 	if (pac->cmd == NS_CMD_REMOTEPLAY) {
-		nsHandleRemotePlay();
+		if (g_nsCtx->listenPort == 8000) {
+			nsHandleRemotePlay();
+		}
 		return;
 	}
-}
-
-static u8 rpControlRecvBuf[2000];
-static inline void rpControlRecv(void) {
-	nsDbgPrint("rpControlRecv\n");
-	int ret = recv(rpControlSocket, rpControlRecvBuf, sizeof(rpControlRecvBuf), 0);
-	if (ret == 0)
-	{
-		nsDbgPrint("rpControlRecv nothing\n");
-		return;
-	}
-	else if (ret < 0)
-	{
-		int err = SOC_GetErrno();
-		nsDbgPrint("rpControlRecv failed: %d\n", ret);
-		return;
-	}
-	nsDbgPrint("rpControlRecv received %d\n", ret);
 }
 
 void nsMainLoop(void) {
@@ -2729,9 +2747,9 @@ void nsMainLoop(void) {
 	fd_set rset;
 	int maxfdp1;
 	int nready;
-	struct pollfd pollinfo[2];
 
 	int rpProcess = g_nsCtx->listenPort == 5000 + 0x1a;
+	// int rpProcess = 0;
 	if (rpProcess) {
 		rpControlSocket = socket(AF_INET, SOCK_DGRAM, 0);
 		if (rpControlSocket < 0) {
@@ -2761,7 +2779,7 @@ void nsMainLoop(void) {
 			FD_SET(listen_sock, &rset);
 			FD_SET(rpControlSocket, &rset);
 			maxfdp1 = HR_MAX(listen_sock, rpControlSocket) + 1;
-			nready = select2(pollinfo, maxfdp1, &rset, NULL, NULL, NULL);
+			nready = select2(maxfdp1, &rset, NULL, NULL, NULL);
 		}
 
 		if (rpProcess && FD_ISSET(rpControlSocket, &rset)) {
@@ -2772,7 +2790,9 @@ void nsMainLoop(void) {
 			sockfd = accept(listen_sock, NULL, NULL);
 			g_nsCtx->hSocket = sockfd;
 			if (sockfd < 0) {
-				// svc_sleepThread(1000000000);
+				if (!rpProcess) {
+					svc_sleepThread(1000000000);
+				}
 				continue;
 			}
 			/*
@@ -2785,7 +2805,7 @@ void nsMainLoop(void) {
 					FD_SET(sockfd, &rset);
 					FD_SET(rpControlSocket, &rset);
 					maxfdp1 = HR_MAX(sockfd, rpControlSocket) + 1;
-					nready = select2(pollinfo, maxfdp1, &rset, NULL, NULL, NULL);
+					nready = select2(maxfdp1, &rset, NULL, NULL, NULL);
 				}
 
 				if (rpProcess && FD_ISSET(rpControlSocket, &rset)) {

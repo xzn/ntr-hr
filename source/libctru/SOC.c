@@ -871,7 +871,7 @@ int poll2(struct pollfd *fds, nfds_t nfds, int timeout)
 	return ret;
 }
 
-int select2(struct pollfd *pollinfo, int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout)
+int select2(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout)
 {
 	nfds_t numfds = 0;
 	size_t i, j;
@@ -883,6 +883,8 @@ int select2(struct pollfd *pollinfo, int nfds, fd_set *readfds, fd_set *writefds
 		|| (exceptfds && FD_ISSET(i, exceptfds)))
 			++numfds;
 	}
+
+	struct pollfd pollinfo[numfds];
 
 	for(i = 0, j = 0; i < nfds; ++i) {
 		if((readfds && FD_ISSET(i, readfds))
