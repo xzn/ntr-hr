@@ -804,3 +804,145 @@ int getpeername(int sockfd, struct sockaddr *addr, int * addr_len)
 	return ret;
 }
 
+static inline u32 IPC_MakeHeader(u16 command_id, unsigned normal_params, unsigned translate_params)
+{
+	return ((u32) command_id << 16) | (((u32) normal_params & 0x3F) << 6) | (((u32) translate_params & 0x3F) << 0);
+}
+
+static inline u32 IPC_Desc_CurProcessId(void)
+{
+	return 0x20;
+}
+
+static inline u32 IPC_Desc_StaticBuffer(size_t size, unsigned buffer_id)
+{
+	return (size << 14) | ((buffer_id & 0xF) << 10) | 0x2;
+}
+
+int poll2(struct pollfd *fds, nfds_t nfds, int timeout)
+{
+	int ret = 0;
+	nfds_t i;
+	u32 size = sizeof(struct pollfd)*nfds;
+	u32 *cmdbuf = getThreadCommandBuffer();
+	u32 saved_threadstorage[2];
+
+	if(nfds == 0) {
+		SOCU_errno = EINVAL;
+		return -1;
+	}
+
+	for(i = 0; i < nfds; ++i) {
+		fds[i].revents = 0;
+	}
+
+	cmdbuf[0] = IPC_MakeHeader(0x14,2,4); // 0x140084
+	cmdbuf[1] = (u32)nfds;
+	cmdbuf[2] = (u32)timeout;
+	cmdbuf[3] = IPC_Desc_CurProcessId();
+	cmdbuf[5] = IPC_Desc_StaticBuffer(size,10);
+	cmdbuf[6] = (u32)fds;
+
+	u32 * staticbufs = getThreadStaticBuffers();
+	saved_threadstorage[0] = staticbufs[0];
+	saved_threadstorage[1] = staticbufs[1];
+
+	staticbufs[0] = IPC_Desc_StaticBuffer(size,0);
+	staticbufs[1] = (u32)fds;
+
+	ret = svc_sendSyncRequest(SOCU_handle);
+
+	staticbufs[0] = saved_threadstorage[0];
+	staticbufs[1] = saved_threadstorage[1];
+
+	if(ret != 0) {
+		return ret;
+	}
+
+	ret = (int)cmdbuf[1];
+	if(ret == 0)
+		ret = _net_convert_error(cmdbuf[2]);
+
+	if(ret < 0) {
+		SOCU_errno = -ret;
+		return -1;
+	}
+
+	return ret;
+}
+
+int select2(struct pollfd *pollinfo, int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout)
+{
+	nfds_t numfds = 0;
+	size_t i, j;
+	int rc, found;
+
+	for(i = 0; i < nfds; ++i) {
+		if((readfds && FD_ISSET(i, readfds))
+		|| (writefds && FD_ISSET(i, writefds))
+		|| (exceptfds && FD_ISSET(i, exceptfds)))
+			++numfds;
+	}
+
+	for(i = 0, j = 0; i < nfds; ++i) {
+		if((readfds && FD_ISSET(i, readfds))
+		|| (writefds && FD_ISSET(i, writefds))
+		|| (exceptfds && FD_ISSET(i, exceptfds))) {
+			pollinfo[j].fd      = i;
+			pollinfo[j].events  = 0;
+			pollinfo[j].revents = 0;
+
+			if(readfds && FD_ISSET(i, readfds))
+				pollinfo[j].events |= POLLIN;
+			if(writefds && FD_ISSET(i, writefds))
+				pollinfo[j].events |= POLLOUT;
+
+			++j;
+		}
+	}
+
+	if(timeout)
+		rc = poll2(pollinfo, numfds, timeout->tv_sec*1000 + timeout->tv_usec/1000);
+	else
+		rc = poll2(pollinfo, numfds, -1);
+
+	if(rc < 0) {
+		return rc;
+	}
+
+	for(i = 0, j = 0, rc = 0; i < nfds; ++i) {
+		found = 0;
+
+		if((readfds && FD_ISSET(i, readfds))
+		|| (writefds && FD_ISSET(i, writefds))
+		|| (exceptfds && FD_ISSET(i, exceptfds))) {
+
+			if(readfds && FD_ISSET(i, readfds)) {
+				if(pollinfo[j].revents & (POLLIN|POLLHUP))
+					found = 1;
+				else
+					FD_CLR(i, readfds);
+			}
+
+			if(writefds && FD_ISSET(i, writefds)) {
+				if(pollinfo[j].revents & (POLLOUT|POLLHUP))
+					found = 1;
+				else
+					FD_CLR(i, writefds);
+			}
+
+			if(exceptfds && FD_ISSET(i, exceptfds)) {
+				if(pollinfo[j].revents & POLLERR)
+					found = 1;
+				else
+					FD_CLR(i, exceptfds);
+			}
+
+			if(found)
+				++rc;
+			++j;
+		}
+	}
+
+	return rc;
+}

@@ -49,6 +49,7 @@ u8* rpAllocBuff = 0;
 RP_CONFIG rpConfig;
 int rpAllocDebug = 0;
 u64 rpMinIntervalBetweenPacketsInTick = 0;
+int rpControlSocket = -1;
 
 #define SYSTICK_PER_US (268)
 
@@ -738,7 +739,7 @@ void rpSendDataThread(void) {
 			dataBuf[3] = rpPacketId++;
 			memcpy(dataBuf + 4, data, sendSize);
 			int packetLen = initUDPPacket(remotePlayBuffer, sendSize + 4, REMOTE_PLAY_PORT);
-			nwmSendPacket(remotePlayBuffer, packetLen);
+			// nwmSendPacket(remotePlayBuffer, packetLen);
 			data += sendSize;
 			rpLastSendTick = svc_getSystemTick();
 		}
@@ -2677,11 +2678,27 @@ void nsHandlePacket(void) {
 	}
 }
 
+static u8 rpControlRecvBuf[2000];
+static inline void rpControlRecv(void) {
+	nsDbgPrint("rpControlRecv\n");
+	int ret = recv(rpControlSocket, rpControlRecvBuf, sizeof(rpControlRecvBuf), 0);
+	if (ret == 0)
+	{
+		nsDbgPrint("rpControlRecv nothing\n");
+		return;
+	}
+	else if (ret < 0)
+	{
+		int err = SOC_GetErrno();
+		nsDbgPrint("rpControlRecv failed: %d\n", ret);
+		return;
+	}
+	nsDbgPrint("rpControlRecv received %d\n", ret);
+}
 
 void nsMainLoop(void) {
 	s32 listen_sock, ret, tmp, sockfd;
 	struct sockaddr_in addr;
-
 
 	while (1) {
 		checkExitFlag();
@@ -2694,50 +2711,104 @@ void nsMainLoop(void) {
 
 	g_nsCtx->hListenSocket = listen_sock;
 
-
-
 	addr.sin_family = AF_INET;
 	addr.sin_port = rtIntToPortNumber(g_nsCtx->listenPort);
 	addr.sin_addr.s_addr = INADDR_ANY;
 
 	ret = bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr));
 	if (ret < 0) {
-		showDbg("bind failed: %08x", ret, 0);
+		showDbg("bind failed: %08x\n", ret, 0);
 		return;
 	}
 	ret = listen(listen_sock, 1);
 	if (ret < 0) {
-		showDbg("listen failed: %08x", ret, 0);
+		showDbg("listen failed: %08x\n", ret, 0);
 		return;
 	}
 
+	fd_set rset;
+	int maxfdp1;
+	int nready;
+	struct pollfd pollinfo[2];
+
+	int rpProcess = g_nsCtx->listenPort == 5000 + 0x1a;
+	if (rpProcess) {
+		rpControlSocket = socket(AF_INET, SOCK_DGRAM, 0);
+		if (rpControlSocket < 0) {
+			showDbg("rpControlSocket open failed: %d\n", rpControlSocket, 0);
+			return;
+		}
+
+		struct sockaddr_in sai = {0};
+		sai.sin_family = AF_INET;
+		sai.sin_port = htons(8001);
+		sai.sin_addr.s_addr = htonl(INADDR_ANY);
+
+		ret = bind(rpControlSocket, (struct sockaddr *)&sai, sizeof(sai));
+		if (ret < 0) {
+			showDbg("rpControlSocket bind failed: %d\n", ret, 0);
+			return;
+		}
+	}
+
 	while (1) {
-		checkExitFlag();
-		sockfd = accept(listen_sock, NULL, NULL);
-		g_nsCtx->hSocket = sockfd;
-		if (sockfd < 0) {
-			svc_sleepThread(1000000000);
-			continue;
+		if (!rpProcess) {
+			checkExitFlag();
 		}
-		/*
-		tmp = fcntl(sockfd, F_GETFL);
-		fcntl(sockfd, F_SETFL, tmp | O_NONBLOCK);
-		*/
-		while (1) {
-			ret = rtRecvSocket(sockfd, (u8*)&(g_nsCtx->packetBuf), sizeof(NS_PACKET));
-			if (ret != sizeof(NS_PACKET)) {
-				nsDbgPrint("rtRecvSocket failed: %08x", ret, 0);
-				break;
-			}
-			NS_PACKET* pac = &(g_nsCtx->packetBuf);
-			if (pac->magic != 0x12345678) {
-				nsDbgPrint("broken protocol: %08x, %08x", pac->magic, pac->seq);
-				break;
-			}
-			nsUpdateDebugStatus();
-			nsHandlePacket();
+
+		if (rpProcess) {
+			FD_ZERO(&rset);
+			FD_SET(listen_sock, &rset);
+			FD_SET(rpControlSocket, &rset);
+			maxfdp1 = HR_MAX(listen_sock, rpControlSocket) + 1;
+			nready = select2(pollinfo, maxfdp1, &rset, NULL, NULL, NULL);
 		}
-		closesocket(sockfd);
+
+		if (rpProcess && FD_ISSET(rpControlSocket, &rset)) {
+			rpControlRecv();
+		}
+
+		if (!rpProcess || FD_ISSET(listen_sock, &rset)) {
+			sockfd = accept(listen_sock, NULL, NULL);
+			g_nsCtx->hSocket = sockfd;
+			if (sockfd < 0) {
+				// svc_sleepThread(1000000000);
+				continue;
+			}
+			/*
+			tmp = fcntl(sockfd, F_GETFL);
+			fcntl(sockfd, F_SETFL, tmp | O_NONBLOCK);
+			*/
+			while (1) {
+				if (rpProcess) {
+					FD_ZERO(&rset);
+					FD_SET(sockfd, &rset);
+					FD_SET(rpControlSocket, &rset);
+					maxfdp1 = HR_MAX(sockfd, rpControlSocket) + 1;
+					nready = select2(pollinfo, maxfdp1, &rset, NULL, NULL, NULL);
+				}
+
+				if (rpProcess && FD_ISSET(rpControlSocket, &rset)) {
+					rpControlRecv();
+				}
+
+				if (!rpProcess || FD_ISSET(sockfd, &rset)) {
+					ret = rtRecvSocket(sockfd, (u8*)&(g_nsCtx->packetBuf), sizeof(NS_PACKET));
+					if (ret != sizeof(NS_PACKET)) {
+						nsDbgPrint("rtRecvSocket failed: %08x\n", ret, 0);
+						break;
+					}
+					NS_PACKET* pac = &(g_nsCtx->packetBuf);
+					if (pac->magic != 0x12345678) {
+						nsDbgPrint("broken protocol: %08x, %08x\n", pac->magic, pac->seq);
+						break;
+					}
+					nsUpdateDebugStatus();
+					nsHandlePacket();
+				}
+			}
+			closesocket(sockfd);
+		}
 	}
 }
 

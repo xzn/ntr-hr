@@ -9,6 +9,13 @@ getThreadCommandBuffer:
 	add r0, #0x80
 	bx lr
 
+.global getThreadStaticBuffers
+.type getThreadStaticBuffers, %function
+getThreadStaticBuffers:
+	mrc p15, 0, r0, c13, c0, 3
+	add r0, #0x180
+	bx lr
+
 
 .global svc_controlMemory
 .type svc_controlMemory, %function

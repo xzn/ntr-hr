@@ -446,10 +446,6 @@ void initParamsFromInject() {
 	loadParams();
 }
 
-void initFromSoc() {
-	remotePlayMain();
-}
-
 int main() {
 	StartMode = _BootArgs[0];
 	//showDbg("", 0, sizeof(NS_CONFIG));

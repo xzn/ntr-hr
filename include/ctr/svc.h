@@ -15,6 +15,7 @@ typedef enum{
 }MEMORY_OPERATION;
 
 	u32* getThreadCommandBuffer(void);
+	u32* getThreadStaticBuffers(void);
 	
 	Result svc_backDoor(void* callback);
 	Result svc_getThreadList(u32* threadCount, u32* threadIds, s32 threadIdMaxCount, Handle hProcess);
