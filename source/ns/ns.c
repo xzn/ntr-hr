@@ -304,7 +304,8 @@ typedef struct _BLIT_CONTEXT {
 	int width, height, format, src_pitch;
 	int x, y;
 	u8* src;
-	u8 bufSize;
+	int src_size;
+	int isKey, force_key;
 	int outformat, bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
@@ -325,7 +326,6 @@ typedef struct _BLIT_CONTEXT {
 
 	// int reset;
 	// int directCompress;
-	int isKey;
 } BLIT_CONTEXT;
 #define RP_TRANSFORM_DST_OFFSET 0x00250000
 
@@ -348,7 +348,7 @@ static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, 
 	ctx->height = height;
 	ctx->src_pitch = src_pitch;
 	ctx->src = src;
-	ctx->bufSize = HR_MAX(src_size, 0);
+	ctx->src_size = HR_MAX(src_size, 0);
 	ctx->x = 0;
 	ctx->y = 0;
 	if (ctx->bpp == 2) {
@@ -361,6 +361,8 @@ static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, 
 	// ctx->compressedSize;
 	ctx->frameCount = 0;
 	ctx->lastSize = 0;
+	ctx->isKey = !(rpConfig.flags & RP_USE_FRAME_DELTA) || ctx->force_key;
+	ctx->force_key = 0;
 }
 
 
@@ -711,11 +713,12 @@ void rpSendDataThread(void) {
 		struct RP_DATA_HEADER header;
 		memcpy(&header, data, sizeof(header));
 		u32 size = header.len + sizeof(header);
-		u64 tickDiff;
+		u64 currentTick, tickDiff;
 		u64 sleepValue;
 		memset(dataBuf, 0, 4);
 		while (size) {
-			tickDiff = svc_getSystemTick() - rpLastSendTick;
+			currentTick = svc_getSystemTick();
+			tickDiff = currentTick - rpLastSendTick;
 			if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
 				sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
 				svc_sleepThread(sleepValue);
@@ -733,7 +736,7 @@ void rpSendDataThread(void) {
 			int packetLen = initUDPPacket(remotePlayBuffer, sendSize + 4, REMOTE_PLAY_PORT);
 			nwmSendPacket(remotePlayBuffer, packetLen);
 			data += sendSize;
-			rpLastSendTick = svc_getSystemTick();
+			rpLastSendTick = currentTick;
 		}
 		LightSemaphore_Release(&rpDoneSendSem, 1);
 	}
@@ -827,7 +830,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	int width = ctx->width;
 	int height = ctx->height;
 	int pitch = ctx->src_pitch;
-	int isKey = !(rpConfig.flags & RP_USE_FRAME_DELTA) || ctx->isKey;
+	int isKey = ctx->isKey;
 	int isTop = ctx->isTop;
 	int screenFrameId = ctx->id % 2;
 
@@ -975,8 +978,8 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	dp_compression[0] = dp_pf - huffman_rle_dst_offset;
 	dp_compression[1] = dp_compression[0] - huffman_rle_dst_offset;
 	dp_compression[2] = dp_compression[1] - huffman_rle_dst_offset;
-	if (dp_compression[2] < ctx->src + ctx->bufSize) {
-		nsDbgPrint("Not enough memory: need additional %d\n", ctx->src + ctx->bufSize - dp_compression[2]);
+	if (dp_compression[2] < ctx->src + ctx->src_size) {
+		nsDbgPrint("Not enough memory: need additional %d\n", ctx->src + ctx->src_size - dp_compression[2]);
 		return -1;
 	}
 
@@ -984,7 +987,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		rp_huffman_rle_dst[0] = dp_compression[0];
 		rp_huffman_rle_dst[1] = dp_compression[1];
 		rp_huffman_rle_dst[2] = dp_compression[2];
-		nsDbgPrint("Memory available %d\n", dp_compression[2] - ctx->src + ctx->bufSize);
+		nsDbgPrint("Memory available %d\n", dp_compression[2] - ctx->src + ctx->src_size);
 	}
 
 	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
@@ -1514,19 +1517,22 @@ static inline int rpCaptureScreen(int isTop) {
 void updateNetworkParams(void) {
 	rpNetworkParams.targetBitsPerSec = rpConfig.qos * 8;
 	rpNetworkParams.targetFrameRate = 45;
-	u32 qualityFN = (rpConfig.quality & 0xff00) >> 8;
-	u32 qualityFD = (rpConfig.quality & 0xff);
+	u32 qualityFN = (rpConfig.quality & 0xff); 
+	u32 qualityFD = (rpConfig.quality & 0xff00) >> 8;
 	if (qualityFN == 0 || qualityFD == 0)
 	{
 		rpNetworkParams.qualityFactorNum = 1;
 		rpNetworkParams.qualityFactorDenum = 1;
-	} else if ((qualityFD + qualityFN - 1) / qualityFN > 2) {
+	} else if ((qualityFN + qualityFD - 1) / qualityFD > 4) {
+		rpNetworkParams.qualityFactorNum = 4;
+		rpNetworkParams.qualityFactorDenum = 1;
+	} else if ((qualityFD + qualityFN - 1) / qualityFN > 4) {
 		rpNetworkParams.qualityFactorNum = 1;
-		rpNetworkParams.qualityFactorDenum = 2;
+		rpNetworkParams.qualityFactorDenum = 4;
 	}
 	rpNetworkParams.bitsPerFrame =
 		rpNetworkParams.targetBitsPerSec * rpNetworkParams.qualityFactorNum / rpNetworkParams.targetFrameRate / rpNetworkParams.qualityFactorDenum;
-	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpConfig.qos * rpNetworkParams.qualityFactorNum / rpNetworkParams.qualityFactorDenum / PACKET_SIZE)) * SYSTICK_PER_US;
+	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpConfig.qos / PACKET_SIZE)) * SYSTICK_PER_US;
 	rpNetworkParams.bitsPerY = rpNetworkParams.bitsPerFrame * 2 / 3;
 	rpNetworkParams.bitsPerUV = rpNetworkParams.bitsPerFrame / 3;
 }
@@ -1540,21 +1546,20 @@ void remotePlaySendFrames(void) {
 		isPriorityTop = 0;
 	}
 	priorityFactor = factor;
-	rpConfig.qos = HR_MAX(rpConfig.qos, 1024 * 512 * 3);
+	rpConfig.qos = HR_MIN(HR_MAX(rpConfig.qos, 1024 * 512 * 3), 1024 * 512 * 12);
 	updateNetworkParams();
 
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
-	int firstFrame = 1;
-	int isKey = 1;
 	u8 cnt;
 	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
+	topContext.force_key = 1;
+	botContext.force_key = 1;
 	u64 currentTick = 0;
+	int src_size;
 
 	// u32 tl_pitch_max = 0;
 	// u32 bl_pitch_max = 0;
-	int bufSize = 0;
-	int forceKey = 0;
 
 	while (1) {
 		currentUpdating = isPriorityTop;
@@ -1567,22 +1572,11 @@ void remotePlaySendFrames(void) {
 
 		remotePlayKernelCallback();
 
-		if (rpConfig.flags & RP_USE_FRAME_DELTA) {
-			isKey = 0;
-		}
-		if (forceKey || firstFrame) {
-			isKey = 1;
-			forceKey = 0;
-		}
-		if (firstFrame) {
-			firstFrame = 0;
-		}
-
 		if (currentUpdating) {
 			// send top
-			bufSize = rpCaptureScreen(1);
+			src_size = rpCaptureScreen(1);
 			currentTopId += 1;
-			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer, bufSize);
+			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer, src_size);
 			// tl_pitch_max = tl_pitch_max > tl_pitch ? tl_pitch_max : tl_pitch;
 			// topContext.compressDst = 0;
 			topContext.transformDst = imgBuffer + RP_TRANSFORM_DST_OFFSET;
@@ -1590,14 +1584,13 @@ void remotePlaySendFrames(void) {
 			// topContext.reset = 1;
 			topContext.id = (u8)currentTopId;
 			topContext.isTop = 1;
-			topContext.isKey = isKey;
-			forceKey = remotePlayBlitCompressAndSend(&topContext) < 0;
+			topContext.force_key = remotePlayBlitCompressAndSend(&topContext) < 0;
 		}
 		else {
 			// send bottom
-			bufSize = rpCaptureScreen(0);
+			src_size = rpCaptureScreen(0);
 			currentBottomId += 1;
-			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer, bufSize);
+			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer, src_size);
 			// bl_pitch_max = bl_pitch_max > bl_pitch ? bl_pitch_max : bl_pitch;
 			// botContext.compressDst = 0;
 			botContext.transformDst = imgBuffer + RP_TRANSFORM_DST_OFFSET;
@@ -1605,12 +1598,7 @@ void remotePlaySendFrames(void) {
 			// botContext.reset = 1;
 			botContext.id = (u8)currentBottomId;
 			botContext.isTop = 0;
-			botContext.isKey = isKey;
-			forceKey = remotePlayBlitCompressAndSend(&botContext) < 0;
-		}
-
-		if (forceKey) {
-			nsDbgPrint("Compress and send failed at frame %d\n", frameCount);
+			botContext.force_key = remotePlayBlitCompressAndSend(&botContext) < 0;
 		}
 
 /*
