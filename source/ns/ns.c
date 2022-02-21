@@ -724,13 +724,7 @@ u8 rpControlPacketId;
 u8 rp_control_top_force_key;
 u8 rp_control_bot_force_key;
 
-void rpControlRecvHandle(u8 flags) {
-	if (flags & RP_CONTROL_TOP_KEY) {
-		rp_control_top_force_key = 1;
-	}
-	if (flags & RP_CONTROL_BOT_KEY) {
-		rp_control_bot_force_key = 1;
-	}
+void rpControlRecvHandle(u8* buf, int buf_size) {
 }
 
 int rp_udp_output(const char *buf, int len, ikcpcb *kcp, void *user) {
@@ -856,7 +850,7 @@ void rpSendDataThreadMain(void) {
 		LightSemaphore_Release(&rpWorkAvaiSem, 1);
 
 		if (size) {
-			nsDbgPrint("ikcp_send timeout %d\n", (u32)rpLastKcpSendTick);
+			// nsDbgPrint("ikcp_send timeout %d\n", (u32)rpLastKcpSendTick);
 			break;
 		}
 	}
@@ -948,6 +942,10 @@ static inline void rpControlRecv(void) {
 			nsDbgPrint("ikcp_input failed: %d\n", ret);
 		}
 		ikcp_update(rpKcp, iclock());
+		ret = ikcp_recv(rpKcp, rpControlRecvBuf, RP_CONTROL_RECV_BUF_SIZE);
+		if (ret >= 0) {
+			rpControlRecvHandle(rpControlRecvBuf, ret);
+		}
 	}
 	LightLock_Unlock(&rpControlLock);
 }
