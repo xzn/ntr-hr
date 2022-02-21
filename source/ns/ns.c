@@ -460,8 +460,8 @@ static inline void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out)
 	u16 v = 127 * (u16)r + -106 * (u16)g + -21 * (u16)b;
 
 	*y_out = (y + 128) >> 8;
-	*u_out = (u + 128) >> 8;
-	*v_out = (v + 128) >> 8;
+	*u_out = ((u + 128) >> 8) + 128;
+	*v_out = ((v + 128) >> 8) + 128;
 }
 
 static inline u8 accessImageNoCheck(const u8 *image, int x, int y, int w, int h) {
