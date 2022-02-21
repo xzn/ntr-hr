@@ -16,6 +16,9 @@
 #include "rlecodec.h"
 #endif
 
+#include "umm_malloc.h"
+#include "ikcp.h"
+
 #define HR_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define HR_MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -54,6 +57,7 @@ u64 rpMinIntervalBetweenPacketsInTick = 0;
 int rpControlSocket = -1;
 
 #define SYSTICK_PER_US (268)
+#define SYSTICK_PER_MS (268123)
 #define SYSTICK_PER_SEC 268123480
 
 /*
@@ -200,12 +204,14 @@ RT_HOOK nwmValParamHook;
 #define NWM_HEADER_SIZE (0x2a + 8)
 #define RP_PACKET_SIZE (PACKET_SIZE + NWM_HEADER_SIZE)
 int remotePlayInited = 0;
-u8 (*rpSendBufs)[RP_PACKET_SIZE];
+u8 *rpSendBufs;
 u8* rpThreadStack;
 u8* rpDataThreadStack;
+u8* umm_malloc_heap_addr;
 u8* rpWorkBufferEnd;
 LightSemaphore rpWorkDoneSem;
 LightSemaphore rpWorkAvaiSem;
+LightLock rpControlLock;
 // u8 rpDbgBuffer[2000] = { 0 };
 // u8* dbgBuf = rpDbgBuffer + 0x2a + 8;
 u8* rpImgBuffer;
@@ -335,7 +341,7 @@ typedef struct _BLIT_CONTEXT {
 	// int reset;
 	// int directCompress;
 } BLIT_CONTEXT;
-#define RP_TRANSFORM_DST_OFFSET 0x00150000
+#define RP_TRANSFORM_DST_OFFSET 0x001a0000
 
 static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src, int src_size) {
 
@@ -376,7 +382,9 @@ static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, 
 
 
 
-vu64 rpLastSendTick = 0;
+static u64 rpLastSendTick = 0;
+static u64 rpLastKcpSendTick = 0;
+static int kcp_restart = 0;
 
 /*
 void rpSendBuffer(u8* buf, u32 size, u32 flag) {
@@ -702,61 +710,167 @@ static struct RP_DATA_HEADER {
 	u32 len;
 } rpDataHeader;
 
-struct RP_PACKET_HEADER {
-	u8 flags;
-	u8 id;
-};
-
 u8 rpFrameId;
 static inline void rpSendData(u8* data) {
 	rp_send_src[rpFrameId] = data;
 	rpFrameId = (rpFrameId + 1) % 2;
 }
 
+u8 rpControlPacketId;
+
+#define RP_CONTROL_TOP_KEY (1 << 0)
+#define RP_CONTROL_BOT_KEY (1 << 0)
+
+u8 rp_control_top_force_key;
+u8 rp_control_bot_force_key;
+
+void rpControlRecvHandle(u8 flags) {
+	if (flags & RP_CONTROL_TOP_KEY) {
+		rp_control_top_force_key = 1;
+	}
+	if (flags & RP_CONTROL_BOT_KEY) {
+		rp_control_bot_force_key = 1;
+	}
+}
+
+int rp_udp_output(const char *buf, int len, ikcpcb *kcp, void *user) {
+	u8 *sendBuf = rpSendBufs;
+	u8 *dataBuf = sendBuf + NWM_HEADER_SIZE;
+
+	if (len > PACKET_SIZE) {
+		nsDbgPrint("rp_udp_output len exceeded PACKET_SIZE: %d\n", len);
+		return 0;
+	}
+
+	memcpy(dataBuf, buf, len);
+	int packetLen = initUDPPacket(sendBuf, len, REMOTE_PLAY_PORT);
+	nwmSendPacket(sendBuf, packetLen);
+
+	return len;
+}
+
+static inline IINT64 iclock64(void)
+{
+  u64 value = svc_getSystemTick();
+  return value / SYSTICK_PER_MS;
+}
+
+static inline IUINT32 iclock()
+{
+  return (IUINT32)(iclock64() & 0xfffffffful);
+}
+
 u8 rpThreadFrameId;
-u8 rpPacketId;
-#define END_OF_FRAME_MARKER 0x10
-void rpSendDataThread(void) {
+ikcpcb *rpKcp;
+extern const IUINT32 IKCP_OVERHEAD;
+#define HR_KCP_MAGIC 0x12345fff
+#define KCP_SOCKET_TIMEOUT 10
+#define KCP_TIMEOUT_TICKS (250 * SYSTICK_PER_MS)
+#define KCP_PACKET_SIZE (PACKET_SIZE - IKCP_OVERHEAD)
+
+void rpSendDataThreadMain(void) {
+	int ret;
+
+	LightLock_Lock(&rpControlLock);
+	rpKcp = ikcp_create(HR_KCP_MAGIC, 0);
+	if (!rpKcp) {
+		nsDbgPrint("ikcp_create failed\n");
+		LightLock_Unlock(&rpControlLock);
+		svc_exitThread();
+		return;
+	}
+	rpKcp->output = rp_udp_output;
+	if ((ret = ikcp_setmtu(rpKcp, PACKET_SIZE)) < 0) {
+		nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
+	}
+	ikcp_nodelay(rpKcp, 1, 10, 2, 1);
+	ikcp_wndsize(rpKcp, 256, 128);
+	LightLock_Unlock(&rpControlLock);
+
 	while (1) {
-		LightSemaphore_Acquire(&rpWorkDoneSem, 1);
+		ret = LightSemaphore_TryAcquire(&rpWorkDoneSem, 1);
+		if (ret != 0) {
+			LightLock_Lock(&rpControlLock);
+			ikcp_update(rpKcp, iclock());
+			LightLock_Unlock(&rpControlLock);
+			svc_sleepThread(KCP_SOCKET_TIMEOUT * 1000000);
+			continue;
+		}
 
 		u8* data;
 		data = rp_send_src[rpThreadFrameId];
 		rpThreadFrameId = (rpThreadFrameId + 1) % 2;
+
 		struct RP_DATA_HEADER header;
 		memcpy(&header, data, sizeof(header));
 		u32 size = header.len + sizeof(header);
-		u64 tickDiff;
+		u64 tickDiff, currentTick;
 		u64 sleepValue;
+		rpLastKcpSendTick = svc_getSystemTick();
+
 		while (size) {
-			tickDiff = svc_getSystemTick() - rpLastSendTick;
+			if (kcp_restart) {
+				kcp_restart = 0;
+				size = -1;
+				break;
+			}
+
+			currentTick = svc_getSystemTick();
+			tickDiff = currentTick - rpLastSendTick;
+
+			if (currentTick - rpLastKcpSendTick > KCP_TIMEOUT_TICKS) {
+				break;
+			}
+
 			if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
 				sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000000000) / SYSTICK_PER_SEC;
 				svc_sleepThread(sleepValue);
 			}
-			u32 sendSize = size;
-			if (sendSize > (PACKET_SIZE - sizeof(struct RP_PACKET_HEADER))) {
-				sendSize = (PACKET_SIZE - sizeof(struct RP_PACKET_HEADER));
-			}
-			size -= sendSize;
-			u8 *sendBuf = rpSendBufs[rpPacketId];
-			u8 *dataBuf = sendBuf + NWM_HEADER_SIZE;
 
-			struct RP_PACKET_HEADER packet_header = { 0 };
-			if (size == 0) {
-				packet_header.flags = END_OF_FRAME_MARKER;
+			u32 sendSize = size;
+			if (sendSize > KCP_PACKET_SIZE) {
+				sendSize = KCP_PACKET_SIZE;
 			}
-			packet_header.id = rpPacketId;
-			memcpy(dataBuf, &packet_header, sizeof(struct RP_PACKET_HEADER));
-			++rpPacketId;
-			memcpy(dataBuf + sizeof(struct RP_PACKET_HEADER), data, sendSize);
-			int packetLen = initUDPPacket(sendBuf, sendSize + sizeof(struct RP_PACKET_HEADER), REMOTE_PLAY_PORT);
-			nwmSendPacket(sendBuf, packetLen);
-			data += sendSize;
-			rpLastSendTick = svc_getSystemTick();
+
+			LightLock_Lock(&rpControlLock);
+			int waitsnd = ikcp_waitsnd(rpKcp);
+			if (waitsnd > 256) {
+				ret = 1;
+			} else {
+				ret = ikcp_send(rpKcp, data, sendSize);
+				rpLastKcpSendTick = currentTick;
+			}
+			ikcp_update(rpKcp, iclock());
+			LightLock_Unlock(&rpControlLock);
+
+			if (ret < 0) {
+				nsDbgPrint("ikcp_send failed: %d\n", ret);
+			} else if (ret == 0) {
+				size -= sendSize;
+				data += sendSize;
+			}
+
+			rpLastSendTick = currentTick;
 		}
+
 		LightSemaphore_Release(&rpWorkAvaiSem, 1);
+
+		if (size) {
+			nsDbgPrint("ikcp_send timeout %d\n", (u32)rpLastKcpSendTick);
+			break;
+		}
 	}
+
+	LightLock_Lock(&rpControlLock);
+	ikcp_release(rpKcp);
+	LightLock_Unlock(&rpControlLock);
+}
+
+void rpSendDataThread(void) {
+	while (1) {
+		rpSendDataThreadMain();
+	}
+
 	svc_exitThread();
 }
 
@@ -770,7 +884,7 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	uint32_t* counts = huffman_len_table(huffman_dst, cctx->data, cctx->data_size);
 	int huffman_size = huffman_compressed_size(counts, huffman_dst) + 256;
 	if (!skipTest && huffman_size > cctx->max_compressed_size) {
-		nsDbgPrint("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
+		// nsDbgPrint("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
 		s32 count;
 		LightSemaphore_Release(&rpWorkAvaiSem, 1);
 		return -1;
@@ -808,6 +922,7 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	return 0;
 }
 
+#define RP_CONTROL_RECV_BUF_SIZE 2000
 u8 *rpControlRecvBuf;
 int rpControlRecvBuf_ready;
 static inline void rpControlRecv(void) {
@@ -816,18 +931,25 @@ static inline void rpControlRecv(void) {
 		return;
 	}
 
-	int ret = recv(rpControlSocket, rpControlRecvBuf, sizeof(rpControlRecvBuf), 0);
-	if (ret == 0)
-	{
+	int ret = recv(rpControlSocket, rpControlRecvBuf, RP_CONTROL_RECV_BUF_SIZE, 0);
+	if (ret == 0) {
 		nsDbgPrint("rpControlRecv nothing\n");
 		return;
-	}
-	else if (ret < 0)
-	{
+	} else if (ret < 0) {
 		int err = SOC_GetErrno();
 		nsDbgPrint("rpControlRecv failed: %d\n", ret);
 		return;
 	}
+
+	LightLock_Lock(&rpControlLock);
+	if (rpKcp) {
+		int bufSize = ret;
+		if ((ret = ikcp_input(rpKcp, rpControlRecvBuf, bufSize)) < 0) {
+			nsDbgPrint("ikcp_input failed: %d\n", ret);
+		}
+		ikcp_update(rpKcp, iclock());
+	}
+	LightLock_Unlock(&rpControlLock);
 }
 
 static inline void rpControlPollAndRecv(void) {
@@ -1007,7 +1129,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		for (int i = 0; i < HR_WORK_BUFFER_COUNT; ++i) {
 			rp_work_dst[i] = dp_compression[i];
 		}
-		nsDbgPrint("Memory available %d\n", rp_work_dst[HR_WORK_BUFFER_COUNT - 1] - ctx->src + ctx->src_size);
+		nsDbgPrint("Memory available %d\n", rp_work_dst[HR_WORK_BUFFER_COUNT - 1] - (ctx->src + ctx->src_size));
+
+		nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
 	}
 
 	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
@@ -1537,7 +1661,7 @@ static inline int rpCaptureScreen(int isTop) {
 void updateNetworkParams(void) {
 	rpNetworkParams.targetBitsPerSec = rpConfig.qos * 8;
 	rpNetworkParams.targetFrameRate = 45;
-	u32 qualityFN = (rpConfig.quality & 0xff); 
+	u32 qualityFN = (rpConfig.quality & 0xff);
 	u32 qualityFD = (rpConfig.quality & 0xff00) >> 8;
 	if (qualityFN == 0 || qualityFD == 0)
 	{
@@ -1568,6 +1692,7 @@ void remotePlaySendFrames(void) {
 	priorityFactor = factor;
 	rpConfig.qos = HR_MIN(HR_MAX(rpConfig.qos, 1024 * 512 * 3), 1024 * 1024 * 12);
 	updateNetworkParams();
+	kcp_restart = 1;
 
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
@@ -1596,6 +1721,10 @@ void remotePlaySendFrames(void) {
 			// send top
 			src_size = rpCaptureScreen(1);
 			currentTopId += 1;
+			if (rp_control_top_force_key) {
+				rp_control_top_force_key = 0;
+				topContext.force_key = 1;
+			}
 			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, rpImgBuffer, src_size);
 			// tl_pitch_max = tl_pitch_max > tl_pitch ? tl_pitch_max : tl_pitch;
 			// topContext.compressDst = 0;
@@ -1610,6 +1739,10 @@ void remotePlaySendFrames(void) {
 			// send bottom
 			src_size = rpCaptureScreen(0);
 			currentBottomId += 1;
+			if (rp_control_bot_force_key) {
+				rp_control_bot_force_key = 0;
+				botContext.force_key = 1;
+			}
 			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, rpImgBuffer, src_size);
 			// bl_pitch_max = bl_pitch_max > bl_pitch ? bl_pitch_max : bl_pitch;
 			// botContext.compressDst = 0;
@@ -1700,6 +1833,7 @@ void remotePlayThreadStart(void) {
 	}*/
 	LightSemaphore_Init(&rpWorkDoneSem, 0, 2);
 	LightSemaphore_Init(&rpWorkAvaiSem, 2, 2);
+	LightLock_Init(&rpControlLock);
 
 	ret = svc_createThread(&hThread, (void*)rpSendDataThread, 0, &rpDataThreadStack[RP_dataStackSize - 40], 0x10, 3);
 	if (ret != 0) {
@@ -1736,20 +1870,22 @@ int nwmValParamCallback(u8* buf, int buflen) {
 			remotePlayInited = 1;
 
 #define RP_IMG_BUFFER_SIZE 0x00300000
+#define UMM_HEAP_SIZE (512 * 1024)
 			rpImgBuffer = plgRequestMemory(RP_IMG_BUFFER_SIZE);
 			if (!rpImgBuffer) {
 				nsDbgPrint("imgBuffer alloc failed\n");
 				return 0;
 			}
 			rpAllocBuff = rpImgBuffer + RP_IMG_BUFFER_SIZE - huffman_malloc_usage();
-			rpSendBufs = rpAllocBuff - 256 * sizeof(*rpSendBufs);
-			for (i = 0; i < 256; ++i) {
-				memcpy(rpSendBufs[i], buf, NWM_HEADER_SIZE);
-			}
+			rpSendBufs = rpAllocBuff - RP_PACKET_SIZE;
+			memcpy(rpSendBufs, buf, NWM_HEADER_SIZE);
 
-			rpThreadStack = (u32)((u8 *)rpSendBufs - RP_stackSize) / 4 * 4;
+			rpThreadStack = (u32)(rpSendBufs - RP_stackSize) / 4 * 4;
 			rpDataThreadStack = (u32)(rpThreadStack - RP_dataStackSize) / 4 * 4;
-			rpControlRecvBuf = rpDataThreadStack - 2000;
+			umm_malloc_heap_addr = (u32)(rpDataThreadStack - UMM_HEAP_SIZE) / 4 * 4;
+			umm_init_heap(umm_malloc_heap_addr, UMM_HEAP_SIZE);
+			ikcp_allocator(umm_malloc, umm_free);
+			rpControlRecvBuf = umm_malloc_heap_addr - RP_CONTROL_RECV_BUF_SIZE;
 			rpControlRecvBuf_ready = 1;
 			rpWorkBufferEnd = rpControlRecvBuf;
 
@@ -2644,7 +2780,7 @@ void nsHandlePacket(void) {
 	g_nsCtx->remainDataLen = pac->dataLen;
 	if (pac->cmd == NS_CMD_SAYHELLO) {
 		disp(100, 0x100ff00);
-		nsDbgPrint("hello");
+		nsDbgPrint("hello\n");
 		return;
 	}
 
@@ -2762,7 +2898,7 @@ void nsMainLoop(void) {
 
 		struct sockaddr_in sai = {0};
 		sai.sin_family = AF_INET;
-		sai.sin_port = htons(8001);
+		sai.sin_port = htons(REMOTE_PLAY_PORT);
 		sai.sin_addr.s_addr = htonl(INADDR_ANY);
 
 		ret = bind(rpControlSocket, (struct sockaddr *)&sai, sizeof(sai));
