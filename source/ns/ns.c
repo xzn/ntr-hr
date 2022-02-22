@@ -963,7 +963,7 @@ void rpSendDataThread(void) {
 #define RP_DATA2_MAX_SIZE_1 (ENCODE_SELECT_MASK_SIZE(400, 240) + 256)
 const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(rpDataHeader) + // for 400 * 240 of data
 	RP_DATA2_MAX_SIZE_1 + rle_max_compressed_size(RP_DATA2_MAX_SIZE_1) + sizeof(struct RP_DATA2_HEADER) +
-	48000; // extra room to be safe
+	72000; // extra room to be safe
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
@@ -986,7 +986,13 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 		dst_size += cctx->data2_size + 256 + rle_max_compressed_size(cctx->data2_size + 256);
 	}
 	if (dst_size > huffman_rle_dst_offset) {
-		nsDbgPrint("Not enough memory for compression: need %d (%d available)\n", dst_size, huffman_rle_dst_offset);
+		nsDbgPrint("Not enough memory for compression: need %d (%d available): "
+			"huffman %d rle %d data2 %d\n",
+			 dst_size, huffman_rle_dst_offset,
+			 huffman_size,
+			 rle_max_compressed_size(huffman_size),
+			 cctx->data2_size + 256 + rle_max_compressed_size(cctx->data2_size + 256)
+		);
 		return -1;
 	}
 	huffman_size = huffman_encode_with_len_table(counts, huffman_dst, cctx->data, cctx->data_size);
