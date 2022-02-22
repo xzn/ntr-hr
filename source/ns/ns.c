@@ -848,14 +848,15 @@ void rpSendDataThreadMain(void) {
 		size = rp_send_len[rpThreadFrameId];
 		rpThreadFrameId = (rpThreadFrameId + 1) % HR_WORK_BUFFER_COUNT;
 
-		struct RP_DATA_HEADER header;
+		struct RP_DATA_HEADER header = { 0 };
+		struct RP_DATA2_HEADER header2 = { 0 };
 		memcpy(&header, data, sizeof(header));
-		rpDbg("send %d %d %d %d\n", header.flags, header.len + sizeof(header), header.id, header.uncompressed_len);
+		u8* data2 = data + header.len + sizeof(header);
+		// rpDbg("send %d %d %d %d\n", header.flags, header.len + sizeof(header), header.id, header.uncompressed_len);
 
 		if (header.flags & RP_DATA_SPFD) {
-			struct RP_DATA2_HEADER header2;
-			memcpy(&header2, data + header.len + sizeof(header), sizeof(header2));
-			rpDbg("send2 %d %d %d %d\n", header2.flags, header2.len + sizeof(header2), header2.id, header2.uncompressed_len);
+			memcpy(&header2, data2, sizeof(header2));
+			// rpDbg("send2 %d %d %d %d\n", header2.flags, header2.len + sizeof(header2), header2.id, header2.uncompressed_len);
 		}
 
 		u64 tickDiff, currentTick;
@@ -883,31 +884,38 @@ void rpSendDataThreadMain(void) {
 			if (sendSize > KCP_PACKET_SIZE - sizeof(struct RP_PACKET_HEADER)) {
 				sendSize = KCP_PACKET_SIZE - sizeof(struct RP_PACKET_HEADER);
 			}
+			if (data < data2 && data + sendSize > data2) {
+				sendSize = data2 - data;
+			}
 
 			LightLock_Lock(&rpControlLock);
 			int waitsnd = ikcp_waitsnd(rpKcp);
-			if (waitsnd > 256) {
-				ret = 1;
-			} else {
+			if (waitsnd < 256) {
 				struct RP_PACKET_HEADER packet_header;
 				packet_header.len = sendSize;
 				packet_header.id = ++rpPacketId;
 				memcpy(rpSendDataPacketBuffer, &packet_header, sizeof(struct RP_PACKET_HEADER));
 				memcpy(rpSendDataPacketBuffer + sizeof(struct RP_PACKET_HEADER), data, sendSize);
 				ret = ikcp_send(rpKcp, rpSendDataPacketBuffer, sendSize + sizeof(struct RP_PACKET_HEADER));
+
+				if (ret < 0) {
+					nsDbgPrint("ikcp_send failed: %d\n", ret);
+					break;
+				}
+				size -= sendSize;
+				data += sendSize;
+
 				rpLastKcpSendTick = currentTick;
 			}
 			ikcp_update(rpKcp, iclock());
 			LightLock_Unlock(&rpControlLock);
 
-			if (ret < 0) {
-				nsDbgPrint("ikcp_send failed: %d\n", ret);
-			} else if (ret == 0) {
-				size -= sendSize;
-				data += sendSize;
-			}
-
 			rpLastSendTick = currentTick;
+		}
+
+		if (header.flags & RP_DATA_SPFD) {
+			memcpy(&header2, data2, sizeof(header2));
+			// rpDbg("send2 post %d %d %d %d\n", header2.flags, header2.len + sizeof(header2), header2.id, header2.uncompressed_len);
 		}
 
 		LightSemaphore_Release(&rpWorkAvaiSem, 1);
