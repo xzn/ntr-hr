@@ -993,6 +993,7 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 			 rle_max_compressed_size(huffman_size),
 			 cctx->data2_size + 256 + rle_max_compressed_size(cctx->data2_size + 256)
 		);
+		LightSemaphore_Release(&rpWorkAvaiSem, 1);
 		return -1;
 	}
 	huffman_size = huffman_encode_with_len_table(counts, huffman_dst, cctx->data, cctx->data_size);
