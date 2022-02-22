@@ -642,13 +642,15 @@ static inline void downsampledDifferenceFromDownsampled(u8 *ds_pf, u8 *fd_ds_dst
 #define BITS_PER_BYTE 8
 #define ENCODE_SELECT_MASK_X_SCALE 1
 #define ENCODE_SELECT_MASK_Y_SCALE 8
-#define ENCODE_SELECT_MASK_FACTOR (BITS_PER_BYTE * ENCODE_SELECT_MASK_X_SCALE * ENCODE_SELECT_MASK_Y_SCALE)
+#define ENCODE_SELECT_MASK_SIZE(w, h) \
+	(h + (ENCODE_SELECT_MASK_Y_SCALE * BITS_PER_BYTE) - 1) / (ENCODE_SELECT_MASK_Y_SCALE * BITS_PER_BYTE) * \
+	(w + ENCODE_SELECT_MASK_X_SCALE - 1) / ENCODE_SELECT_MASK_X_SCALE
 
 static inline u8 abs_s8(s8 s) {
 	return s > 0 ? s : -s;
 }
 
-static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int w, int h) {
+static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *m_dst_end, u8 *p_fd, const u8 *p, int w, int h) {
 	u16 sum_p_fd, sum_p;
 	u8 mask_bit, mask = 0;
 	int x = 0, y, i, j, n;
@@ -694,6 +696,11 @@ static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *p_fd, const u8 *p, int 
 
 		x += ENCODE_SELECT_MASK_X_SCALE;
 		if (x >= w) break;
+	}
+	if (m_dst > m_dst_end) {
+		nsDbgPrint("selectImage size error %d\n", m_dst - m_dst_end);
+	} else {
+		memset(m_dst, 0, m_dst_end - m_dst);
 	}
 }
 
@@ -953,7 +960,7 @@ void rpSendDataThread(void) {
 	svc_exitThread();
 }
 
-#define RP_DATA2_MAX_SIZE_1 ((96000 + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR + 256)
+#define RP_DATA2_MAX_SIZE_1 ENCODE_SELECT_MASK_SIZE(400, 240)
 const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(rpDataHeader) + // for 400 * 240 of data
 	RP_DATA2_MAX_SIZE_1 + rle_max_compressed_size(RP_DATA2_MAX_SIZE_1) + sizeof(struct RP_DATA2_HEADER);
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
@@ -1109,6 +1116,11 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* blitBuffer = ctx->src;
 	u8* sp = ctx->src;
 
+	int ds_width = width / 2;
+	int ds_height = height / 2;
+	int ds_ds_width = ds_width / 2;
+	int ds_ds_height = ds_height / 2;
+
 	// This is a lot of variables.
 	// Take care to not clobber anything.
 
@@ -1177,11 +1189,11 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	// output when RP_SELECT_PREDICTION
 	u8* dp_m_p_fd_y = dp_p_fd_ds_v + dp_p_fd_ds_v_size; // need to be consecutive in layout with dp_m_p_fd_ds_u
-	u32 dp_m_p_fd_y_size = (dp_p_fd_y_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u32 dp_m_p_fd_y_size = ENCODE_SELECT_MASK_SIZE(width, height);
 	u8* dp_m_p_fd_ds_u = dp_m_p_fd_y + dp_m_p_fd_y_size; // need to be consecutive in layout with dp_m_p_fd_ds_v
-	u32 dp_m_p_fd_ds_u_size = (dp_p_fd_ds_u_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u32 dp_m_p_fd_ds_u_size = ENCODE_SELECT_MASK_SIZE(ds_width, ds_height);
 	u8* dp_m_p_fd_ds_v = dp_m_p_fd_ds_u + dp_m_p_fd_ds_u_size;
-	u32 dp_m_p_fd_ds_v_size = (dp_p_fd_ds_v_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u32 dp_m_p_fd_ds_v_size = ENCODE_SELECT_MASK_SIZE(ds_width, ds_height);
 
 	// output when isKey and downsample
 	u8* dp_p_ds_y = dp_m_p_fd_ds_v + dp_m_p_fd_ds_v_size;
@@ -1214,11 +1226,11 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u32 dp_s_p_fd_ds_ds_v_size = dp_fd_ds_ds_v_size;
 
 	u8* dp_m_p_fd_ds_y = dp_p_fd_ds_ds_v + dp_p_fd_ds_ds_v_size; // need to be consecutive in layout with dp_m_p_fd_ds_ds_u
-	u32 dp_m_p_fd_ds_y_size = (dp_p_fd_ds_y_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u32 dp_m_p_fd_ds_y_size = ENCODE_SELECT_MASK_SIZE(ds_width, ds_height);
 	u8* dp_m_p_fd_ds_ds_u = dp_m_p_fd_ds_y + dp_m_p_fd_ds_y_size; // need to be consecutive in layout with dp_m_p_fd_ds_ds_v
-	u32 dp_m_p_fd_ds_ds_u_size = (dp_p_fd_ds_ds_u_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u32 dp_m_p_fd_ds_ds_u_size = ENCODE_SELECT_MASK_SIZE(ds_ds_width, ds_ds_height);
 	u8* dp_m_p_fd_ds_ds_v = dp_m_p_fd_ds_ds_u + dp_m_p_fd_ds_ds_u_size;
-	u32 dp_m_p_fd_ds_ds_v_size = (dp_p_fd_ds_ds_v_size + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR;
+	u32 dp_m_p_fd_ds_ds_v_size = ENCODE_SELECT_MASK_SIZE(ds_ds_width, ds_ds_height);
 
 	u8* dp_end = HR_MAX(dp_p_ds_ds_v + dp_p_ds_ds_v_size, dp_m_p_fd_ds_ds_v + dp_m_p_fd_ds_ds_v_size);
 	if (dp_end > rpWorkBufferEnd) {
@@ -1346,10 +1358,6 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 #define RP_DOWNSAMPLE2_UV (1 << 1)
 	u8 flags = 0;
 	u8 flags_pf = *dp_flags_pf;
-	int ds_width = width / 2;
-	int ds_height = height / 2;
-	int ds_ds_width = ds_width / 2;
-	int ds_ds_height = ds_height / 2;
 
 	u8* dp_y_out;
 	u32 dp_y_out_size;
@@ -1456,7 +1464,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	} \
 } while (0)
 
-#define selectImage2(s, c, w, h) selectImage(dp_s_p_fd_ ## c, dp_m_p_fd_ ## c, dp_ ## s ## c, dp_p_ ## c, w, h);
+#define selectImage2(s, c, w, h) selectImage(dp_s_p_fd_ ## c, dp_m_p_fd_ ## c, dp_m_p_fd_ ## c + dp_m_p_fd_ ## c ## _size, dp_ ## s ## c, dp_p_ ## c, w, h);
 #define selectImage2out(o, s, c, w, h) do { \
 	if (rpConfig.flags & RP_SELECT_PREDICTION) { \
 		selectImage2(s, c, w, h); \
