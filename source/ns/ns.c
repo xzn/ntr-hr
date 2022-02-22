@@ -218,6 +218,7 @@ u8* rpImgBuffer;
 #define HR_WORK_BUFFER_COUNT 2
 u8* rp_work_dst[HR_WORK_BUFFER_COUNT];
 u8* rp_send_src[HR_WORK_BUFFER_COUNT];
+u32 rp_send_len[HR_WORK_BUFFER_COUNT];
 // int topFormat = 0, bottomFormat = 0;
 // int frameSkipA = 1, frameSkipB = 1;
 // u32 requireUpdateBottom = 0;
@@ -729,10 +730,20 @@ static struct RP_DATA_HEADER {
 	u32 uncompressed_len;
 } rpDataHeader;
 
+#define RP_DATA2_HUFFMAN ((u32)1 << 0)
+#define RP_DATA2_RLE ((u32)1 << 1)
+struct RP_DATA2_HEADER {
+	u32 flags;
+	u32 len;
+	u32 id;
+	u32 uncompressed_len;
+};
+
 u8 rpFrameId;
-static inline void rpSendData(u8* data) {
+static inline void rpSendData(u8* data, u32 size) {
 	rp_send_src[rpFrameId] = data;
-	rpFrameId = (rpFrameId + 1) % 2;
+	rp_send_len[rpFrameId] = size;
+	rpFrameId = (rpFrameId + 1) % HR_WORK_BUFFER_COUNT;
 }
 
 u8 rpControlPacketId;
@@ -788,6 +799,7 @@ struct RP_PACKET_HEADER {
 
 static u32 rpPacketId;
 static u32 rpFrameHeaderId;
+static u32 rpFrameHeader2Id;
 
 u8 rpThreadFrameId;
 ikcpcb *rpKcp;
@@ -811,6 +823,7 @@ void rpSendDataThreadMain(void) {
 	}
 	rpPacketId = 0;
 	rpFrameHeaderId = 0;
+	rpFrameHeader2Id = 0;
 	rpKcp->output = rp_udp_output;
 	if ((ret = ikcp_setmtu(rpKcp, PACKET_SIZE)) < 0) {
 		nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
@@ -830,13 +843,21 @@ void rpSendDataThreadMain(void) {
 		}
 
 		u8* data;
+		u32 size;
 		data = rp_send_src[rpThreadFrameId];
-		rpThreadFrameId = (rpThreadFrameId + 1) % 2;
+		size = rp_send_len[rpThreadFrameId];
+		rpThreadFrameId = (rpThreadFrameId + 1) % HR_WORK_BUFFER_COUNT;
 
 		struct RP_DATA_HEADER header;
 		memcpy(&header, data, sizeof(header));
-		u32 size = header.len + sizeof(header);
-		// rpDbg("send %d %d %d %d\n", header.flags, header.len, header.id, header.uncompressed_len);
+		rpDbg("send %d %d %d %d\n", header.flags, header.len + sizeof(header), header.id, header.uncompressed_len);
+
+		if (header.flags & RP_DATA_SPFD) {
+			struct RP_DATA2_HEADER header2;
+			memcpy(&header2, data + header.len + sizeof(header), sizeof(header2));
+			rpDbg("send2 %d %d %d %d\n", header2.flags, header2.len + sizeof(header2), header2.id, header2.uncompressed_len);
+		}
+
 		u64 tickDiff, currentTick;
 		u64 sleepValue;
 		rpLastKcpSendTick = svc_getSystemTick();
@@ -893,7 +914,7 @@ void rpSendDataThreadMain(void) {
 
 		if (kcp_restart) {
 			while (LightSemaphore_TryAcquire(&rpWorkDoneSem, 1) == 0) {
-				rpThreadFrameId = (rpThreadFrameId + 1) % 2;
+				rpThreadFrameId = (rpThreadFrameId + 1) % HR_WORK_BUFFER_COUNT;
 				LightSemaphore_Release(&rpWorkAvaiSem, 1);
 			}
 			kcp_restart = 0;
@@ -924,7 +945,9 @@ void rpSendDataThread(void) {
 	svc_exitThread();
 }
 
-const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(rpDataHeader); // for 400 * 240 of data
+#define RP_DATA2_MAX_SIZE_1 ((96000 + ENCODE_SELECT_MASK_FACTOR - 1) / ENCODE_SELECT_MASK_FACTOR + 256)
+const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(rpDataHeader) + // for 400 * 240 of data
+	RP_DATA2_MAX_SIZE_1 + rle_max_compressed_size(RP_DATA2_MAX_SIZE_1) + sizeof(struct RP_DATA2_HEADER);
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
@@ -943,8 +966,12 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	if (rpConfig.flags & RP_RLE_ENCODE) {
 		dst_size += rle_max_compressed_size(huffman_size);
 	}
+	if (cctx->data2 && cctx->data2_size) {
+		dst_size += cctx->data2_size + 256 + rle_max_compressed_size(cctx->data2_size + 256);
+	}
 	if (dst_size > huffman_rle_dst_offset) {
 		nsDbgPrint("Not enough memory for compression: need %d (%d available)", dst_size, huffman_rle_dst_offset);
+		return -1;
 	}
 	huffman_size = huffman_encode_with_len_table(counts, huffman_dst, cctx->data, cctx->data_size);
 	u8* rle_dst = huffman_dst + huffman_size;
@@ -956,7 +983,7 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 		// nsDbgPrint("Huffman %d from %d", huffman_size, cctx->data_size);
 	}
 
-	u8* dh_dst;
+	u8 *dh_dst, *dh_dst_end;
 	if (rle_size < huffman_size) {
 		rpDataHeader.flags |= RP_DATA_RLE;
 		rpDataHeader.len = rle_size;
@@ -966,11 +993,44 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 		rpDataHeader.len = huffman_size;
 		dh_dst = huffman_dst - sizeof(rpDataHeader);
 	}
+	dh_dst_end = dh_dst + sizeof(rpDataHeader) + rpDataHeader.len;
+	if (cctx->data2 && cctx->data2_size) {
+		struct RP_DATA2_HEADER data2_header = {0};
+		data2_header.id = ++rpFrameHeader2Id;
+		data2_header.uncompressed_len = cctx->data2_size;
+		u8* dst2 = dh_dst_end + sizeof(data2_header);
+		huffman_dst = dst2;
+		huffman_size = huffman_encode(huffman_dst, cctx->data2, cctx->data2_size);
+		if (huffman_size < cctx->data2_size) {
+			rle_dst = huffman_dst + huffman_size;
+			rle_size = rle_encode(rle_dst, huffman_dst, huffman_size);
+			if (rle_size < huffman_size) {
+				memcpy(huffman_dst, rle_dst, rle_size);
+				data2_header.flags |= RP_DATA2_RLE;
+				data2_header.len = rle_size;
+			} else {
+				data2_header.len = huffman_size;
+			}
+			data2_header.flags |= RP_DATA2_HUFFMAN;
+		} else {
+			rle_dst = dst2;
+			rle_size = rle_encode(rle_dst, cctx->data2, cctx->data2_size);
+			if (rle_size < cctx->data2_size) {
+				data2_header.flags |= RP_DATA2_RLE;
+				data2_header.len = rle_size;
+			} else {
+				memcpy(dst2, cctx->data2, cctx->data2_size);
+				data2_header.len = cctx->data2_size;
+			}
+		}
+		memcpy(dh_dst_end, &data2_header, sizeof(data2_header));
+		dh_dst_end += data2_header.len + sizeof(data2_header);
+	}
 	// rpDbg("frame send %d %d\n", rpDataHeader.flags, rpDataHeader.len  + sizeof(rpDataHeader));
 	rpDataHeader.id = ++rpFrameHeaderId;
 	rpDataHeader.uncompressed_len = cctx->data_size;
 	memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
-	rpSendData(dh_dst);
+	rpSendData(dh_dst, dh_dst_end - dh_dst);
 	LightSemaphore_Release(&rpWorkDoneSem, 1);
 	return 0;
 }
@@ -979,10 +1039,10 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 u8 *rpControlRecvBuf;
 int rpControlRecvBuf_ready;
 static inline void rpControlRecv(void) {
-	if (!rpControlRecvBuf_ready) {
-		svc_sleepThread(1000000000);
-		return;
-	}
+	// if (!rpControlRecvBuf_ready) {
+	// 	svc_sleepThread(1000000000);
+	// 	return;
+	// }
 
 	int ret = recv(rpControlSocket, rpControlRecvBuf, RP_CONTROL_RECV_BUF_SIZE, 0);
 	if (ret == 0) {
@@ -1312,6 +1372,8 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	cctx.max_compressed_size = rpNetworkParams.bitsPerY / 8; \
 	cctx.data = dp_y_out; \
 	cctx.data_size = dp_y_out_size; \
+	cctx.data2 = 0; \
+	cctx.data2_size = 0; \
 	RP_HEADER_SET(RP_DATA_Y); \
 } while (0)
 
@@ -1319,6 +1381,8 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	cctx.max_compressed_size = rpNetworkParams.bitsPerUV / 8; \
 	cctx.data = dp_u_out; \
 	cctx.data_size = dp_u_out_size + dp_v_out_size; \
+	cctx.data2 = 0; \
+	cctx.data2_size = 0; \
 	RP_HEADER_RESET(RP_DATA_Y); \
 } while (0)
 
@@ -1914,8 +1978,8 @@ void remotePlayThreadStart(void) {
 	nsDbgPrint("%02x ", buf[i]);
 	}
 	}*/
-	LightSemaphore_Init(&rpWorkDoneSem, 0, 2);
-	LightSemaphore_Init(&rpWorkAvaiSem, 2, 2);
+	LightSemaphore_Init(&rpWorkDoneSem, 0, HR_WORK_BUFFER_COUNT);
+	LightSemaphore_Init(&rpWorkAvaiSem, HR_WORK_BUFFER_COUNT, HR_WORK_BUFFER_COUNT);
 	LightLock_Init(&rpControlLock);
 
 	ret = svc_createThread(&hThread, (void*)rpSendDataThread, 0, &rpDataThreadStack[RP_dataStackSize - 40], 0x10, 3);
@@ -2995,17 +3059,17 @@ void nsMainLoop(void) {
 	if (rpProcess) { \
 		FD_ZERO(&rset); \
 		FD_SET(s, &rset); \
-		if (rpControlRecvBuf_ready) { \
-			FD_SET(rpControlSocket, &rset); \
-			maxfdp1 = HR_MAX(s, rpControlSocket) + 1; \
-		} else { \
-			maxfdp1 = s + 1; \
-		} \
+		FD_SET(rpControlSocket, &rset); \
+		maxfdp1 = HR_MAX(s, rpControlSocket) + 1; \
 		nready = select2(maxfdp1, &rset, NULL, NULL, NULL); \
 	} \
  \
 	if (rpProcess && FD_ISSET(rpControlSocket, &rset)) { \
-		rpControlRecv(); \
+		if (rpControlRecvBuf_ready) { \
+			rpControlRecv(); \
+		} else { \
+			svc_sleepThread(100000000); \
+		} \
 	} \
  \
 	if (!rpProcess || FD_ISSET(s, &rset)) {
@@ -3019,7 +3083,7 @@ void nsMainLoop(void) {
 			g_nsCtx->hSocket = sockfd;
 			if (sockfd < 0) {
 				if (!rpProcess) {
-					svc_sleepThread(1000000000);
+					svc_sleepThread(100000000);
 				}
 				continue;
 			}
