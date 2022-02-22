@@ -209,9 +209,9 @@ u8* rpThreadStack;
 u8* rpDataThreadStack;
 u8* umm_malloc_heap_addr;
 u8* rpWorkBufferEnd;
-LightSemaphore rpWorkDoneSem;
-LightSemaphore rpWorkAvaiSem;
-LightLock rpControlLock;
+Handle rpWorkDoneSem;
+Handle rpWorkAvaiSem;
+Handle rpControlLock;
 // u8 rpDbgBuffer[2000] = { 0 };
 // u8* dbgBuf = rpDbgBuffer + 0x2a + 8;
 u8* rpImgBuffer;
@@ -725,8 +725,8 @@ static struct {
 static struct RP_DATA_HEADER {
 	u32 flags;
 	u32 len;
-	// u32 id;
-	// u32 uncompressed_len;
+	u32 id;
+	u32 uncompressed_len;
 } rpDataHeader;
 
 u8 rpFrameId;
@@ -773,6 +773,14 @@ static inline IUINT32 iclock()
   return (IUINT32)(iclock64() & 0xfffffffful);
 }
 
+struct RP_PACKET_HEADER {
+	u32 id;
+	u32 len;
+};
+
+static u32 rpPacketId;
+static u32 rpFrameHeaderId;
+
 u8 rpThreadFrameId;
 ikcpcb *rpKcp;
 extern const IUINT32 IKCP_OVERHEAD;
@@ -781,32 +789,35 @@ extern const IUINT32 IKCP_OVERHEAD;
 #define KCP_TIMEOUT_TICKS (250 * SYSTICK_PER_MS)
 #define KCP_PACKET_SIZE (PACKET_SIZE - IKCP_OVERHEAD)
 
+static u8 rpSendDataPacketBuffer[PACKET_SIZE];
 void rpSendDataThreadMain(void) {
 	int ret;
 
-	LightLock_Lock(&rpControlLock);
+	svc_waitSynchronization1(rpControlLock, U64_MAX);
 	rpKcp = ikcp_create(HR_KCP_MAGIC, 0);
 	if (!rpKcp) {
 		nsDbgPrint("ikcp_create failed\n");
-		LightLock_Unlock(&rpControlLock);
+		svc_releaseMutex(rpControlLock);
 		svc_exitThread();
 		return;
 	}
+	rpPacketId = 0;
+	rpFrameHeaderId = 0;
 	rpKcp->output = rp_udp_output;
 	if ((ret = ikcp_setmtu(rpKcp, PACKET_SIZE)) < 0) {
 		nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
 	}
 	ikcp_nodelay(rpKcp, 1, 10, 2, 1);
 	ikcp_wndsize(rpKcp, 256, 128);
-	LightLock_Unlock(&rpControlLock);
+	svc_releaseMutex(rpControlLock);
 
 	while (1) {
-		ret = LightSemaphore_TryAcquire(&rpWorkDoneSem, 1);
+		ret = svc_waitSynchronization1(rpWorkDoneSem, 0);
 		if (ret != 0) {
 			svc_sleepThread(KCP_SOCKET_TIMEOUT * 1000000);
-			LightLock_Lock(&rpControlLock);
+			svc_waitSynchronization1(rpControlLock, U64_MAX);
 			ikcp_update(rpKcp, iclock());
-			LightLock_Unlock(&rpControlLock);
+			svc_releaseMutex(rpControlLock);
 			continue;
 		}
 
@@ -817,7 +828,7 @@ void rpSendDataThreadMain(void) {
 		struct RP_DATA_HEADER header;
 		memcpy(&header, data, sizeof(header));
 		u32 size = header.len + sizeof(header);
-		// nsDbgPrint("send %d %d %d %d\n", header.flags, header.len, header.id, header.uncompressed_len);
+		rpDbg("send %d %d %d %d\n", header.flags, header.len, header.id, header.uncompressed_len);
 		u64 tickDiff, currentTick;
 		u64 sleepValue;
 		rpLastKcpSendTick = svc_getSystemTick();
@@ -840,20 +851,25 @@ void rpSendDataThreadMain(void) {
 			}
 
 			u32 sendSize = size;
-			if (sendSize > KCP_PACKET_SIZE) {
-				sendSize = KCP_PACKET_SIZE;
+			if (sendSize > KCP_PACKET_SIZE - sizeof(struct RP_PACKET_HEADER)) {
+				sendSize = KCP_PACKET_SIZE - sizeof(struct RP_PACKET_HEADER);
 			}
 
-			LightLock_Lock(&rpControlLock);
+			svc_waitSynchronization1(rpControlLock, U64_MAX);
 			int waitsnd = ikcp_waitsnd(rpKcp);
 			if (waitsnd > 256) {
 				ret = 1;
 			} else {
-				ret = ikcp_send(rpKcp, data, sendSize);
+				struct RP_PACKET_HEADER packet_header;
+				packet_header.len = sendSize;
+				packet_header.id = ++rpPacketId;
+				memcpy(rpSendDataPacketBuffer, &packet_header, sizeof(struct RP_PACKET_HEADER));
+				memcpy(rpSendDataPacketBuffer + sizeof(struct RP_PACKET_HEADER), data, sendSize);
+				ret = ikcp_send(rpKcp, rpSendDataPacketBuffer, sendSize + sizeof(struct RP_PACKET_HEADER));
 				rpLastKcpSendTick = currentTick;
 			}
 			ikcp_update(rpKcp, iclock());
-			LightLock_Unlock(&rpControlLock);
+			svc_releaseMutex(rpControlLock);
 
 			if (ret < 0) {
 				nsDbgPrint("ikcp_send failed: %d\n", ret);
@@ -865,11 +881,13 @@ void rpSendDataThreadMain(void) {
 			rpLastSendTick = currentTick;
 		}
 
-		LightSemaphore_Release(&rpWorkAvaiSem, 1);
+		int count;
+		svc_releaseSemaphore(&count, rpWorkAvaiSem, 1);
 
 		if (kcp_restart) {
-			while (LightSemaphore_TryAcquire(&rpWorkDoneSem, 1) == 0) {
-				LightSemaphore_Release(&rpWorkAvaiSem, 1);
+			while (svc_waitSynchronization1(rpWorkDoneSem, 0) == 0) {
+				int count;
+				svc_releaseSemaphore(&count, rpWorkAvaiSem, 1);
 			}
 			kcp_restart = 0;
 			break;
@@ -883,9 +901,10 @@ void rpSendDataThreadMain(void) {
 		}
 	}
 
-	LightLock_Lock(&rpControlLock);
+	svc_waitSynchronization1(rpControlLock, U64_MAX);
 	ikcp_release(rpKcp);
-	LightLock_Unlock(&rpControlLock);
+	rpKcp = 0;
+	svc_releaseMutex(rpControlLock);
 }
 
 void rpSendDataThread(void) {
@@ -900,7 +919,7 @@ const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 +
 static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
-	LightSemaphore_Acquire(&rpWorkAvaiSem, 1);
+	svc_waitSynchronization1(rpWorkAvaiSem, U64_MAX);
 	u8* dst = rp_work_dst[rpFrameId];
 	u8* huffman_dst = dst + sizeof(rpDataHeader);
 	uint32_t* counts = huffman_len_table(huffman_dst, cctx->data, cctx->data_size);
@@ -908,7 +927,7 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	if (!skipTest && huffman_size > cctx->max_compressed_size) {
 		rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
 		s32 count;
-		LightSemaphore_Release(&rpWorkAvaiSem, 1);
+		svc_releaseSemaphore(&count, rpWorkAvaiSem, 1);
 		return -1;
 	}
 	int dst_size = huffman_size;
@@ -939,12 +958,12 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 		dh_dst = huffman_dst - sizeof(rpDataHeader);
 	}
 	// rpDbg("frame send %d %d\n", rpDataHeader.flags, rpDataHeader.len  + sizeof(rpDataHeader));
-	// static u32 rpPacketId;
-	// rpDataHeader.id = rpPacketId++;
-	// rpDataHeader.uncompressed_len = cctx->data_size;
+	rpDataHeader.id = ++rpFrameHeaderId;
+	rpDataHeader.uncompressed_len = cctx->data_size;
 	memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
 	rpSendData(dh_dst);
-	LightSemaphore_Release(&rpWorkDoneSem, 1);
+	int count;
+	svc_releaseSemaphore(&count, rpWorkDoneSem, 1);
 	return 0;
 }
 
@@ -967,7 +986,7 @@ static inline void rpControlRecv(void) {
 		return;
 	}
 
-	LightLock_Lock(&rpControlLock);
+	svc_waitSynchronization1(rpControlLock, U64_MAX);
 	if (rpKcp) {
 		int bufSize = ret;
 		if ((ret = ikcp_input(rpKcp, rpControlRecvBuf, bufSize)) < 0) {
@@ -979,7 +998,7 @@ static inline void rpControlRecv(void) {
 			rpControlRecvHandle(rpControlRecvBuf, ret);
 		}
 	}
-	LightLock_Unlock(&rpControlLock);
+	svc_releaseMutex(rpControlLock);
 }
 
 static inline void rpControlPollAndRecv(void) {
@@ -1888,9 +1907,9 @@ void remotePlayThreadStart(void) {
 	nsDbgPrint("%02x ", buf[i]);
 	}
 	}*/
-	LightSemaphore_Init(&rpWorkDoneSem, 0, 2);
-	LightSemaphore_Init(&rpWorkAvaiSem, 2, 2);
-	LightLock_Init(&rpControlLock);
+	svc_createSemaphore(&rpWorkDoneSem, 0, 2);
+	svc_createSemaphore(&rpWorkAvaiSem, 2, 2);
+	svc_createMutex(&rpControlLock, 0);
 
 	ret = svc_createThread(&hThread, (void*)rpSendDataThread, 0, &rpDataThreadStack[RP_dataStackSize - 40], 0x10, 3);
 	if (ret != 0) {
