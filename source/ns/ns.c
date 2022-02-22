@@ -469,7 +469,7 @@ static inline u8 accessImageNoCheck(const u8 *image, int x, int y, int w, int h)
 }
 
 static inline u8 accessImage(const u8 *image, int x, int y, int w, int h) {
-	return accessImageNoCheck(image, HR_MAX(HR_MIN(x, w), 0), HR_MAX(HR_MIN(y, h), 0), w, h);
+	return accessImageNoCheck(image, HR_MAX(HR_MIN(x, w - 1), 0), HR_MAX(HR_MIN(y, h - 1), 0), w, h);
 }
 
 static inline u8 medianOf3_u8(u8 a, u8 b, u8 c) {
@@ -744,6 +744,14 @@ u8 rp_control_top_force_key;
 u8 rp_control_bot_force_key;
 
 void rpControlRecvHandle(u8* buf, int buf_size) {
+	if (*buf & RP_CONTROL_TOP_KEY) {
+		rpDbg("force top key frame requested\n");
+		rp_control_top_force_key = 1;
+	}
+	if (*buf & RP_CONTROL_BOT_KEY) {
+		rpDbg("force bot key frame requested\n");
+		rp_control_bot_force_key = 1;
+	}
 }
 
 int rp_udp_output(const char *buf, int len, ikcpcb *kcp, void *user) {
@@ -828,7 +836,7 @@ void rpSendDataThreadMain(void) {
 		struct RP_DATA_HEADER header;
 		memcpy(&header, data, sizeof(header));
 		u32 size = header.len + sizeof(header);
-		rpDbg("send %d %d %d %d\n", header.flags, header.len, header.id, header.uncompressed_len);
+		// rpDbg("send %d %d %d %d\n", header.flags, header.len, header.id, header.uncompressed_len);
 		u64 tickDiff, currentTick;
 		u64 sleepValue;
 		rpLastKcpSendTick = svc_getSystemTick();
@@ -885,6 +893,7 @@ void rpSendDataThreadMain(void) {
 
 		if (kcp_restart) {
 			while (LightSemaphore_TryAcquire(&rpWorkDoneSem, 1) == 0) {
+				rpThreadFrameId = (rpThreadFrameId + 1) % 2;
 				LightSemaphore_Release(&rpWorkAvaiSem, 1);
 			}
 			kcp_restart = 0;
@@ -903,6 +912,8 @@ void rpSendDataThreadMain(void) {
 	ikcp_release(rpKcp);
 	rpKcp = 0;
 	LightLock_Unlock(&rpControlLock);
+
+	svc_sleepThread(100000000);
 }
 
 void rpSendDataThread(void) {
@@ -1037,8 +1048,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	 // need for next frame
 	u8* dp_flags = dp_begin;
+#define FLAGS_OFFSET 4
 	// assume worst case width = 400, height = 240 for top screen
-	u8 *dp_save_begin = dp_flags + 1; // dp_flags need to be saved as well, its size is calculated separately however
+	u8 *dp_save_begin = dp_flags + FLAGS_OFFSET; // dp_flags need to be saved as well, its size is calculated separately however
 	u8* dp_y = dp_save_begin;
 	u32 dp_y_size = width * height; // 96'000
 	u8* dp_ds_u = dp_y + dp_y_size;
@@ -1147,9 +1159,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	}
 
 	int frameOffset = dp_save_size * (400 + 320) / width; // offset for both screens
-	int bottomScreenOffset = dp_save_size * 400 / width; // offset from top
-	frameOffset += 2; // add offset for dp_flags, twice for both screens;
-	bottomScreenOffset += 1; // add offset for dp_flags;
+	int bottomScreenOffset = dp_save_size * 320 / width; // offset from top
+	frameOffset += FLAGS_OFFSET * 2; // add offset for dp_flags, twice for both screens;
+	bottomScreenOffset += FLAGS_OFFSET; // add offset for dp_flags;
 
 	u8* dp_flags_pf;
 	u8* dp_y_pf;
@@ -1180,7 +1192,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
 	}
 
-	if (!isTop) { // apply bottomScreenOffset (which is offset from top)
+	if (!isTop) { // apply bottomScreenOffset
 		dp_flags -= bottomScreenOffset;
 		dp_y -= bottomScreenOffset;
 		dp_ds_u -= bottomScreenOffset;
@@ -1312,6 +1324,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	downsampleImage1(u, width, height);
 	downsampleImage1(v, width, height);
+	dp_v = dp_u = 0;
 
 	RP_HEADER_RESET((u32)-1);
 
@@ -1386,6 +1399,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 #define predictAndSelectImage2out(o, c, w, h) do { \
 	if (rpConfig.flags & RP_PREDICT_FRAME_DELTA) { \
 		predictImage1(fd_ ## c, w, h); \
+		dp_fd_ ## c = 0; \
 		selectImage2out(o, p_fd_, c, w, h); \
 	} else { \
 		selectImage2out(o, fd_, c, w, h); \
@@ -1443,14 +1457,6 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			differenceImage1(y, width, height);
 		}
 
-		if (flags_pf & RP_DOWNSAMPLE2_UV) {
-			differenceFromDownsampled1(ds_u, ds_width, ds_height);
-			differenceFromDownsampled1(ds_v, ds_width, ds_height);
-		} else {
-			differenceImage1(ds_u, ds_width, ds_height);
-			differenceImage1(ds_v, ds_width, ds_height);
-		}
-
 		predictImage2(y, width, height);
 		predictAndSelectImage2out(y, y, width, height);
 		cctx_data2_y(y);
@@ -1476,6 +1482,14 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		}
 
 		// UV
+		if (flags_pf & RP_DOWNSAMPLE2_UV) {
+			differenceFromDownsampled1(ds_u, ds_width, ds_height);
+			differenceFromDownsampled1(ds_v, ds_width, ds_height);
+		} else {
+			differenceImage1(ds_u, ds_width, ds_height);
+			differenceImage1(ds_v, ds_width, ds_height);
+		}
+
 		predictImage2(ds_u, ds_width, ds_height);
 		predictAndSelectImage2out(u, ds_u, ds_width, ds_height);
 		predictImage2(ds_v, ds_width, ds_height);
@@ -1489,17 +1503,13 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 			if (flags_pf & RP_DOWNSAMPLE2_UV) {
 				downsampledDifferenceFromDownsampled1(ds_u, ds_width, ds_height);
+				downsampledDifferenceFromDownsampled1(ds_v, ds_width, ds_height);
 			} else {
 				downsampledDifference1(ds_u, ds_width, ds_height);
+				downsampledDifference1(ds_v, ds_width, ds_height);
 			}
 			predictImage2(ds_ds_u, ds_ds_width, ds_ds_height);
 			predictAndSelectImage2out(u, ds_ds_u, ds_ds_width, ds_ds_height);
-
-			if (flags_pf & RP_DOWNSAMPLE2_UV) {
-				downsampledDifferenceFromDownsampled1(ds_v, ds_width, ds_height);
-			} else {
-				downsampledDifference1(ds_v, ds_width, ds_height);
-			}
 			predictImage2(ds_ds_v, ds_ds_width, ds_ds_height);
 			predictAndSelectImage2out(v, ds_ds_v, ds_ds_width, ds_ds_height);
 
