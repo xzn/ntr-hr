@@ -1190,9 +1190,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	// output when RP_SELECT_PREDICTION
 	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is ready
 	u32 dp_s_p_fd_y_size = dp_fd_y_size;
-	u8* dp_s_p_fd_ds_u = dp_fd_ds_u; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is ready
+	u8* dp_s_p_fd_ds_u = dp_s_p_fd_y + dp_s_p_fd_y_size; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is ready
 	u32 dp_s_p_fd_ds_u_size = dp_fd_ds_u_size;
-	u8* dp_s_p_fd_ds_v = dp_fd_ds_v; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is ready
+	u8* dp_s_p_fd_ds_v = dp_s_p_fd_ds_u + dp_s_p_fd_ds_u_size; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is ready
 	u32 dp_s_p_fd_ds_v_size = dp_fd_ds_v_size;
 
 	// output when RP_SELECT_PREDICTION
@@ -1228,9 +1228,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	u8* dp_s_p_fd_ds_y = dp_fd_ds_y; // reuse from dp_fd_ds_y, after dp_p_fd_ds_y is ready
 	u32 dp_s_p_fd_ds_y_size = dp_fd_ds_y_size;
-	u8* dp_s_p_fd_ds_ds_u = dp_fd_ds_ds_u; // reuse from dp_fd_ds_ds_u, after dp_p_fd_ds_ds_u is ready, need to be consecutive in layout with dp_s_p_fd_ds_ds_v
+	u8* dp_s_p_fd_ds_ds_u = dp_s_p_fd_ds_y + dp_s_p_fd_ds_y_size; // reuse from dp_fd_ds_ds_u, after dp_p_fd_ds_ds_u is ready, need to be consecutive in layout with dp_s_p_fd_ds_ds_v
 	u32 dp_s_p_fd_ds_ds_u_size = dp_fd_ds_ds_u_size;
-	u8* dp_s_p_fd_ds_ds_v = dp_fd_ds_ds_v; // reuse from dp_fd_ds_ds_v, after dp_p_fd_ds_ds_v is ready
+	u8* dp_s_p_fd_ds_ds_v = dp_s_p_fd_ds_ds_u + dp_s_p_fd_ds_ds_u_size; // reuse from dp_fd_ds_ds_v, after dp_p_fd_ds_ds_v is ready
 	u32 dp_s_p_fd_ds_ds_v_size = dp_fd_ds_ds_v_size;
 
 	u8* dp_m_p_fd_ds_y = dp_p_fd_ds_ds_v + dp_p_fd_ds_ds_v_size; // need to be consecutive in layout with dp_m_p_fd_ds_ds_u
