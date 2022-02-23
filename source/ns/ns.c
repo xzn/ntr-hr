@@ -1247,9 +1247,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	}
 
 	int frameOffset = dp_save_size * (400 + 320) / width; // offset for both screens
-	int bottomScreenOffset = dp_save_size * 320 / width; // offset from top
+	int topScreenOffset = dp_save_size * 400 / width; // offset from top
 	frameOffset += FLAGS_OFFSET * 2; // add offset for dp_flags, twice for both screens;
-	bottomScreenOffset += FLAGS_OFFSET; // add offset for dp_flags;
+	topScreenOffset += FLAGS_OFFSET; // add offset for dp_flags;
 
 	u8* dp_flags_pf;
 	u8* dp_y_pf;
@@ -1280,14 +1280,14 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
 	}
 
-	if (!isTop) { // apply bottomScreenOffset
-		dp_flags -= bottomScreenOffset;
-		dp_y -= bottomScreenOffset;
-		dp_ds_u -= bottomScreenOffset;
-		dp_ds_v -= bottomScreenOffset;
-		dp_ds_y -= bottomScreenOffset;
-		dp_ds_ds_u -= bottomScreenOffset;
-		dp_ds_ds_v -= bottomScreenOffset;
+	if (isTop) { // apply topScreenOffset
+		dp_flags -= topScreenOffset;
+		dp_y -= topScreenOffset;
+		dp_ds_u -= topScreenOffset;
+		dp_ds_v -= topScreenOffset;
+		dp_ds_y -= topScreenOffset;
+		dp_ds_ds_u -= topScreenOffset;
+		dp_ds_ds_v -= topScreenOffset;
 	}
 	// apply frameOffset
 	if (screenFrameId) {
