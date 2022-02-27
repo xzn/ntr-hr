@@ -815,6 +815,7 @@ extern const IUINT32 IKCP_OVERHEAD;
 #define KCP_SOCKET_TIMEOUT 10
 #define KCP_TIMEOUT_TICKS (250 * SYSTICK_PER_MS)
 #define KCP_PACKET_SIZE (PACKET_SIZE - IKCP_OVERHEAD)
+#define KCP_SND_WND_SIZE 64
 
 static u8 rpSendDataPacketBuffer[PACKET_SIZE];
 void rpSendDataThreadMain(void) {
@@ -835,8 +836,9 @@ void rpSendDataThreadMain(void) {
 	if ((ret = ikcp_setmtu(rpKcp, PACKET_SIZE)) < 0) {
 		nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
 	}
-	ikcp_nodelay(rpKcp, 1, 10, 2, 1);
-	ikcp_wndsize(rpKcp, 256, 128);
+	ikcp_nodelay(rpKcp, 1, 10, 1, 0);
+	// rpKcp->rx_minrto = 10;
+	ikcp_wndsize(rpKcp, KCP_SND_WND_SIZE, 0);
 	LightLock_Unlock(&rpControlLock);
 
 	while (1) {
@@ -897,7 +899,7 @@ void rpSendDataThreadMain(void) {
 
 			LightLock_Lock(&rpControlLock);
 			int waitsnd = ikcp_waitsnd(rpKcp);
-			if (waitsnd < 256) {
+			if (waitsnd < KCP_SND_WND_SIZE) {
 				struct RP_PACKET_HEADER packet_header;
 				packet_header.len = sendSize;
 				packet_header.id = ++rpPacketId;
