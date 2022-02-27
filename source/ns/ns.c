@@ -815,7 +815,7 @@ extern const IUINT32 IKCP_OVERHEAD;
 #define KCP_SOCKET_TIMEOUT 10
 #define KCP_TIMEOUT_TICKS (250 * SYSTICK_PER_MS)
 #define KCP_PACKET_SIZE (PACKET_SIZE - IKCP_OVERHEAD)
-#define KCP_SND_WND_SIZE 64
+#define KCP_SND_WND_SIZE 40
 
 static u8 rpSendDataPacketBuffer[PACKET_SIZE];
 void rpSendDataThreadMain(void) {
@@ -836,7 +836,7 @@ void rpSendDataThreadMain(void) {
 	if ((ret = ikcp_setmtu(rpKcp, PACKET_SIZE)) < 0) {
 		nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
 	}
-	ikcp_nodelay(rpKcp, 1, 10, 1, 0);
+	ikcp_nodelay(rpKcp, 1, 10, 1, 1);
 	// rpKcp->rx_minrto = 10;
 	ikcp_wndsize(rpKcp, KCP_SND_WND_SIZE, 0);
 	LightLock_Unlock(&rpControlLock);
@@ -1810,6 +1810,7 @@ static inline int rpCaptureScreen(int isTop) {
 	return -1;
 }
 
+#define KCP_BANDWIDTH_FACTOR 2
 u32 rpQualityFN;
 u32 rpQualityFD;
 void updateNetworkParams(void) {
@@ -1833,7 +1834,7 @@ void updateNetworkParams(void) {
 	}
 	rpNetworkParams.bitsPerFrame =
 		(u64)rpNetworkParams.targetBitsPerSec * rpNetworkParams.qualityFactorNum / rpNetworkParams.targetFrameRate / rpNetworkParams.qualityFactorDenum;
-	rpMinIntervalBetweenPacketsInTick = (u64)SYSTICK_PER_SEC * PACKET_SIZE * 8 / rpConfig.qos;
+	rpMinIntervalBetweenPacketsInTick = (u64)SYSTICK_PER_SEC * PACKET_SIZE * 8 * KCP_BANDWIDTH_FACTOR / rpConfig.qos;
 	rpNetworkParams.bitsPerY = rpNetworkParams.bitsPerFrame * 2 / 3;
 	rpNetworkParams.bitsPerUV = rpNetworkParams.bitsPerFrame / 3;
 	rpDbg(
