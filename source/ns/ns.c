@@ -460,9 +460,15 @@ static inline void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out)
 	u16 u = -43 * (u16)r + -84 * (u16)g + 127 * (u16)b;
 	u16 v = 127 * (u16)r + -106 * (u16)g + -21 * (u16)b;
 
-	*y_out = (y + 128) >> 8;
-	*u_out = ((u + 128) >> 8) + 128;
-	*v_out = ((v + 128) >> 8) + 128;
+	if (rpConfig.flags & RP_YUV_LQ) {
+		*y_out = (y + 512) >> 10;
+		*u_out = (((u + 1024) >> 11) + 16) % 32;
+		*v_out = (((v + 1024) >> 11) + 16) % 32;
+	} else {
+		*y_out = (y + 128) >> 8;
+		*u_out = ((u + 128) >> 8) + 128;
+		*v_out = ((v + 128) >> 8) + 128;
+	}
 }
 
 static inline u8 accessImageNoCheck(const u8 *image, int x, int y, int w, int h) {
@@ -729,6 +735,8 @@ static struct {
 #define RP_DATA_PFD ((u32)1 << 4)
 #define RP_DATA_SPFD ((u32)1 << 5)
 #define RP_DATA_RLE ((u32)1 << 6)
+#define RP_DATA_LQ ((u32)1 << 7)
+#define RP_DATA_IL ((u32)1 << 8)
 
 static struct RP_DATA_HEADER {
 	u32 flags;
@@ -1418,6 +1426,12 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	RP_HEADER_RESET((u32)-1);
 
+	if (rpConfig.flags & RP_YUV_LQ) {
+		RP_HEADER_SET(RP_DATA_LQ);
+	} else {
+		RP_HEADER_RESET(RP_DATA_LQ);
+	}
+
 	if (isTop) {
 		RP_HEADER_SET(RP_DATA_TOP);
 	} else {
@@ -1856,14 +1870,15 @@ void remotePlaySendFrames(void) {
 
 	nsDbgPrint(
 		"remote play config: priority top %d, priority factor %d, "
-		"target bitrate %d, quality factor %d/%d%s%s%s%s%s\n",
+		"target bitrate %d, quality factor %d/%d%s%s%s%s%s%s\n",
 		isPriorityTop, priorityFactor,
 		rpConfig.qos, rpQualityFN, rpQualityFD,
 		(rpConfig.flags & RP_USE_FRAME_DELTA) ? ", use frame delta" : "",
 		(rpConfig.flags & RP_PREDICT_FRAME_DELTA) ? ", predict frame delta" : "",
 		(rpConfig.flags & RP_SELECT_PREDICTION) ? ", select prediction" : "",
 		(rpConfig.flags & RP_DYNAMIC_ENCODE) ? ", use dynamic encode" : "",
-		(rpConfig.flags & RP_RLE_ENCODE) ? ", use rle encode" : "");
+		(rpConfig.flags & RP_RLE_ENCODE) ? ", use rle encode" : "",
+		(rpConfig.flags & RP_YUV_LQ) ? ", low quality image" : "");
 
 	kcp_restart = 1;
 

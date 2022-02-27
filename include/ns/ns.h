@@ -59,6 +59,8 @@ typedef struct _NS_BREAKPOINT {
 #define RP_SELECT_PREDICTION ((u32)1 << 2)
 #define RP_DYNAMIC_ENCODE ((u32)1 << 3)
 #define RP_RLE_ENCODE ((u32)1 << 4)
+#define RP_YUV_LQ ((u32)1 << 5)
+#define RP_INTERLACED ((u32)1 << 6)
 #define RP_DEBUG ((u32)1 << 30)
 #define RP_EXTENDED ((u32)1 << 31)
 #define RP_FLAG_DBG 0
