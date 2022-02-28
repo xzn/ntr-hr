@@ -784,11 +784,11 @@ u8 rp_control_bot_force_key;
 
 void rpControlRecvHandle(u8* buf, int buf_size) {
 	if (*buf & RP_CONTROL_TOP_KEY) {
-		rpDbg("force top key frame requested\n");
+		// rpDbg("force top key frame requested\n");
 		rp_control_top_force_key = 1;
 	}
 	if (*buf & RP_CONTROL_BOT_KEY) {
-		rpDbg("force bot key frame requested\n");
+		// rpDbg("force bot key frame requested\n");
 		rp_control_bot_force_key = 1;
 	}
 }
@@ -1938,8 +1938,8 @@ void updateNetworkParams(void) {
 		RP_TARGET_FRAME_RATE, rpNetworkParams.bitsPerFrame, rpNetworkParams.bitsPerY, rpNetworkParams.bitsPerUV);
 }
 
-#define FRAME_RATE_AVERAGE_COUNT 10
-static u64 tick_at_frame[FRAME_RATE_AVERAGE_COUNT];
+#define FRAME_RATE_AVERAGE_COUNT 90
+static u64 *tick_at_frame;
 static int tick_at_frame_i;
 void remotePlaySendFrames(void) {
 	u32 isPriorityTop = 1;
@@ -1988,6 +1988,7 @@ void remotePlaySendFrames(void) {
 	float bot_screen_time = 0;
 	int previous_is_top = 0;
 	int frames_since_screen_change = 0;
+	int frame_rate = 0;
 
 	// u32 tl_pitch_max = 0;
 	// u32 bl_pitch_max = 0;
@@ -1996,30 +1997,17 @@ void remotePlaySendFrames(void) {
 		currentUpdating = isPriorityTop;
 		frameCount += 1;
 		if (dynamic_priority) {
-			u64 tick_at_current = svc_getSystemTick();
 			currentUpdating = top_screen_time <= bot_screen_time;
 
-			if (previous_is_top == isPriorityTop) {
-				u64 tick_diff = HR_MIN(HR_MAX(tick_at_current - tick_at_frame[tick_at_frame_i], SYSTICK_PER_SEC / RP_TARGET_PSCREEN_FRAME_RATE), SYSTICK_PER_SEC);
-
-				tick_at_frame[tick_at_frame_i] = tick_at_current;
-				tick_at_frame_i = (tick_at_frame_i + 1) % FRAME_RATE_AVERAGE_COUNT;
-
-				u64 frame_rate = (u64)SYSTICK_PER_SEC * FRAME_RATE_AVERAGE_COUNT / tick_diff;
-				if (tick_at_frame_i == 0) {
-					// rpDbg("priority screen fps %d\n", (u32)frame_rate);
-				}
-
-				if (frame_rate < RP_TARGET_PSCREEN_FRAME_RATE) {
-					currentUpdating = previous_is_top;
-				}
+			if (frame_rate < RP_TARGET_PSCREEN_FRAME_RATE * (priorityFactor + 1) / priorityFactor) {
+				currentUpdating = previous_is_top;
 			}
 			if (currentUpdating == previous_is_top) {
 				++frames_since_screen_change;
 			} else {
 				previous_is_top = currentUpdating;
 				frames_since_screen_change = 1;
-				rpDbg("screen change %d %d %d\n", previous_is_top, (int)(1.0f / top_screen_time), (int)(1.0f / bot_screen_time));
+				// rpDbg("screen change %d %d %d\n", previous_is_top, (int)(1.0f / top_screen_time), (int)(1.0f / bot_screen_time));
 			}
 			if (frames_since_screen_change > priorityFactor) {
 				previous_is_top = currentUpdating = !currentUpdating;
@@ -2031,6 +2019,15 @@ void remotePlaySendFrames(void) {
 			} else {
 				top_screen_time = HR_MAX(top_screen_time - bot_screen_time, 0);
 				bot_screen_time = 0;
+			}
+
+			u64 tick_at_current = svc_getSystemTick();
+			u64 tick_diff = HR_MIN(HR_MAX(tick_at_current - tick_at_frame[tick_at_frame_i], SYSTICK_PER_SEC / RP_TARGET_PSCREEN_FRAME_RATE), SYSTICK_PER_SEC);
+			tick_at_frame[tick_at_frame_i] = tick_at_current;
+			tick_at_frame_i = (tick_at_frame_i + 1) % FRAME_RATE_AVERAGE_COUNT;
+			frame_rate = (u64)SYSTICK_PER_SEC * FRAME_RATE_AVERAGE_COUNT / tick_diff;
+			if (tick_at_frame_i == 0) {
+				// rpDbg("priority screen fps %d\n", (u32)frame_rate);
 			}
 		} else if (priorityFactor != 0) {
 			if (frameCount % (priorityFactor + 1) == 0) {
@@ -2219,7 +2216,8 @@ int nwmValParamCallback(u8* buf, int buflen) {
 			umm_malloc_heap_addr = (u32)(rpDataThreadStack - UMM_HEAP_SIZE) / 4 * 4;
 			umm_init_heap(umm_malloc_heap_addr, UMM_HEAP_SIZE);
 			ikcp_allocator(umm_malloc, umm_free);
-			rpControlRecvBuf = umm_malloc_heap_addr - RP_CONTROL_RECV_BUF_SIZE;
+			tick_at_frame = umm_malloc_heap_addr - sizeof(*tick_at_frame) * FRAME_RATE_AVERAGE_COUNT;
+			rpControlRecvBuf = (u8 *)tick_at_frame - RP_CONTROL_RECV_BUF_SIZE;
 			rpControlRecvBuf_ready = 1;
 			rpWorkBufferEnd = rpControlRecvBuf;
 
