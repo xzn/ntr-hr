@@ -815,7 +815,7 @@ int screenshotMain() {
 
 	nsDbgPrint("fsUserHandle: %08x\n", fsUserHandle);
 	bmp_index = get_file_index();
-	nsDbgPrint("bmp index is: %d", bmp_index);
+	nsDbgPrint("bmp index is: %d\n", bmp_index);
 
 	if (ntrConfig->isNew3DS) {
 		plgRegisterMenuEntry(1, plgTranslate("CPU Clock (New3DS Only)"), cpuClockUi);
