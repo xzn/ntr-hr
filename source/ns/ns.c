@@ -222,8 +222,8 @@ u32 rp_send_len[HR_WORK_BUFFER_COUNT];
 // int topFormat = 0, bottomFormat = 0;
 // int frameSkipA = 1, frameSkipB = 1;
 // u32 requireUpdateBottom = 0;
-u32 currentTopId = 0;
-u32 currentBottomId = 0;
+// u32 currentTopId = 0;
+// u32 currentBottomId = 0;
 
 static u32 tl_fbaddr[2];
 static u32 bl_fbaddr[2];
@@ -320,7 +320,10 @@ typedef struct _BLIT_CONTEXT {
 	int x, y;
 	u8* src;
 	int src_size;
-	int isKey, force_key;
+	// isKey - current frame is key
+	// force_key - request current frame to be key
+	// nextKey - next (half) frame is key
+	int isKey, force_key, nextKey;
 	int outformat, bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
@@ -336,8 +339,8 @@ typedef struct _BLIT_CONTEXT {
 
 	u8 id;
 	u8 isTop;
-	u8 frameCount;
-	u32 lastSize;
+	// u8 frameCount;
+	// u32 lastSize;
 
 	// int reset;
 	// int directCompress;
@@ -374,10 +377,20 @@ static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, 
 	}
 	// ctx->compressDst = 0;
 	// ctx->compressedSize;
-	ctx->frameCount = 0;
-	ctx->lastSize = 0;
+	// ctx->frameCount = 0;
+	// ctx->lastSize = 0;
 	ctx->isKey = !(rpConfig.flags & RP_USE_FRAME_DELTA) || ctx->force_key;
 	ctx->force_key = 0;
+
+	++ctx->id;
+	if (rpConfig.flags & RP_INTERLACED) {
+		if (ctx->isKey) {
+			ctx->nextKey = 1;
+		} else if (ctx->nextKey) {
+			ctx->isKey = 1;
+			ctx->nextKey = 0;
+		}
+	}
 }
 
 
@@ -736,6 +749,7 @@ static struct {
 #define RP_DATA_RLE ((u32)1 << 6)
 #define RP_DATA_LQ ((u32)1 << 7)
 #define RP_DATA_IL ((u32)1 << 8)
+#define RP_DATA_ILO ((u32)1 << 9)
 
 static struct RP_DATA_HEADER {
 	u32 flags;
@@ -1128,11 +1142,22 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	int isKey = ctx->isKey;
 	int isTop = ctx->isTop;
 	int screenFrameId = ctx->id % 2;
+	int even_odd = 0; // 0 - even, 1 odd
 
 	u32 px;
 	u16 tmp;
 	u8* blitBuffer = ctx->src;
 	u8* sp = ctx->src;
+
+	int interlaced = rpConfig.flags & RP_INTERLACED;
+
+	if (interlaced) {
+		height /= 2;
+		bpp *= 2;
+		rpConfig.flags &= ~RP_DYNAMIC_ENCODE;
+		even_odd = ctx->id % 2;
+		screenFrameId = (ctx->id / 2) % 2;
+	}
 
 	int ds_width = width / 2;
 	int ds_height = height / 2;
@@ -1164,7 +1189,18 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_ds_ds_v = dp_ds_ds_u + dp_ds_ds_u_size;
 	u32 dp_ds_ds_v_size = dp_ds_ds_u_size;
 
+	// interlaced odd
+	u8* dp_il_y = dp_ds_v + dp_ds_v_size; // dynamic downsampling not used
+	u32 dp_il_y_size = dp_y_size;
+	u8* dp_ds_il_u = dp_il_y + dp_il_y_size;
+	u32 dp_ds_il_u_size = dp_ds_u_size;
+	u8* dp_ds_il_v = dp_ds_il_u + dp_ds_il_u_size;
+	u32 dp_ds_il_v_size = dp_ds_v_size;
+
 	u8 *dp_save_end = dp_ds_ds_v + dp_ds_ds_v_size;
+	if (interlaced) {
+		dp_save_end = dp_ds_il_v + dp_ds_il_v_size;
+	}
 	u32 dp_save_size = dp_save_end - dp_begin;
 
 	// output when isKey and not downsample
@@ -1290,6 +1326,12 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
 	}
 
+	if (interlaced && even_odd) {
+		dp_y = dp_il_y;
+		dp_ds_u = dp_ds_il_u;
+		dp_ds_v = dp_ds_il_v;
+	}
+
 	if (isTop) { // apply topScreenOffset
 		dp_flags -= topScreenOffset;
 		dp_y -= topScreenOffset;
@@ -1334,16 +1376,22 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_v_in = dp_v;
 
 	// ctx->directCompress = 0;
-	if ((bpp == 3) || (bpp == 4)){
+	if ((!interlaced && ((bpp == 3) || (bpp == 4))) || (interlaced && ((bpp == 6) || (bpp == 8)))) {
 		/*
 		ctx->directCompress = 1;
 		return 0;
 		*/
 		for (x = 0; x < width; x++) {
 			for (y = 0; y < height; y++) {
-				r = sp[2];
-				g = sp[1];
-				b = sp[0];
+				if (even_odd) {
+					r = sp[5];
+					g = sp[4];
+					b = sp[3];
+				} else {
+					r = sp[2];
+					g = sp[1];
+					b = sp[0];
+				}
 				convertYUV(r, g, b, &r, &g, &b);
 				*dp_y_in++ = r;
 				*dp_u_in++ = g;
@@ -1352,12 +1400,14 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			}
 			sp += ctx->blankInColumn;
 		}
-	}
-	else {
+	} else {
 		svc_sleepThread(500000);
 		for (x = 0; x < width; x++) {
 			for (y = 0; y < height; y++) {
 				u16 pix = *(u16*)sp;
+				if (even_odd) {
+					pix = *((u16*)sp + 1);
+				}
 				r = ((pix >> 11) & 0x1f) << 3;
 				g = ((pix >> 5) & 0x3f) << 2;
 				b = (pix & 0x1f) << 3;
@@ -1434,6 +1484,18 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		RP_HEADER_RESET(RP_DATA_LQ);
 	}
 
+	if (interlaced) {
+		RP_HEADER_SET(RP_DATA_IL);
+		if (even_odd) {
+			RP_HEADER_SET(RP_DATA_ILO);
+		} else {
+			RP_HEADER_RESET(RP_DATA_ILO);
+		}
+	} else {
+		RP_HEADER_RESET(RP_DATA_IL);
+		RP_HEADER_RESET(RP_DATA_ILO);
+	}
+
 	if (isTop) {
 		RP_HEADER_SET(RP_DATA_TOP);
 	} else {
@@ -1448,6 +1510,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		RP_HEADER_RESET(RP_DATA_DS);
 
 		if ((ret = rpTestCompressAndSend(&cctx, 0)) < 0) {
+			if (interlaced) {
+				return -1;
+			}
 			// Y downsampled
 			flags |= RP_DOWNSAMPLE_Y;
 			downsampleImage1(y, width, height);
@@ -1467,6 +1532,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		RP_HEADER_RESET(RP_DATA_DS);
 
 		if ((ret = rpTestCompressAndSend(&cctx, 0)) < 0) {
+			if (interlaced) {
+				return -1;
+			}
 			// UV downsampled
 			flags |= RP_DOWNSAMPLE2_UV;
 			downsampleImage1(ds_u, ds_width, ds_height);
@@ -1571,6 +1639,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		RP_HEADER_RESET(RP_DATA_DS);
 
 		if ((ret = rpTestCompressAndSend(&cctx, 0)) < 0) {
+			if (interlaced) {
+				return -1;
+			}
 			// Y downsampled
 			flags |= RP_DOWNSAMPLE_Y;
 
@@ -1607,6 +1678,9 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		RP_HEADER_RESET(RP_DATA_DS);
 
 		if ((ret = rpTestCompressAndSend(&cctx, 0)) < 0) {
+			if (interlaced) {
+				return -1;
+			}
 			// UV downsampled
 			flags |= RP_DOWNSAMPLE2_UV;
 
@@ -1883,9 +1957,9 @@ void remotePlaySendFrames(void) {
 	rpConfig.qos = HR_MIN(HR_MAX(rpConfig.qos, 1024 * 512 * 3), 1024 * 512 * 36);
 	updateNetworkParams();
 
-	nsDbgPrint(
+	rpDbg(
 		"remote play config: priority top %d, priority factor %d, "
-		"target bitrate %d, quality factor %d/%d%s%s%s%s%s%s%s\n",
+		"target bitrate %d, quality factor %d/%d%s%s%s%s%s%s%s%s\n",
 		isPriorityTop, priorityFactor,
 		rpConfig.qos, rpQualityFN, rpQualityFD,
 		(rpConfig.flags & RP_USE_FRAME_DELTA) ? ", use frame delta" : "",
@@ -1894,7 +1968,8 @@ void remotePlaySendFrames(void) {
 		(rpConfig.flags & RP_DYNAMIC_ENCODE) ? ", use dynamic encode" : "",
 		(rpConfig.flags & RP_RLE_ENCODE) ? ", use rle encode" : "",
 		(rpConfig.flags & RP_YUV_LQ) ? ", low quality image" : "",
-		(rpConfig.flags & RP_DYNAMIC_PRIORITY) ? ", dynamic priority" : "");
+		(rpConfig.flags & RP_DYNAMIC_PRIORITY) ? ", dynamic priority" : "",
+		(rpConfig.flags & RP_INTERLACED) ? ", interlaced video" : "");
 
 	kcp_restart = 1;
 
@@ -1926,7 +2001,14 @@ void remotePlaySendFrames(void) {
 
 			if (previous_is_top == isPriorityTop) {
 				u64 tick_diff = HR_MIN(HR_MAX(tick_at_current - tick_at_frame[tick_at_frame_i], SYSTICK_PER_SEC / RP_TARGET_PSCREEN_FRAME_RATE), SYSTICK_PER_SEC);
+
+				tick_at_frame[tick_at_frame_i] = tick_at_current;
+				tick_at_frame_i = (tick_at_frame_i + 1) % FRAME_RATE_AVERAGE_COUNT;
+
 				u64 frame_rate = (u64)SYSTICK_PER_SEC * FRAME_RATE_AVERAGE_COUNT / tick_diff;
+				if (tick_at_frame_i == 0) {
+					// rpDbg("priority screen fps %d\n", (u32)frame_rate);
+				}
 
 				if (frame_rate < RP_TARGET_PSCREEN_FRAME_RATE) {
 					currentUpdating = previous_is_top;
@@ -1937,14 +2019,11 @@ void remotePlaySendFrames(void) {
 			} else {
 				previous_is_top = currentUpdating;
 				frames_since_screen_change = 1;
+				rpDbg("screen change %d %d %d\n", previous_is_top, (int)(1.0f / top_screen_time), (int)(1.0f / bot_screen_time));
 			}
 			if (frames_since_screen_change > priorityFactor) {
 				previous_is_top = currentUpdating = !currentUpdating;
 				frames_since_screen_change = 1;
-			}
-			if (currentUpdating == isPriorityTop) {
-				tick_at_frame[tick_at_frame_i] = tick_at_current;
-				tick_at_frame_i = (tick_at_frame_i + 1) % FRAME_RATE_AVERAGE_COUNT;
 			}
 			if (currentUpdating) {
 				bot_screen_time = HR_MAX(bot_screen_time - top_screen_time, 0);
@@ -1964,7 +2043,7 @@ void remotePlaySendFrames(void) {
 		if (currentUpdating) {
 			// send top
 			src_size = rpCaptureScreen(1);
-			currentTopId += 1;
+			// currentTopId += 1;
 			if (rp_control_top_force_key) {
 				rp_control_top_force_key = 0;
 				topContext.force_key = 1;
@@ -1975,18 +2054,19 @@ void remotePlaySendFrames(void) {
 			topContext.transformDst = rpImgBuffer + RP_TRANSFORM_DST_OFFSET;
 			// botContext.transformDst2 = 0;
 			// topContext.reset = 1;
-			topContext.id = (u8)currentTopId;
+			// topContext.id = (u8)currentTopId;
 			topContext.isTop = 1;
-			ret = remotePlayBlitCompressAndSend(&topContext) < 0;
+			ret = remotePlayBlitCompressAndSend(&topContext);
 			if (ret < 0) {
 				topContext.force_key = 1;
+			} else if (ret > 0) {
+				top_screen_time += 1.0f / ret;
 			}
-			top_screen_time += 1.0f / ret;
 		}
 		else {
 			// send bottom
 			src_size = rpCaptureScreen(0);
-			currentBottomId += 1;
+			// currentBottomId += 1;
 			if (rp_control_bot_force_key) {
 				rp_control_bot_force_key = 0;
 				botContext.force_key = 1;
@@ -1997,13 +2077,14 @@ void remotePlaySendFrames(void) {
 			botContext.transformDst = rpImgBuffer + RP_TRANSFORM_DST_OFFSET;
 			// botContext.transformDst2 = 0;
 			// botContext.reset = 1;
-			botContext.id = (u8)currentBottomId;
+			// botContext.id = (u8)currentBottomId;
 			botContext.isTop = 0;
-			ret = remotePlayBlitCompressAndSend(&botContext) < 0;
+			ret = remotePlayBlitCompressAndSend(&botContext);
 			if (ret < 0) {
 				botContext.force_key = 1;
+			} else if (ret > 0) {
+				bot_screen_time += 1.0f / ret;
 			}
-			bot_screen_time += 1.0f / ret;
 		}
 
 /*
