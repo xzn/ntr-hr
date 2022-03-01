@@ -246,6 +246,16 @@ u32 rp_send_bot_len[HR_WORK_BUFFER_COUNT];
 // u32 currentTopId = 0;
 // u32 currentBottomId = 0;
 
+#define RP_TARGET_FRAME_RATE 45
+// Prioritized screen target frame rate
+#define RP_TARGET_PSCREEN_FRAME_RATE 30
+
+#define FRAME_RATE_AVERAGE_COUNT 90
+static u64 *tick_at_frame;
+static int tick_at_frame_i;
+static int dynamic_priority;
+static u32 priorityFactor;
+
 static u32 tl_fbaddr[2];
 static u32 bl_fbaddr[2];
 static u32 tl_format, bl_format;
@@ -900,15 +910,65 @@ void rpSendDataThreadMain(void) {
 	ikcp_wndsize(rpKcp, KCP_SND_WND_SIZE, 0);
 	svc_releaseMutex(rpControlLock);
 
+	int currentUpdating = rp_isPriorityTop;
+	u32 frameCount = 0;
+	// dynamic priority
+	// copied from remotePlaySendFrames
+	float top_screen_time = 0;
+	float bot_screen_time = 0;
+	int previous_is_top = 0;
+	int frames_since_screen_change = 0;
+	int frame_rate = 0;
+
 	while (!rpNetworkThreadExit) {
 		Handle workDoneSem = rpWorkDoneSem, workAvaiSem = rpWorkAvaiSem;
 		u8 **send_src = rp_send_src;
 		u32 *send_len = rp_send_len;
 		u8 *frameId = &rpThreadFrameId;
 		if (rp_multicore_encode) {
-			static int isTop = 0;
-			isTop = !isTop;
-			if (!isTop) {
+			currentUpdating = rp_isPriorityTop;
+			frameCount += 1;
+
+			if (dynamic_priority) {
+				currentUpdating = top_screen_time <= bot_screen_time;
+
+				if (frame_rate < RP_TARGET_PSCREEN_FRAME_RATE * (priorityFactor + 1) / priorityFactor) {
+					currentUpdating = previous_is_top;
+				}
+				if (currentUpdating == previous_is_top) {
+					++frames_since_screen_change;
+				} else {
+					previous_is_top = currentUpdating;
+					frames_since_screen_change = 1;
+					// rpDbg("screen change %d %d %d\n", previous_is_top, (int)(1.0f / top_screen_time), (int)(1.0f / bot_screen_time));
+				}
+				if (frames_since_screen_change > priorityFactor) {
+					previous_is_top = currentUpdating = !currentUpdating;
+					frames_since_screen_change = 1;
+				}
+				if (currentUpdating) {
+					bot_screen_time = HR_MAX(bot_screen_time - top_screen_time, 0);
+					top_screen_time = 0;
+				} else {
+					top_screen_time = HR_MAX(top_screen_time - bot_screen_time, 0);
+					bot_screen_time = 0;
+				}
+
+				u64 tick_at_current = svc_getSystemTick();
+				u64 tick_diff = HR_MIN(HR_MAX(tick_at_current - tick_at_frame[tick_at_frame_i], SYSTICK_PER_SEC / RP_TARGET_PSCREEN_FRAME_RATE), SYSTICK_PER_SEC);
+				tick_at_frame[tick_at_frame_i] = tick_at_current;
+				tick_at_frame_i = (tick_at_frame_i + 1) % FRAME_RATE_AVERAGE_COUNT;
+				frame_rate = (u64)SYSTICK_PER_SEC * FRAME_RATE_AVERAGE_COUNT / tick_diff;
+				if (tick_at_frame_i == 0) {
+					// rpDbg("priority screen fps %d\n", (u32)frame_rate);
+				}
+			} else if (priorityFactor != 0) {
+				if (frameCount % (priorityFactor + 1) == 0) {
+					currentUpdating = !rp_isPriorityTop;
+				}
+			}
+
+			if (!currentUpdating) {
 				workDoneSem = rpBotWorkDoneSem;
 				workAvaiSem = rpBotWorkAvaiSem;
 				send_src = rp_send_bot_src;
@@ -939,10 +999,20 @@ void rpSendDataThreadMain(void) {
 		memcpy(&header, data, sizeof(header));
 		u8* data2 = data + header.len + sizeof(header);
 		// rpDbg("send %d %d %d %d\n", header.flags, header.len + sizeof(header), header.id, header.uncompressed_len);
+		ret = header.len;
 
 		if (header.flags & RP_DATA_SPFD) {
 			memcpy(&header2, data2, sizeof(header2));
 			// rpDbg("send2 %d %d %d %d\n", header2.flags, header2.len + sizeof(header2), header2.id, header2.uncompressed_len);
+			ret += header2.len;
+		}
+
+		if (rp_multicore_encode) {
+			if (currentUpdating) {
+				top_screen_time += 1.0f / ret;
+			} else {
+				bot_screen_time += 1.0f / ret;
+			}
 		}
 
 		u64 tickDiff, currentTick;
@@ -2044,9 +2114,6 @@ static int rpCaptureScreen(int isTop) {
 }
 
 #define KCP_BANDWIDTH_FACTOR 2
-#define RP_TARGET_FRAME_RATE 45
-// Prioritized screen target frame rate
-#define RP_TARGET_PSCREEN_FRAME_RATE 30
 u32 rpQualityFN;
 u32 rpQualityFD;
 void updateNetworkParams(void) {
@@ -2170,19 +2237,15 @@ static void remotePlayThread2Transfer(u32 arg) {
 #define RP_stackSize 0x10000
 #define RP_dataStackSize 0x1000
 
-#define FRAME_RATE_AVERAGE_COUNT 90
-static u64 *tick_at_frame;
-static int tick_at_frame_i;
 void remotePlaySendFrames(void) {
 	rp_isPriorityTop = 1;
-	u32 priorityFactor = 0;
 	u32 mode = (rpConfig.mode & 0xff00) >> 8;
 	u32 factor = (rpConfig.mode & 0xff);
 	if (mode == 0) {
 		rp_isPriorityTop = 0;
 	}
 	priorityFactor = HR_MAX(HR_MIN(factor, 15), 0);
-	int dynamic_priority = rpConfig.flags & RP_DYNAMIC_PRIORITY;
+	dynamic_priority = rpConfig.flags & RP_DYNAMIC_PRIORITY;
 	if (!priorityFactor) {
 		dynamic_priority = 0;
 	}
