@@ -2401,7 +2401,9 @@ void remotePlaySendFrames(void) {
 	if (rp_multicore_encode) {
 		rpEncodeThreadExit = 1;
 		svc_flushProcessDataCache(rpThread2, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
+		svc_flushProcessDataCache(rpThread2Transfer, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
 		svc_waitSynchronization1(rpThread2, U64_MAX);
+		svc_waitSynchronization1(rpThread2Transfer, U64_MAX);
 	}
 
 	// rpDbg("remotePlaySendFrames exit\n");
