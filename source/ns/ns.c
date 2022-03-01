@@ -48,11 +48,12 @@ void tje_log(char* str) {
 #define RP_MODE_BOT_ONLY 6
 #define RP_MODE_3D 10
 
-u8* rpAllocBuff = 0;
+u8* rpAllocBuff;
+u8* rpBotAllocBuff;
 // u32 rpAllocBuffOffset = 0;
 // u32 rpAllocBuffRemainSize = 0;
 RP_CONFIG rpConfig;
-int rpAllocDebug = 0;
+// int rpAllocDebug = 0;
 u64 rpMinIntervalBetweenPacketsInTick = 0;
 int rpControlSocket = -1;
 
@@ -204,23 +205,41 @@ RT_HOOK nwmValParamHook;
 #define NWM_HEADER_SIZE (0x2a + 8)
 #define RP_PACKET_SIZE (PACKET_SIZE + NWM_HEADER_SIZE)
 int remotePlayInited = 0;
+int rp_multicore_encode;
+u32 rp_isPriorityTop;
 u8 *rpSendBufs;
 u8* rpThreadStack;
+u8* rpThread2Stack;
+u8* rpThread2TransferStack;
 u8* rpDataThreadStack;
 u8* umm_malloc_heap_addr;
 u8* rpWorkBufferEnd;
 Handle rpWorkDoneSem;
 Handle rpWorkAvaiSem;
+Handle rpBotWorkDoneSem;
+Handle rpBotWorkAvaiSem;
 int rpNetworkThreadExit;
 int rpEncodeThreadExit;
 Handle rpControlLock;
+
+Handle rpThread;
+Handle rpThread2;
+Handle rpThread2Transfer;
+Handle rpThreadData;
+Handle rpTransfer2DoneSem;
+Handle rpTransfer2AvaiSem;
 // u8 rpDbgBuffer[2000] = { 0 };
 // u8* dbgBuf = rpDbgBuffer + 0x2a + 8;
 u8* rpImgBuffer;
+u8* rpBotImgBuffer;
 #define HR_WORK_BUFFER_COUNT 2
 u8* rp_work_dst[HR_WORK_BUFFER_COUNT];
 u8* rp_send_src[HR_WORK_BUFFER_COUNT];
 u32 rp_send_len[HR_WORK_BUFFER_COUNT];
+
+u8* rp_work_bot_dst[HR_WORK_BUFFER_COUNT];
+u8* rp_send_bot_src[HR_WORK_BUFFER_COUNT];
+u32 rp_send_bot_len[HR_WORK_BUFFER_COUNT];
 // int topFormat = 0, bottomFormat = 0;
 // int frameSkipA = 1, frameSkipB = 1;
 // u32 requireUpdateBottom = 0;
@@ -347,11 +366,12 @@ typedef struct _BLIT_CONTEXT {
 	// int reset;
 	// int directCompress;
 } BLIT_CONTEXT;
-#define RP_TRANSFORM_DST_OFFSET 0x001a0000
-#define RP_TRANSFORM_DST_MC0_OFFSET
-#define RP_TRANSFORM_DST_MC1_OFFSET
+#define RP_TRANSFORM_DST_OFFSET 0x00200000
+#define RP_BOT_SRC_OFFSET 0x00300000
+#define RP_TRANSFORM_DST_MC_TOP_OFFSET 0x00200000
+#define RP_TRANSFORM_DST_MC_BOT_OFFSET 0x00480000
 
-static inline void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src, int src_size) {
+static void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src, int src_size) {
 
 	format &= 0x0f;
 	if (format == 0){
@@ -472,7 +492,7 @@ void rpDbg(const char* fmt, ...) {
 	va_end(arp);
 }
 
-static inline void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
+static void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
 	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
 	u16 u = -43 * (u16)r + -84 * (u16)g + 127 * (u16)b;
 	u16 v = 127 * (u16)r + -106 * (u16)g + -21 * (u16)b;
@@ -488,15 +508,15 @@ static inline void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out)
 	}
 }
 
-static inline u8 accessImageNoCheck(const u8 *image, int x, int y, int w, int h) {
+static u8 accessImageNoCheck(const u8 *image, int x, int y, int w, int h) {
 	return image[x * h + y];
 }
 
-static inline u8 accessImage(const u8 *image, int x, int y, int w, int h) {
+static u8 accessImage(const u8 *image, int x, int y, int w, int h) {
 	return accessImageNoCheck(image, HR_MAX(HR_MIN(x, w - 1), 0), HR_MAX(HR_MIN(y, h - 1), 0), w, h);
 }
 
-static inline u8 medianOf3_u8(u8 a, u8 b, u8 c) {
+static u8 medianOf3_u8(u8 a, u8 b, u8 c) {
 	u8 max = a > b ? a : b;
 	max = max > c ? max : c;
 
@@ -506,7 +526,7 @@ static inline u8 medianOf3_u8(u8 a, u8 b, u8 c) {
 	return a + b + c - max - min;
 }
 
-static inline u8 predictPixel(const u8 *image, int x, int y, int w, int h) {
+static u8 predictPixel(const u8 *image, int x, int y, int w, int h) {
 	if (x == 0 && y == 0) {
 		return 0;
 	}
@@ -526,7 +546,7 @@ static inline u8 predictPixel(const u8 *image, int x, int y, int w, int h) {
 	return medianOf3_u8(t, l, t + l - tl);
 }
 
-static inline void predictImage(u8 *dst, const u8 *src, int w, int h) {
+static void predictImage(u8 *dst, const u8 *src, int w, int h) {
 	const u8* src_begin = src;
 	for (int i = 0; i < w; ++i) {
 		for (int j = 0; j < h; ++j) {
@@ -536,7 +556,7 @@ static inline void predictImage(u8 *dst, const u8 *src, int w, int h) {
 }
 
 // x and y are % 2 == 0
-static inline u16 accessImageDownsampleUnscaled(const u8 *image, int x, int y, int w, int h) {
+static u16 accessImageDownsampleUnscaled(const u8 *image, int x, int y, int w, int h) {
 	int x0 = x; // / 2 * 2;
 	int x1 = x0 + 1;
 	int y0 = y; // / 2 * 2;
@@ -554,11 +574,11 @@ static inline u16 accessImageDownsampleUnscaled(const u8 *image, int x, int y, i
 }
 
 // x and y are % 2 == 0, see accessImageDownsampleUnscaled
-static inline u8 accessImageDownsample(const u8 *image, int x, int y, int w, int h) {
+static u8 accessImageDownsample(const u8 *image, int x, int y, int w, int h) {
 	return (accessImageDownsampleUnscaled(image, x, y, w, h) + 2) / 4;
 }
 
-static inline void downsampleImage(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
+static void downsampleImage(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
 	int i = 0, j = 0;
 	for (; i < wOrig; i += 2) {
 		j = 0;
@@ -568,7 +588,7 @@ static inline void downsampleImage(u8 *ds_dst, const u8 *src, int wOrig, int hOr
 	}
 }
 
-static inline u16 accessImageUpsampleUnscaled(const u8 *ds_image, int xOrig, int yOrig, int wOrig, int hOrig) {
+static u16 accessImageUpsampleUnscaled(const u8 *ds_image, int xOrig, int yOrig, int wOrig, int hOrig) {
 	int ds_w = wOrig / 2;
 	int ds_h = hOrig / 2;
 
@@ -611,11 +631,11 @@ static inline u16 accessImageUpsampleUnscaled(const u8 *ds_image, int xOrig, int
 	return a;
 }
 
-static inline u16 accessImageUpsample(const u8 *ds_image, int xOrig, int yOrig, int wOrig, int hOrig) {
+static u16 accessImageUpsample(const u8 *ds_image, int xOrig, int yOrig, int wOrig, int hOrig) {
 	return (accessImageUpsampleUnscaled(ds_image, xOrig, yOrig, wOrig, hOrig) + 8) / 16;
 }
 
-static inline void upsampleImage(u8 *dst, const u8 *ds_src, int w, int h) {
+static void upsampleImage(u8 *dst, const u8 *ds_src, int w, int h) {
 	int i = 0, j = 0;
 	for (; i < w; ++i) {
 		j = 0;
@@ -625,14 +645,14 @@ static inline void upsampleImage(u8 *dst, const u8 *ds_src, int w, int h) {
 	}
 }
 
-static inline void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, int w, int h) {
+static void differenceImage(u8 *dst, const u8 *src, const u8 *src_prev, int w, int h) {
 	u8 *dst_end = dst + w * h;
 	while (dst != dst_end) {
 		*dst++ = *src++ - *src_prev++;
 	}
 }
 
-static inline void differenceFromDownsampled(u8 *dst, const u8 *src, const u8 *ds_src_prev, int w, int h) {
+static void differenceFromDownsampled(u8 *dst, const u8 *src, const u8 *ds_src_prev, int w, int h) {
 	int i = 0, j = 0;
 	for (; i < w; ++i) {
 		j = 0;
@@ -642,7 +662,7 @@ static inline void differenceFromDownsampled(u8 *dst, const u8 *src, const u8 *d
 	}
 }
 
-static inline void downsampledDifference(u8 *ds_pf, u8 *fd_ds_dst, const u8 *src, const u8 *src_prev, int w, int h) {
+static void downsampledDifference(u8 *ds_pf, u8 *fd_ds_dst, const u8 *src, const u8 *src_prev, int w, int h) {
 	int i = 0, j = 0;
 	for (; i < w; i += 2) {
 		j = 0;
@@ -652,7 +672,7 @@ static inline void downsampledDifference(u8 *ds_pf, u8 *fd_ds_dst, const u8 *src
 	}
 }
 
-static inline void downsampledDifferenceFromDownsampled(u8 *ds_pf, u8 *fd_ds_dst, const u8 *src, const u8 *ds_src_prev, int w, int h) {
+static void downsampledDifferenceFromDownsampled(u8 *ds_pf, u8 *fd_ds_dst, const u8 *src, const u8 *ds_src_prev, int w, int h) {
 	int i = 0, j = 0;
 	for (; i < w; i += 2) {
 		j = 0;
@@ -669,11 +689,11 @@ static inline void downsampledDifferenceFromDownsampled(u8 *ds_pf, u8 *fd_ds_dst
 	(h + (ENCODE_SELECT_MASK_Y_SCALE * BITS_PER_BYTE) - 1) / (ENCODE_SELECT_MASK_Y_SCALE * BITS_PER_BYTE) * \
 	(w + ENCODE_SELECT_MASK_X_SCALE - 1) / ENCODE_SELECT_MASK_X_SCALE
 
-static inline u8 abs_s8(s8 s) {
+static u8 abs_s8(s8 s) {
 	return s > 0 ? s : -s;
 }
 
-static inline void selectImage(u8 *s_dst, u8 *m_dst, u8 *m_dst_end, u8 *p_fd, const u8 *p, int w, int h) {
+static void selectImage(u8 *s_dst, u8 *m_dst, u8 *m_dst_end, u8 *p_fd, const u8 *p, int w, int h) {
 	u16 sum_p_fd, sum_p;
 	u8 mask_bit, mask = 0;
 	int x = 0, y, i, j, n;
@@ -755,12 +775,12 @@ static struct {
 #define RP_DATA_IL ((u32)1 << 8)
 #define RP_DATA_ILO ((u32)1 << 9)
 
-static struct RP_DATA_HEADER {
+struct RP_DATA_HEADER {
 	u32 flags;
 	u32 len;
 	u32 id;
 	u32 uncompressed_len;
-} rpDataHeader;
+};
 
 #define RP_DATA2_HUFFMAN ((u32)1 << 0)
 #define RP_DATA2_RLE ((u32)1 << 1)
@@ -772,10 +792,17 @@ struct RP_DATA2_HEADER {
 };
 
 u8 rpFrameId;
-static inline void rpSendData(u8* data, u32 size) {
-	rp_send_src[rpFrameId] = data;
-	rp_send_len[rpFrameId] = size;
-	rpFrameId = (rpFrameId + 1) % HR_WORK_BUFFER_COUNT;
+u8 rpBotFrameId;
+static void rpSendData(int isTop, u8* data, u32 size) {
+	if (rp_multicore_encode && !isTop) {
+		rp_send_bot_src[rpBotFrameId] = data;
+		rp_send_bot_len[rpBotFrameId] = size;
+		rpBotFrameId = (rpBotFrameId + 1) % HR_WORK_BUFFER_COUNT;
+	} else {
+		rp_send_src[rpFrameId] = data;
+		rp_send_len[rpFrameId] = size;
+		rpFrameId = (rpFrameId + 1) % HR_WORK_BUFFER_COUNT;
+	}
 }
 
 u8 rpControlPacketId;
@@ -790,10 +817,12 @@ void rpControlRecvHandle(u8* buf, int buf_size) {
 	if (*buf & RP_CONTROL_TOP_KEY) {
 		// rpDbg("force top key frame requested\n");
 		rp_control_top_force_key = 1;
+		svc_flushProcessDataCache(rpThread2, &rp_control_top_force_key, sizeof(rp_control_top_force_key));
 	}
 	if (*buf & RP_CONTROL_BOT_KEY) {
 		// rpDbg("force bot key frame requested\n");
 		rp_control_bot_force_key = 1;
+		svc_flushProcessDataCache(rpThread2, &rp_control_bot_force_key, sizeof(rp_control_bot_force_key));
 	}
 }
 
@@ -813,13 +842,13 @@ int rp_udp_output(const char *buf, int len, ikcpcb *kcp, void *user) {
 	return len;
 }
 
-static inline IINT64 iclock64(void)
+static IINT64 iclock64(void)
 {
   u64 value = svc_getSystemTick();
   return value / SYSTICK_PER_MS;
 }
 
-static inline IUINT32 iclock()
+static IUINT32 iclock()
 {
   return (IUINT32)(iclock64() & 0xfffffffful);
 }
@@ -832,8 +861,11 @@ struct RP_PACKET_HEADER {
 static u32 rpPacketId;
 static u32 rpFrameHeaderId;
 static u32 rpFrameHeader2Id;
+static u32 rpBotFrameHeaderId;
+static u32 rpBotFrameHeader2Id;
 
 u8 rpThreadFrameId;
+u8 rpThreadBotFrameId;
 ikcpcb *rpKcp;
 extern const IUINT32 IKCP_OVERHEAD;
 #define HR_KCP_MAGIC 0x12345fff
@@ -857,6 +889,8 @@ void rpSendDataThreadMain(void) {
 	rpPacketId = 0;
 	rpFrameHeaderId = 0;
 	rpFrameHeader2Id = 0;
+	rpBotFrameHeaderId = 0;
+	rpBotFrameHeader2Id = 0;
 	rpKcp->output = rp_udp_output;
 	if ((ret = ikcp_setmtu(rpKcp, PACKET_SIZE)) < 0) {
 		nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
@@ -867,20 +901,38 @@ void rpSendDataThreadMain(void) {
 	svc_releaseMutex(rpControlLock);
 
 	while (!rpNetworkThreadExit) {
-		ret = svc_waitSynchronization1(rpWorkDoneSem, 0);
-		if (ret != 0) {
-			svc_sleepThread(KCP_SOCKET_TIMEOUT * 1000000);
-			svc_waitSynchronization1(rpControlLock, U64_MAX);
-			ikcp_update(rpKcp, iclock());
-			svc_releaseMutex(rpControlLock);
-			continue;
+		Handle workDoneSem = rpWorkDoneSem, workAvaiSem = rpWorkAvaiSem;
+		u8 **send_src = rp_send_src;
+		u32 *send_len = rp_send_len;
+		u8 *frameId = &rpThreadFrameId;
+		if (rp_multicore_encode) {
+			static int isTop = 0;
+			isTop = !isTop;
+			if (!isTop) {
+				workDoneSem = rpBotWorkDoneSem;
+				workAvaiSem = rpBotWorkAvaiSem;
+				send_src = rp_send_bot_src;
+				send_len = rp_send_bot_len;
+				frameId = &rpThreadBotFrameId;
+			}
+		}
+
+		while (1) {
+			ret = svc_waitSynchronization1(workDoneSem, KCP_SOCKET_TIMEOUT * 1000000);
+			if (ret != 0) {
+				svc_waitSynchronization1(rpControlLock, U64_MAX);
+				ikcp_update(rpKcp, iclock());
+				svc_releaseMutex(rpControlLock);
+				continue;
+			}
+			break;
 		}
 
 		u8* data;
 		u32 size;
-		data = rp_send_src[rpThreadFrameId];
-		size = rp_send_len[rpThreadFrameId];
-		rpThreadFrameId = (rpThreadFrameId + 1) % HR_WORK_BUFFER_COUNT;
+		data = send_src[*frameId];
+		size = send_len[*frameId];
+		*frameId = (*frameId + 1) % HR_WORK_BUFFER_COUNT;
 
 		struct RP_DATA_HEADER header = { 0 };
 		struct RP_DATA2_HEADER header2 = { 0 };
@@ -953,13 +1005,21 @@ void rpSendDataThreadMain(void) {
 		}
 
 		s32 count;
-		svc_releaseSemaphore(&count, rpWorkAvaiSem, 1);
+		svc_releaseSemaphore(&count, workAvaiSem, 1);
 
 		if (kcp_restart || rpNetworkThreadExit) {
 			while (svc_waitSynchronization1(rpWorkDoneSem, 0) == 0) {
 				rpThreadFrameId = (rpThreadFrameId + 1) % HR_WORK_BUFFER_COUNT;
 				svc_releaseSemaphore(&count, rpWorkAvaiSem, 1);
 			}
+
+			if (rp_multicore_encode) {
+				while (svc_waitSynchronization1(rpBotWorkDoneSem, 0) == 0) {
+					rpThreadBotFrameId = (rpThreadBotFrameId + 1) % HR_WORK_BUFFER_COUNT;
+					svc_releaseSemaphore(&count, rpBotWorkAvaiSem, 1);
+				}
+			}
+
 			kcp_restart = 0;
 			break;
 		}
@@ -982,33 +1042,57 @@ void rpSendDataThreadMain(void) {
 	}
 }
 
-void rpSendDataThread(void) {
-	while (1) {
+void rpSendDataThread(u32 arg) {
+	while (!rpNetworkThreadExit) {
 		rpSendDataThreadMain();
-		if (rpNetworkThreadExit) {
-			break;
-		}
 	}
 
+	// rpDbg("rpSendDataThread exit\n");
 	svc_exitThread();
 }
 
 #define RP_DATA2_MAX_SIZE_1 (ENCODE_SELECT_MASK_SIZE(400, 240) + 256)
-const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(rpDataHeader) + // for 400 * 240 of data
+const int huffman_rle_dst_offset = 96000 + 256 + rle_max_compressed_size(96000 + 256) + sizeof(struct RP_DATA_HEADER) + // for 400 * 240 of data
 	RP_DATA2_MAX_SIZE_1 + rle_max_compressed_size(RP_DATA2_MAX_SIZE_1) + sizeof(struct RP_DATA2_HEADER) +
-	72000; // extra room to be safe
-static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
+	96000; // extra room to be safe
+
+#define RP_BOT_DATA2_MAX_SIZE_1 (ENCODE_SELECT_MASK_SIZE(320, 240) + 256)
+const int huffman_rle_bot_dst_offset = 76800 + 256 + rle_max_compressed_size(76800 + 256) + sizeof(struct RP_DATA_HEADER) + // for 400 * 240 of data
+	RP_BOT_DATA2_MAX_SIZE_1 + rle_max_compressed_size(RP_BOT_DATA2_MAX_SIZE_1) + sizeof(struct RP_DATA2_HEADER) +
+	76800;
+
+static int rpTestCompressAndSend(int isTop, struct RP_DATA_HEADER data_header, COMPRESS_CONTEXT* cctx, int skipTest) {
 	skipTest = skipTest || !(rpConfig.flags & RP_DYNAMIC_ENCODE);
 
-	svc_waitSynchronization1(rpWorkAvaiSem, U64_MAX);
-	u8* dst = rp_work_dst[rpFrameId];
-	u8* huffman_dst = dst + sizeof(rpDataHeader);
-	uint32_t* counts = huffman_len_table(huffman_dst, cctx->data, cctx->data_size);
+	Handle workAvaiSem, workDoneSem;
+	u8 *alloc;
+	if (rp_multicore_encode && !isTop) {
+		workAvaiSem = rpBotWorkAvaiSem;
+		workDoneSem = rpBotWorkDoneSem;
+		alloc = rpBotAllocBuff;
+	} else {
+		workAvaiSem = rpWorkAvaiSem;
+		workDoneSem = rpWorkDoneSem;
+		alloc = rpAllocBuff;
+	}
+
+	svc_waitSynchronization1(workAvaiSem, U64_MAX);
+	u8* dst;
+	u32 dst_offset;
+	if (rp_multicore_encode && !isTop) {
+		dst = rp_work_bot_dst[rpBotFrameId];
+		dst_offset = huffman_rle_bot_dst_offset;
+	} else {
+		dst = rp_work_dst[rpFrameId];
+		dst_offset = huffman_rle_dst_offset;
+	}
+	u8* huffman_dst = dst + sizeof(struct RP_DATA_HEADER);
+	uint32_t* counts = huffman_len_table(alloc, huffman_dst, cctx->data, cctx->data_size);
 	int huffman_size = huffman_compressed_size(counts, huffman_dst) + 256;
 	if (!skipTest && huffman_size > cctx->max_compressed_size) {
 		rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
 		s32 count;
-		svc_releaseSemaphore(&count, rpWorkAvaiSem, 1);
+		svc_releaseSemaphore(&count, workAvaiSem, 1);
 		return -1;
 	}
 	int dst_size = huffman_size;
@@ -1018,19 +1102,19 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 	if (cctx->data2 && cctx->data2_size) {
 		dst_size += cctx->data2_size + 256 + rle_max_compressed_size(cctx->data2_size + 256);
 	}
-	if (dst_size > huffman_rle_dst_offset) {
+	if (dst_size > dst_offset) {
 		nsDbgPrint("Not enough memory for compression: need %d (%d available): "
 			"huffman %d rle %d data2 %d\n",
-			 dst_size, huffman_rle_dst_offset,
+			 dst_size, dst_offset,
 			 huffman_size,
 			 rle_max_compressed_size(huffman_size),
 			 cctx->data2_size + 256 + rle_max_compressed_size(cctx->data2_size + 256)
 		);
 		s32 count;
-		svc_releaseSemaphore(&count, rpWorkAvaiSem, 1);
+		svc_releaseSemaphore(&count, workAvaiSem, 1);
 		return -1;
 	}
-	huffman_size = huffman_encode_with_len_table(counts, huffman_dst, cctx->data, cctx->data_size);
+	huffman_size = huffman_encode_with_len_table(alloc, counts, huffman_dst, cctx->data, cctx->data_size);
 	u8* rle_dst = huffman_dst + huffman_size;
 	int rle_size = INT_MAX;
 	if (rpConfig.flags & RP_RLE_ENCODE) {
@@ -1042,22 +1126,25 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 
 	u8 *dh_dst, *dh_dst_end;
 	if (rle_size < huffman_size) {
-		rpDataHeader.flags |= RP_DATA_RLE;
-		rpDataHeader.len = rle_size;
-		dh_dst = rle_dst - sizeof(rpDataHeader);
+		data_header.flags |= RP_DATA_RLE;
+		data_header.len = rle_size;
+		dh_dst = rle_dst - sizeof(data_header);
 	} else {
-		rpDataHeader.flags &= ~RP_DATA_RLE;
-		rpDataHeader.len = huffman_size;
-		dh_dst = huffman_dst - sizeof(rpDataHeader);
+		data_header.flags &= ~RP_DATA_RLE;
+		data_header.len = huffman_size;
+		dh_dst = huffman_dst - sizeof(data_header);
 	}
-	dh_dst_end = dh_dst + sizeof(rpDataHeader) + rpDataHeader.len;
+	dh_dst_end = dh_dst + sizeof(data_header) + data_header.len;
 	if (cctx->data2 && cctx->data2_size) {
 		struct RP_DATA2_HEADER data2_header = {0};
-		data2_header.id = ++rpFrameHeader2Id;
+		if (rp_multicore_encode && !isTop)
+			data2_header.id = ++rpBotFrameHeader2Id;
+		else
+			data2_header.id = ++rpFrameHeader2Id;
 		data2_header.uncompressed_len = cctx->data2_size;
 		u8* dst2 = dh_dst_end + sizeof(data2_header);
 		huffman_dst = dst2;
-		huffman_size = huffman_encode(huffman_dst, cctx->data2, cctx->data2_size);
+		huffman_size = huffman_encode(alloc, huffman_dst, cctx->data2, cctx->data2_size);
 		if (huffman_size < cctx->data2_size) {
 			rle_dst = huffman_dst + huffman_size;
 			rle_size = rle_encode(rle_dst, huffman_dst, huffman_size);
@@ -1083,21 +1170,24 @@ static inline int rpTestCompressAndSend(COMPRESS_CONTEXT* cctx, int skipTest) {
 		memcpy(dh_dst_end, &data2_header, sizeof(data2_header));
 		dh_dst_end += data2_header.len + sizeof(data2_header);
 	}
-	// rpDbg("frame send %d %d\n", rpDataHeader.flags, rpDataHeader.len  + sizeof(rpDataHeader));
-	rpDataHeader.id = ++rpFrameHeaderId;
-	rpDataHeader.uncompressed_len = cctx->data_size;
-	memcpy(dh_dst, &rpDataHeader, sizeof(rpDataHeader));
+	// rpDbg("frame send %d %d\n", data_header.flags, data_header.len  + sizeof(data_header));
+	if (rp_multicore_encode && !isTop)
+		data_header.id = ++rpBotFrameHeaderId;
+	else
+		data_header.id = ++rpFrameHeaderId;
+	data_header.uncompressed_len = cctx->data_size;
+	memcpy(dh_dst, &data_header, sizeof(data_header));
 	dst_size = dh_dst_end - dh_dst;
-	rpSendData(dh_dst, dst_size);
+	rpSendData(isTop, dh_dst, dst_size);
 	s32 count;
-	svc_releaseSemaphore(&count, rpWorkDoneSem, 1);
+	svc_releaseSemaphore(&count, workDoneSem, 1);
 	return dst_size;
 }
 
 #define RP_CONTROL_RECV_BUF_SIZE 2000
 u8 *rpControlRecvBuf;
 int rpControlRecvBuf_ready;
-static inline void rpControlRecv(void) {
+static void rpControlRecv(void) {
 	// if (!rpControlRecvBuf_ready) {
 	// 	svc_sleepThread(1000000000);
 	// 	return;
@@ -1128,7 +1218,7 @@ static inline void rpControlRecv(void) {
 	svc_releaseMutex(rpControlLock);
 }
 
-static inline void rpControlPollAndRecv(void) {
+static void rpControlPollAndRecv(void) {
 	struct pollfd pollinfo;
 	pollinfo.fd = rpControlSocket;
 	pollinfo.events = POLLIN;
@@ -1143,7 +1233,7 @@ static inline void rpControlPollAndRecv(void) {
 	}
 }
 
-static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
+static int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	// rpControlPollAndRecv();
 
 	int blockSize = 16;
@@ -1306,6 +1396,12 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 
 	int frameOffset = dp_save_size * (400 + 320) / width; // offset for both screens
 	int topScreenOffset = dp_save_size * 400 / width; // offset from top
+
+	if (rp_multicore_encode) {
+		topScreenOffset = 0;
+		frameOffset = dp_save_size;
+	}
+
 	frameOffset += FLAGS_OFFSET * 2; // add offset for dp_flags, twice for both screens;
 	topScreenOffset += FLAGS_OFFSET; // add offset for dp_flags;
 
@@ -1320,22 +1416,50 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_pf = dp_flags - frameOffset * 2;
 
 	u8* dp_compression[HR_WORK_BUFFER_COUNT];
-	dp_compression[0] = dp_pf - huffman_rle_dst_offset;
+	u32 dst_offset = huffman_rle_dst_offset;
+	if (rp_multicore_encode && !isTop) {
+		dst_offset = huffman_rle_bot_dst_offset;
+	}
+	dp_compression[0] = dp_pf - dst_offset;
 	for (int i = 1; i < HR_WORK_BUFFER_COUNT; ++i) {
-		dp_compression[i] = dp_compression[i - 1] - huffman_rle_dst_offset;
+		dp_compression[i] = dp_compression[i - 1] - dst_offset;
 	}
 	if (dp_compression[HR_WORK_BUFFER_COUNT - 1] < ctx->src + ctx->src_size) {
 		nsDbgPrint("Not enough memory: need additional %d\n", ctx->src + ctx->src_size - dp_compression[HR_WORK_BUFFER_COUNT - 1]);
 		return -1;
 	}
 
-	if (rp_work_dst[0] == 0) {
+	u8 **work_dst = rp_work_dst;
+	if (rp_multicore_encode && !isTop) {
+		work_dst = rp_work_bot_dst;
+	}
+	if (work_dst[0] == 0) {
 		for (int i = 0; i < HR_WORK_BUFFER_COUNT; ++i) {
-			rp_work_dst[i] = dp_compression[i];
+			work_dst[i] = dp_compression[i];
 		}
-		nsDbgPrint("Memory available %d\n", rp_work_dst[HR_WORK_BUFFER_COUNT - 1] - (ctx->src + ctx->src_size));
-
-		nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
+		if (rp_multicore_encode) {
+			if (isTop) {
+				svc_flushProcessDataCache(rpThread2, &rp_work_dst, sizeof(rp_work_dst));
+			} else {
+				svc_flushProcessDataCache(rpThread, &rp_work_bot_dst, sizeof(rp_work_bot_dst));
+			}
+		}
+		if (rp_multicore_encode) {
+			if (isTop) {
+				nsDbgPrint("Memory available %d\n", work_dst[HR_WORK_BUFFER_COUNT - 1] - (ctx->src + ctx->src_size));
+				if (rpBotImgBuffer < dp_end) {
+					nsDbgPrint("Not enough room from top to bot: need additional %d\n", dp_end - rpBotImgBuffer);
+					return -1;
+				}
+				nsDbgPrint("Room from top to bot %d\n", rpBotImgBuffer - dp_end);
+			} else {
+				nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
+				nsDbgPrint("Room from bot to top %d\n", work_dst[HR_WORK_BUFFER_COUNT - 1] - (ctx->src + ctx->src_size));
+			}
+		} else {
+			nsDbgPrint("Memory available %d\n", work_dst[HR_WORK_BUFFER_COUNT - 1] - (ctx->src + ctx->src_size));
+			nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
+		}
 	}
 
 	if (interlaced && even_odd) {
@@ -1446,6 +1570,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	u8* dp_v_out;
 	u32 dp_v_out_size;
 
+	struct RP_DATA_HEADER data_header;
 	COMPRESS_CONTEXT cctx = { 0 };
 	int ret = 0;
 	int rets = 0;
@@ -1459,11 +1584,11 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 } while (0)
 
 #define RP_HEADER_SET(f) do { \
-	rpDataHeader.flags |= f; \
+	data_header.flags |= f; \
 } while (0)
 
 #define RP_HEADER_RESET(f) do { \
-	rpDataHeader.flags &= ~f; \
+	data_header.flags &= ~f; \
 } while (0)
 
 #define cctx_data_y do { \
@@ -1521,7 +1646,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		cctx_data_y;
 		RP_HEADER_RESET(RP_DATA_DS);
 
-		if ((ret = rpTestCompressAndSend(&cctx, 0)) < 0) {
+		if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 0)) < 0) {
 			if (interlaced) {
 				return -1;
 			}
@@ -1531,7 +1656,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			predictImage1out(y, ds_y, ds_width, ds_height);
 			cctx_data_y;
 			RP_HEADER_SET(RP_DATA_DS);
-			if ((ret = rpTestCompressAndSend(&cctx, 1)) < 0) {
+			if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 1)) < 0) {
 				return -1;
 			}
 		}
@@ -1543,7 +1668,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		cctx_data_uv;
 		RP_HEADER_RESET(RP_DATA_DS);
 
-		if ((ret = rpTestCompressAndSend(&cctx, 0)) < 0) {
+		if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 0)) < 0) {
 			if (interlaced) {
 				return -1;
 			}
@@ -1555,7 +1680,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			predictImage1out(v, ds_ds_v, ds_ds_width, ds_ds_height);
 			cctx_data_uv;
 			RP_HEADER_SET(RP_DATA_DS);
-			if ((ret = rpTestCompressAndSend(&cctx, 1)) < 0) {
+			if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 1)) < 0) {
 				return -1;
 			}
 		}
@@ -1650,7 +1775,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		cctx_data2_y(y);
 		RP_HEADER_RESET(RP_DATA_DS);
 
-		if ((ret = rpTestCompressAndSend(&cctx, 0)) < 0) {
+		if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 0)) < 0) {
 			if (interlaced) {
 				return -1;
 			}
@@ -1667,7 +1792,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			cctx_data2_y(ds_y);
 			RP_HEADER_SET(RP_DATA_DS);
 
-			if ((ret = rpTestCompressAndSend(&cctx, 1)) < 0) {
+			if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 1)) < 0) {
 				return -1;
 			}
 		}
@@ -1689,7 +1814,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 		cctx_data2_uv(ds_u, ds_v);
 		RP_HEADER_RESET(RP_DATA_DS);
 
-		if ((ret = rpTestCompressAndSend(&cctx, 0)) < 0) {
+		if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 0)) < 0) {
 			if (interlaced) {
 				return -1;
 			}
@@ -1711,7 +1836,7 @@ static inline int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 			cctx_data2_uv(ds_ds_u, ds_ds_v);
 			RP_HEADER_SET(RP_DATA_DS);
 
-			if ((ret = rpTestCompressAndSend(&cctx, 1)) < 0) {
+			if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 1)) < 0) {
 				return -1;
 			}
 		}
@@ -1779,31 +1904,30 @@ int remotePlayBlit(BLIT_CONTEXT* ctx) {
 #endif
 
 
-void remotePlayKernelCallback(void) {
-
-
-
+void remotePlayKernelCallback(int isTop) {
 	u32 ret;
 	u32 fbP2VOffset = 0xc0000000;
 	u32 current_fb;
 
-	tl_fbaddr[0] = REG(IoBasePdc + 0x468);
-	tl_fbaddr[1] = REG(IoBasePdc + 0x46c);
-	bl_fbaddr[0] = REG(IoBasePdc + 0x568);
-	bl_fbaddr[1] = REG(IoBasePdc + 0x56c);
-	tl_format = REG(IoBasePdc + 0x470);
-	bl_format = REG(IoBasePdc + 0x570);
-	tl_pitch = REG(IoBasePdc + 0x490);
-	bl_pitch = REG(IoBasePdc + 0x590);
+	if (isTop) {
+		tl_fbaddr[0] = REG(IoBasePdc + 0x468);
+		tl_fbaddr[1] = REG(IoBasePdc + 0x46c);
+		tl_format = REG(IoBasePdc + 0x470);
+		tl_pitch = REG(IoBasePdc + 0x490);
 
+		current_fb = REG(IoBasePdc + 0x478);
+		current_fb &= 1;
+		tl_current = tl_fbaddr[current_fb];
+	} else {
+		bl_fbaddr[0] = REG(IoBasePdc + 0x568);
+		bl_fbaddr[1] = REG(IoBasePdc + 0x56c);
+		bl_format = REG(IoBasePdc + 0x570);
+		bl_pitch = REG(IoBasePdc + 0x590);
 
-	current_fb = REG(IoBasePdc + 0x478);
-	current_fb &= 1;
-	tl_current = tl_fbaddr[current_fb];
-
-	current_fb = REG(IoBasePdc + 0x578);
-	current_fb &= 1;
-	bl_current = bl_fbaddr[current_fb];
+		current_fb = REG(IoBasePdc + 0x578);
+		current_fb &= 1;
+		bl_current = bl_fbaddr[current_fb];
+	}
 
 	/*
 	memcpy(imgBuffer, (void*)tl_current, tl_pitch * 400);
@@ -1866,7 +1990,7 @@ Handle rpGetGameHandle(void) {
 	return rpHandleGame;
 }
 
-static inline int isInVRAM(u32 phys) {
+static int isInVRAM(u32 phys) {
 	if (phys >= 0x18000000) {
 		if (phys < 0x18000000 + 0x00600000) {
 			return 1;
@@ -1875,7 +1999,7 @@ static inline int isInVRAM(u32 phys) {
 	return 0;
 }
 
-static inline int isInFCRAM(u32 phys) {
+static int isInFCRAM(u32 phys) {
 	if (phys >= 0x20000000) {
 		if (phys < 0x20000000 + 0x10000000) {
 			return 1;
@@ -1884,12 +2008,15 @@ static inline int isInFCRAM(u32 phys) {
 	return 0;
 }
 
-static inline int rpCaptureScreen(int isTop) {
+static int rpCaptureScreen(int isTop) {
 
 	u8 dmaConfig[80] = { 0, 0, 4 };
 	u32 bufSize = isTop? (tl_pitch * 400) : (bl_pitch * 320);
 	u32 phys = isTop ? tl_current : bl_current;
 	u32 dest = rpImgBuffer;
+	if (rp_multicore_encode && !isTop) {
+		dest = rpBotImgBuffer;
+	}
 	Handle hProcess = rpHandleHome;
 
 	int ret;
@@ -1950,16 +2077,109 @@ void updateNetworkParams(void) {
 		RP_TARGET_FRAME_RATE, rpNetworkParams.bitsPerFrame, rpNetworkParams.bitsPerY, rpNetworkParams.bitsPerUV);
 }
 
+static int rpBlitEncodeAndSend(BLIT_CONTEXT *ctx, int isTop, int src_size) {
+	int ret;
+
+	ctx->isTop = isTop;
+	ctx->transformDst = rpImgBuffer + RP_TRANSFORM_DST_OFFSET;
+	if (isTop) {
+		// send top
+		// currentTopId += 1;
+		remotePlayBlitInit(ctx, 400, 240, tl_format, tl_pitch, rpImgBuffer, src_size);
+		if (rp_multicore_encode) {
+			ctx->transformDst = rpImgBuffer + RP_TRANSFORM_DST_MC_TOP_OFFSET;
+		}
+		// ret = remotePlayBlitCompressAndSend(ctx);
+		// if (ret < 0) {
+		// 	ctx->force_key = 1;
+		// }
+	}
+	else {
+		// send bottom
+		// currentBottomId += 1;
+		remotePlayBlitInit(ctx, 320, 240, bl_format, bl_pitch, rp_multicore_encode ? rpBotImgBuffer : rpImgBuffer, src_size);
+		if (rp_multicore_encode) {
+			ctx->transformDst = rpImgBuffer + RP_TRANSFORM_DST_MC_BOT_OFFSET;
+		}
+		// ret = remotePlayBlitCompressAndSend(ctx);
+		// if (ret < 0) {
+		// 	ctx->force_key = 1;
+		// }
+	}
+	ret = remotePlayBlitCompressAndSend(ctx);
+	if (ret < 0) {
+		ctx->force_key = 1;
+	}
+
+	return ret;
+}
+
+static rpThread2SrcSize;
+static void remotePlayThread2Start(u32 arg) {
+	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
+	topContext.force_key = 1;
+	botContext.force_key = 1;
+	// only update non priority screen on core 3
+	u32 currentUpdating = !rp_isPriorityTop;
+	int ret;
+
+	while (!rpEncodeThreadExit) {
+		ret = svc_waitSynchronization1(rpTransfer2AvaiSem, 100000000);
+		if (ret != 0) {
+			continue;
+		}
+		if (currentUpdating) {
+			if (rp_control_top_force_key) {
+				rp_control_top_force_key = 0;
+				topContext.force_key = 1;
+			}
+		} else {
+			if (rp_control_bot_force_key) {
+				rp_control_bot_force_key = 0;
+				botContext.force_key = 1;
+			}
+		}
+		rpBlitEncodeAndSend(currentUpdating ? &topContext : &botContext, currentUpdating, rpThread2SrcSize);
+
+		s32 count;
+		svc_releaseSemaphore(&count, rpTransfer2DoneSem, 1);
+	}
+
+	svc_exitThread();
+}
+
+static void remotePlayThread2Transfer(u32 arg) {
+	u32 currentUpdating = !rp_isPriorityTop;
+	int ret;
+
+	while (!rpEncodeThreadExit) {
+		ret = svc_waitSynchronization1(rpTransfer2DoneSem, 100000000);
+		if (ret != 0) {
+			continue;
+		}
+
+		remotePlayKernelCallback(currentUpdating);
+		rpThread2SrcSize = rpCaptureScreen(currentUpdating);
+
+		s32 count;
+		svc_releaseSemaphore(&count, rpTransfer2AvaiSem, 1);
+	}
+	svc_exitThread();
+}
+
+#define RP_stackSize 0x10000
+#define RP_dataStackSize 0x1000
+
 #define FRAME_RATE_AVERAGE_COUNT 90
 static u64 *tick_at_frame;
 static int tick_at_frame_i;
 void remotePlaySendFrames(void) {
-	u32 isPriorityTop = 1;
+	rp_isPriorityTop = 1;
 	u32 priorityFactor = 0;
 	u32 mode = (rpConfig.mode & 0xff00) >> 8;
 	u32 factor = (rpConfig.mode & 0xff);
 	if (mode == 0) {
-		isPriorityTop = 0;
+		rp_isPriorityTop = 0;
 	}
 	priorityFactor = HR_MAX(HR_MIN(factor, 15), 0);
 	int dynamic_priority = rpConfig.flags & RP_DYNAMIC_PRIORITY;
@@ -1972,7 +2192,7 @@ void remotePlaySendFrames(void) {
 	rpDbg(
 		"remote play config: priority top %d, priority factor %d, "
 		"target bitrate %d, quality factor %d/%d%s%s%s%s%s%s%s%s%s%s\n",
-		isPriorityTop, priorityFactor,
+		rp_isPriorityTop, priorityFactor,
 		rpConfig.qos, rpQualityFN, rpQualityFD,
 		(rpConfig.flags & RP_USE_FRAME_DELTA) ? ", use frame delta" : "",
 		(rpConfig.flags & RP_PREDICT_FRAME_DELTA) ? ", predict frame delta" : "",
@@ -1987,7 +2207,7 @@ void remotePlaySendFrames(void) {
 
 	kcp_restart = 1;
 
-	u32 currentUpdating = isPriorityTop;
+	u32 currentUpdating = rp_isPriorityTop;
 	u32 frameCount = 0;
 	u8 cnt;
 	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
@@ -2007,10 +2227,31 @@ void remotePlaySendFrames(void) {
 	// u32 tl_pitch_max = 0;
 	// u32 bl_pitch_max = 0;
 
+	if (rp_multicore_encode) {
+		rpEncodeThreadExit = 0;
+		ret = svc_createThread(&rpThread2, remotePlayThread2Start, 0, &rpThread2Stack[RP_stackSize - 40], 0x10, 3);
+		if (ret != 0) {
+			nsDbgPrint("Create remotePlayThread2Start Thread Failed: %08x\n", ret);
+			return;
+		}
+
+		ret = svc_createThread(&rpThread2Transfer, remotePlayThread2Transfer, 0, &rpThread2TransferStack[RP_dataStackSize - 40], 0x8, 2);
+		if (ret != 0) {
+			nsDbgPrint("Create remotePlayThread2Transfer Thread Failed: %08x\n", ret);
+
+			rpEncodeThreadExit = 1;
+			svc_flushProcessDataCache(rpThread2, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
+			svc_waitSynchronization1(rpThread2, U64_MAX);
+			return;
+		}
+	}
+
 	while (1) {
-		currentUpdating = isPriorityTop;
+		currentUpdating = rp_isPriorityTop;
 		frameCount += 1;
-		if (dynamic_priority) {
+		if (rp_multicore_encode) {
+			// only update priority screen on core 2
+		} else if (dynamic_priority) {
 			currentUpdating = top_screen_time <= bot_screen_time;
 
 			if (frame_rate < RP_TARGET_PSCREEN_FRAME_RATE * (priorityFactor + 1) / priorityFactor) {
@@ -2045,55 +2286,29 @@ void remotePlaySendFrames(void) {
 			}
 		} else if (priorityFactor != 0) {
 			if (frameCount % (priorityFactor + 1) == 0) {
-				currentUpdating = !isPriorityTop;
+				currentUpdating = !rp_isPriorityTop;
 			}
 		}
 
-		remotePlayKernelCallback();
-
 		if (currentUpdating) {
-			// send top
-			src_size = rpCaptureScreen(1);
-			// currentTopId += 1;
 			if (rp_control_top_force_key) {
 				rp_control_top_force_key = 0;
 				topContext.force_key = 1;
 			}
-			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, rpImgBuffer, src_size);
-			// tl_pitch_max = tl_pitch_max > tl_pitch ? tl_pitch_max : tl_pitch;
-			// topContext.compressDst = 0;
-			topContext.transformDst = rpImgBuffer + RP_TRANSFORM_DST_OFFSET;
-			// botContext.transformDst2 = 0;
-			// topContext.reset = 1;
-			// topContext.id = (u8)currentTopId;
-			topContext.isTop = 1;
-			ret = remotePlayBlitCompressAndSend(&topContext);
-			if (ret < 0) {
-				topContext.force_key = 1;
-			} else if (ret > 0) {
-				top_screen_time += 1.0f / ret;
-			}
-		}
-		else {
-			// send bottom
-			src_size = rpCaptureScreen(0);
-			// currentBottomId += 1;
+		} else {
 			if (rp_control_bot_force_key) {
 				rp_control_bot_force_key = 0;
 				botContext.force_key = 1;
 			}
-			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, rpImgBuffer, src_size);
-			// bl_pitch_max = bl_pitch_max > bl_pitch ? bl_pitch_max : bl_pitch;
-			// botContext.compressDst = 0;
-			botContext.transformDst = rpImgBuffer + RP_TRANSFORM_DST_OFFSET;
-			// botContext.transformDst2 = 0;
-			// botContext.reset = 1;
-			// botContext.id = (u8)currentBottomId;
-			botContext.isTop = 0;
-			ret = remotePlayBlitCompressAndSend(&botContext);
-			if (ret < 0) {
-				botContext.force_key = 1;
-			} else if (ret > 0) {
+		}
+		remotePlayKernelCallback(currentUpdating);
+		src_size = rpCaptureScreen(currentUpdating);
+		ret = rpBlitEncodeAndSend(currentUpdating ? &topContext : &botContext, currentUpdating, src_size);
+
+		if (ret > 0) {
+			if (currentUpdating) {
+				top_screen_time += 1.0f / ret;
+			} else {
 				bot_screen_time += 1.0f / ret;
 			}
 		}
@@ -2115,15 +2330,21 @@ void remotePlaySendFrames(void) {
 			rpConfig = g_nsConfig->rpConfig;
 			g_nsConfig->rpConfig.control = 0;
 			kcp_restart = 1;
-			svc_sleepThread(1000000000);
+			svc_flushProcessDataCache(rpThreadData, &kcp_restart, sizeof(kcp_restart));
 			break;
 		}
 	}
+
+	if (rp_multicore_encode) {
+		rpEncodeThreadExit = 1;
+		svc_flushProcessDataCache(rpThread2, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
+		svc_waitSynchronization1(rpThread2, U64_MAX);
+	}
+
+	// rpDbg("remotePlaySendFrames exit\n");
 }
 
-#define RP_stackSize 0x10000
-#define RP_dataStackSize 0x1000
-void remotePlayThreadStart(void) {
+void remotePlayThreadStart(u32 arg) {
 	// if (rpAllocBuff) {
 	// 	rpAllocBuffRemainSize = 0x00100000;
 	// }
@@ -2168,7 +2389,6 @@ void remotePlayThreadStart(void) {
 	// 	goto final;
 	// }
 
-	Handle hThread;
 	/*
 	if (buf[31] != 6) {
 	nsDbgPrint("buflen: %d\n", buflen);
@@ -2178,18 +2398,29 @@ void remotePlayThreadStart(void) {
 	}*/
 	svc_createSemaphore(&rpWorkDoneSem, 0, HR_WORK_BUFFER_COUNT);
 	svc_createSemaphore(&rpWorkAvaiSem, HR_WORK_BUFFER_COUNT, HR_WORK_BUFFER_COUNT);
+
+	svc_createSemaphore(&rpBotWorkDoneSem, 0, HR_WORK_BUFFER_COUNT);
+	svc_createSemaphore(&rpBotWorkAvaiSem, HR_WORK_BUFFER_COUNT, HR_WORK_BUFFER_COUNT);
+
+	svc_createSemaphore(&rpTransfer2AvaiSem, 0, 1);
+	svc_createSemaphore(&rpTransfer2DoneSem, 1, 1);
+
 	svc_createMutex(&rpControlLock, 0);
 
 	while (1) {
 		rpNetworkThreadExit = 0;
-		ret = svc_createThread(&hThread, (void*)rpSendDataThread, 0, &rpDataThreadStack[RP_dataStackSize - 40], 0x10, rpConfig.flags & RP_MULTICORE_NETWORK ? 3 : 2);
+		rp_multicore_encode = rpConfig.flags & RP_MULTICORE_ENCODE;
+		ret = svc_createThread(&rpThreadData, rpSendDataThread, 0, &rpDataThreadStack[RP_dataStackSize - 40], 0x8, rpConfig.flags & RP_MULTICORE_NETWORK ? 3 : 2);
 		if (ret != 0) {
 			nsDbgPrint("Create rpSendDataThread Failed: %08x\n", ret);
 			goto final;
 		}
 		remotePlaySendFrames();
 		rpNetworkThreadExit = 1;
-		svc_waitSynchronization1(hThread, U64_MAX);
+		svc_flushProcessDataCache(rpThreadData, &rpNetworkThreadExit, sizeof(rpNetworkThreadExit));
+		svc_waitSynchronization1(rpThreadData, U64_MAX);
+
+		svc_sleepThread(250000000);
 	}
 	final:
 
@@ -2200,7 +2431,6 @@ int nwmValParamCallback(u8* buf, int buflen) {
 	//rtDisableHook(&nwmValParamHook);
 	int i;
 	int ret;
-	Handle hThread;
 	/*
 	if (buf[31] != 6) {
 	nsDbgPrint("buflen: %d\n", buflen);
@@ -2216,7 +2446,7 @@ int nwmValParamCallback(u8* buf, int buflen) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
 			remotePlayInited = 1;
 
-#define RP_IMG_BUFFER_SIZE 0x00400000
+#define RP_IMG_BUFFER_SIZE 0x00600000
 #define UMM_HEAP_SIZE (512 * 1024)
 			rpImgBuffer = plgRequestMemory(RP_IMG_BUFFER_SIZE);
 			if (!rpImgBuffer) {
@@ -2224,11 +2454,14 @@ int nwmValParamCallback(u8* buf, int buflen) {
 				return 0;
 			}
 			rpAllocBuff = rpImgBuffer + RP_IMG_BUFFER_SIZE - huffman_malloc_usage();
-			rpSendBufs = rpAllocBuff - RP_PACKET_SIZE;
+			rpBotAllocBuff = rpAllocBuff - huffman_malloc_usage();
+			rpSendBufs = rpBotAllocBuff - RP_PACKET_SIZE;
 			memcpy(rpSendBufs, buf, NWM_HEADER_SIZE);
 
 			rpThreadStack = (u32)(rpSendBufs - RP_stackSize) / 4 * 4;
-			rpDataThreadStack = (u32)(rpThreadStack - RP_dataStackSize) / 4 * 4;
+			rpThread2Stack = (u32)(rpThreadStack - RP_stackSize) / 4 * 4;
+			rpThread2TransferStack = (u32)(rpThread2Stack - RP_dataStackSize) / 4 * 4;
+			rpDataThreadStack = (u32)(rpThread2TransferStack - RP_dataStackSize) / 4 * 4;
 			umm_malloc_heap_addr = (u32)(rpDataThreadStack - UMM_HEAP_SIZE) / 4 * 4;
 			umm_init_heap(umm_malloc_heap_addr, UMM_HEAP_SIZE);
 			ikcp_allocator(umm_malloc, umm_free);
@@ -2237,7 +2470,9 @@ int nwmValParamCallback(u8* buf, int buflen) {
 			rpControlRecvBuf_ready = 1;
 			rpWorkBufferEnd = rpControlRecvBuf;
 
-			ret = svc_createThread(&hThread, (void*)remotePlayThreadStart, 0, &rpThreadStack[RP_stackSize - 40], 0x10, 2);
+			rpBotImgBuffer = rpImgBuffer + RP_BOT_SRC_OFFSET;
+
+			ret = svc_createThread(&rpThread, remotePlayThreadStart, 0, &rpThreadStack[RP_stackSize - 40], 0x10, 2);
 			if (ret != 0) {
 				nsDbgPrint("Create RemotePlay Thread Failed: %08x\n", ret);
 			}
@@ -2268,7 +2503,7 @@ void tickTest(void) {
 }
 */
 
-static inline void nsRemotePlayControl(void) {
+static void nsRemotePlayControl(void) {
 	Handle hProcess;
 	u32 pid = 0x1a;
 	u32 control;
@@ -2932,7 +3167,7 @@ void nsHandleListThread(void) {
 	u32 tids[100];
 	u32 tidCount, i, j;
 	u32 ctx[400];
-	u32 hThread;
+	// u32 hThread;
 	u32 pKThread;
 	u32 pContext;
 
@@ -2958,7 +3193,7 @@ void nsHandleListThread(void) {
 			nsDbgPrint("%08x ", ctx[j]);
 		}
 		nsDbgPrint("\n");
-		svc_closeHandle(hThread);
+		// svc_closeHandle(hThread);
 
 	}
 	nsGetPCToAttachProcess(hProcess);

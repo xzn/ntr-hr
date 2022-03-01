@@ -1,12 +1,12 @@
 // void *stack[64][2]
-// void *(*stack)[2] = rpAllocBuff + 0x800 + 0x800 + 0x200 + 0x200 + 0x400 + 0x800;
+// void *(*stack)[2] = alloc + 0x800 + 0x800 + 0x200 + 0x200 + 0x400 + 0x800;
 
 #define rpAllocBuff_stack (rpAllocBuff_he + sizeof(void *) * 64 * 2)
 
 #define AV_QSORT(p, num, type, cmp)                                      \
     do                                                                   \
     {                                                                    \
-        void *(*stack)[2] = rpAllocBuff + rpAllocBuff_he;                \
+        void *(*stack)[2] = alloc + rpAllocBuff_he;                      \
         int sp = 1;                                                      \
         stack[0][0] = p;                                                 \
         stack[0][1] = (p) + (num)-1;                                     \
