@@ -983,8 +983,37 @@ void rpSendDataThreadMain(void) {
 				svc_waitSynchronization1(rpControlLock, U64_MAX);
 				ikcp_update(rpKcp, iclock());
 				svc_releaseMutex(rpControlLock);
+
+				if (kcp_restart || rpNetworkThreadExit) {
+					break;
+				}
+
 				continue;
 			}
+			break;
+		}
+
+		if (kcp_restart || rpNetworkThreadExit) {
+			s32 count;
+
+			if (ret == 0) {
+				*frameId = (*frameId + 1) % HR_WORK_BUFFER_COUNT;
+				svc_releaseSemaphore(&count, workAvaiSem, 1);
+			}
+
+			while (svc_waitSynchronization1(rpWorkDoneSem, 0) == 0) {
+				rpThreadFrameId = (rpThreadFrameId + 1) % HR_WORK_BUFFER_COUNT;
+				svc_releaseSemaphore(&count, rpWorkAvaiSem, 1);
+			}
+
+			if (rp_multicore_encode) {
+				while (svc_waitSynchronization1(rpBotWorkDoneSem, 0) == 0) {
+					rpThreadBotFrameId = (rpThreadBotFrameId + 1) % HR_WORK_BUFFER_COUNT;
+					svc_releaseSemaphore(&count, rpBotWorkAvaiSem, 1);
+				}
+			}
+
+			kcp_restart = 0;
 			break;
 		}
 
