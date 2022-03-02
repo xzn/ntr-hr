@@ -51,7 +51,7 @@ void kSetCurrentKProcess(u32 ptr);
 u32 kGetCurrentKProcess();
 u32 kGetKProcessByHandle(u32 handle);
 u32 kSwapProcessPid(u32 kProcess, u32 newPid) ;
-void kRemotePlayCallback();
+void kRemotePlayCallback(int isTop);
 
 void initFromInjectPM();
 void initFromInjectGame();

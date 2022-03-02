@@ -137,7 +137,7 @@ void keDoKernelHax() {
 
 
 
-void remotePlayKernelCallback();
+void remotePlayKernelCallback(int isTop);
 
 void kernelCallback(u32 msr) {
 	typedef (*keRefHandleType)(u32, u32);
@@ -185,7 +185,8 @@ void kernelCallback(u32 msr) {
 	}
 
 	if (t == 7) {
-		remotePlayKernelCallback();
+		int isTop = kernelArgs[1];
+		remotePlayKernelCallback(isTop);
 	}
 }
 
@@ -230,8 +231,9 @@ void kDoKernelHax() {
 	svc_backDoor(currentBackdoorHandler);
 }
 
-void kRemotePlayCallback() {
+void kRemotePlayCallback(int isTop) {
 	kernelArgs[0] = 7;
+	kernelArgs[1] = (u32)isTop;
 
 	svc_backDoor(currentBackdoorHandler);
 }

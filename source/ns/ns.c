@@ -2220,10 +2220,15 @@ static void remotePlayThread2Start(u32 arg) {
 	int ret;
 
 	while (!rpEncodeThreadExit) {
-		ret = svc_waitSynchronization1(rpTransfer2AvaiSem, 100000000);
-		if (ret != 0) {
-			continue;
-		}
+		// ret = svc_waitSynchronization1(rpTransfer2AvaiSem, 100000000);
+		// if (ret != 0) {
+		// 	continue;
+		// }
+
+		// remotePlayKernelCallback(currentUpdating);
+		kRemotePlayCallback(currentUpdating);
+		rpThread2SrcSize = rpCaptureScreen(currentUpdating);
+
 		if (currentUpdating) {
 			if (rp_control_top_force_key) {
 				rp_control_top_force_key = 0;
@@ -2237,8 +2242,8 @@ static void remotePlayThread2Start(u32 arg) {
 		}
 		rpBlitEncodeAndSend(currentUpdating ? &topContext : &botContext, currentUpdating, rpThread2SrcSize);
 
-		s32 count;
-		svc_releaseSemaphore(&count, rpTransfer2DoneSem, 1);
+		// s32 count;
+		// svc_releaseSemaphore(&count, rpTransfer2DoneSem, 1);
 	}
 
 	svc_exitThread();
@@ -2254,7 +2259,8 @@ static void remotePlayThread2Transfer(u32 arg) {
 			continue;
 		}
 
-		remotePlayKernelCallback(currentUpdating);
+		// remotePlayKernelCallback(currentUpdating);
+		kRemotePlayCallback(currentUpdating);
 		rpThread2SrcSize = rpCaptureScreen(currentUpdating);
 
 		s32 count;
@@ -2327,15 +2333,15 @@ void remotePlaySendFrames(void) {
 			return;
 		}
 
-		ret = svc_createThread(&rpThread2Transfer, remotePlayThread2Transfer, 0, &rpThread2TransferStack[RP_dataStackSize - 40], 0x8, 2);
-		if (ret != 0) {
-			nsDbgPrint("Create remotePlayThread2Transfer Thread Failed: %08x\n", ret);
+		// ret = svc_createThread(&rpThread2Transfer, remotePlayThread2Transfer, 0, &rpThread2TransferStack[RP_dataStackSize - 40], 0x8, 2);
+		// if (ret != 0) {
+		// 	nsDbgPrint("Create remotePlayThread2Transfer Thread Failed: %08x\n", ret);
 
-			rpEncodeThreadExit = 1;
-			svc_flushProcessDataCache(rpThread2, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
-			svc_waitSynchronization1(rpThread2, U64_MAX);
-			return;
-		}
+		// 	rpEncodeThreadExit = 1;
+		// 	svc_flushProcessDataCache(rpThread2, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
+		// 	svc_waitSynchronization1(rpThread2, U64_MAX);
+		// 	return;
+		// }
 	}
 
 	while (1) {
@@ -2394,6 +2400,7 @@ void remotePlaySendFrames(void) {
 			}
 		}
 		remotePlayKernelCallback(currentUpdating);
+		// kRemotePlayCallback(currentUpdating);
 		src_size = rpCaptureScreen(currentUpdating);
 		ret = rpBlitEncodeAndSend(currentUpdating ? &topContext : &botContext, currentUpdating, src_size);
 
@@ -2430,9 +2437,9 @@ void remotePlaySendFrames(void) {
 	if (rp_multicore_encode) {
 		rpEncodeThreadExit = 1;
 		svc_flushProcessDataCache(rpThread2, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
-		svc_flushProcessDataCache(rpThread2Transfer, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
+		// svc_flushProcessDataCache(rpThread2Transfer, &rpEncodeThreadExit, sizeof(rpEncodeThreadExit));
 		svc_waitSynchronization1(rpThread2, U64_MAX);
-		svc_waitSynchronization1(rpThread2Transfer, U64_MAX);
+		// svc_waitSynchronization1(rpThread2Transfer, U64_MAX);
 	}
 
 	// rpDbg("remotePlaySendFrames exit\n");
@@ -2463,7 +2470,7 @@ void remotePlayThreadStart(u32 arg) {
 
 	// nsDbgPrint("imgBuffer: %08x\n", imgBuffer);
 	rpInitDmaHome();
-	kRemotePlayCallback();
+	// kRemotePlayCallback();
 	int ret;
 
 	// rpControlSocket = socket(AF_INET, SOCK_DGRAM, 0);
