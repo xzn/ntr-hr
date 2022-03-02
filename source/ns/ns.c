@@ -2259,8 +2259,8 @@ static void remotePlayThread2Transfer(u32 arg) {
 			continue;
 		}
 
-		// remotePlayKernelCallback(currentUpdating);
-		kRemotePlayCallback(currentUpdating);
+		remotePlayKernelCallback(currentUpdating);
+		// kRemotePlayCallback(currentUpdating);
 		rpThread2SrcSize = rpCaptureScreen(currentUpdating);
 
 		s32 count;

@@ -231,11 +231,20 @@ void kDoKernelHax() {
 	svc_backDoor(currentBackdoorHandler);
 }
 
-void kRemotePlayCallback(int isTop) {
-	kernelArgs[0] = 7;
-	kernelArgs[1] = (u32)isTop;
+// Use own variable since multithreading, just in case
+static int rpKernelCallbackisTop;
+void remotePlayKernelCallback2(void) {
+	remotePlayKernelCallback(rpKernelCallbackisTop);
+}
 
-	svc_backDoor(currentBackdoorHandler);
+void kRemotePlayCallback(int isTop) {
+	// kernelArgs[0] = 7;
+	// kernelArgs[1] = (u32)isTop;
+
+	// svc_backDoor(currentBackdoorHandler);
+
+	rpKernelCallbackisTop = isTop;
+	svc_backDoor(remotePlayKernelCallback2);
 }
 
 
