@@ -1334,6 +1334,7 @@ static int rpTestCompressAndSend(int top_bot, struct RP_DATA_HEADER data_header,
 	if (rp_ctx->cfg.flags & RP_RLE_ENCODE) {
 		dst_size += rle_max_compressed_size(huffman_size);
 	}
+	dst_size += sizeof(struct RP_DATA_HEADER);
 	if (cctx->data2 && cctx->data2_size) {
 		dst_size += cctx->data2_size + rle_max_compressed_size(cctx->data2_size) + sizeof(struct RP_DATA2_HEADER);
 	}
