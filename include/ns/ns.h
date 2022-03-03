@@ -54,13 +54,13 @@ typedef struct _NS_BREAKPOINT {
 #define NS_BPTYPE_CODE		1
 #define NS_BPTYPE_CODEONESHOT	2
 
-#define RP_USE_FRAME_DELTA ((u32)1 << 0)
-#define RP_PREDICT_FRAME_DELTA ((u32)1 << 1)
+#define RP_FRAME_DELTA ((u32)1 << 0)
+#define RP_TRIPLE_BUFFER_ENCODE ((u32)1 << 1)
 #define RP_SELECT_PREDICTION ((u32)1 << 2)
-#define RP_DYNAMIC_ENCODE ((u32)1 << 3)
+#define RP_DYNAMIC_DOWNSAMPLE ((u32)1 << 3)
 #define RP_RLE_ENCODE ((u32)1 << 4)
 #define RP_YUV_LQ ((u32)1 << 5)
-#define RP_INTERLACED ((u32)1 << 6)
+#define RP_INTERLACE ((u32)1 << 6)
 #define RP_DYNAMIC_PRIORITY ((u32)1 << 7)
 #define RP_MULTICORE_NETWORK ((u32)1 << 8)
 #define RP_MULTICORE_ENCODE ((u32)1 << 9)

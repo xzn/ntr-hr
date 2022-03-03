@@ -10,7 +10,7 @@ u32 hGSPProcess = 0;
 
 
 
-
+void paint_letter(u8 letter, int x, int y, char r, char g, char b, int screen);
 int builtinDrawString(u8* str, int x, int y, char r, char g, char b, int newLine) {
 	int len = strlen(str);
 	int i, chWidth, currentX = x, totalLen = 0;
@@ -58,7 +58,7 @@ u32 getPhysAddr(u32 vaddr) {
 u32 initDirectScreenAccess() {
 	u32 outAddr, ret;
 
-	ret = protectMemory(0x1F000000, 0x600000);
+	ret = protectMemory((void *)0x1F000000, 0x600000);
 	if (ret != 0) {
 		return ret;
 	}

@@ -32,7 +32,7 @@ u32 ScreenshotHotkey = 0;
 
 #define STACK_SIZE 0x4000
 
-u32 isInDebugMode() {
+u32 isInDebugMode(void) {
 	if ((getKey() & BUTTON_DL)) {
 		return 1;
 	}
@@ -41,7 +41,7 @@ u32 isInDebugMode() {
 
 
 
-u32 initValuesFromFIRM() {
+u32 initValuesFromFIRM(void) {
 	u32 kversion = *(unsigned int *)0x1FF80000;
 	ntrConfig->firmVersion = 0;
 	if (kversion == 0x022C0600 || kversion == 0x022E0000) {
@@ -60,7 +60,7 @@ u32 initValuesFromFIRM() {
 	return ntrConfig->firmVersion;
 }
 
-u32 initValuesFromHomeMenu() {
+u32 initValuesFromHomeMenu(void) {
 	u32 t = 0;
 	u32 hProcess, ret;
 	ntrConfig->HomeMenuVersion = 0;
@@ -114,7 +114,7 @@ void disp(u32 t, u32 cl) {
 	*(vu32*)(IoBaseLcd + 0x204) = 0;
 }
 
-void setExitFlag() {
+void setExitFlag(void) {
 	g_nsConfig->exitFlag = 1;
 	svc_closeHandle(g_nsConfig->hSOCU);
 }
@@ -177,7 +177,7 @@ void viewFile(FS_archive arc, u8 * path) {
 	FSDIR_Close(dirHandle);
 }
 
-void fileManager() {
+void fileManager(void) {
 	u8 buf[200];
 
 	FS_archive arc;
@@ -193,7 +193,7 @@ void fileManager() {
 }
 
 
-void checkExitFlag() {
+void checkExitFlag(void) {
 	if (g_nsConfig->exitFlag) {
 		svc_exitThread();
 	}
@@ -212,7 +212,7 @@ u32 HomeFSReadCallback(u32 a1, u32 a2, u32 a3, u32 a4, u32 buffer, u32 size) {
 	return ret;
 }
 
-u32 HomeCardUpdateInitCallback() {
+u32 HomeCardUpdateInitCallback(void) {
 	return 0xc821180b; // card update is not needed
 
 }
@@ -239,10 +239,10 @@ void magicKillProcess(u32 pid) {
 	}
 	u32 KProcess = kGetKProcessByHandle(hProcess);
 	u32 t = 0;
-	kmemcpy(&t, KProcess + 4, 4);
+	kmemcpy(&t, (void *)(KProcess + 4), 4);
 	//showDbg("refcount: %08x", t, 0);
 	t = 1;
-	kmemcpy(KProcess + 4, &t, 4);
+	kmemcpy((void *)KProcess + 4, &t, 4);
 	svc_closeHandle(hProcess);
 }
 
@@ -252,7 +252,7 @@ void do_screen_shoot();
 
 int cpuClockLockValue = -1;
 
-void lockCpuClock() {
+void lockCpuClock(void) {
 	if (cpuClockLockValue == -1) {
 		return;
 	}
@@ -274,7 +274,11 @@ u32 HomeSetMemorySizeCallback(u32 size) {
 	return ret;
 }
 
-void threadStart() {
+void plgShowMainMenu(void);
+int screenshotMain(void);
+void nsInitDebug(void);
+void nsInit(void);
+void threadStart(void) {
 	volatile vu32* ptr;
 	Handle testFileHandle = 0;
 	u32 i, ret;
@@ -326,7 +330,7 @@ void threadStart() {
 
 
 
-void initConfigureMemory() {
+void initConfigureMemory(void) {
 	u32 ret;
 	u32 outAddr;
 	
@@ -351,7 +355,7 @@ void initConfigureMemory() {
 
 void _ReturnToUser();
 
-void startupFromInject() {
+void startupFromInject(void) {
 	disp(100, 0x1ff0000);
 	nsInit();
 	disp(100, 0x10000ff);
@@ -361,27 +365,27 @@ void startupFromInject() {
 
 extern int _BootArgs[];
 
-void injectToHomeMenu() {
+void injectToHomeMenu(void) {
 	NS_CONFIG cfg;
 	memset(&cfg, 0, sizeof(NS_CONFIG));
 	Handle hProcess = 0;
 	svc_openProcess(&hProcess, ntrConfig->HomeMenuPid);
 
-	u32* bootArgs = arm11BinStart + 4;
+	u32* bootArgs = (u32 *)(arm11BinStart + 4);
 	bootArgs[0] = 1;
 
 	nsAttachProcess(hProcess, ntrConfig->HomeMenuInjectAddr, &cfg, 1);
 	svc_closeHandle(hProcess);
 }
 
-void doSomething() {
+void doSomething(void) {
 	u32 i;
 	for (i = 0; i < 10; i++){
 		svc_sleepThread(10000000);
 	}
 }
 
-void doSomethingInitSrv() {
+void doSomethingInitSrv(void) {
 	u32 i;
 	for (i = 0; i < 10; i++){
 		initSrv();
@@ -390,7 +394,7 @@ void doSomethingInitSrv() {
 	}
 }
 
-void loadParams() {
+void loadParams(void) {
 
 	KProcessCodesetOffset = ntrConfig->KProcessCodesetOffset;
 	KProcessHandleDataOffset = ntrConfig->KProcessHandleDataOffset;
@@ -404,7 +408,7 @@ void loadParams() {
 	}
 }
 
-void initParamsFromLegacyBootNtr() {
+void initParamsFromLegacyBootNtr(void) {
 	ntrConfig = &(backupNtrConfig);
 	ShowDbgFunc = _BootArgs[1];
 	fsUserHandle = _BootArgs[2];
@@ -430,7 +434,7 @@ void initParamsFromLegacyBootNtr() {
 	loadParams();
 }
 
-void initParamsFromBootNtr() {
+void initParamsFromBootNtr(void) {
 	ntrConfig = (void*)_BootArgs[2];
 	ShowDbgFunc = ntrConfig->ShowDbgFunc;
 	fsUserHandle = ntrConfig->fsUserHandle;
@@ -440,13 +444,14 @@ void initParamsFromBootNtr() {
 	loadParams();
 }
 
-void initParamsFromInject() {
+void initParamsFromInject(void) {
 	ntrConfig = &(g_nsConfig->ntrConfig);
 
 	loadParams();
 }
 
-int main() {
+void remotePlayMain(void);
+int main(void) {
 	StartMode = _BootArgs[0];
 	//showDbg("", 0, sizeof(NS_CONFIG));
 	if (StartMode == 0) {

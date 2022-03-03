@@ -20,6 +20,7 @@ void xputc (char c);
 void xputs (const char* str);
 void xfputs (void (*func)(unsigned char), const char* str);
 void xprintf (const char* fmt, ...);
+void xvprintf (const char*	fmt, va_list arp);
 void xsprintf (char* buff, const char* fmt, ...);
 void xvsprintf (char* buff, const char* fmt, va_list arp);
 void xfprintf (void (*func)(unsigned char), const char*	fmt, ...);

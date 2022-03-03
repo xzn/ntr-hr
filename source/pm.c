@@ -116,7 +116,7 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 		return ret;
 	}
 
-	ret = svc_startInterProcessDma(&hdma, hDst, ptrDst, hSrc, ptrSrc, size, dmaConfig);
+	ret = svc_startInterProcessDma(&hdma, hDst, ptrDst, hSrc, ptrSrc, size, (u32 *)dmaConfig);
 	if (ret != 0) {
 		return ret;
 	}
@@ -244,6 +244,7 @@ void dumpRemoteProcess(u32 pid, u8* fileName, u32 startAddr) {
 	}
 }
 
+void print(char* s, int x, int y, char r, char g, char b);
 void dumpRemoteProcess2(u32 pid, u8* fileName) {
 	u32 hdebug = 0, hfile = 0;
 	u32 ret;
@@ -316,7 +317,7 @@ void dumpCode(u32 base, u32 size, u8* fileName) {
 		for (i = 0; i < 1000000; i++) {
 		}
 		kmemcpy(tmpBuffer, (void*)(base + off), 0x1000);
-		FSFILE_Write(handle, &t, off, tmpBuffer, 0x1000, 0);
+		FSFILE_Write(handle, &t, off, (u32 *)tmpBuffer, 0x1000, 0);
 		off += 0x1000;
 	}
 }
@@ -387,7 +388,7 @@ void processManager() {
 	u8 pidbuf[50];
 	u8 pname[20];
 	u32 tid[4];
-	static dumpCnt = 0;
+	static int dumpCnt = 0;
 	u32 startAddr;
 
 	ret = svc_getProcessList(&pidCount, pids, 100);

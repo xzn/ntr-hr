@@ -15,9 +15,10 @@ DEVKITARM = '/opt/devkitpro/devkitARM'
 LIBPATH = '-L .'
 COPY = 'cp'
 
-INLINES = " -finline-limit=8192 --param large-function-growth=1024 -Winline "
-# INLINES = ""
-WARNS = " -Wno-int-conversion -Wno-implicit-function-declaration -Wno-incompatible-pointer-types -Wno-implicit-int -Wno-return-type "
+# INLINES = " -finline-limit=8192 --param large-function-growth=1024 -Winline "
+INLINES = ""
+# WARNS = " -Wno-int-conversion -Wno-implicit-function-declaration -Wno-incompatible-pointer-types -Wno-implicit-int -Wno-return-type "
+WARNS = ""
 
 with open('include/gen.h', 'w') as f:
     f.write('#define HAS_HUFFMAN_RLE (1)');

@@ -220,7 +220,7 @@ int get_file_index(void)
 }
 
 
-void allocImageBuf() {
+void allocImageBuf(void) {
 	if (image_buf) {
 		return;
 	}
@@ -252,7 +252,7 @@ void do_screen_shoot(void)
 		if (image_buf == NULL) {
 			return;
 		}
-		workingBuffer = image_buf;
+		workingBuffer = (u32)image_buf;
 	}
 	else {
 		workingBuffer = plgRequestTempBuffer(0xA0000);
@@ -277,10 +277,10 @@ void do_screen_shoot(void)
 	current_fb &= 1;
 	kmemcpy((void*)(workingBuffer + 0x50000), (void*)tl_fbaddr[current_fb], 240 * 400 * 3);
 
-	rev_buf = workingBuffer + sizeof(struct BitmapHeader);
-	rev_image(rev_buf, 400, 240, workingBuffer + 0x50000, tl_pitch, tl_format);
+	rev_buf = (u8 *)(workingBuffer + sizeof(struct BitmapHeader));
+	rev_image(rev_buf, 400, 240, (u8 *)(workingBuffer + 0x50000), tl_pitch, tl_format);
 	xsprintf(name, "/top_%04d.bmp", bmp_index);
-	bmp_write(workingBuffer, 400, 240, name);
+	bmp_write((u8 *)workingBuffer, 400, 240, name);
 
 
 	// Bottom screen
@@ -288,16 +288,16 @@ void do_screen_shoot(void)
 	current_fb &= 1;
 	kmemcpy((void*)(workingBuffer + 0x50000), (void*)bl_fbaddr[current_fb], 240 * 320 * 3);
 
-	rev_buf = workingBuffer + sizeof(struct BitmapHeader);
-	rev_image(rev_buf, 320, 240, workingBuffer + 0x50000, bl_pitch, bl_format);
+	rev_buf = (u8 *)(workingBuffer + sizeof(struct BitmapHeader));
+	rev_image(rev_buf, 320, 240, (u8 *)(workingBuffer + 0x50000), bl_pitch, bl_format);
 	xsprintf(name, "/bot_%04d.bmp", bmp_index);
-	bmp_write(workingBuffer, 320, 240, name);
+	bmp_write((u8 *)workingBuffer, 320, 240, name);
 	disp(100, 0x01ff00ff);
 
 	bmp_index += 1;
 }
 
-u32 takeScreenShot() {
+u32 takeScreenShot(void) {
 	vu32 i;
 	u32 ret, out_addr;
 
@@ -324,13 +324,13 @@ u32 getRegionSize(Handle hProcess, u32 addr) {
 
 u32 fastCopyMemory(Handle hDst, u32 ptrDst, Handle hSrc, u32 ptrSrc, u32 size) {
 	u32 ret = 0;
-	ret = copyRemoteMemory(hDst, ptrDst, hSrc, ptrSrc, size);
+	ret = copyRemoteMemory(hDst, (void *)ptrDst, hSrc, (void *)ptrSrc, size);
 	if (ret == 0) {
 		return 0;
 	}
 	u32 off = 0;
 	for (off = 0; off < size; off += 0x1000) {
-		ret = copyRemoteMemory(hDst, ptrDst + off, hSrc, ptrSrc + off, 0x1000);
+		ret = copyRemoteMemory(hDst, (void *)(ptrDst + off), hSrc, (void *)(ptrSrc + off), 0x1000);
 		if (ret != 0) {
 			return ret;
 		}
@@ -349,11 +349,11 @@ u32 loadSaveVRAM(int fd, int isLoad) {
 		if (isLoad) {
 			ret = sdf_read(fd, off, image_buf, 0x00100000);
 			if (ret >= 0) {
-				memcpy(VRAM_ADDR + off, image_buf, 0x00100000);
+				memcpy((void *)(VRAM_ADDR + off), image_buf, 0x00100000);
 			}
 		}
 		else {
-			memcpy(image_buf, VRAM_ADDR + off, 0x00100000);
+			memcpy(image_buf, (void *)(VRAM_ADDR + off), 0x00100000);
 			ret = sdf_write(fd, off, image_buf, 0x00100000);
 		}
 		if (ret < 0) {
@@ -375,7 +375,7 @@ u32 saveRegion(Handle hProcess, u32 addr, int fd, u32 offsetInFile, u32 size) {
 		if (currentRead > 0x00100000) {
 			currentRead = 0x00100000;
 		}
-		ret = fastCopyMemory(CURRENT_PROCESS_HANDLE, image_buf, hProcess, addr + off, currentRead);
+		ret = fastCopyMemory(CURRENT_PROCESS_HANDLE, (u32)image_buf, hProcess, addr + off, currentRead);
 		if (ret != 0) {
 			return ret;
 		}
@@ -395,7 +395,7 @@ u32 loadRegion(Handle hProcess, u32 addr, int fd, u32 offsetInFile, u32 size) {
 			currentRead = 0x00100000;
 		}
 		sdf_read(fd, off + offsetInFile, image_buf, currentRead);
-		ret = fastCopyMemory(hProcess, addr + off, CURRENT_PROCESS_HANDLE, image_buf, currentRead);
+		ret = fastCopyMemory(hProcess, addr + off, CURRENT_PROCESS_HANDLE, (u32)image_buf, currentRead);
 		if (ret != 0) {
 			return ret;
 		}
@@ -488,16 +488,16 @@ u32 instantSave(int id, int isLoad) {
 
 
 
-u32 instantSaveMenu() {
+u32 instantSaveMenu(void) {
 	if (ntrConfig->memMode != NTR_MEMMODE_DEFAULT) {
 		showMsg("RTS is not compatitable with extended memory mode.");
-		return;
+		return 0;
 	}
 	if (!image_buf) {
 		allocImageBuf();
 	}
 	if (image_buf == NULL){
-		return;
+		return 0;
 	}
 
 	u8* entries[7];
@@ -532,7 +532,7 @@ u32 instantSaveMenu() {
 
 
 
-u32 cpuClockUi() {
+u32 cpuClockUi(void) {
 	u8 buf[200];
 	acquireVideo();
 	u8* entries[8];
@@ -561,7 +561,7 @@ u32 cpuClockUi() {
 }
 
 
-void plgDoReboot() {
+void plgDoReboot(void) {
 	Handle hNSS = 0;
 	u32 ret;
 	ret = srv_getServiceHandle(NULL, &hNSS, "ns:s");
@@ -582,7 +582,7 @@ void plgDoReboot() {
 
 }
 
-void plgDoPowerOff() {
+void plgDoPowerOff(void) {
 	Handle hNSS = 0;
 	u32 ret;
 	ret = srv_getServiceHandle(NULL, &hNSS, "ns:s");
@@ -604,7 +604,7 @@ void plgDoPowerOff() {
 }
 
 
-u32 powerMenu() {
+u32 powerMenu(void) {
 	acquireVideo();
 	u8* entries[8];
 	u32 r;
@@ -638,7 +638,7 @@ int isGSPPatchRequired = 0;
 u32 gspPatchAddr = 0;
 int bklightValue = 50;
 
-int checkBacklightSupported() {
+int checkBacklightSupported(void) {
 
 	
 	Handle hGSPProcess = 0;
@@ -655,7 +655,7 @@ int checkBacklightSupported() {
 		return 0;
 	}
 	gspPatchAddr = 0x0010740C;
-	copyRemoteMemory(getCurrentProcessHandle(), buf, hGSPProcess, gspPatchAddr, 16);
+	copyRemoteMemory(getCurrentProcessHandle(), buf, hGSPProcess, (void *)gspPatchAddr, 16);
 
 	if (memcmp(buf, desiredHeader, 16) == 0) {
 		goto requirePatch;
@@ -663,7 +663,7 @@ int checkBacklightSupported() {
 
 	// 11.3.0
 	gspPatchAddr = 0x0010743C;
-	copyRemoteMemory(getCurrentProcessHandle(), buf, hGSPProcess, gspPatchAddr, 16);
+	copyRemoteMemory(getCurrentProcessHandle(), buf, hGSPProcess, (void *)gspPatchAddr, 16);
 
 	if (memcmp(buf, desiredHeader, 16) == 0) {
 		goto requirePatch;
@@ -689,7 +689,7 @@ void reliableWriteU8(vu8* addr, u8 data) {
 	}
 }
 
-int patchGSP() {
+int patchGSP(void) {
 	if (!isGSPPatchRequired) {
 		return 0;
 	}
@@ -706,7 +706,7 @@ int patchGSP() {
 }
 
 
-void updateBklight() {
+void updateBklight(void) {
 	u32 t;
 	t = bklightValue * 2;
 	if (bklightValue == 1) {
@@ -735,7 +735,8 @@ void adjustBklight(int adj) {
 	updateBklight();
 }
 
-u32 backlightMenu() {  
+void print(char* s, int x, int y, char r, char g, char b);
+u32 backlightMenu(void) {  
 	if (isGSPPatchRequired) {
 		patchGSP();
 	}
@@ -766,7 +767,7 @@ u32 backlightMenu() {
 	return 1;
 }
 
-u32 nightShiftUi() {
+u32 nightShiftUi(void) {
 	int configUpdated = 0;
 	u8 buf[200];
 	acquireVideo();
@@ -805,7 +806,7 @@ u32 nightShiftUi() {
 	}
 	return 1;
 }
-int screenshotMain() {
+int screenshotMain(void) {
 	u32 retv;
 
 

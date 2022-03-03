@@ -62,7 +62,7 @@ u32 byte_to_bit_string(u8 byte, char* ret, int max_len){
   return 0;
 }*/
 
-u32 byte_to_string(u8 byte, char* ret, int max_len){
+void byte_to_string(u8 byte, char* ret, int max_len){
   if (max_len < 3) return;
   u32 mask = 0x0F;
   u32 i;
@@ -73,10 +73,10 @@ u32 byte_to_string(u8 byte, char* ret, int max_len){
   }
   
   ret[2] = 0x00;
-  return 0;
+  return;
 }
 
-u32 u32_to_string(u32 byte, char* ret, int max_len){
+void u32_to_string(u32 byte, char* ret, int max_len){
   if (max_len < 9) return;
   u32 mask = 0x0000000F;
   u32 i;
@@ -87,7 +87,7 @@ u32 u32_to_string(u32 byte, char* ret, int max_len){
   }
   
   ret[8] = 0x00;
-  return 0;
+  return;
 }
 
 /*int div(int x, int y){

@@ -4,19 +4,6 @@
 
 #include <string.h>
 
-typedef struct HuffmanHeapElem
-{
-    uint32_t val;
-    int name;
-} HuffmanHeapElem;
-
-typedef struct HuffmanEntry
-{
-    uint16_t sym;
-    uint8_t len;
-    uint32_t code;
-} HuffmanEntry;
-
 static inline void count_usage(const uint8_t *src, int src_size, uint32_t *counts)
 {
     const uint8_t *src_end = src + src_size;
@@ -43,12 +30,12 @@ static inline void heap_sift(HuffmanHeapElem *h, int root, int size)
     }
 }
 
-#define rpAllocBuff_h (sizeof(HuffmanHeapElem) * 256)
-#define rpAllocBuff_up (rpAllocBuff_h + sizeof(int) * 2 * 256)
-#define rpAllocBuff_len (rpAllocBuff_up + sizeof(uint8_t) * 2 * 256)
-#define rpAllocBuff_map (rpAllocBuff_len + sizeof(uint16_t) * 256)
+// #define rpAllocBuff_h (sizeof(HuffmanHeapElem) * 256)
+// #define rpAllocBuff_up (rpAllocBuff_h + sizeof(int) * 2 * 256)
+// #define rpAllocBuff_len (rpAllocBuff_up + sizeof(uint8_t) * 2 * 256)
+// #define rpAllocBuff_map (rpAllocBuff_len + sizeof(uint16_t) * 256)
 
-static inline void ff_huff_gen_len_table(uint8_t *alloc, uint8_t *dst, const uint32_t *counts)
+static inline void ff_huff_gen_len_table(struct huffman_alloc_s *alloc, uint8_t *dst, const uint32_t *counts)
 {
     // HuffmanHeapElem *h = HR_MALLOC(sizeof(*h) * 256);
     // int *up = HR_MALLOC(sizeof(*up) * 2 * 256);
@@ -60,10 +47,15 @@ static inline void ff_huff_gen_len_table(uint8_t *alloc, uint8_t *dst, const uin
     // uint8_t *len = alloc + 0x800 + 0x800;
     // uint16_t *map = alloc + 0x800 + 0x800 + 0x200;
 
-    HuffmanHeapElem *h = alloc;
-    int *up = alloc + rpAllocBuff_h;
-    uint8_t *len = alloc + rpAllocBuff_up;
-    uint16_t *map = alloc + rpAllocBuff_len;
+    // HuffmanHeapElem *h = alloc;
+    // int *up = alloc + rpAllocBuff_h;
+    // uint8_t *len = alloc + rpAllocBuff_up;
+    // uint16_t *map = alloc + rpAllocBuff_len;
+
+    HuffmanHeapElem *h = alloc->h;
+    int *up = alloc->up;
+    uint8_t *len = alloc->len;
+    uint16_t *map = alloc->map;
 
     int offset, i, next;
     int size = 0;
@@ -89,9 +81,9 @@ static inline void ff_huff_gen_len_table(uint8_t *alloc, uint8_t *dst, const uin
         for (next = size; next < size * 2 - 1; ++next)
         {
             // merge the two smallest entries, and put it back in the heap
-            uint32_t min1v = h[0].val;
+            uint64_t min1v = h[0].val;
             up[h[0].name] = next;
-            h[0].val = INT32_MAX;
+            h[0].val = INT64_MAX;
             heap_sift(h, 0, size);
             up[h[0].name] = next;
             h[0].name = next;
@@ -132,12 +124,12 @@ static inline int huff_cmp_sym(const void *a, const void *b)
     return aa->sym - bb->sym;
 }
 
-#define rpAllocBuff_counts (rpAllocBuff_map + sizeof(uint32_t) * 256)
-#define rpAllocBuff_he (rpAllocBuff_counts + sizeof(HuffmanEntry) * 256)
+// #define rpAllocBuff_counts (rpAllocBuff_map + sizeof(uint32_t) * 256)
+// #define rpAllocBuff_he (rpAllocBuff_counts + sizeof(HuffmanEntry) * 256)
 
 #include "qsort.h"
 
-static inline void calculate_codes(uint8_t *alloc, HuffmanEntry *he)
+static inline void calculate_codes(struct huffman_alloc_s *alloc, HuffmanEntry *he)
 {
     int last, i;
     uint32_t code;
@@ -187,9 +179,10 @@ static inline int write_huff_codes(uint8_t *dst, const uint8_t *src, int src_siz
     return put_bytes_output(&pb);
 }
 
-uint32_t *huffman_len_table(uint8_t *alloc, uint8_t *dst, const uint8_t *src, int src_size)
+uint32_t *huffman_len_table(struct huffman_alloc_s *alloc, uint8_t *dst, const uint8_t *src, int src_size)
 {
-    uint32_t *counts = alloc + rpAllocBuff_map;
+    // uint32_t *counts = alloc + rpAllocBuff_map;
+    uint32_t *counts = alloc->counts;
 
     memset(counts, 0, sizeof(*counts) * 256);
 
@@ -200,9 +193,10 @@ uint32_t *huffman_len_table(uint8_t *alloc, uint8_t *dst, const uint8_t *src, in
     return counts;
 }
 
-int huffman_encode_with_len_table(uint8_t *alloc, const uint32_t *counts, uint8_t *dst, const uint8_t *src, int src_size)
+int huffman_encode_with_len_table(struct huffman_alloc_s *alloc, const uint32_t *counts, uint8_t *dst, const uint8_t *src, int src_size)
 {
-    HuffmanEntry *he = alloc + rpAllocBuff_counts;
+    // HuffmanEntry *he = alloc + rpAllocBuff_counts;
+    HuffmanEntry *he = alloc->he;
 
     int i;
     for (i = 0; i < 256; ++i)
@@ -218,7 +212,7 @@ int huffman_encode_with_len_table(uint8_t *alloc, const uint32_t *counts, uint8_
     return 256 + ret;
 }
 
-int huffman_encode(uint8_t *alloc, uint8_t *dst, const uint8_t *src, int src_size)
+int huffman_encode(struct huffman_alloc_s *alloc, uint8_t *dst, const uint8_t *src, int src_size)
 {
     // uint32_t *counts = HR_MALLOC(sizeof(*counts) * 256);
     // HuffmanEntry *he = HR_MALLOC(sizeof(*he) * 256);
@@ -245,5 +239,6 @@ int huffman_compressed_size(const uint32_t *counts, const uint8_t *lens)
 int huffman_malloc_usage()
 {
     // should be 0x2200
-    return rpAllocBuff_stack;
+    // return rpAllocBuff_stack;
+    return sizeof(struct huffman_alloc_s);
 }

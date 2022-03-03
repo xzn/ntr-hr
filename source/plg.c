@@ -118,7 +118,7 @@ u32 plgGetIoBase(u32 IoBase) {
 	return 0;
 }
 
-void plgSetHotkeyUi() {
+void plgSetHotkeyUi(void) {
 	u8* entries[8];
 	u32 r;
 	entries[0] = "NTR Menu: X+Y";
@@ -155,7 +155,7 @@ void plgSetHotkeyUi() {
 
 }
 
-int plgTryLoadGamePluginMenu() {
+int plgTryLoadGamePluginMenu(void) {
 	u32 gamePid = g_plgInfo->gamePluginPid;
 	u32 gamePluginMenuAddr = g_plgInfo->gamePluginMenuAddr;
 	if (gamePid == 0) {
@@ -170,7 +170,7 @@ int plgTryLoadGamePluginMenu() {
 	if (ret != 0) {
 		return ret;
 	}
-	ret = copyRemoteMemory(CURRENT_PROCESS_HANDLE, &plgCurrentGamePluginMenu, hProcess, gamePluginMenuAddr, sizeof(GAME_PLUGIN_MENU));
+	ret = copyRemoteMemory(CURRENT_PROCESS_HANDLE, &plgCurrentGamePluginMenu, hProcess, (void *)gamePluginMenuAddr, sizeof(GAME_PLUGIN_MENU));
 	if (ret != 0) {
 		goto final;
 	}
@@ -179,7 +179,8 @@ int plgTryLoadGamePluginMenu() {
 	return ret;
 }
 
-void plgShowGamePluginMenu() {
+int plgUpdateGamePluginMenuState(void);
+void plgShowGamePluginMenu(void) {
 	u8* entries[70], ret;
 	u8* description[70]; 
 		u8* buf;
@@ -222,9 +223,9 @@ void plgShowGamePluginMenu() {
 	}
 }
 
-int plgTryUpdateConfig() {
+int plgTryUpdateConfig(void) {
 	u32 gamePid = g_plgInfo->gamePluginPid;
-	u32 configStart = &(g_plgInfo->nightShiftLevel);
+	u32 configStart = (u32)&(g_plgInfo->nightShiftLevel);
 	u32 configSize = 4;
 
 	if (gamePid == 0) {
@@ -235,7 +236,7 @@ int plgTryUpdateConfig() {
 	if (ret != 0) {
 		return ret;
 	}
-	ret = copyRemoteMemory(hProcess, configStart, CURRENT_PROCESS_HANDLE, configStart, configSize);
+	ret = copyRemoteMemory(hProcess, (void *)configStart, CURRENT_PROCESS_HANDLE, (void *)configStart, configSize);
 	if (ret != 0) {
 		goto final;
 	}
@@ -243,7 +244,7 @@ int plgTryUpdateConfig() {
 	svc_closeHandle(hProcess);
 	return ret;
 }
-int plgUpdateGamePluginMenuState() {
+int plgUpdateGamePluginMenuState(void) {
 	u32 gamePid = g_plgInfo->gamePluginPid;
 	u32 gamePluginMenuAddr = g_plgInfo->gamePluginMenuAddr;
 	if (gamePid == 0) {
@@ -258,7 +259,7 @@ int plgUpdateGamePluginMenuState() {
 	if (ret != 0) {
 		return ret;
 	}
-	ret = copyRemoteMemory(hProcess, gamePluginMenuAddr, CURRENT_PROCESS_HANDLE, &plgCurrentGamePluginMenu, sizeof(plgCurrentGamePluginMenu.state));
+	ret = copyRemoteMemory(hProcess, (void *)gamePluginMenuAddr, CURRENT_PROCESS_HANDLE, &plgCurrentGamePluginMenu, sizeof(plgCurrentGamePluginMenu.state));
 	if (ret != 0) {
 		goto final;
 	}
@@ -267,7 +268,8 @@ int plgUpdateGamePluginMenuState() {
 	return ret;
 }
 
-void plgShowMainMenu() {
+void nsInit(void);
+void plgShowMainMenu(void) {
 	typedef u32(*funcType)();
 	u8* entries[70];
 	u32 entid[70];
@@ -372,7 +374,7 @@ u32 plgEnsurePoolEnd(u32 end) {
 }
 
 
-void tryInitFS() {
+void tryInitFS(void) {
 	u32 ret;
 	if (fsUserHandle) {
 		return;
@@ -388,6 +390,7 @@ void tryInitFS() {
 	nsDbgPrint("fsUserHandle: %08x\n", fsUserHandle);
 }
 
+u32 isInDebugMode(void);
 u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	static Handle hMenuProcess = 0;
 	u32 ret, i;
@@ -503,7 +506,7 @@ u32 svc_RunCallback(Handle hProcess, u32* startInfo) {
 
 
 
-void initFromInjectPM() {
+void initFromInjectPM(void) {
 	u32 ret;
 
 	rtInitHook(&svc_RunHook, ntrConfig->PMSvcRunAddr, (u32)svc_RunCallback);
@@ -546,7 +549,7 @@ u32 plgListPlugins(u32* entries, u8* buf, u8* path)  {
 	return entryCount;
 }
 
-u32 plgStartPluginLoad() {
+u32 plgStartPluginLoad(void) {
 	g_plgInfo->plgCount = 0;
 	plgNextLoadAddr = plgLoadStart;
 	g_plgInfo->arm11BinStart = arm11BinStart;
@@ -603,7 +606,7 @@ u32 plgLoadPluginsFromDirectory(u8* dir) {
 	cnt = plgListPlugins(entries, buf, path);
 
 	for (i = 0; i < cnt; i++) {
-		if (!plgIsValidPluginFile(entries[i])) {
+		if (!plgIsValidPluginFile((u8 *)entries[i])) {
 			continue;
 		}
 		xsprintf(pluginPath, "%s/%s", path, entries[i]);
@@ -650,7 +653,7 @@ u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	return ((aptPrepareToStartApplicationTypeDef)((void*)(aptPrepareToStartApplicationHook.callCode)))(a1, a2, a3);
 }
 
-void injectPM() {
+void injectPM(void) {
 	NS_CONFIG cfg;
 	u32 pid = ntrConfig->PMPid, ret;
 	Handle hProcess;
@@ -671,7 +674,7 @@ void injectPM() {
 	}
 }
 
-void startHomePlugin() {
+void startHomePlugin(void) {
 	typedef void(*funcType)();
 	u32 totalSize, i;
 	totalSize = plgNextLoadAddr - plgLoadStart;
@@ -689,7 +692,7 @@ void startHomePlugin() {
 
 
 
-void plgInitFromInjectHOME() {
+void plgInitFromInjectHOME(void) {
 	u32 base = plgPoolStart;
 	u32 ret;
 
@@ -719,7 +722,7 @@ void plgInitFromInjectHOME() {
 	arm11BinStart = base;
 	base += arm11BinSize;
 	if (arm11BinSize > 32) {
-		u32* bootArgs = arm11BinStart + 4;
+		u32* bootArgs = (u32*)(arm11BinStart + 4);
 		bootArgs[0] = 1;
 	}
 
@@ -878,7 +881,7 @@ final:
 	return ret;
 }
 
-void plgInitScreenOverlay() {
+void plgInitScreenOverlay(void) {
 	if (plgOverlayStatus) {
 		return;
 	}
@@ -908,13 +911,13 @@ void plgInitScreenOverlay() {
 		
 		return;
 	}
-	rtInitHook(&SetBufferSwapHook, fp, plgSetBufferSwapCallback);
+	rtInitHook(&SetBufferSwapHook, fp, (u32)plgSetBufferSwapCallback);
 	rtEnableHook(&SetBufferSwapHook);
 	plgOverlayStatus = 1;
 
 }
 
-void initFromInjectGame() {
+void initFromInjectGame(void) {
 	typedef void(*funcType)();
 	u32 i, ret;
 

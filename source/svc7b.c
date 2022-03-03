@@ -22,7 +22,7 @@ void keDumpHandle(u32 pKProcess, u32* buf){
 
 u32* translateAddress(u32 addr) {
 	if (addr < 0x1ff00000) {
-		return addr - 0x1f3f8000 + 0xfffdc000;
+		return (u32*)(addr - 0x1f3f8000 + 0xfffdc000);
 	}
 	return (u32*)(addr - 0x1ff00000 + 0xdff00000);
 
@@ -107,7 +107,9 @@ void set_remoteplay_mmu(u32 addr, u32 size) {
 	}
 }
 
-void keDoKernelHax() {
+void InvalidateEntireInstructionCache(void);
+void InvalidateEntireDataCache(void);
+void keDoKernelHax(void) {
 	// set mmu
 	
 	set_kmmu_rw(0, ntrConfig->KMMUHaxAddr, ntrConfig->KMMUHaxSize);
@@ -123,11 +125,11 @@ void keDoKernelHax() {
 	*(u32*)(ntrConfig->ControlMemoryPatchAddr2) = 0;
 
 	if (ntrConfig->KernelFreeSpaceAddr_Optional) {
-		u32* addr = ntrConfig->KernelFreeSpaceAddr_Optional;
+		u32* addr = (u32 *)ntrConfig->KernelFreeSpaceAddr_Optional;
 		addr[0] = 0xe10f0000;
 		addr[1] = 0xe38000c0;
 		addr[2] = 0xe129f000;
-		rtGenerateJumpCode(kernelCallback, &addr[3]);
+		rtGenerateJumpCode((u32)kernelCallback, &addr[3]);
 		currentBackdoorHandler = (void*)(addr);
 	}
 
@@ -140,7 +142,7 @@ void keDoKernelHax() {
 void remotePlayKernelCallback(int isTop);
 
 void kernelCallback(u32 msr) {
-	typedef (*keRefHandleType)(u32, u32);
+	typedef u32(*keRefHandleType)(u32, u32);
 	
 	//keRefHandleType keRefHandle = (keRefHandleType)0xFFF67D9C;
 	
@@ -204,7 +206,7 @@ void kSetCurrentKProcess(u32 ptr) {
 	svc_backDoor(currentBackdoorHandler);
 }
 
-u32 kGetCurrentKProcess() {
+u32 kGetCurrentKProcess(void) {
 	kernelArgs[0] = 3;
 	svc_backDoor(currentBackdoorHandler);
 	return kernelArgs[1];
@@ -225,26 +227,26 @@ void kmemcpy(void* dst, void* src, u32 size) {
 	svc_backDoor(currentBackdoorHandler);
 }
 
-void kDoKernelHax() {
+void kDoKernelHax(void) {
 	kernelArgs[0] = 6;
 
 	svc_backDoor(currentBackdoorHandler);
 }
 
-// Use own variable since multithreading, just in case
-static int rpKernelCallbackisTop;
-void remotePlayKernelCallback2(void) {
-	remotePlayKernelCallback(rpKernelCallbackisTop);
+// Use own variable since multithreading
+// can call from separate thread from rest of the functions here
+// obviously still cannot be called by multiple threads at the same time
+static int kRemotePlayKernelCallback_top_bot;
+static void kRemotePlayKernelCallback(void) {
+	remotePlayKernelCallback(kRemotePlayKernelCallback_top_bot);
 }
 
-void kRemotePlayCallback(int isTop) {
+void kRemotePlayCallback(int top_bot) {
 	// kernelArgs[0] = 7;
 	// kernelArgs[1] = (u32)isTop;
 
 	// svc_backDoor(currentBackdoorHandler);
 
-	rpKernelCallbackisTop = isTop;
-	svc_backDoor(remotePlayKernelCallback2);
+	kRemotePlayKernelCallback_top_bot = top_bot;
+	svc_backDoor(kRemotePlayKernelCallback);
 }
-
-

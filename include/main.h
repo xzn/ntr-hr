@@ -6,6 +6,7 @@
 
 void createpad(void *counter, void *keyY, void *filename, u32 megabytes, u8 padnum);
 int main();
+void disp(u32 t, u32 cl) ;
 
 extern u32 IoBasePad;
 extern u32 IoBaseLcd;
