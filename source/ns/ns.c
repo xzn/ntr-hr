@@ -225,7 +225,7 @@ static struct RP_CTX {
 
 	RP_CONFIG cfg;
 
-	s8 multicore_encode, priority_screen, dynamic_priority, priority_factor, interlace;
+	s8 multicore_encode, triple_buffer_encode, priority_screen, dynamic_priority, priority_factor, interlace;
 	u64 min_send_interval_in_ticks, last_send_tick, last_kcp_send_tick;
 	u8 hr_frame_id[2];
 	u8 nwm_frame_id[2];
@@ -2632,7 +2632,7 @@ void remotePlaySendFrames(void) {
 		"%s%s%s%s%s%s%s%s%s%s\n",
 		rp_ctx->priority_screen, rp_ctx->priority_factor, rp_ctx->cfg.qos,
 		(rp_ctx->cfg.flags & RP_FRAME_DELTA) ? ", use frame delta" : "",
-		(rp_ctx->cfg.flags & RP_TRIPLE_BUFFER_ENCODE) ? ", use frame delta" : "",
+		(rp_ctx->cfg.flags & RP_TRIPLE_BUFFER_ENCODE) ? ", triple buffer encode" : "",
 		(rp_ctx->cfg.flags & RP_SELECT_PREDICTION) ? ", select prediction" : "",
 		(rp_ctx->cfg.flags & RP_DYNAMIC_DOWNSAMPLE) ? ", use dynamic encode" : "",
 		(rp_ctx->cfg.flags & RP_RLE_ENCODE) ? ", use rle encode" : "",
@@ -2797,6 +2797,7 @@ void remotePlayThreadStart(u32 arg) {
 
 		rp_ctx->nwm_thread_exit = 0;
 		rp_ctx->multicore_encode = !!(rp_ctx->cfg.flags & RP_MULTICORE_ENCODE);
+		rp_ctx->triple_buffer_encode = !!(rp_ctx->cfg.flags & RP_TRIPLE_BUFFER_ENCODE);
 		ret = svc_createThread(&rp_ctx->send_thread, rpSendDataThread, 0, (u32 *)&rp_ctx->send_thread_stack[RP_dataStackSize - 40], 0x8, rp_ctx->cfg.flags & RP_MULTICORE_NETWORK ? 3 : 2);
 		if (ret != 0) {
 			nsDbgPrint("Create rpSendDataThread Failed: %08x\n", ret);
