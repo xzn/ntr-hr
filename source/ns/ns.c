@@ -706,19 +706,22 @@ void rpDbg(const char* fmt, ...) {
 	va_end(arp);
 }
 
+// #define rshift_to_even(n, s) ({ typeof(n) n_ = n >> (s - 1); u8 b_ = n_ & 1; n_ >>= 1; u8 c_ = n_ & 1; n_ + (b_ & c_); })
+#define rshift_to_even(n, s) ((n + (1 << (s - 1))) >> s)
+
 static void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
 	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
 	u16 u = -43 * (u16)r + -84 * (u16)g + 127 * (u16)b;
 	u16 v = 127 * (u16)r + -106 * (u16)g + -21 * (u16)b;
 
 	if (rp_ctx->cfg.flags & RP_YUV_LQ) {
-		*y_out = (y + 512) >> 10;
-		*u_out = (((u + 1024) >> 11) + 16) % 32;
-		*v_out = (((v + 1024) >> 11) + 16) % 32;
+		*y_out = rshift_to_even(y, 10);
+		*u_out = (rshift_to_even(u, 11) + 16) % 32;
+		*v_out = (rshift_to_even(v, 11) + 16) % 32;
 	} else {
-		*y_out = (y + 128) >> 8;
-		*u_out = ((u + 128) >> 8) + 128;
-		*v_out = ((v + 128) >> 8) + 128;
+		*y_out = rshift_to_even(y, 8);
+		*u_out = rshift_to_even(u, 8) + 128;
+		*v_out = rshift_to_even(v, 8) + 128;
 	}
 }
 
@@ -789,7 +792,8 @@ static u16 accessImageDownsampleUnscaled(const u8 *image, int x, int y, int w, i
 
 // x and y are % 2 == 0, see accessImageDownsampleUnscaled
 static u8 accessImageDownsample(const u8 *image, int x, int y, int w, int h) {
-	return (accessImageDownsampleUnscaled(image, x, y, w, h) + 2) / 4;
+	u16 p = accessImageDownsampleUnscaled(image, x, y, w, h);
+	return rshift_to_even(p, 2);
 }
 
 static void downsampleImage(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
@@ -845,8 +849,9 @@ static u16 accessImageUpsampleUnscaled(const u8 *ds_image, int xOrig, int yOrig,
 	return a;
 }
 
-static u16 accessImageUpsample(const u8 *ds_image, int xOrig, int yOrig, int wOrig, int hOrig) {
-	return (accessImageUpsampleUnscaled(ds_image, xOrig, yOrig, wOrig, hOrig) + 8) / 16;
+static u8 accessImageUpsample(const u8 *ds_image, int xOrig, int yOrig, int wOrig, int hOrig) {
+	u16 p = accessImageUpsampleUnscaled(ds_image, xOrig, yOrig, wOrig, hOrig);
+	return rshift_to_even(p, 4);
 }
 
 static void upsampleImage(u8 *dst, const u8 *ds_src, int w, int h) {
