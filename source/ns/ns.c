@@ -25,9 +25,6 @@
 NS_CONTEXT* g_nsCtx = 0;
 NS_CONFIG* g_nsConfig;
 
-// u32 heapStart, heapEnd;
-
-
 void doSendDelay(u32 time) {
 	vu32 i;
 	for (i = 0; i < time; i++) {
@@ -54,11 +51,12 @@ void tje_log(char* str) {
 #define BITS_PER_BYTE 8
 #define ENCODE_SELECT_MASK_X_SCALE 1
 #define ENCODE_SELECT_MASK_Y_SCALE 8
+#define ENCODE_SELECT_MASK_STRIDE(h) \
+    (((h) + (ENCODE_SELECT_MASK_Y_SCALE * BITS_PER_BYTE) - 1) / (ENCODE_SELECT_MASK_Y_SCALE * BITS_PER_BYTE))
 #define ENCODE_SELECT_MASK_SIZE(w, h) \
-	((h + (ENCODE_SELECT_MASK_Y_SCALE * BITS_PER_BYTE) - 1) / (ENCODE_SELECT_MASK_Y_SCALE * BITS_PER_BYTE) * \
-	(w + ENCODE_SELECT_MASK_X_SCALE - 1) / ENCODE_SELECT_MASK_X_SCALE)
+    (ENCODE_SELECT_MASK_STRIDE(h) * (((w) + ENCODE_SELECT_MASK_X_SCALE - 1) / ENCODE_SELECT_MASK_X_SCALE))
 
-#define ENCODE_UPSAMPLE_CARRY_SIZE(w, h) ((h + BITS_PER_BYTE - 1) / BITS_PER_BYTE * w)
+#define ENCODE_UPSAMPLE_CARRY_SIZE(w, h) (((h) + BITS_PER_BYTE - 1) / BITS_PER_BYTE * (w))
 
 RT_HOOK nwmValParamHook;
 
@@ -112,15 +110,6 @@ struct RP_DATA2_HEADER {
 #define RP_BOT_DATA2_MAX_SIZE_1 (ENCODE_SELECT_MASK_SIZE(320, 240))
 #define HR_DST_SIZE_BOT (76800 + rle_max_compressed_size(76800) + sizeof(struct RP_DATA_HEADER) + \
 	RP_BOT_DATA2_MAX_SIZE_1 + rle_max_compressed_size(RP_BOT_DATA2_MAX_SIZE_1) + sizeof(struct RP_DATA2_HEADER))
-
-// #define RP_MODE_TOP_BOT_10X 0
-// #define RP_MODE_TOP_BOT_5X 1
-// #define RP_MODE_TOP_BOT_1X 2
-// #define RP_MODE_BOT_TOP_5X 3
-// #define RP_MODE_BOT_TOP_10X 4
-// #define RP_MODE_TOP_ONLY 5
-// #define RP_MODE_BOT_ONLY 6
-// #define RP_MODE_3D 10
 
 #define I_N top
 #define I_WIDTH 400
@@ -176,8 +165,7 @@ struct ENC_il_CTX {
 
 struct RP_NETWORK_PARAMS {
 	u32 targetBitsPerSec;
-	u32 qualityFactorNum;
-	u32 qualityFactorDenum;
+	u32 targetFrameRate;
 	u32 bitsPerFrame;
 	u32 bitsPerY;
 	u32 bitsPerUV;
@@ -248,6 +236,7 @@ static struct RP_CTX {
 	Handle tr2_done_sem;
 	Handle tr2_avai_sem;
 	int tr2_src_size;
+	s32 frame_done_n[2];
 
 	u32 fb_addr[2][2];
 	u32 fb_format[2];
@@ -259,61 +248,9 @@ static struct RP_CTX {
 static int rp_recv_sock = -1;
 static u8 rp_control_ready = 0;
 
-// u8* rpAllocBuff;
-// u8* rpBotAllocBuff;
-// u32 rpAllocBuffOffset = 0;
-// u32 rpAllocBuffRemainSize = 0;
-// RP_CONFIG rpConfig;
-// int rpAllocDebug = 0;
-// u64 rp_ctx->min_send_interval_in_ticks = 0;
-// int rp_recv_sock = -1;
-
 #define SYSTICK_PER_US (268)
 #define SYSTICK_PER_MS (268123)
 #define SYSTICK_PER_SEC 268123480
-
-/*
-extern u8* dbgBuf;
-void rpSendString(u32 size);
-void rpDbg(const char* fmt, ...);
-*/
-
-/*
-void*  rpMalloc( u32 size)
-
-{
-	void* ret = rpAllocBuff + rpAllocBuffOffset;
-	u32 totalSize = size;
-	if (totalSize % 32 != 0) {
-		totalSize += 32 - (totalSize % 32);
-	}
-	if (rpAllocBuffRemainSize < totalSize) {
-		xsprintf(dataBuf, "bad alloc,  size: %d\n", size);
-		rpSendString(strlen(dataBuf));
-
-		nsDbgPrint("bad alloc,  size: %d\n", size);
-		if (rpAllocDebug) {
-			showDbg("bad alloc,  size: %d\n", size, 0);
-		}
-		return 0;
-	}
-	rpAllocBuffOffset += totalSize;
-	rpAllocBuffRemainSize -= totalSize;
-	// memset(ret, 0, totalSize);
-	nsDbgPrint("alloc size: %d, ptr: %08x\n", size, ret);
-	if (rpAllocDebug) {
-		showDbg("alloc size: %d, ptr: %08x\n", size, ret);
-	}
-	return ret;
-}
-
-void  rpFree(void* ptr)
-{
-	nsDbgPrint("free: %08x\n", ptr);
-	return;
-}
-*/
-
 
 void nsDbgPutc(char ch) {
 
@@ -367,105 +304,6 @@ int nsRecvPacketData(u8* buf, u32 size) {
 	g_nsCtx->remainDataLen -= size;
 	rtRecvSocket(g_nsCtx->hSocket, buf, size);
 }
-
-extern u8 *image_buf;
-void allocImageBuf();
-
-/*
-void remotePlayMain2(void) {
-int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
-struct sockaddr_in addr;
-int ret, i;
-
-if (udp_sock < 0) {
-nsDbgPrint("socket failed: %d", udp_sock);
-return;
-}
-addr.sin_family = AF_INET;
-addr.sin_port = rtIntToPortNumber(9001);
-addr.sin_addr.s_addr = 0x6602a8c0;  // __builtin_bswap32(0xc0a80266);
-
-nsDbgPrint("bind done 22");
-allocImageBuf();
-while (1) {
-ret = sendto(udp_sock, image_buf, 1300, 0, &addr, sizeof(addr));
-}
-
-final:
-closesocket(udp_sock);
-}
-
-
-u32 nwmSocPutFrameRaw(Handle handle, u8* frame, u32 size) {
-u32* cmdbuf = getThreadCommandBuffer();
-u32 ret;
-cmdbuf[0] = 0x10042;
-cmdbuf[1] = size;
-cmdbuf[2] = (((u32)size) << 14) | 2;
-cmdbuf[3] = frame;
-ret = svc_sendSyncRequest(handle);
-if (ret != 0) {
-return ret;
-}
-return cmdbuf[1];
-}*/
-
-// int rp_ctx->multicore_encode;
-// u32 rp_ctx->priority_screen;
-// u8 *rp_ctx->nwm_send_buf;
-// u8* rpThreadStack;
-// u8* rp_ctx->enc_thread[1]Stack;
-// u8* rp_ctx->enc_thread[1]TransferStack;
-// u8* rpDataThreadStack;
-// u8* umm_malloc_heap_addr;
-// u8* rpWorkBufferEnd;
-// Handle rp_ctx->enc_done_sem[0];
-// Handle rp_ctx->enc_avai_sem[0];
-// Handle rp_ctx->enc_done_sem[1];
-// Handle rp_ctx->enc_avai_sem[1];
-// int rp_ctx->nwm_thread_exit;
-// int rp_ctx->enc_thread_exit;
-// Handle rp_ctx->kcp_mutex;
-
-// Handle rpThread;
-// Handle rp_ctx->enc_thread[1];
-// Handle rp_ctx->enc_thread[1]Transfer;
-// Handle rp_ctx->send_thread;
-// Handle rp_ctx->tr2_done_sem;
-// Handle rp_ctx->tr2_avai_sem;
-// u8 rpDbgBuffer[2000] = { 0 };
-// u8* dbgBuf = rpDbgBuffer + 0x2a + 8;
-// u8* rpImgBuffer;
-// u8* rpBotImgBuffer;
-// #define HR_WORK_BUFFER_COUNT 2
-// u8* rp_work_dst[HR_WORK_BUFFER_COUNT];
-// u8* rp_ctx->nwm_src[0][HR_WORK_BUFFER_COUNT];
-// u32 rp_ctx->nwm_len[0][HR_WORK_BUFFER_COUNT];
-
-// u8* rp_work_bot_dst[HR_WORK_BUFFER_COUNT];
-// u8* rp_ctx->nwm_src[1][HR_WORK_BUFFER_COUNT];
-// u32 rp_ctx->nwm_len[1][HR_WORK_BUFFER_COUNT];
-// int topFormat = 0, bottomFormat = 0;
-// int frameSkipA = 1, frameSkipB = 1;
-// u32 requireUpdateBottom = 0;
-// u32 currentTopId = 0;
-// u32 currentBottomId = 0;
-
-#define RP_TARGET_FRAME_RATE 45
-// Prioritized screen target frame rate
-#define RP_TARGET_PSCREEN_FRAME_RATE 30
-
-// static u64 *rp_ctx->tick_at_frame;
-// static int rp_ctx->tick_at_frame_i;
-// static int rp_ctx->dynamic_priority;
-// static u32 rp_ctx->priority_factor;
-
-// static u32 rp_ctx->fb_addr[0][2];
-// static u32 rp_ctx->fb_addr[1][2];
-// static u32 rp_ctx->fb_format[0], rp_ctx->fb_format[1];
-// static u32 rp_ctx->fb_pitch[0], rp_ctx->fb_pitch[1];
-// u32 rp_ctx->fb_current[0], rp_ctx->fb_current[1];
-
 
 typedef u32(*sendPacketTypedef) (u8*, u32);
 sendPacketTypedef nwmSendPacket = 0;
@@ -551,42 +389,20 @@ int getBppForFormat(int format) {
 	return bpp;
 }
 typedef struct _BLIT_CONTEXT {
-	// int width, height;
 	int format, src_pitch;
-	// int x, y;
+
 	u8* src;
 	int src_size;
-	// is_key - current frame is key
-	// force_key - request current frame to be key
-	// nextKey - next (half) frame is key
+
 	int is_key, force_key, nextKey;
-	// int outformat;
+
 	int bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
 
-	// u8* transformDst; // Y
-	// u8* transformDst2; // UV
-	// u8* transformDst3; // YUV mask for frame delta
-	// u32 dst_size;
-	// u32 dst2_size;
-	// u32 dst3_size;
-	// u8* compressDst;
-	// u32 compressedSize;
-
 	u8 id;
 	u8 top_bot;
-	// u8 frameCount;
-	// u32 lastSize;
-
-	// int reset;
-	// int directCompress;
 } BLIT_CONTEXT;
-// #define RP_TRANSFORM_DST_OFFSET 0x00200000
-// #define RP_BOT_SRC_OFFSET 0x00300000
-// #define RP_TRANSFORM_DST_MC_TOP_OFFSET 0x00200000
-// #define RP_TRANSFORM_DST_MC_BOT_OFFSET 0x00480000
-
 static void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pitch, u8* src, int src_size) {
 
 	format &= 0x0f;
@@ -600,23 +416,11 @@ static void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int for
 	ctx->bytesInColumn = ctx->bpp * height;
 	ctx->blankInColumn = src_pitch - ctx->bytesInColumn;
 	ctx->format = format;
-	// ctx->width = width;
-	// ctx->height = height;
+
 	ctx->src_pitch = src_pitch;
 	ctx->src = src;
 	ctx->src_size = HR_MAX(src_size, 0);
-	// ctx->x = 0;
-	// ctx->y = 0;
-	// if (ctx->bpp == 2) {
-	// 	ctx->outformat = format;
-	// }
-	// else {
-	// 	ctx->outformat = GL_RGB565_LE;
-	// }
-	// ctx->compressDst = 0;
-	// ctx->compressedSize;
-	// ctx->frameCount = 0;
-	// ctx->lastSize = 0;
+
 	ctx->is_key = !(rp_ctx->cfg.flags & RP_FRAME_DELTA) || ctx->force_key;
 	ctx->force_key = 0;
 
@@ -630,65 +434,6 @@ static void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int for
 		}
 	}
 }
-
-
-
-
-// static u64 rp_ctx->last_send_tick = 0;
-// static u64 rp_ctx->last_kcp_send_tick = 0;
-// static int rp_ctx->kcp_restart = 0;
-
-/*
-void rpSendBuffer(u8* buf, u32 size, u32 flag) {
-	if (rpAllocDebug) {
-		showDbg("sendbuf: %08x, %d", buf, size);
-		return;
-	}
-	vu64 tickDiff;
-	vu64 sleepValue;
-	while (size) {
-		tickDiff = svc_getSystemTick() - rp_ctx->last_send_tick;
-		if (tickDiff < rp_ctx->min_send_interval_in_ticks) {
-			sleepValue = ((rp_ctx->min_send_interval_in_ticks - tickDiff) * 1000) / SYSTICK_PER_US;
-			svc_sleepThread(sleepValue);
-		}
-		u32 sendSize = size;
-		if (sendSize > (PACKET_SIZE - 4)) {
-			sendSize = (PACKET_SIZE - 4);
-		}
-		size -= sendSize;
-		if (size == 0) {
-			dataBuf[1] |= flag;
-		}
-		memcpy(dataBuf + 4, buf, sendSize);
-		packetLen = initUDPPacket(sendSize + 4, REMOTE_PLAY_PORT);
-		nwmSendPacket(remotePlayBuffer, packetLen);
-		buf += sendSize;
-		dataBuf[3] += 1;
-		rp_ctx->last_send_tick = svc_getSystemTick();
-	}
-}
-*/
-
-/*
-void rpSendString(u32 size) {
-	int packetLen = initUDPPacket(rpDbgBuffer, size, RP_DBG_PORT);
-	nwmSendPacket(rpDbgBuffer, packetLen);
-}
-
-void rpDbg(const char* fmt, ...)
-{
-	if (!(rp_ctx->cfg.flags & RP_DEBUG))
-		return;
-
-	va_list arp;
-	va_start(arp, fmt);
-	xvsprintf(dbgBuf, fmt, arp);
-	va_end(arp);
-
-	rpSendString(strlen(dbgBuf));
-}
-*/
 
 void rpDbg(const char* fmt, ...) {
 	if (!(rp_ctx->cfg.flags & RP_DEBUG))
@@ -707,7 +452,8 @@ void rpDbg(const char* fmt, ...) {
 }
 
 // #define rshift_to_even(n, s) ({ typeof(n) n_ = n >> (s - 1); u8 b_ = n_ & 1; n_ >>= 1; u8 c_ = n_ & 1; n_ + (b_ & c_); })
-#define rshift_to_even(n, s) ((n + (1 << (s - 1))) >> s)
+#define rshift_to_even(n, s) ((n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
+// #define rshift_to_even(n, s) ((n + (1 << (s - 1))) >> s)
 
 static void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
 	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
@@ -796,6 +542,56 @@ static u8 accessImageDownsample(const u8 *image, int x, int y, int w, int h) {
 	return rshift_to_even(p, 2);
 }
 
+// x % 2 == 0
+static u8 accessImageDownsampleH(const u8 *image, int x, int y, int w, int h) {
+	int x0 = x; // / 2 * 2;
+	int x1 = x0 + 1;
+
+	// x1 = x1 >= w ? w - 1 : x1;
+	// y1 = y1 >= h ? h - 1 : y1;
+
+	u8 a = accessImageNoCheck(image, x0, y, w, h);
+	u8 b = accessImageNoCheck(image, x1, y, w, h);
+
+	u16 c = a + b;
+	return rshift_to_even(c, 1);
+}
+
+// y % 2 == 0
+static u8 accessImageDownsampleV(const u8 *image, int x, int y, int w, int h) {
+	int y0 = y; // / 2 * 2;
+	int y1 = y0 + 1;
+
+	// x1 = x1 >= w ? w - 1 : x1;
+	// y1 = y1 >= h ? h - 1 : y1;
+
+	u8 a = accessImageNoCheck(image, x, y0, w, h);
+	u8 b = accessImageNoCheck(image, x, y1, w, h);
+
+	u16 c = a + b;
+	return rshift_to_even(c, 1);
+}
+
+static void downsampleImageH(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
+	int i = 0, j = 0;
+	for (; i < wOrig; i += 2) {
+		j = 0;
+		for (; j < hOrig; ++j) {
+			*ds_dst++ = accessImageDownsampleH(src, i, j, wOrig, hOrig);
+		}
+	}
+}
+
+static void downsampleImageV(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
+	int i = 0, j = 0;
+	for (; i < wOrig; ++i) {
+		j = 0;
+		for (; j < hOrig; j += 2) {
+			*ds_dst++ = accessImageDownsampleV(src, i, j, wOrig, hOrig);
+		}
+	}
+}
+
 static void downsampleImage(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
 	int i = 0, j = 0;
 	for (; i < wOrig; i += 2) {
@@ -803,6 +599,69 @@ static void downsampleImage(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
 		for (; j < hOrig; j += 2) {
 			*ds_dst++ = accessImageDownsample(src, i, j, wOrig, hOrig);
 		}
+	}
+}
+
+static void upsampleFDCImageH(u8 *ds_dst, u8 *ds_c_dst, u8 *ds_c_dst_end, const u8 *src, const u8 *ds_src, int w, int h) {
+	int i = 0, ds_w = w / 2, ds_x = 0, i_1 = i + 1, mask = 0;
+	int j, n;
+	memset(ds_c_dst, 0, ds_c_dst_end - ds_c_dst);
+	for (; i < w; i += 2, i_1 += 2, ++ds_x) {
+		n = j = 0;
+		for (; j < h; ++j) {
+			u8 d = accessImageNoCheck(ds_src, ds_x, j, ds_w, h);
+			u8 a = accessImageNoCheck(src, i, j, w, h);
+			u8 b = accessImageNoCheck(src, i_1, j, w, h);
+			*ds_dst++ = a - d;
+			u8 c = (a + b) & 1;
+			c <<= n++;
+			mask |= c;
+			n %= BITS_PER_BYTE;
+			if (n == 0) {
+				*ds_c_dst++ = mask;
+				mask = 0;
+			}
+		}
+
+		if (n != 0) {
+			*ds_c_dst++ = mask;
+			mask = 0;
+		}
+	}
+	if (ds_c_dst > ds_c_dst_end) {
+		nsDbgPrint("upsampleFDCImageH size error %d\n", ds_c_dst - ds_c_dst_end);
+	}
+}
+
+static void upsampleFDCImageV(u8 *ds_dst, u8 *ds_c_dst, u8 *ds_c_dst_end, const u8 *src, const u8 *ds_src, int w, int h) {
+	int i = 0, ds_h = h / 2, mask = 0;
+	int j, ds_y, j_1, n;
+	memset(ds_c_dst, 0, ds_c_dst_end - ds_c_dst);
+	for (; i < w; ++i) {
+		n = j = ds_y = 0;
+		j_1 = j + 1;
+		for (; j < h; j += 2, j_1 += 2, ++ds_y) {
+			u8 d = accessImageNoCheck(ds_src, i, ds_y, w, ds_h);
+			u8 a = accessImageNoCheck(src, i, j, w, h);
+			u8 b = accessImageNoCheck(src, i, j_1, w, h);
+			*ds_dst++ = a - d;
+			u8 c = (a + b) & 1;
+			c <<= n++;
+			mask |= c;
+			n %= BITS_PER_BYTE;
+			if (n == 0) {
+				*ds_c_dst++ = mask;
+				mask = 0;
+			}
+		}
+
+		if (n != 0) {
+			*ds_c_dst++ = mask;
+			mask = 0;
+		}
+	}
+	if (ds_c_dst > ds_c_dst_end) {
+		nsDbgPrint("upsampleFDCImageH size error %d\n", ds_c_dst - ds_c_dst_end);
 	}
 }
 
@@ -909,6 +768,7 @@ static void selectImage(u8 *s_dst, u8 *m_dst, u8 *m_dst_end, u8 *p_fd, const u8 
 	u16 sum_p_fd, sum_p;
 	u8 mask_bit, mask = 0;
 	int x = 0, y, i, j, n;
+	memset(m_dst, 0, m_dst_end - m_dst);
 	while (1) {
 		n = y = 0;
 		while (1) {
@@ -954,8 +814,6 @@ static void selectImage(u8 *s_dst, u8 *m_dst, u8 *m_dst_end, u8 *p_fd, const u8 
 	}
 	if (m_dst > m_dst_end) {
 		nsDbgPrint("selectImage size error %d\n", m_dst - m_dst_end);
-	} else {
-		memset(m_dst, 0, m_dst_end - m_dst);
 	}
 }
 
@@ -967,36 +825,29 @@ typedef struct _COMPRESS_CONTEXT {
 	u32 max_compressed_size;
 } COMPRESS_CONTEXT;
 
-// static struct RP_NETWORK_PARAMS rp_ctx->network_params;
-
-// u8 rpFrameId;
-// u8 rpBotFrameId;
 static void rpSendData(int top_bot, u8* data, u32 size) {
 	rp_ctx->nwm_src[top_bot][rp_ctx->hr_frame_id[top_bot]] = data;
 	rp_ctx->nwm_len[top_bot][rp_ctx->hr_frame_id[top_bot]] = size;
 	rp_ctx->hr_frame_id[top_bot] = (rp_ctx->hr_frame_id[top_bot] + 1) % 2;
 }
 
-// u8 rpControlPacketId;
-
 #define RP_CONTROL_TOP_KEY (1 << 0)
 #define RP_CONTROL_BOT_KEY (1 << 1)
-
-// u8 rp_ctx->top_force_key;
-// u8 rp_ctx->bot_force_key;
 
 void rpControlRecvHandle(u8* buf, int buf_size) {
 	if (*buf & RP_CONTROL_TOP_KEY) {
 		// rpDbg("force top key frame requested\n");
 		rp_ctx->force_key[0] = 1;
-		svc_flushProcessDataCache(rp_ctx->enc_thread[0], (u32)&rp_ctx->force_key[0], sizeof(rp_ctx->force_key[0]));
-		svc_flushProcessDataCache(rp_ctx->enc_thread[1], (u32)&rp_ctx->force_key[0], sizeof(rp_ctx->force_key[0]));
+		// svc_flushProcessDataCache(rp_ctx->enc_thread[0], (u32)&rp_ctx->force_key[0], sizeof(rp_ctx->force_key[0]));
+		// svc_flushProcessDataCache(rp_ctx->enc_thread[1], (u32)&rp_ctx->force_key[0], sizeof(rp_ctx->force_key[0]));
+		__dmb();
 	}
 	if (*buf & RP_CONTROL_BOT_KEY) {
 		// rpDbg("force bot key frame requested\n");
 		rp_ctx->force_key[1] = 1;
-		svc_flushProcessDataCache(rp_ctx->enc_thread[0], (u32)&rp_ctx->force_key[1], sizeof(rp_ctx->force_key[1]));
-		svc_flushProcessDataCache(rp_ctx->enc_thread[1], (u32)&rp_ctx->force_key[1], sizeof(rp_ctx->force_key[1]));
+		// svc_flushProcessDataCache(rp_ctx->enc_thread[0], (u32)&rp_ctx->force_key[1], sizeof(rp_ctx->force_key[1]));
+		// svc_flushProcessDataCache(rp_ctx->enc_thread[1], (u32)&rp_ctx->force_key[1], sizeof(rp_ctx->force_key[1]));
+		__dmb();
 	}
 }
 
@@ -1032,15 +883,6 @@ struct RP_PACKET_HEADER {
 	u32 len;
 };
 
-// static u32 rpPacketId;
-// static u32 rp_ctx->data_header_id[0][0];
-// static u32 rp_ctx->data_header_id[0][1];
-// static u32 rp_ctx->data_header_id[1][0];
-// static u32 rp_ctx->data_header_id[1][1];
-
-// u8 rp_ctx->nwm_frame_id[0];
-// u8 rp_ctx->nwm_frame_id[1];
-// ikcpcb *rp_ctx->kcp;
 extern const IUINT32 IKCP_OVERHEAD;
 #define HR_KCP_MAGIC 0x12345fff
 #define KCP_SOCKET_TIMEOUT 10
@@ -1054,7 +896,7 @@ static int rpDynPrioGetScreen(void) {
 	++dyn_prio->frame_n;
 
 	if (rp_ctx->dynamic_priority) {
-		if (dyn_prio->frame_rate > RP_TARGET_PSCREEN_FRAME_RATE * (rp_ctx->priority_factor + 1) / rp_ctx->priority_factor) {
+		if (dyn_prio->frame_rate > rp_ctx->network_params.targetFrameRate) {
 			current_screen = dyn_prio->top_screen_time > dyn_prio->bot_screen_time;
 		}
 		if (current_screen == dyn_prio->previous_screen) {
@@ -1077,7 +919,7 @@ static int rpDynPrioGetScreen(void) {
 		}
 
 		u64 tick_at_current = svc_getSystemTick();
-		u64 tick_diff = HR_MIN(HR_MAX(tick_at_current - dyn_prio->tick_at_frame[dyn_prio->tick_at_frame_i], SYSTICK_PER_SEC / RP_TARGET_PSCREEN_FRAME_RATE), SYSTICK_PER_SEC);
+		u64 tick_diff = HR_MIN(HR_MAX(tick_at_current - dyn_prio->tick_at_frame[dyn_prio->tick_at_frame_i], SYSTICK_PER_SEC / rp_ctx->network_params.targetFrameRate), SYSTICK_PER_SEC);
 		dyn_prio->tick_at_frame[dyn_prio->tick_at_frame_i] = tick_at_current;
 		dyn_prio->tick_at_frame_i = (dyn_prio->tick_at_frame_i + 1) % FRAME_RATE_AVERAGE_COUNT;
 		dyn_prio->frame_rate = (u64)SYSTICK_PER_SEC * FRAME_RATE_AVERAGE_COUNT / tick_diff;
@@ -1108,7 +950,6 @@ static void rpSendDataDiscard(void) {
 	}
 }
 
-// static u8 rp_ctx->nwm_send_buf[PACKET_SIZE];
 void rpSendDataThreadMain(void) {
 	int ret;
 
@@ -1133,14 +974,20 @@ void rpSendDataThreadMain(void) {
 	rp_ctx->data_header_id[1][0] = 0;
 	rp_ctx->data_header_id[1][1] = 0;
 
-	int current_screen = 0;
+	int current_screen = rp_ctx->multicore_encode ? current_screen = rpDynPrioGetScreen() : 0;
 	memset(&rp_ctx->dyn_prio, 0, sizeof(rp_ctx->dyn_prio));
 
 	while (!rp_ctx->nwm_thread_exit) {
 		u32 packet_header_id = 0;
 
 		if (rp_ctx->multicore_encode) {
-			current_screen = rpDynPrioGetScreen();
+			s32 frame_done_n, *p_frame_done_n = &rp_ctx->frame_done_n[current_screen];
+			if (*p_frame_done_n) {
+				do {
+					frame_done_n = __ldrex(p_frame_done_n);
+				} while (__strex(p_frame_done_n, frame_done_n - 1));
+				current_screen = rpDynPrioGetScreen();
+			}
 		} else {
 			current_screen = 0;
 		}
@@ -1322,12 +1169,6 @@ static int rpTestCompressAndSend(int top_bot, struct RP_DATA_HEADER data_header,
 	u8* huffman_dst = dst + sizeof(struct RP_DATA_HEADER);
 	uint32_t* counts = huffman_len_table(alloc, huffman_dst, cctx->data, cctx->data_size);
 	int huffman_size = huffman_compressed_size(counts, huffman_dst) + 256;
-	if ((rp_ctx->cfg.flags & RP_DYNAMIC_DOWNSAMPLE) && huffman_size > cctx->max_compressed_size) {
-		rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
-		s32 count;
-		svc_releaseSemaphore(&count, workAvaiSem, 1);
-		return -1;
-	}
 	int dst_size = huffman_size;
 	int huffman = 1;
 	if (huffman_size > cctx->data_size) {
@@ -1335,6 +1176,12 @@ static int rpTestCompressAndSend(int top_bot, struct RP_DATA_HEADER data_header,
 		dst_size = huffman_size = cctx->data_size;
 		huffman = 0;
 		data_header.flags &= ~RP_DATA_HUFFMAN;
+	}
+	if (huffman_size > cctx->max_compressed_size) {
+		rpDbg("Exceed bandwidth budget at %d (%d available)\n", huffman_size, cctx->max_compressed_size);
+		s32 count;
+		svc_releaseSemaphore(&count, workAvaiSem, 1);
+		return -1;
 	}
 	if (rp_ctx->cfg.flags & RP_RLE_ENCODE) {
 		dst_size += rle_max_compressed_size(huffman_size);
@@ -1416,13 +1263,7 @@ static int rpTestCompressAndSend(int top_bot, struct RP_DATA_HEADER data_header,
 	return dst_size;
 }
 
-// u8 *rp_ctx->recv_buf;
-// int rpControlRecvBuf_ready;
 static void rpControlRecv(void) {
-	// if (!rpControlRecvBuf_ready) {
-	// 	svc_sleepThread(1000000000);
-	// 	return;
-	// }
 	if (!rp_control_ready) {
 		svc_sleepThread(100000000);
 		return;
@@ -1545,6 +1386,52 @@ static int convertYUVImage(
 	return 0;
 }
 
+static void diffPredSelImage(u8 *dp_fd_im, u8 *dp_im, u8 *dp_im_pf, u8 *dp_p_im, u8 *dp_s_im, u8 *dp_m_im, u8 *dp_m_im_end, int width, int height, u8 sel) {
+	differenceImage(dp_fd_im, dp_im, dp_im_pf, width, height);
+	if (sel) {
+		predictImage(dp_p_im, dp_im, width, height);
+		selectImage(dp_s_im, dp_m_im, dp_m_im_end, dp_fd_im, dp_p_im, width, height);
+	}
+}
+
+static void cctx_data_sel(COMPRESS_CONTEXT *cctx, u8 *dp_s_im, u8 *dp_m_im, int dp_s_im_size, int dp_m_im_size, u8 *dp_fd_im, int sel) {
+	if (sel) {
+		cctx->data = dp_s_im;
+		cctx->data_size = dp_s_im_size;
+		cctx->data2 = dp_m_im;
+		cctx->data2_size = dp_m_im_size;
+	} else {
+		cctx->data = dp_fd_im;
+		cctx->data_size = dp_s_im_size;
+		cctx->data2 = 0;
+		cctx->data2_size = 0;
+	}
+}
+
+static void diffPredSelCctxImage_Y(COMPRESS_CONTEXT *cctx, u8 *dp_fd_im, u8 *dp_im, u8 *dp_im_pf, u8 *dp_p_im,
+	u8 *dp_s_im, u8 *dp_m_im, int dp_s_im_size, int dp_m_im_size, int width, int height, u8 sel
+) {
+	diffPredSelImage(dp_fd_im, dp_im, dp_im_pf, dp_p_im, dp_s_im, dp_m_im, dp_m_im + dp_m_im_size, width, height, sel);
+	cctx_data_sel(cctx, dp_s_im, dp_m_im, dp_s_im_size, dp_m_im_size, dp_fd_im, sel);
+}
+
+static int downsampleHDiffPredSelCctxImageSend_Y(COMPRESS_CONTEXT *cctx, struct RP_DATA_HEADER *header, int top_bot,
+	u8 *dp_ds_fd_im, u8 *dp_ds_im, u8 *dp_im, u8 *dp_ds_im_pf, u8 *dp_ds_p_im,
+	u8 *dp_ds_s_im, u8 *dp_ds_m_im, int dp_ds_s_im_size, int dp_ds_m_im_size, int width, int height, u8 sel
+) {
+	downsampleImageH(dp_ds_im, dp_im, width, height);
+	diffPredSelCctxImage_Y(cctx, dp_ds_fd_im, dp_ds_im, dp_ds_im_pf,
+		dp_ds_p_im, dp_ds_s_im, dp_ds_m_im, dp_ds_s_im_size, dp_ds_m_im_size,
+		width / 2, height, sel);
+	cctx->max_compressed_size = UINT32_MAX;
+	header->flags |= RP_DATA_DOWNSAMPLE2;
+	int ret;
+	if ((ret = rpTestCompressAndSend(top_bot, *header, cctx)) < 0) {
+		return -1;
+	}
+	return ret;
+}
+
 #define RP_ENC_HAVE_Y (1 << 0)
 #define RP_ENC_HAVE_UV (1 << 1)
 #define RP_ENC_DS_Y (1 << 2)
@@ -1653,691 +1540,6 @@ static int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	return -1;
 }
 
-// static void rpControlPollAndRecv(void) {
-// 	struct pollfd pollinfo;
-// 	pollinfo.fd = rp_recv_sock;
-// 	pollinfo.events = POLLIN;
-// 	pollinfo.revents = 0;
-// 	int ret = poll2(&pollinfo, 1, 0);
-// 	if (ret < 0) {
-// 		nsDbgPrint("rpControlPollAndRecv failed: %d\n", ret);
-// 		return;
-// 	}
-// 	if (pollinfo.revents & (POLLIN | POLLHUP)) {
-// 		rpControlRecv();
-// 	}
-// }
-
-// static int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
-// 	// rpControlPollAndRecv();
-
-// 	int blockSize = 16;
-// 	int bpp = ctx->bpp;
-// 	int width = ctx->width;
-// 	int height = ctx->height;
-// 	int pitch = ctx->src_pitch;
-// 	int is_key = ctx->is_key;
-// 	int isTop = ctx->isTop;
-// 	int screenFrameId = ctx->id % 2;
-// 	int even_odd = 0; // 0 - even, 1 odd
-
-// 	u32 px;
-// 	u16 tmp;
-// 	u8* blitBuffer = ctx->src;
-// 	u8* sp = ctx->src;
-
-// 	int interlaced = rp_ctx->cfg.flags & RP_INTERLACE;
-
-// 	if (interlaced) {
-// 		height /= 2;
-// 		bpp *= 2;
-// 		rp_ctx->cfg.flags &= ~RP_DYNAMIC_DOWNSAMPLE;
-// 		even_odd = ctx->id % 2;
-// 		screenFrameId = (ctx->id / 2) % 2;
-// 	}
-
-// 	int ds_width = width / 2;
-// 	int ds_height = height / 2;
-// 	int ds_ds_width = ds_width / 2;
-// 	int ds_ds_height = ds_height / 2;
-
-// 	// This is a lot of variables.
-// 	// Take care to not clobber anything.
-
-// 	u8 *dp_begin = ctx->transformDst;
-
-// 	 // need for next frame
-// 	u8* dp_flags = dp_begin;
-// #define FLAGS_OFFSET 4
-// 	// assume worst case width = 400, height = 240 for top screen
-// 	u8 *dp_save_begin = dp_flags + FLAGS_OFFSET; // dp_flags need to be saved as well, its size is calculated separately however
-// 	u8* dp_y = dp_save_begin;
-// 	u32 dp_y_size = width * height; // 96'000
-// 	u8* dp_ds_u = dp_y + dp_y_size;
-// 	u32 dp_ds_u_size = dp_y_size / 4; // 24'000
-// 	u8* dp_ds_v = dp_ds_u + dp_ds_u_size;
-// 	u32 dp_ds_v_size = dp_ds_u_size; // 24'000
-
-// 	// dynamic encoding
-// 	u8* dp_ds_y = dp_ds_v + dp_ds_v_size;
-// 	u32 dp_ds_y_size = dp_ds_u_size;
-// 	u8* dp_ds_ds_u = dp_ds_y + dp_ds_y_size;
-// 	u32 dp_ds_ds_u_size = dp_ds_y_size / 4;
-// 	u8* dp_ds_ds_v = dp_ds_ds_u + dp_ds_ds_u_size;
-// 	u32 dp_ds_ds_v_size = dp_ds_ds_u_size;
-
-// 	// interlaced odd
-// 	u8* dp_il_y = dp_ds_v + dp_ds_v_size; // dynamic downsampling not used
-// 	u32 dp_il_y_size = dp_y_size;
-// 	u8* dp_ds_il_u = dp_il_y + dp_il_y_size;
-// 	u32 dp_ds_il_u_size = dp_ds_u_size;
-// 	u8* dp_ds_il_v = dp_ds_il_u + dp_ds_il_u_size;
-// 	u32 dp_ds_il_v_size = dp_ds_v_size;
-
-// 	u8 *dp_save_end = dp_ds_ds_v + dp_ds_ds_v_size;
-// 	if (interlaced) {
-// 		dp_save_end = dp_ds_il_v + dp_ds_il_v_size;
-// 	}
-// 	u32 dp_save_size = dp_save_end - dp_begin;
-
-// 	// output when is_key and not downsample
-// 	u8* dp_p_y = dp_save_end;
-// 	u32 dp_p_y_size = dp_y_size; // 96'000
-// 	u8* dp_p_ds_u = dp_p_y + dp_p_y_size;
-// 	u32 dp_p_ds_u_size = dp_ds_u_size; // 24'000
-// 	u8* dp_p_ds_v = dp_p_ds_u + dp_p_ds_u_size;
-// 	u32 dp_p_ds_v_size = dp_ds_v_size; // 24'000
-
-// 	u8* dp_u = dp_p_ds_v + dp_p_ds_v_size;
-// 	u32 dp_u_size = dp_y_size; // 96'000
-// 	u8* dp_v = dp_u + dp_u_size;
-// 	u32 dp_v_size = dp_y_size; // 96'000
-
-// 	// output when not is_key
-// 	// output when not RP_SELECT_PREDICTION and not RP_PREDICT_FRAME_DELTA
-// 	u8* dp_fd_y = dp_u; // reuse from dp_u, after dp_ds_u is ready, make sure dp_fd_y_size <= dp_u_size
-// 	u32 dp_fd_y_size = dp_y_size;
-// 	u8* dp_fd_ds_u = dp_fd_y + dp_fd_y_size; // reuse from dp_v, after dp_ds_v is ready, need to be consecutive in layout with dp_fd_ds_v
-// 	u32 dp_fd_ds_u_size = dp_ds_u_size;
-// 	u8* dp_fd_ds_v = dp_fd_ds_u + dp_fd_ds_u_size; // make sure dp_fd_ds_u_size + dp_fd_ds_v_size <= dp_v_size
-// 	u32 dp_fd_ds_v_size = dp_ds_v_size;
-
-// 	// output when not RP_SELECT_PREDICTION and RP_PREDICT_FRAME_DELTA
-// 	u8* dp_p_fd_y = dp_v + dp_v_size;
-// 	u32 dp_p_fd_y_size = dp_fd_y_size; // 96'000
-// 	u8* dp_p_fd_ds_u = dp_p_fd_y + dp_p_fd_y_size; // need to be consecutive in layout with dp_p_fd_ds_v
-// 	u32 dp_p_fd_ds_u_size = dp_fd_ds_u_size; // 24'000
-// 	u8* dp_p_fd_ds_v = dp_p_fd_ds_u + dp_p_fd_ds_u_size;
-// 	u32 dp_p_fd_ds_v_size = dp_fd_ds_v_size; // 24'000
-
-// 	// output when RP_SELECT_PREDICTION
-// 	u8* dp_s_p_fd_y = dp_fd_y; // reuse from dp_fd_y, after dp_p_fd_y is ready
-// 	u32 dp_s_p_fd_y_size = dp_fd_y_size;
-// 	u8* dp_s_p_fd_ds_u = dp_s_p_fd_y + dp_s_p_fd_y_size; // reuse from dp_fd_ds_u, after dp_p_fd_ds_u is ready
-// 	u32 dp_s_p_fd_ds_u_size = dp_fd_ds_u_size;
-// 	u8* dp_s_p_fd_ds_v = dp_s_p_fd_ds_u + dp_s_p_fd_ds_u_size; // reuse from dp_fd_ds_v, after dp_p_fd_ds_v is ready
-// 	u32 dp_s_p_fd_ds_v_size = dp_fd_ds_v_size;
-
-// 	// output when RP_SELECT_PREDICTION
-// 	u8* dp_m_p_fd_y = dp_p_fd_ds_v + dp_p_fd_ds_v_size; // need to be consecutive in layout with dp_m_p_fd_ds_u
-// 	u32 dp_m_p_fd_y_size = ENCODE_SELECT_MASK_SIZE(width, height);
-// 	u8* dp_m_p_fd_ds_u = dp_m_p_fd_y + dp_m_p_fd_y_size; // need to be consecutive in layout with dp_m_p_fd_ds_v
-// 	u32 dp_m_p_fd_ds_u_size = ENCODE_SELECT_MASK_SIZE(ds_width, ds_height);
-// 	u8* dp_m_p_fd_ds_v = dp_m_p_fd_ds_u + dp_m_p_fd_ds_u_size;
-// 	u32 dp_m_p_fd_ds_v_size = ENCODE_SELECT_MASK_SIZE(ds_width, ds_height);
-
-// 	// output when is_key and downsample
-// 	u8* dp_p_ds_y = dp_m_p_fd_ds_v + dp_m_p_fd_ds_v_size;
-// 	u32 dp_p_ds_y_size = dp_ds_y_size;
-// 	u8* dp_p_ds_ds_u = dp_p_ds_y + dp_p_ds_y_size;
-// 	u32 dp_p_ds_ds_u_size = dp_ds_ds_u_size;
-// 	u8* dp_p_ds_ds_v = dp_p_ds_ds_u + dp_p_ds_ds_u_size;
-// 	u32 dp_p_ds_ds_v_size = dp_ds_ds_v_size;
-
-// 	// dynamic encoding
-// 	u8* dp_fd_ds_y = dp_fd_y; // reuse from dp_fd_y
-// 	u32 dp_fd_ds_y_size = dp_ds_y_size;
-// 	u8* dp_fd_ds_ds_u = dp_fd_ds_y + dp_fd_ds_y_size;
-// 	u32 dp_fd_ds_ds_u_size = dp_ds_ds_u_size;
-// 	u8* dp_fd_ds_ds_v = dp_fd_ds_ds_u + dp_fd_ds_ds_u_size;
-// 	u32 dp_fd_ds_ds_v_size = dp_ds_ds_v_size;
-
-// 	u8* dp_p_fd_ds_y = dp_fd_ds_ds_v + dp_fd_ds_ds_v_size; // reuse continued
-// 	u32 dp_p_fd_ds_y_size = dp_fd_ds_y_size;
-// 	u8* dp_p_fd_ds_ds_u = dp_p_fd_ds_y + dp_p_fd_ds_y_size;
-// 	u32 dp_p_fd_ds_ds_u_size = dp_fd_ds_ds_u_size;
-// 	u8* dp_p_fd_ds_ds_v = dp_p_fd_ds_ds_u + dp_p_fd_ds_ds_u_size;
-// 	u32 dp_p_fd_ds_ds_v_size = dp_fd_ds_ds_v_size;
-
-// 	u8* dp_s_p_fd_ds_y = dp_fd_ds_y; // reuse from dp_fd_ds_y, after dp_p_fd_ds_y is ready
-// 	u32 dp_s_p_fd_ds_y_size = dp_fd_ds_y_size;
-// 	u8* dp_s_p_fd_ds_ds_u = dp_s_p_fd_ds_y + dp_s_p_fd_ds_y_size; // reuse from dp_fd_ds_ds_u, after dp_p_fd_ds_ds_u is ready, need to be consecutive in layout with dp_s_p_fd_ds_ds_v
-// 	u32 dp_s_p_fd_ds_ds_u_size = dp_fd_ds_ds_u_size;
-// 	u8* dp_s_p_fd_ds_ds_v = dp_s_p_fd_ds_ds_u + dp_s_p_fd_ds_ds_u_size; // reuse from dp_fd_ds_ds_v, after dp_p_fd_ds_ds_v is ready
-// 	u32 dp_s_p_fd_ds_ds_v_size = dp_fd_ds_ds_v_size;
-
-// 	u8* dp_m_p_fd_ds_y = dp_p_fd_ds_ds_v + dp_p_fd_ds_ds_v_size; // need to be consecutive in layout with dp_m_p_fd_ds_ds_u
-// 	u32 dp_m_p_fd_ds_y_size = ENCODE_SELECT_MASK_SIZE(ds_width, ds_height);
-// 	u8* dp_m_p_fd_ds_ds_u = dp_m_p_fd_ds_y + dp_m_p_fd_ds_y_size; // need to be consecutive in layout with dp_m_p_fd_ds_ds_v
-// 	u32 dp_m_p_fd_ds_ds_u_size = ENCODE_SELECT_MASK_SIZE(ds_ds_width, ds_ds_height);
-// 	u8* dp_m_p_fd_ds_ds_v = dp_m_p_fd_ds_ds_u + dp_m_p_fd_ds_ds_u_size;
-// 	u32 dp_m_p_fd_ds_ds_v_size = ENCODE_SELECT_MASK_SIZE(ds_ds_width, ds_ds_height);
-
-// 	u8* dp_end = HR_MAX(dp_p_ds_ds_v + dp_p_ds_ds_v_size, dp_m_p_fd_ds_ds_v + dp_m_p_fd_ds_ds_v_size);
-// 	if (dp_end > rpWorkBufferEnd) {
-// 		nsDbgPrint("Allocated buffer too small: %d needed (%d available)\n", dp_end - dp_begin, rpWorkBufferEnd - dp_begin);
-// 		return -1;
-// 	}
-
-// 	int frameOffset = dp_save_size * (400 + 320) / width; // offset for both screens
-// 	int topScreenOffset = dp_save_size * 400 / width; // offset from top
-
-// 	if (rp_ctx->multicore_encode) {
-// 		topScreenOffset = 0;
-// 		frameOffset = dp_save_size;
-// 	}
-
-// 	frameOffset += FLAGS_OFFSET * 2; // add offset for dp_flags, twice for both screens;
-// 	topScreenOffset += FLAGS_OFFSET; // add offset for dp_flags;
-
-// 	u8* dp_flags_pf;
-// 	u8* dp_y_pf;
-// 	u8* dp_ds_u_pf;
-// 	u8* dp_ds_v_pf;
-// 	u8* dp_ds_y_pf;
-// 	u8* dp_ds_ds_u_pf;
-// 	u8* dp_ds_ds_v_pf;
-
-// 	u8* dp_pf = dp_flags - frameOffset * 2;
-
-// 	u8* dp_compression[HR_WORK_BUFFER_COUNT];
-// 	u32 dst_offset = huffman_rle_dst_offset;
-// 	if (rp_ctx->multicore_encode && !isTop) {
-// 		dst_offset = huffman_rle_bot_dst_offset;
-// 	}
-// 	dp_compression[0] = dp_pf - dst_offset;
-// 	for (int i = 1; i < HR_WORK_BUFFER_COUNT; ++i) {
-// 		dp_compression[i] = dp_compression[i - 1] - dst_offset;
-// 	}
-// 	if (dp_compression[HR_WORK_BUFFER_COUNT - 1] < ctx->src + ctx->src_size) {
-// 		nsDbgPrint("Not enough memory: need additional %d\n", ctx->src + ctx->src_size - dp_compression[HR_WORK_BUFFER_COUNT - 1]);
-// 		return -1;
-// 	}
-
-// 	u8 **work_dst = rp_work_dst;
-// 	if (rp_ctx->multicore_encode && !isTop) {
-// 		work_dst = rp_work_bot_dst;
-// 	}
-// 	if (work_dst[0] == 0) {
-// 		for (int i = 0; i < HR_WORK_BUFFER_COUNT; ++i) {
-// 			work_dst[i] = dp_compression[i];
-// 		}
-// 		if (rp_ctx->multicore_encode) {
-// 			if (isTop) {
-// 				svc_flushProcessDataCache(rp_ctx->enc_thread[1], &rp_work_dst, sizeof(rp_work_dst));
-// 			} else {
-// 				svc_flushProcessDataCache(rpThread, &rp_work_bot_dst, sizeof(rp_work_bot_dst));
-// 			}
-// 		}
-// 		if (rp_ctx->multicore_encode) {
-// 			if (isTop) {
-// 				nsDbgPrint("Memory available %d\n", work_dst[HR_WORK_BUFFER_COUNT - 1] - (ctx->src + ctx->src_size));
-// 				if (rpBotImgBuffer < dp_end) {
-// 					nsDbgPrint("Not enough room from top to bot: need additional %d\n", dp_end - rpBotImgBuffer);
-// 					return -1;
-// 				}
-// 				nsDbgPrint("Room from top to bot %d\n", rpBotImgBuffer - dp_end);
-// 			} else {
-// 				nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
-// 				nsDbgPrint("Room from bot to top %d\n", work_dst[HR_WORK_BUFFER_COUNT - 1] - (ctx->src + ctx->src_size));
-// 			}
-// 		} else {
-// 			nsDbgPrint("Memory available %d\n", work_dst[HR_WORK_BUFFER_COUNT - 1] - (ctx->src + ctx->src_size));
-// 			nsDbgPrint("Allocated buffer room %d\n", rpWorkBufferEnd - dp_end);
-// 		}
-// 	}
-
-// 	if (interlaced && even_odd) {
-// 		dp_y = dp_il_y;
-// 		dp_ds_u = dp_ds_il_u;
-// 		dp_ds_v = dp_ds_il_v;
-// 	}
-
-// 	if (isTop) { // apply topScreenOffset
-// 		dp_flags -= topScreenOffset;
-// 		dp_y -= topScreenOffset;
-// 		dp_ds_u -= topScreenOffset;
-// 		dp_ds_v -= topScreenOffset;
-// 		dp_ds_y -= topScreenOffset;
-// 		dp_ds_ds_u -= topScreenOffset;
-// 		dp_ds_ds_v -= topScreenOffset;
-// 	}
-// 	// apply frameOffset
-// 	if (screenFrameId) {
-// 		dp_flags_pf = dp_flags;
-// 		dp_y_pf = dp_y;
-// 		dp_ds_u_pf = dp_ds_u;
-// 		dp_ds_v_pf = dp_ds_v;
-// 		dp_ds_y_pf = dp_ds_y;
-// 		dp_ds_ds_u_pf = dp_ds_ds_u;
-// 		dp_ds_ds_v_pf = dp_ds_ds_v;
-
-// 		dp_flags -= frameOffset;
-// 		dp_y -= frameOffset;
-// 		dp_ds_u -= frameOffset;
-// 		dp_ds_v -= frameOffset;
-// 		dp_ds_y -= frameOffset;
-// 		dp_ds_ds_u -= frameOffset;
-// 		dp_ds_ds_v -= frameOffset;
-// 	} else {
-// 		dp_flags_pf = dp_flags - frameOffset;
-// 		dp_y_pf = dp_y - frameOffset;
-// 		dp_ds_u_pf = dp_ds_u - frameOffset;
-// 		dp_ds_v_pf = dp_ds_v - frameOffset;
-// 		dp_ds_y_pf = dp_ds_y - frameOffset;
-// 		dp_ds_ds_u_pf = dp_ds_ds_u - frameOffset;
-// 		dp_ds_ds_v_pf = dp_ds_ds_v - frameOffset;
-// 	}
-
-// 	int x = 0, y = 0, i, j;
-// 	u8 r, g, b;
-
-// 	u8* dp_y_in = dp_y;
-// 	u8* dp_u_in = dp_u;
-// 	u8* dp_v_in = dp_v;
-
-// 	// ctx->directCompress = 0;
-// 	if ((!interlaced && ((bpp == 3) || (bpp == 4))) || (interlaced && ((bpp == 6) || (bpp == 8)))) {
-// 		/*
-// 		ctx->directCompress = 1;
-// 		return 0;
-// 		*/
-// 		for (x = 0; x < width; x++) {
-// 			for (y = 0; y < height; y++) {
-// 				if (even_odd) {
-// 					r = sp[5];
-// 					g = sp[4];
-// 					b = sp[3];
-// 				} else {
-// 					r = sp[2];
-// 					g = sp[1];
-// 					b = sp[0];
-// 				}
-// 				convertYUV(r, g, b, &r, &g, &b);
-// 				*dp_y_in++ = r;
-// 				*dp_u_in++ = g;
-// 				*dp_v_in++ = b;
-// 				sp += bpp;
-// 			}
-// 			sp += ctx->blankInColumn;
-// 		}
-// 	} else {
-// 		svc_sleepThread(500000);
-// 		for (x = 0; x < width; x++) {
-// 			for (y = 0; y < height; y++) {
-// 				u16 pix = *(u16*)sp;
-// 				if (even_odd) {
-// 					pix = *((u16*)sp + 1);
-// 				}
-// 				r = ((pix >> 11) & 0x1f) << 3;
-// 				g = ((pix >> 5) & 0x3f) << 2;
-// 				b = (pix & 0x1f) << 3;
-// 				convertYUV(r, g, b, &r, &g, &b);
-// 				*dp_y_in++ = r;
-// 				*dp_u_in++ = g;
-// 				*dp_v_in++ = b;
-// 				sp += bpp;
-// 			}
-// 			sp += ctx->blankInColumn;
-// 		}
-
-// 	}
-
-// #define RP_DOWNSAMPLE_Y (1 << 0)
-// #define RP_DOWNSAMPLE2_UV (1 << 1)
-// 	u8 flags = 0;
-// 	u8 flags_pf = *dp_flags_pf;
-
-// 	u8* dp_y_out;
-// 	u32 dp_y_out_size;
-// 	u8* dp_u_out;
-// 	u32 dp_u_out_size;
-// 	u8* dp_v_out;
-// 	u32 dp_v_out_size;
-
-// 	struct RP_DATA_HEADER data_header;
-// 	COMPRESS_CONTEXT cctx = { 0 };
-// 	int ret = 0;
-// 	int rets = 0;
-
-// #define downsampleImage1(c, w, h) downsampleImage(dp_ds_ ## c, dp_ ## c, w, h)
-// #define predictImage1(c, w, h) predictImage(dp_p_ ## c, dp_ ## c, w, h)
-// #define predictImage1out(o, c, w, h) do { \
-// 	predictImage1(c, w, h); \
-// 	dp_ ## o ## _out = dp_p_ ## c; \
-// 	dp_ ## o ## _out ## _size = dp_p_ ## c ## _size; \
-// } while (0)
-
-// #define RP_HEADER_SET(f) do { \
-// 	data_header.flags |= f; \
-// } while (0)
-
-// #define RP_HEADER_RESET(f) do { \
-// 	data_header.flags &= ~f; \
-// } while (0)
-
-// #define cctx_data_y do { \
-// 	cctx.max_compressed_size = rp_ctx->network_params.bitsPerY / 8; \
-// 	cctx.data = dp_y_out; \
-// 	cctx.data_size = dp_y_out_size; \
-// 	cctx.data2 = 0; \
-// 	cctx.data2_size = 0; \
-// 	RP_HEADER_SET(RP_DATA_Y_UV); \
-// } while (0)
-
-// #define cctx_data_uv do { \
-// 	cctx.max_compressed_size = rp_ctx->network_params.bitsPerUV / 8; \
-// 	cctx.data = dp_u_out; \
-// 	cctx.data_size = dp_u_out_size + dp_v_out_size; \
-// 	cctx.data2 = 0; \
-// 	cctx.data2_size = 0; \
-// 	RP_HEADER_RESET(RP_DATA_Y_UV); \
-// } while (0)
-
-// 	downsampleImage1(u, width, height);
-// 	downsampleImage1(v, width, height);
-// 	dp_v = dp_u = 0;
-
-// 	RP_HEADER_RESET((u32)-1);
-
-// 	if (rp_ctx->cfg.flags & RP_YUV_LQ) {
-// 		RP_HEADER_SET(RP_DATA_YUV_LQ);
-// 	} else {
-// 		RP_HEADER_RESET(RP_DATA_YUV_LQ);
-// 	}
-
-// 	if (interlaced) {
-// 		RP_HEADER_SET(RP_DATA_INTERLACE);
-// 		if (even_odd) {
-// 			RP_HEADER_SET(RP_DATA_INTERLACE_ODD);
-// 		} else {
-// 			RP_HEADER_RESET(RP_DATA_INTERLACE_ODD);
-// 		}
-// 	} else {
-// 		RP_HEADER_RESET(RP_DATA_INTERLACE);
-// 		RP_HEADER_RESET(RP_DATA_INTERLACE_ODD);
-// 	}
-
-// 	if (isTop) {
-// 		RP_HEADER_SET(RP_DATA_TOP_BOT);
-// 	} else {
-// 		RP_HEADER_RESET(RP_DATA_TOP_BOT);
-// 	}
-
-// 	if (is_key) {
-// 		RP_HEADER_RESET(RP_DATA_FRAME_DELTA);
-// 		// Y
-// 		predictImage1out(y, y, width, height);
-// 		cctx_data_y;
-// 		RP_HEADER_RESET(RP_DATA_DS);
-
-// 		if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 0)) < 0) {
-// 			if (interlaced) {
-// 				return -1;
-// 			}
-// 			// Y downsampled
-// 			flags |= RP_DOWNSAMPLE_Y;
-// 			downsampleImage1(y, width, height);
-// 			predictImage1out(y, ds_y, ds_width, ds_height);
-// 			cctx_data_y;
-// 			RP_HEADER_SET(RP_DATA_DS);
-// 			if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 1)) < 0) {
-// 				return -1;
-// 			}
-// 		}
-// 		rets += ret;
-
-// 		// UV
-// 		predictImage1out(u, ds_u, ds_width, ds_height);
-// 		predictImage1out(v, ds_v, ds_width, ds_height);
-// 		cctx_data_uv;
-// 		RP_HEADER_RESET(RP_DATA_DS);
-
-// 		if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 0)) < 0) {
-// 			if (interlaced) {
-// 				return -1;
-// 			}
-// 			// UV downsampled
-// 			flags |= RP_DOWNSAMPLE2_UV;
-// 			downsampleImage1(ds_u, ds_width, ds_height);
-// 			predictImage1out(u, ds_ds_u, ds_ds_width, ds_ds_height);
-// 			downsampleImage1(ds_v, ds_width, ds_height);
-// 			predictImage1out(v, ds_ds_v, ds_ds_width, ds_ds_height);
-// 			cctx_data_uv;
-// 			RP_HEADER_SET(RP_DATA_DS);
-// 			if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 1)) < 0) {
-// 				return -1;
-// 			}
-// 		}
-// 		rets += ret;
-
-// 		*dp_flags = flags;
-// 	} else {
-
-// #define predictImage2(c, w, h) do { \
-// 	if (rp_ctx->cfg.flags & RP_SELECT_PREDICTION) { \
-// 		predictImage1(c, w, h); \
-// 	} else { \
-// 		dp_p_ ## c = dp_ ## c; \
-// 	} \
-// } while (0)
-
-// #define selectImage2(s, c, w, h) selectImage(dp_s_p_fd_ ## c, dp_m_p_fd_ ## c, dp_m_p_fd_ ## c + dp_m_p_fd_ ## c ## _size, dp_ ## s ## c, dp_p_ ## c, w, h);
-// #define selectImage2out(o, s, c, w, h) do { \
-// 	if (rp_ctx->cfg.flags & RP_SELECT_PREDICTION) { \
-// 		selectImage2(s, c, w, h); \
-// 		dp_ ## o ## _out = dp_s_p_fd_ ## c; \
-// 		dp_ ## o ## _out_size = dp_s_p_fd_ ## c ## _size; \
-// 	} else { \
-// 		dp_ ## o ## _out = dp_ ## s ## c; \
-// 		dp_ ## o ## _out_size = dp_ ## s ## c ## _size; \
-// 	} \
-// } while (0)
-
-// #define predictAndSelectImage2out(o, c, w, h) do { \
-// 	if (rp_ctx->cfg.flags & RP_PREDICT_FRAME_DELTA) { \
-// 		predictImage1(fd_ ## c, w, h); \
-// 		dp_fd_ ## c = 0; \
-// 		selectImage2out(o, p_fd_, c, w, h); \
-// 	} else { \
-// 		selectImage2out(o, fd_, c, w, h); \
-// 	} \
-// } while (0)
-
-// #define cctx_data2(m) do { \
-// 	if (rp_ctx->cfg.flags & RP_SELECT_PREDICTION) { \
-// 		cctx.data2 = dp_m_p_fd_ ## m; \
-// 		cctx.data2_size = dp_m_p_fd_ ## m ## _size; \
-// 	} else { \
-// 		cctx.data2 = 0; \
-// 		cctx.data2_size = 0; \
-// 	} \
-// } while(0)
-
-// #define cctx_data2_size(m) do { \
-// 	if (rp_ctx->cfg.flags & RP_SELECT_PREDICTION) { \
-// 		cctx.data2_size += dp_m_p_fd_ ## m ## _size; \
-// 	} \
-// } while(0)
-
-// #define cctx_data2_y(y) do { \
-// 	cctx_data_y; \
-// 	cctx_data2(y); \
-// } while (0)
-
-// #define cctx_data2_uv(u, v) do { \
-// 	cctx_data_uv; \
-// 	cctx_data2(u); \
-// 	cctx_data2_size(v); \
-// } while (0)
-
-// #define differenceImage1(c, w, h) differenceImage(dp_fd_ ## c, dp_ ## c, dp_ ## c ## _pf, w, h)
-// #define differenceFromDownsampled1(c, w, h) differenceFromDownsampled(dp_fd_ ## c, dp_ ## c, dp_ds_ ## c ## _pf, w, h)
-// #define downsampledDifference1(c, w, h) downsampledDifference(dp_ds_ ## c, dp_fd_ds_ ## c, dp_ ## c, dp_ ## c ## _pf, w, h)
-// #define downsampledDifferenceFromDownsampled1(c, w, h) downsampledDifferenceFromDownsampled(dp_ds_ ## c, dp_fd_ds_ ## c, dp_ ## c, dp_ds_ ## c ## _pf, w, h)
-
-// 		RP_HEADER_SET(RP_DATA_FRAME_DELTA);
-// 		if (rp_ctx->cfg.flags & RP_PREDICT_FRAME_DELTA) {
-// 			RP_HEADER_SET(RP_DATA_PFD);
-// 		} else {
-// 			RP_HEADER_RESET(RP_DATA_PFD);
-// 		}
-// 		if (rp_ctx->cfg.flags & RP_SELECT_PREDICTION) {
-// 			RP_HEADER_SET(RP_DATA_SELECT_FRAME_DELTA);
-// 		} else {
-// 			RP_HEADER_RESET(RP_DATA_SELECT_FRAME_DELTA);
-// 		}
-
-// 		// Y
-// 		if (flags_pf & RP_DOWNSAMPLE_Y) {
-// 			differenceFromDownsampled1(y, width, height);
-// 		} else {
-// 			differenceImage1(y, width, height);
-// 		}
-
-// 		predictImage2(y, width, height);
-// 		predictAndSelectImage2out(y, y, width, height);
-// 		cctx_data2_y(y);
-// 		RP_HEADER_RESET(RP_DATA_DS);
-
-// 		if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 0)) < 0) {
-// 			if (interlaced) {
-// 				return -1;
-// 			}
-// 			// Y downsampled
-// 			flags |= RP_DOWNSAMPLE_Y;
-
-// 			if (flags_pf & RP_DOWNSAMPLE_Y) {
-// 				downsampledDifferenceFromDownsampled1(y, width, height);
-// 			} else {
-// 				downsampledDifference1(y, width, height);
-// 			}
-// 			predictImage2(ds_y, ds_width, ds_height);
-// 			predictAndSelectImage2out(y, ds_y, ds_width, ds_height);
-// 			cctx_data2_y(ds_y);
-// 			RP_HEADER_SET(RP_DATA_DS);
-
-// 			if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 1)) < 0) {
-// 				return -1;
-// 			}
-// 		}
-// 		rets += ret;
-
-// 		// UV
-// 		if (flags_pf & RP_DOWNSAMPLE2_UV) {
-// 			differenceFromDownsampled1(ds_u, ds_width, ds_height);
-// 			differenceFromDownsampled1(ds_v, ds_width, ds_height);
-// 		} else {
-// 			differenceImage1(ds_u, ds_width, ds_height);
-// 			differenceImage1(ds_v, ds_width, ds_height);
-// 		}
-
-// 		predictImage2(ds_u, ds_width, ds_height);
-// 		predictAndSelectImage2out(u, ds_u, ds_width, ds_height);
-// 		predictImage2(ds_v, ds_width, ds_height);
-// 		predictAndSelectImage2out(v, ds_v, ds_width, ds_height);
-// 		cctx_data2_uv(ds_u, ds_v);
-// 		RP_HEADER_RESET(RP_DATA_DS);
-
-// 		if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 0)) < 0) {
-// 			if (interlaced) {
-// 				return -1;
-// 			}
-// 			// UV downsampled
-// 			flags |= RP_DOWNSAMPLE2_UV;
-
-// 			if (flags_pf & RP_DOWNSAMPLE2_UV) {
-// 				downsampledDifferenceFromDownsampled1(ds_u, ds_width, ds_height);
-// 				downsampledDifferenceFromDownsampled1(ds_v, ds_width, ds_height);
-// 			} else {
-// 				downsampledDifference1(ds_u, ds_width, ds_height);
-// 				downsampledDifference1(ds_v, ds_width, ds_height);
-// 			}
-// 			predictImage2(ds_ds_u, ds_ds_width, ds_ds_height);
-// 			predictAndSelectImage2out(u, ds_ds_u, ds_ds_width, ds_ds_height);
-// 			predictImage2(ds_ds_v, ds_ds_width, ds_ds_height);
-// 			predictAndSelectImage2out(v, ds_ds_v, ds_ds_width, ds_ds_height);
-
-// 			cctx_data2_uv(ds_ds_u, ds_ds_v);
-// 			RP_HEADER_SET(RP_DATA_DS);
-
-// 			if ((ret = rpTestCompressAndSend(isTop, data_header, &cctx, 1)) < 0) {
-// 				return -1;
-// 			}
-// 		}
-// 		rets += ret;
-
-// 		*dp_flags = flags;
-// 	}
-
-// 	//ctx->compressedSize = fastlz_compress_level(2, ctx->transformDst, (ctx->width) * (ctx->height) * 2, ctx->compressDst);
-// 	return rets;
-// }
-
-#if 0
-int remotePlayBlit(BLIT_CONTEXT* ctx) {
-	int bpp = ctx->bpp;
-	int width = ctx->width;
-	int height = ctx->height;
-	u8 *dp;
-	u32 px;
-	u16 tmp;
-
-	/*
-	if (blankInColumn == 0) {
-	if (bpp == 2) {
-	memcpy(dst, src, width * height * 2);
-	return format;
-	}
-	}*/
-
-	dp = dataBuf + 4;
-
-	while (ctx->x < width) {
-		if (bpp == 2) {
-			while (ctx->y < height) {
-				if (dp - dataBuf >= PACKET_SIZE) {
-					return dp - dataBuf;
-				}
-				dp[0] = ctx->src[0];
-				dp[1] = ctx->src[1];
-				dp += 2;
-				ctx->src+= bpp;
-				ctx->y += 1;
-			}
-		}
-		else {
-
-			while (ctx->y < height) {
-				if (dp - dataBuf >= PACKET_SIZE) {
-					return dp - dataBuf;
-				}
-				*((u16*)(dp)) = ((u16)((ctx->src[2] >> 3) & 0x1f) << 11) |
-					((u16)((ctx->src[1] >> 2) & 0x3f) << 5) |
-					((u16)((ctx->src[0] >> 3) & 0x1f));
-				dp += 2;
-				ctx->src += bpp;
-				ctx->y += 1;
-			}
-		}
-		ctx->src += ctx->blankInColumn;
-		ctx->y = 0;
-		ctx->x += 1;
-	}
-	return dp - dataBuf;
-}
-#endif
-
 
 void remotePlayKernelCallback(int top_bot) {
 	u32 ret;
@@ -2359,26 +1561,6 @@ void remotePlayKernelCallback(int top_bot) {
 	}
 	current_fb &= 1;
 	rp_ctx->fb_current[top_bot] = rp_ctx->fb_addr[top_bot][current_fb];
-
-	/*
-	memcpy(imgBuffer, (void*)rp_ctx->fb_current[0], rp_ctx->fb_pitch[0] * 400);
-
-	if (requireUpdateBottom) {
-		memcpy(imgBuffer + 0x00050000, (void*)rp_ctx->fb_current[1], rp_ctx->fb_pitch[1] * 320);
-	}*/
-
-	// TOP screen
-	/*
-	current_fb = REG(IoBasePdc + 0x478);
-	current_fb &= 1;
-	topFormat = remotePlayBlit(imgBuffer, 400, 240, (void*)rp_ctx->fb_addr[0][current_fb], rp_ctx->fb_format[0], rp_ctx->fb_pitch[0]);
-	*/
-	/*
-	// Bottom screen
-	current_fb = REG(IoBasePdc + 0x578);
-	current_fb &= 1;
-	bottomFormat = remotePlayBlit(imgBuffer + 0x50000, 320, 240, (void*)rp_ctx->fb_addr[1][current_fb], rp_ctx->fb_format[1], rp_ctx->fb_pitch[1]);
-	*/
 }
 
 
@@ -2480,35 +1662,19 @@ static int rpCaptureScreen(int top_bot) {
 }
 
 #define KCP_BANDWIDTH_FACTOR 2
-// u32 rpQualityFN;
-// u32 rpQualityFD;
 void updateNetworkParams(void) {
 	rp_ctx->network_params.targetBitsPerSec = rp_ctx->cfg.qos;
-	int rpQualityFN = (rp_ctx->cfg.quality & 0xff);
-	int rpQualityFD = (rp_ctx->cfg.quality & 0xff00) >> 8;
-	if (rpQualityFN == 0 || rpQualityFD == 0)
-	{
-		rp_ctx->network_params.qualityFactorNum = 2;
-		rp_ctx->network_params.qualityFactorDenum = 1;
-	} else if (((u64)rpQualityFN + rpQualityFD - 1) / rpQualityFD > 4) {
-		rp_ctx->network_params.qualityFactorNum = 4;
-		rp_ctx->network_params.qualityFactorDenum = 1;
-	} else if (((u64)rpQualityFD + rpQualityFN - 1) / rpQualityFN > 4) {
-		rp_ctx->network_params.qualityFactorNum = 1;
-		rp_ctx->network_params.qualityFactorDenum = 4;
-	} else {
-		rp_ctx->network_params.qualityFactorNum = rpQualityFN;
-		rp_ctx->network_params.qualityFactorDenum = rpQualityFD;
-	}
+	rp_ctx->network_params.targetFrameRate = HR_MAX(HR_MIN(rp_ctx->cfg.quality, 120), 15);
+
 	rp_ctx->network_params.bitsPerFrame =
-		(u64)rp_ctx->network_params.targetBitsPerSec * rp_ctx->network_params.qualityFactorNum / rp_ctx->network_params.qualityFactorDenum / RP_TARGET_FRAME_RATE;
+		(u64)rp_ctx->network_params.targetBitsPerSec / rp_ctx->network_params.targetFrameRate;
 	rp_ctx->min_send_interval_in_ticks = (u64)SYSTICK_PER_SEC * PACKET_SIZE * 8 * KCP_BANDWIDTH_FACTOR / rp_ctx->cfg.qos;
 	rp_ctx->network_params.bitsPerY = rp_ctx->network_params.bitsPerFrame * 2 / 3;
 	rp_ctx->network_params.bitsPerUV = rp_ctx->network_params.bitsPerFrame / 3;
 	rpDbg(
-		"network params: target frame rate %d, bits per frame %d, bits per y %d, bits per uv %d, quality factor %d/%d\n",
-		RP_TARGET_FRAME_RATE, rp_ctx->network_params.bitsPerFrame, rp_ctx->network_params.bitsPerY, rp_ctx->network_params.bitsPerUV,
-		rpQualityFN, rpQualityFD);
+		"network params: target bitrate %d, target frame rate %d, bits per frame %d, bits per y %d, bits per uv %d\n",
+		rp_ctx->network_params.targetBitsPerSec, rp_ctx->network_params.targetFrameRate,
+		rp_ctx->network_params.bitsPerFrame, rp_ctx->network_params.bitsPerY, rp_ctx->network_params.bitsPerUV);
 }
 
 static int rpBlitEncodeAndSend(BLIT_CONTEXT *ctx, int top_bot, int src_size) {
@@ -2526,32 +1692,13 @@ static int rpBlitEncodeAndSend(BLIT_CONTEXT *ctx, int top_bot, int src_size) {
 	}
 
 	int width, height;
-	// ctx->transformDst = rpImgBuffer + RP_TRANSFORM_DST_OFFSET;
 	if (top_bot == 0) {
-		// send top
-		// currentTopId += 1;
 		width = 400;
 		height = 240;
-		// if (rp_ctx->multicore_encode) {
-		// 	ctx->transformDst = rpImgBuffer + RP_TRANSFORM_DST_MC_TOP_OFFSET;
-		// }
-		// ret = remotePlayBlitCompressAndSend(ctx);
-		// if (ret < 0) {
-		// 	ctx->force_key = 1;
-		// }
 	}
 	else {
-		// send bottom
-		// currentBottomId += 1;
 		width = 320;
 		height = 240;
-		// if (rp_ctx->multicore_encode) {
-		// 	ctx->transformDst = rpImgBuffer + RP_TRANSFORM_DST_MC_BOT_OFFSET;
-		// }
-		// ret = remotePlayBlitCompressAndSend(ctx);
-		// if (ret < 0) {
-		// 	ctx->force_key = 1;
-		// }
 	}
 	remotePlayBlitInit(ctx, width, height,
 		rp_ctx->fb_format[top_bot], rp_ctx->fb_pitch[top_bot],
@@ -2628,9 +1775,9 @@ void remotePlaySendFrames(void) {
 	updateNetworkParams();
 
 	rpDbg(
-		"remote play config: priority top %d, priority factor %d, target bitrate %d"
+		"remote play config: priority top %d, priority factor %d"
 		"%s%s%s%s%s%s%s%s%s%s\n",
-		rp_ctx->priority_screen, rp_ctx->priority_factor, rp_ctx->cfg.qos,
+		rp_ctx->priority_screen, rp_ctx->priority_factor,
 		(rp_ctx->cfg.flags & RP_FRAME_DELTA) ? ", use frame delta" : "",
 		(rp_ctx->cfg.flags & RP_TRIPLE_BUFFER_ENCODE) ? ", triple buffer encode" : "",
 		(rp_ctx->cfg.flags & RP_SELECT_PREDICTION) ? ", select prediction" : "",
@@ -2643,7 +1790,8 @@ void remotePlaySendFrames(void) {
 		(rp_ctx->cfg.flags & RP_MULTICORE_ENCODE) ? ", multicore encode" : "");
 
 	rp_ctx->kcp_restart = 1;
-	svc_flushProcessDataCache(rp_ctx->send_thread, (u32)&rp_ctx->kcp_restart, sizeof(rp_ctx->kcp_restart));
+	// svc_flushProcessDataCache(rp_ctx->send_thread, (u32)&rp_ctx->kcp_restart, sizeof(rp_ctx->kcp_restart));
+	__dmb();
 
 	u32 current_screen = rp_ctx->priority_screen;
 	memset(&rp_ctx->dyn_prio, 0, sizeof(rp_ctx->dyn_prio));
@@ -2671,7 +1819,8 @@ void remotePlaySendFrames(void) {
 			nsDbgPrint("Create remotePlayThread2Transfer Thread Failed: %08x\n", ret);
 
 			rp_ctx->enc_thread_exit = 1;
-			svc_flushProcessDataCache(rp_ctx->enc_thread[1], (u32)&rp_ctx->enc_thread_exit, sizeof(rp_ctx->enc_thread_exit));
+			// svc_flushProcessDataCache(rp_ctx->enc_thread[1], (u32)&rp_ctx->enc_thread_exit, sizeof(rp_ctx->enc_thread_exit));
+			__dmb();
 			svc_waitSynchronization1(rp_ctx->enc_thread[1], U64_MAX);
 			return;
 		}
@@ -2711,31 +1860,27 @@ void remotePlaySendFrames(void) {
 		if (g_nsConfig->rpConfig.control == 1) {
 			g_nsConfig->rpConfig.control = 0;
 			rp_ctx->kcp_restart = 1;
-			svc_flushProcessDataCache(rp_ctx->send_thread, (u32)&rp_ctx->kcp_restart, sizeof(rp_ctx->kcp_restart));
+			// svc_flushProcessDataCache(rp_ctx->send_thread, (u32)&rp_ctx->kcp_restart, sizeof(rp_ctx->kcp_restart));
+			__dmb();
 			break;
 		}
 	}
 
 	if (rp_ctx->multicore_encode) {
 		rp_ctx->enc_thread_exit = 1;
-		svc_flushProcessDataCache(rp_ctx->enc_thread[1], (u32)&rp_ctx->enc_thread_exit, sizeof(rp_ctx->enc_thread_exit));
-		svc_flushProcessDataCache(rp_ctx->tr2_thread, (u32)&rp_ctx->enc_thread_exit, sizeof(rp_ctx->enc_thread_exit));
+		// svc_flushProcessDataCache(rp_ctx->enc_thread[1], (u32)&rp_ctx->enc_thread_exit, sizeof(rp_ctx->enc_thread_exit));
+		// svc_flushProcessDataCache(rp_ctx->tr2_thread, (u32)&rp_ctx->enc_thread_exit, sizeof(rp_ctx->enc_thread_exit));
+		__dmb();
 		svc_waitSynchronization1(rp_ctx->enc_thread[1], U64_MAX);
 		svc_waitSynchronization1(rp_ctx->tr2_thread, U64_MAX);
+		svc_closeHandle(rp_ctx->enc_thread[1]);
+		svc_closeHandle(rp_ctx->tr2_thread);
 	}
 
 	// rpDbg("remotePlaySendFrames exit\n");
 }
 
 void remotePlayThreadStart(u32 arg) {
-	// if (rpAllocBuff) {
-	// 	rpAllocBuffRemainSize = 0x00100000;
-	// }
-	// else {
-	// 	goto final;
-	// }
-	// rpInitCompress();
-
 	// nsDbgPrint("remotePlayBuffer: { %x, %x, %x, %x, %x, %x, %x, %x, %x, %x, %x, %x }\n",
 	// 	*(u32 *)remotePlayBuffer,
 	// 	*(u32 *)(remotePlayBuffer + 0x04),
@@ -2755,30 +1900,6 @@ void remotePlayThreadStart(u32 arg) {
 	// kRemotePlayCallback();
 	int ret;
 
-	// rp_recv_sock = socket(AF_INET, SOCK_DGRAM, 0);
-	// if (rp_recv_sock < 0) {
-	// 	showDbg("rp_recv_sock open failed: %d\n", rp_recv_sock, 0);
-	// 	goto final;
-	// }
-
-	// struct sockaddr_in sai = {0};
-	// sai.sin_family = AF_INET;
-	// sai.sin_port = htons(8001);
-	// sai.sin_addr.s_addr = htonl(INADDR_ANY);
-
-	// ret = bind(rp_recv_sock, (struct sockaddr *)&sai, sizeof(sai));
-	// if (ret < 0) {
-	// 	showDbg("rp_recv_sock bind failed: %d\n", ret, 0);
-	// 	goto final;
-	// }
-
-	/*
-	if (buf[31] != 6) {
-	nsDbgPrint("buflen: %d\n", buflen);
-	for (i = 0; i < buflen; i++) {
-	nsDbgPrint("%02x ", buf[i]);
-	}
-	}*/
 	svc_createSemaphore(&rp_ctx->enc_done_sem[0], 0, 2);
 	svc_createSemaphore(&rp_ctx->enc_avai_sem[0], 2, 2);
 
@@ -2805,8 +1926,10 @@ void remotePlayThreadStart(u32 arg) {
 		}
 		remotePlaySendFrames();
 		rp_ctx->nwm_thread_exit = 1;
-		svc_flushProcessDataCache(rp_ctx->send_thread, (u32)&rp_ctx->nwm_thread_exit, sizeof(rp_ctx->nwm_thread_exit));
+		// svc_flushProcessDataCache(rp_ctx->send_thread, (u32)&rp_ctx->nwm_thread_exit, sizeof(rp_ctx->nwm_thread_exit));
+		__dmb();
 		svc_waitSynchronization1(rp_ctx->send_thread, U64_MAX);
+		svc_closeHandle(rp_ctx->send_thread);
 
 		svc_sleepThread(250000000);
 	}
@@ -2845,24 +1968,9 @@ int nwmValParamCallback(u8* buf, int buflen) {
 			}
 			nsDbgPrint("imgBuffer %x\n", rp_ctx);
 			memset(rp_ctx, 0, RP_IMG_BUFFER_SIZE);
-			// rpAllocBuff = rpImgBuffer + RP_IMG_BUFFER_SIZE - huffman_malloc_usage();
-			// rpBotAllocBuff = rpAllocBuff - huffman_malloc_usage();
-			// rp_ctx->nwm_send_buf = rpBotAllocBuff - RP_PACKET_SIZE;
 			memcpy(rp_ctx->nwm_send_buf, buf, NWM_HEADER_SIZE);
-
-			// rpThreadStack = (u32)(rp_ctx->nwm_send_buf - RP_stackSize) / 4 * 4;
-			// rp_ctx->enc_thread[1]Stack = (u32)(rpThreadStack - RP_stackSize) / 4 * 4;
-			// rp_ctx->enc_thread[1]TransferStack = (u32)(rp_ctx->enc_thread[1]Stack - RP_dataStackSize) / 4 * 4;
-			// rpDataThreadStack = (u32)(rp_ctx->enc_thread[1]TransferStack - RP_dataStackSize) / 4 * 4;
-			// umm_malloc_heap_addr = (u32)(rpDataThreadStack - UMM_HEAP_SIZE) / 4 * 4;
 			umm_init_heap(rp_ctx->umm_malloc_heap_addr, UMM_HEAP_SIZE);
 			ikcp_allocator(umm_malloc, umm_free);
-			// rp_ctx->tick_at_frame = umm_malloc_heap_addr - sizeof(*rp_ctx->tick_at_frame) * FRAME_RATE_AVERAGE_COUNT;
-			// rp_ctx->recv_buf = (u8 *)rp_ctx->tick_at_frame - RP_CONTROL_RECV_BUF_SIZE;
-			// rpControlRecvBuf_ready = 1;
-			// rpWorkBufferEnd = rp_ctx->recv_buf;
-
-			// rpBotImgBuffer = rpImgBuffer + RP_BOT_SRC_OFFSET;
 
 			ret = svc_createThread(&rp_ctx->enc_thread[0], remotePlayThreadStart, 0, (u32 *)&rp_ctx->enc_thread_stack[0][RP_stackSize - 40], 0x10, 2);
 			if (ret != 0) {
