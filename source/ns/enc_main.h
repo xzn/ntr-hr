@@ -271,9 +271,5 @@ static int I_C(rp_enc_main_, I_N)(struct I_C(RP_ENC_CTX_, I_N)* ctx, struct RP_D
 		rets += ret;
 	}
 
-	s32 frame_done_n, *p_frame_done_n = &rp_ctx->frame_done_n[top_bot];
-	do {
-		frame_done_n = __ldrex(p_frame_done_n);
-	} while (__strex(p_frame_done_n, frame_done_n + 1));
 	return rets;
 }

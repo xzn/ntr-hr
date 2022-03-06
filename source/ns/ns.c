@@ -182,6 +182,7 @@ struct RP_DYNAMIC_PRIO {
 	u8 tick_at_frame_i;
 };
 
+#define HR_WORK_DST_BUFFER_COUNT 3
 static struct RP_CTX {
 	union {
 		struct ENC_FD_CTX c;
@@ -208,8 +209,8 @@ static struct RP_CTX {
 	u8 img_buf_top[RP_IMG_BUF_TOP_SIZE] I_A;
 	u8 img_buf_bot[RP_IMG_BUF_BOT_SIZE] I_A;
 
-	u8 hr_dst_top[3][HR_DST_SIZE_TOP] I_A;
-	u8 hr_dst_bot[3][HR_DST_SIZE_BOT] I_A;
+	u8 hr_dst_top[HR_WORK_DST_BUFFER_COUNT][HR_DST_SIZE_TOP] I_A;
+	u8 hr_dst_bot[HR_WORK_DST_BUFFER_COUNT][HR_DST_SIZE_BOT] I_A;
 
 	RP_CONFIG cfg;
 
@@ -217,9 +218,10 @@ static struct RP_CTX {
 	u64 min_send_interval_in_ticks, last_send_tick, last_kcp_send_tick;
 	u8 hr_frame_id[2];
 	u8 nwm_frame_id[2];
-	u8 *hr_dst[2][3];
-	u8 *nwm_src[2][3];
-	u32 nwm_len[2][3];
+	u8 *hr_dst[2][HR_WORK_DST_BUFFER_COUNT];
+	u8 *nwm_src[2][HR_WORK_DST_BUFFER_COUNT];
+	u32 nwm_len[2][HR_WORK_DST_BUFFER_COUNT];
+	u8 nwm_frame_end[2];
 
 	u8 force_key[2];
 
@@ -236,7 +238,6 @@ static struct RP_CTX {
 	Handle tr2_done_sem;
 	Handle tr2_avai_sem;
 	int tr2_src_size;
-	s32 frame_done_n[2];
 
 	u32 fb_addr[2][2];
 	u32 fb_format[2];
@@ -828,7 +829,7 @@ typedef struct _COMPRESS_CONTEXT {
 static void rpSendData(int top_bot, u8* data, u32 size) {
 	rp_ctx->nwm_src[top_bot][rp_ctx->hr_frame_id[top_bot]] = data;
 	rp_ctx->nwm_len[top_bot][rp_ctx->hr_frame_id[top_bot]] = size;
-	rp_ctx->hr_frame_id[top_bot] = (rp_ctx->hr_frame_id[top_bot] + 1) % 2;
+	rp_ctx->hr_frame_id[top_bot] = (rp_ctx->hr_frame_id[top_bot] + 1) % HR_WORK_DST_BUFFER_COUNT;
 }
 
 #define RP_CONTROL_TOP_KEY (1 << 0)
@@ -938,16 +939,68 @@ static int rpDynPrioGetScreen(void) {
 static void rpSendDataDiscard(void) {
 	s32 count;
 	while (svc_waitSynchronization1(rp_ctx->enc_done_sem[0], 0) == 0) {
-		rp_ctx->nwm_frame_id[0] = (rp_ctx->nwm_frame_id[0] + 1) % 2;
+		rp_ctx->nwm_frame_id[0] = (rp_ctx->nwm_frame_id[0] + 1) % HR_WORK_DST_BUFFER_COUNT;
 		svc_releaseSemaphore(&count, rp_ctx->enc_avai_sem[0], 1);
 	}
 
 	if (rp_ctx->multicore_encode) {
 		while (svc_waitSynchronization1(rp_ctx->enc_done_sem[1], 0) == 0) {
-			rp_ctx->nwm_frame_id[1] = (rp_ctx->nwm_frame_id[1] + 1) % 2;
+			rp_ctx->nwm_frame_id[1] = (rp_ctx->nwm_frame_id[1] + 1) % HR_WORK_DST_BUFFER_COUNT;
 			svc_releaseSemaphore(&count, rp_ctx->enc_avai_sem[1], 1);
 		}
 	}
+}
+
+static int rpSendDataReady(Handle workDoneSem, Handle workAvaiSem, u8 *frameId) {
+	int ret;
+	while (1) {
+		ret = svc_waitSynchronization1(workDoneSem, KCP_SOCKET_TIMEOUT * 1000000);
+		if (ret != 0) {
+			svc_waitSynchronization1(rp_ctx->kcp_mutex, U64_MAX);
+			ikcp_update(rp_ctx->kcp, iclock());
+			svc_releaseMutex(rp_ctx->kcp_mutex);
+
+			if (rp_ctx->kcp_restart || rp_ctx->nwm_thread_exit) {
+				break;
+			}
+
+			continue;
+		}
+		break;
+	}
+
+	if (rp_ctx->kcp_restart || rp_ctx->nwm_thread_exit) {
+		s32 count;
+
+		if (ret == 0) {
+			*frameId = (*frameId + 1) % HR_WORK_DST_BUFFER_COUNT;
+			svc_releaseSemaphore(&count, workAvaiSem, 1);
+		}
+
+		rpSendDataDiscard();
+		rp_ctx->kcp_restart = 0;
+		return -1;
+	}
+	return 0;
+}
+
+static int rpSendDataCancel(Handle workDoneSem) {
+	s32 count;
+	svc_releaseSemaphore(&count, workDoneSem, 1);
+}
+
+static int rpSendDataDone(Handle workAvaiSem, u8 *frameId) {
+	*frameId = (*frameId + 1) % HR_WORK_DST_BUFFER_COUNT;
+
+	s32 count;
+	svc_releaseSemaphore(&count, workAvaiSem, 1);
+
+	if (rp_ctx->kcp_restart || rp_ctx->nwm_thread_exit) {
+		rpSendDataDiscard();
+		rp_ctx->kcp_restart = 0;
+		return -1;
+	}
+	return 0;
 }
 
 void rpSendDataThreadMain(void) {
@@ -976,61 +1029,50 @@ void rpSendDataThreadMain(void) {
 
 	int current_screen = rp_ctx->multicore_encode ? current_screen = rpDynPrioGetScreen() : 0;
 	memset(&rp_ctx->dyn_prio, 0, sizeof(rp_ctx->dyn_prio));
+	memset(&rp_ctx->nwm_frame_end, 0, sizeof(rp_ctx->nwm_frame_end));
 
 	while (!rp_ctx->nwm_thread_exit) {
 		u32 packet_header_id = 0;
 
+		Handle workDoneSem = rp_ctx->enc_done_sem[current_screen], workAvaiSem = rp_ctx->enc_avai_sem[current_screen];
+		u8 *frameId = &rp_ctx->nwm_frame_id[current_screen];
 		if (rp_ctx->multicore_encode) {
-			s32 frame_done_n, *p_frame_done_n = &rp_ctx->frame_done_n[current_screen];
-			if (*p_frame_done_n) {
-				do {
-					frame_done_n = __ldrex(p_frame_done_n);
-				} while (__strex(p_frame_done_n, frame_done_n - 1));
+			if (rp_ctx->nwm_frame_end[current_screen] == 1)
+			{
+				if (rpSendDataReady(workDoneSem, workAvaiSem, frameId) < 0) {
+					break;
+				}
+
+				u8 **send_src = rp_ctx->nwm_src[current_screen];
+				u8* data = send_src[*frameId];
+				struct RP_DATA_HEADER header = { 0 };
+				memcpy(&header, data, sizeof(header));
+
+				if (!(header.flags & RP_DATA_Y_UV)) {
+					++rp_ctx->nwm_frame_end[current_screen];
+				}
+
+				rpSendDataCancel(workDoneSem);
+			}
+			if (rp_ctx->nwm_frame_end[current_screen] == 2) {
+				rp_ctx->nwm_frame_end[current_screen] = 0;
 				current_screen = rpDynPrioGetScreen();
 			}
 		} else {
 			current_screen = 0;
 		}
 
-		Handle workDoneSem = rp_ctx->enc_done_sem[current_screen], workAvaiSem = rp_ctx->enc_avai_sem[current_screen];
+		workDoneSem = rp_ctx->enc_done_sem[current_screen], workAvaiSem = rp_ctx->enc_avai_sem[current_screen];
 		u8 **send_src = rp_ctx->nwm_src[current_screen];
 		u32 *send_len = rp_ctx->nwm_len[current_screen];
-		u8 *frameId = &rp_ctx->nwm_frame_id[current_screen];
+		frameId = &rp_ctx->nwm_frame_id[current_screen];
 
-		while (1) {
-			ret = svc_waitSynchronization1(workDoneSem, KCP_SOCKET_TIMEOUT * 1000000);
-			if (ret != 0) {
-				svc_waitSynchronization1(rp_ctx->kcp_mutex, U64_MAX);
-				ikcp_update(rp_ctx->kcp, iclock());
-				svc_releaseMutex(rp_ctx->kcp_mutex);
-
-				if (rp_ctx->kcp_restart || rp_ctx->nwm_thread_exit) {
-					break;
-				}
-
-				continue;
-			}
+		if (rpSendDataReady(workDoneSem, workAvaiSem, frameId) < 0) {
 			break;
 		}
 
-		if (rp_ctx->kcp_restart || rp_ctx->nwm_thread_exit) {
-			s32 count;
-
-			if (ret == 0) {
-				*frameId = (*frameId + 1) % 2;
-				svc_releaseSemaphore(&count, workAvaiSem, 1);
-			}
-
-			rpSendDataDiscard();
-			rp_ctx->kcp_restart = 0;
-			break;
-		}
-
-		u8* data;
-		u32 size;
-		data = send_src[*frameId];
-		size = send_len[*frameId];
-		*frameId = (*frameId + 1) % 2;
+		u8* data = send_src[*frameId];
+		u32 size = send_len[*frameId];
 
 		struct RP_DATA_HEADER header = { 0 };
 		struct RP_DATA2_HEADER header2 = { 0 };
@@ -1050,6 +1092,10 @@ void rpSendDataThreadMain(void) {
 				rp_ctx->dyn_prio.top_screen_time += 1.0f / ret;
 			} else {
 				rp_ctx->dyn_prio.bot_screen_time += 1.0f / ret;
+			}
+
+			if (header.flags & RP_DATA_Y_UV) {
+				++rp_ctx->nwm_frame_end[current_screen];
 			}
 		}
 
@@ -1112,12 +1158,7 @@ void rpSendDataThreadMain(void) {
 			// rpDbg("send2 post %d %d %d %d\n", header2.flags, header2.len + sizeof(header2), header2.id, header2.uncompressed_len);
 		}
 
-		s32 count;
-		svc_releaseSemaphore(&count, workAvaiSem, 1);
-
-		if (rp_ctx->kcp_restart || rp_ctx->nwm_thread_exit) {
-			rpSendDataDiscard();
-			rp_ctx->kcp_restart = 0;
+		if (rpSendDataDone(workAvaiSem, frameId) < 0) {
 			break;
 		}
 
@@ -1494,9 +1535,9 @@ static int remotePlayBlitCompressAndSend(BLIT_CONTEXT* ctx) {
 	if (rp_ctx->interlace) {
 		data_header.flags |= RP_DATA_INTERLACE;
 		if (even_odd) {
-			data_header.flags &= ~RP_DATA_INTERLACE_EVEN_ODD;
-		} else {
 			data_header.flags |= RP_DATA_INTERLACE_EVEN_ODD;
+		} else {
+			data_header.flags &= ~RP_DATA_INTERLACE_EVEN_ODD;
 		}
 	} else {
 		data_header.flags &= ~RP_DATA_INTERLACE;
@@ -1900,11 +1941,11 @@ void remotePlayThreadStart(u32 arg) {
 	// kRemotePlayCallback();
 	int ret;
 
-	svc_createSemaphore(&rp_ctx->enc_done_sem[0], 0, 2);
-	svc_createSemaphore(&rp_ctx->enc_avai_sem[0], 2, 2);
+	svc_createSemaphore(&rp_ctx->enc_done_sem[0], 0, HR_WORK_DST_BUFFER_COUNT);
+	svc_createSemaphore(&rp_ctx->enc_avai_sem[0], HR_WORK_DST_BUFFER_COUNT, HR_WORK_DST_BUFFER_COUNT);
 
-	svc_createSemaphore(&rp_ctx->enc_done_sem[1], 0, 2);
-	svc_createSemaphore(&rp_ctx->enc_avai_sem[1], 2, 2);
+	svc_createSemaphore(&rp_ctx->enc_done_sem[1], 0, HR_WORK_DST_BUFFER_COUNT);
+	svc_createSemaphore(&rp_ctx->enc_avai_sem[1], HR_WORK_DST_BUFFER_COUNT, HR_WORK_DST_BUFFER_COUNT);
 
 	svc_createSemaphore(&rp_ctx->tr2_avai_sem, 0, 1);
 	svc_createSemaphore(&rp_ctx->tr2_done_sem, 1, 1);
