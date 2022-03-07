@@ -454,21 +454,24 @@ void rpDbg(const char* fmt, ...) {
 
 // #define rshift_to_even(n, s) ({ typeof(n) n_ = n >> (s - 1); u8 b_ = n_ & 1; n_ >>= 1; u8 c_ = n_ & 1; n_ + (b_ & c_); })
 #define rshift_to_even(n, s) ((n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
+#define srshift_to_even(n, s) ((s16)(n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
 // #define rshift_to_even(n, s) ((n + (1 << (s - 1))) >> s)
 
 static void convertYUV(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
-	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
-	u16 u = -43 * (u16)r + -84 * (u16)g + 127 * (u16)b;
-	u16 v = 127 * (u16)r + -106 * (u16)g + -21 * (u16)b;
-
 	if (rp_ctx->cfg.flags & RP_YUV_LQ) {
-		*y_out = rshift_to_even(y, 10);
-		*u_out = (rshift_to_even(u, 11) + 16) % 32;
-		*v_out = (rshift_to_even(v, 11) + 16) % 32;
-	} else {
+		u16 y = 19 * (u16)r + 37 * (u16)g + 7 * (u16)b;
+		s16 u = -5 * (s16)r + -10 * (s16)g + 15 * (s16)b;
+		s16 v = 15 * (s16)r + -13 * (s16)g + -2 * (s16)b;
 		*y_out = rshift_to_even(y, 8);
-		*u_out = rshift_to_even(u, 8) + 128;
-		*v_out = rshift_to_even(v, 8) + 128;
+		*u_out = srshift_to_even(u, 8) + 16;
+		*v_out = srshift_to_even(v, 8) + 16;
+	} else {
+		u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
+		s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
+		s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
+		*y_out = rshift_to_even(y, 8);
+		*u_out = srshift_to_even(u, 8) + 128;
+		*v_out = srshift_to_even(v, 8) + 128;
 	}
 }
 
