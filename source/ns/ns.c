@@ -1830,6 +1830,11 @@ void remotePlaySendFrames(void) {
 	// u32 rp_ctx->fb_pitch[0]_max = 0;
 	// u32 rp_ctx->fb_pitch[1]_max = 0;
 
+	if (!rp_ctx->triple_buffer_encode) {
+		svc_waitSynchronization1(rp_ctx->enc_avai_sem[0], U64_MAX);
+		svc_waitSynchronization1(rp_ctx->enc_avai_sem[1], U64_MAX);
+	}
+
 	if (rp_ctx->multicore_encode) {
 		rp_ctx->enc_thread_exit = 0;
 		ret = svc_createThread(&rp_ctx->enc_thread[1], remotePlayThread2Start, 0, (u32 *)&rp_ctx->enc_thread_stack[1][RP_stackSize - 40], 0x10, 3);
@@ -1888,6 +1893,12 @@ void remotePlaySendFrames(void) {
 			__dmb();
 			break;
 		}
+	}
+
+	if (!rp_ctx->triple_buffer_encode) {
+		s32 count;
+		svc_releaseSemaphore(&count, rp_ctx->enc_avai_sem[0], 1);
+		svc_releaseSemaphore(&count, rp_ctx->enc_avai_sem[1], 1);
 	}
 
 	if (rp_ctx->multicore_encode) {
