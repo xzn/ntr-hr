@@ -70,6 +70,10 @@ typedef struct _NS_BREAKPOINT {
 
 #define RP_MAGIC 0xfff54321
 
+// disabled
+#undef RP_DYNAMIC_DOWNSAMPLE
+#define RP_DYNAMIC_DOWNSAMPLE 0
+
 typedef struct _RP_CONFIG {
 	u32 flags; // flags
 	u32 mode;
