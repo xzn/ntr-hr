@@ -1,1 +1,1 @@
-#define UMM_BLOCK_BODY_SIZE 16
+#define UMM_BLOCK_BODY_SIZE 8

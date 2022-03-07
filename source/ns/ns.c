@@ -64,13 +64,13 @@ RT_HOOK nwmValParamHook;
 #define NWM_HEADER_SIZE (0x2a + 8)
 #define RP_PACKET_SIZE (PACKET_SIZE + NWM_HEADER_SIZE)
 int remotePlayInited = 0;
-#define RP_IMG_BUFFER_SIZE 0x00800000
+#define RP_IMG_BUFFER_SIZE 0x00600000
 #define RP_IMG_BUF_TOP_SIZE (400 * 240 * 4 * 2)
 #define RP_IMG_BUF_BOT_SIZE (320 * 240 * 4)
 #define RP_stackSize 0x10000
 #define RP_dataStackSize 0x1000
 #define RP_CONTROL_RECV_BUF_SIZE 2000
-#define UMM_HEAP_SIZE (512 * 1024)
+#define UMM_HEAP_SIZE (256 * 1024)
 #define FRAME_RATE_AVERAGE_COUNT 90
 
 #define RP_DATA_TOP_BOT ((u32)1 << 0)
@@ -154,13 +154,13 @@ struct ENC_FD_il_CTX {
 };
 
 struct ENC_CTX {
-	struct ENC_top top;
-	struct ENC_bot bot;
+	struct ENC_CTX_top top;
+	struct ENC_CTX_bot bot;
 };
 
 struct ENC_il_CTX {
-	struct ENC_il_top top;
-	struct ENC_il_bot bot;
+	struct ENC_CTX_il_top top;
+	struct ENC_CTX_il_bot bot;
 };
 
 struct RP_NETWORK_PARAMS {
@@ -1456,23 +1456,6 @@ static void diffPredSelCctxImage_Y(COMPRESS_CONTEXT *cctx, u8 *dp_fd_im, u8 *dp_
 	cctx_data_sel(cctx, dp_s_im, dp_m_im, dp_s_im_size, dp_m_im_size, dp_fd_im, sel);
 }
 
-static int downsampleHDiffPredSelCctxImageSend_Y(COMPRESS_CONTEXT *cctx, struct RP_DATA_HEADER *header, int top_bot,
-	u8 *dp_ds_fd_im, u8 *dp_ds_im, u8 *dp_im, u8 *dp_ds_im_pf, u8 *dp_ds_p_im,
-	u8 *dp_ds_s_im, u8 *dp_ds_m_im, int dp_ds_s_im_size, int dp_ds_m_im_size, int width, int height, u8 sel
-) {
-	downsampleImageH(dp_ds_im, dp_im, width, height);
-	diffPredSelCctxImage_Y(cctx, dp_ds_fd_im, dp_ds_im, dp_ds_im_pf,
-		dp_ds_p_im, dp_ds_s_im, dp_ds_m_im, dp_ds_s_im_size, dp_ds_m_im_size,
-		width / 2, height, sel);
-	cctx->max_compressed_size = UINT32_MAX;
-	header->flags |= RP_DATA_DOWNSAMPLE2;
-	int ret;
-	if ((ret = rpTestCompressAndSend(top_bot, *header, cctx)) < 0) {
-		return -1;
-	}
-	return ret;
-}
-
 #define RP_ENC_HAVE_Y (1 << 0)
 #define RP_ENC_HAVE_UV (1 << 1)
 #define RP_ENC_DS_Y (1 << 2)
@@ -1998,7 +1981,7 @@ int nwmValParamCallback(u8* buf, int buflen) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
 			remotePlayInited = 1;
 
-			if (sizeof(*rp_ctx) > (RP_IMG_BUFFER_SIZE)) {
+			if (sizeof(*rp_ctx) > RP_IMG_BUFFER_SIZE) {
 				nsDbgPrint("imgBuffer too small\n");
 				return 0;
 			}
