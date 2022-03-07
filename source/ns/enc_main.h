@@ -47,6 +47,54 @@ static int I_C(downsampleVDiffPredSelCctxImageSend_Y_, I_N)(COMPRESS_CONTEXT *cc
 	return ret;
 }
 
+static int I_C(downsampleHDiffPredSelCctxImageSend_UV_, I_N)(COMPRESS_CONTEXT *cctx, struct RP_DATA_HEADER *header, int top_bot,
+	struct I_C(RP_ENC_CTX_, I_N)* ctx, int select_prediction
+) {
+	int ret;
+	downsampleImageH(ctx->fd->ds2_u.ds2, ctx->fd->ds2_u.ds, I_WIDTH / 2, I_HEIGHT / 4);
+	downsampleImageH(ctx->fd->ds2_v.ds2, ctx->fd->ds2_v.ds, I_WIDTH / 2, I_HEIGHT / 4);
+	diffPredSelCctxImage_UV(cctx, ctx->enc->im.ds2_ds2_u_fd, ctx->fd->ds2_u.ds2, ctx->fd_pf->ds2_u.ds2, ctx->enc->im.ds2_ds2_u_p,
+		ctx->enc->im.ds2_ds2_u_s, ctx->enc->im.ds2_ds2_u_m, sizeof(ctx->enc->im.ds2_ds2_u_s), sizeof(ctx->enc->im.ds2_ds2_u_m),
+		ctx->enc->im.ds2_ds2_v_fd, ctx->fd->ds2_v.ds2, ctx->fd_pf->ds2_v.ds2, ctx->enc->im.ds2_ds2_v_p,
+		ctx->enc->im.ds2_ds2_v_s, ctx->enc->im.ds2_ds2_v_m, sizeof(ctx->enc->im.ds2_ds2_v_s), sizeof(ctx->enc->im.ds2_ds2_v_m),
+		I_WIDTH / 4, I_HEIGHT / 4, select_prediction);
+	cctx->max_compressed_size = UINT32_MAX;
+	header->flags |= RP_DATA_DOWNSAMPLE2;
+	if ((ret = rpTestCompressAndSend(top_bot, *header, cctx)) < 0) {
+		return -1;
+	}
+	ctx->fd->flags |= RP_ENC_DS2_DS2_UV;
+	return ret;
+}
+
+static int I_C(downsampleVDiffPredSelCctxImageSend_UV_, I_N)(COMPRESS_CONTEXT *cctx, struct RP_DATA_HEADER *header, int top_bot,
+	struct I_C(RP_ENC_CTX_, I_N)* ctx, int select_prediction)
+{
+	int ret;
+	downsampleImageV(ctx->fd->ds2_u.ds, ctx->fd->ds2_u.im, I_WIDTH / 2, I_HEIGHT / 2);
+	downsampleImageV(ctx->fd->ds2_v.ds, ctx->fd->ds2_v.im, I_WIDTH / 2, I_HEIGHT / 2);
+	diffPredSelCctxImage_UV(cctx, ctx->enc->im.ds_ds2_u_fd, ctx->fd->ds2_u.ds, ctx->fd_pf->ds2_u.ds, ctx->enc->im.ds_ds2_u_p,
+		ctx->enc->im.ds_ds2_u_s, ctx->enc->im.ds_ds2_u_m, sizeof(ctx->enc->im.ds_ds2_u_s), sizeof(ctx->enc->im.ds_ds2_u_m),
+		ctx->enc->im.ds_ds2_v_fd, ctx->fd->ds2_v.ds, ctx->fd_pf->ds2_v.ds, ctx->enc->im.ds_ds2_v_p,
+		ctx->enc->im.ds_ds2_v_s, ctx->enc->im.ds_ds2_v_m, sizeof(ctx->enc->im.ds_ds2_v_s), sizeof(ctx->enc->im.ds_ds2_v_m),
+		I_WIDTH / 2, I_HEIGHT / 4, select_prediction);
+	cctx->max_compressed_size = rp_ctx->network_params.bitsPerUV / BITS_PER_BYTE;
+	header->flags |= RP_DATA_DOWNSAMPLE;
+	if ((ret = rpTestCompressAndSend(top_bot, *header, cctx)) < 0) {
+		downsampleImageH(ctx->fd_pf->ds2_u.ds2, ctx->fd_pf->ds2_u.ds, I_WIDTH / 2, I_HEIGHT / 4);
+		downsampleImageH(ctx->fd_pf->ds2_v.ds2, ctx->fd_pf->ds2_v.ds, I_WIDTH / 2, I_HEIGHT / 4);
+		if ((ret = I_C(downsampleHDiffPredSelCctxImageSend_UV_, I_N)(cctx, header, top_bot,
+			ctx, select_prediction
+		)) < 0) {
+			return -1;
+		}
+	} else {
+		ctx->fd->flags &= ~RP_ENC_DS2_DS2_UV;
+		ctx->fd->flags |= RP_ENC_DS_DS2_UV;
+	}
+	return ret;
+}
+
 static int I_C(rp_enc_main_, I_N)(struct I_C(RP_ENC_CTX_, I_N)* ctx, struct RP_DATA_HEADER data_header) {
 	COMPRESS_CONTEXT cctx = { 0 };
 	int ret;
@@ -131,7 +179,7 @@ static int I_C(rp_enc_main_, I_N)(struct I_C(RP_ENC_CTX_, I_N)* ctx, struct RP_D
 
 		cctx.data = ctx->enc->im.ds2_u_p;
 		cctx.data_size = sizeof(ctx->enc->im.ds2_u_p) + sizeof(ctx->enc->im.ds2_v_p);
-		cctx.max_compressed_size = 0 && dynamic_downsample ? rp_ctx->network_params.bitsPerUV / BITS_PER_BYTE : UINT32_MAX;
+		cctx.max_compressed_size = dynamic_downsample ? rp_ctx->network_params.bitsPerUV / BITS_PER_BYTE : UINT32_MAX;
 
 		if ((ret = rpTestCompressAndSend(top_bot, data_header, &cctx)) < 0) {
 			downsampleImageV(ctx->fd->ds2_u.ds, ctx->fd->ds2_u.im, I_WIDTH / 2, I_HEIGHT / 2);
@@ -175,6 +223,7 @@ static int I_C(rp_enc_main_, I_N)(struct I_C(RP_ENC_CTX_, I_N)* ctx, struct RP_D
 		}
 
 		data_header.flags &= ~RP_DATA_Y_UV;
+		data_header.flags &= ~(RP_DATA_DOWNSAMPLE | RP_DATA_DOWNSAMPLE2);
 		if (ctx->fd_pf->flags & RP_ENC_DS2_Y) {
 			downsampleImageV(ctx->fd->y.ds, ctx->fd->y.im, I_WIDTH, I_HEIGHT);
 			if ((ret = I_C(downsampleHDiffPredSelCctxImageSend_Y_, I_N)(&cctx, &data_header, top_bot,
@@ -227,7 +276,6 @@ static int I_C(rp_enc_main_, I_N)(struct I_C(RP_ENC_CTX_, I_N)* ctx, struct RP_D
 				sizeof(ctx->enc->im.y_s), sizeof(ctx->enc->im.y_m),
 				I_WIDTH, I_HEIGHT, select_prediction);
 			cctx.max_compressed_size = dynamic_downsample ? rp_ctx->network_params.bitsPerY / BITS_PER_BYTE : UINT32_MAX;
-			data_header.flags &= ~(RP_DATA_DOWNSAMPLE | RP_DATA_DOWNSAMPLE2);
 
 			if ((ret = rpTestCompressAndSend(top_bot, data_header, &cctx)) < 0) {
 				downsampleImageV(ctx->fd_pf->y.ds, ctx->fd_pf->y.im, I_WIDTH, I_HEIGHT);
@@ -242,33 +290,82 @@ static int I_C(rp_enc_main_, I_N)(struct I_C(RP_ENC_CTX_, I_N)* ctx, struct RP_D
 		ctx->fd->flags |= RP_ENC_HAVE_Y;
 
 		data_header.flags |= RP_DATA_Y_UV;
-		differenceImage(ctx->enc->im.ds2_u_fd, ctx->fd->ds2_u.im, ctx->fd_pf->ds2_u.im, I_WIDTH / 2, I_HEIGHT / 2);
-		differenceImage(ctx->enc->im.ds2_v_fd, ctx->fd->ds2_v.im, ctx->fd_pf->ds2_v.im, I_WIDTH / 2, I_HEIGHT / 2);
-		if (select_prediction) {
-			predictImage(ctx->enc->im.ds2_u_p, ctx->fd->ds2_u.im, I_WIDTH / 2, I_HEIGHT / 2);
-			predictImage(ctx->enc->im.ds2_v_p, ctx->fd->ds2_v.im, I_WIDTH / 2, I_HEIGHT / 2);
-			selectImage(ctx->enc->im.ds2_u_s, ctx->enc->im.ds2_u_m, ctx->enc->im.ds2_u_m + sizeof(ctx->enc->im.ds2_u_m),
-				ctx->enc->im.ds2_u_fd, ctx->enc->im.ds2_u_p, I_WIDTH / 2, I_HEIGHT / 2);
-			selectImage(ctx->enc->im.ds2_v_s, ctx->enc->im.ds2_v_m, ctx->enc->im.ds2_v_m + sizeof(ctx->enc->im.ds2_v_m),
-				ctx->enc->im.ds2_v_fd, ctx->enc->im.ds2_v_p, I_WIDTH / 2, I_HEIGHT / 2);
-			cctx.data = ctx->enc->im.ds2_u_s;
-			cctx.data_size = sizeof(ctx->enc->im.ds2_u_s) + sizeof(ctx->enc->im.ds2_v_s);
-			cctx.data2 = ctx->enc->im.ds2_u_m;
-			cctx.data2_size = sizeof(ctx->enc->im.ds2_u_m) + sizeof(ctx->enc->im.ds2_v_m);
-		} else {
-			cctx.data = ctx->enc->im.ds2_u_fd;
-			cctx.data_size = sizeof(ctx->enc->im.ds2_u_fd) + sizeof(ctx->enc->im.ds2_v_fd);
-			cctx.data2 = 0;
-			cctx.data2_size = 0;
-		}
-		cctx.max_compressed_size = UINT32_MAX;
 		data_header.flags &= ~(RP_DATA_DOWNSAMPLE | RP_DATA_DOWNSAMPLE2);
+		if (ctx->fd_pf->flags & RP_ENC_DS2_DS2_UV) {
+			downsampleImageV(ctx->fd->ds2_u.ds, ctx->fd->ds2_u.im, I_WIDTH / 2, I_HEIGHT / 2);
+			downsampleImageV(ctx->fd->ds2_v.ds, ctx->fd->ds2_v.im, I_WIDTH / 2, I_HEIGHT / 2);
+			if ((ret = I_C(downsampleHDiffPredSelCctxImageSend_UV_, I_N)(&cctx, &data_header, top_bot,
+				ctx, select_prediction
+			)) < 0) {
+				return -1;
+			}
+			rets += ret;
 
-		if ((ret = rpTestCompressAndSend(top_bot, data_header, &cctx)) < 0) {
-			return -1;
+			upsampleFDCImageH(ctx->enc->rs.ds2_ds2_u_fd, ctx->enc->rs.ds2_ds2_u_c,
+				ctx->enc->rs.ds2_ds2_u_c + sizeof(ctx->enc->rs.ds2_ds2_u_c),
+				ctx->fd->ds2_u.ds, ctx->fd->ds2_u.ds2, I_WIDTH / 2, I_HEIGHT / 4);
+			upsampleFDCImageH(ctx->enc->rs.ds2_ds2_v_fd, ctx->enc->rs.ds2_ds2_v_c,
+				ctx->enc->rs.ds2_ds2_v_c + sizeof(ctx->enc->rs.ds2_ds2_v_c),
+				ctx->fd->ds2_v.ds, ctx->fd->ds2_v.ds2, I_WIDTH / 2, I_HEIGHT / 4);
+			cctx_data_sel(&cctx, ctx->enc->rs.ds2_ds2_u_fd, ctx->enc->rs.ds2_ds2_u_c,
+				sizeof(ctx->enc->rs.ds2_ds2_u_fd) + sizeof(ctx->enc->rs.ds2_ds2_v_fd),
+				sizeof(ctx->enc->rs.ds2_ds2_u_c) + sizeof(ctx->enc->rs.ds2_ds2_v_c), 0, 1);
+			cctx.max_compressed_size = rp_ctx->network_params.bitsPerUV / BITS_PER_BYTE - rets;
+			data_header.flags &= ~RP_DATA_DOWNSAMPLE2;
+			data_header.flags |= RP_DATA_DOWNSAMPLE;
+			if ((ret = rpTestCompressAndSend(top_bot, data_header, &cctx)) < 0) {
+			} else {
+				ctx->fd->flags &= ~RP_ENC_DS2_DS2_UV;
+				ctx->fd->flags |= RP_ENC_DS_DS2_UV;
+				rets += ret;
+			}
+		} else if (ctx->fd_pf->flags & RP_ENC_DS_DS2_UV) {
+			if ((ret = I_C(downsampleVDiffPredSelCctxImageSend_UV_, I_N)(&cctx, &data_header, top_bot,
+				ctx, select_prediction
+			)) < 0) {
+				return -1;
+			}
+			rets += ret;
+
+			if (ctx->fd->flags & RP_ENC_DS2_DS2_UV) {
+			} else {
+				upsampleFDCImageV(ctx->enc->rs.ds_ds2_u_fd, ctx->enc->rs.ds_ds2_u_c,
+					ctx->enc->rs.ds_ds2_u_c + sizeof(ctx->enc->rs.ds_ds2_u_c),
+					ctx->fd->ds2_v.im, ctx->fd->ds2_v.ds, I_WIDTH / 2, I_HEIGHT / 2);
+				upsampleFDCImageV(ctx->enc->rs.ds_ds2_v_fd, ctx->enc->rs.ds_ds2_v_c,
+					ctx->enc->rs.ds_ds2_v_c + sizeof(ctx->enc->rs.ds_ds2_v_c),
+					ctx->fd->ds2_v.im, ctx->fd->ds2_v.ds, I_WIDTH / 2, I_HEIGHT / 2);
+				cctx_data_sel(&cctx, ctx->enc->rs.ds_ds2_u_fd, ctx->enc->rs.ds_ds2_u_c,
+					sizeof(ctx->enc->rs.ds_ds2_u_fd) + sizeof(ctx->enc->rs.ds_ds2_v_fd),
+					sizeof(ctx->enc->rs.ds_ds2_u_c) + sizeof(ctx->enc->rs.ds_ds2_v_c), 0, 1);
+				cctx.max_compressed_size -= rets;
+				data_header.flags &= ~RP_DATA_DOWNSAMPLE;
+				if ((ret = rpTestCompressAndSend(top_bot, data_header, &cctx)) < 0) {
+				} else {
+					ctx->fd->flags &= ~RP_ENC_DS_DS2_UV;
+					rets += ret;
+				}
+			}
+		} else {
+			diffPredSelCctxImage_UV(&cctx, ctx->enc->im.ds2_u_fd, ctx->fd->ds2_u.im, ctx->fd_pf->ds2_u.im, ctx->enc->im.ds2_u_p,
+				ctx->enc->im.ds2_u_s, ctx->enc->im.ds2_u_m, sizeof(ctx->enc->im.ds2_u_s), sizeof(ctx->enc->im.ds2_u_m),
+				ctx->enc->im.ds2_v_fd, ctx->fd->ds2_v.im, ctx->fd_pf->ds2_v.im, ctx->enc->im.ds2_v_p,
+				ctx->enc->im.ds2_v_s, ctx->enc->im.ds2_v_m, sizeof(ctx->enc->im.ds2_v_s), sizeof(ctx->enc->im.ds2_v_m),
+				I_WIDTH / 2, I_HEIGHT / 2, select_prediction);
+			cctx.max_compressed_size = dynamic_downsample ? rp_ctx->network_params.bitsPerUV / BITS_PER_BYTE : UINT32_MAX;
+
+			if ((ret = rpTestCompressAndSend(top_bot, data_header, &cctx)) < 0) {
+				downsampleImageV(ctx->fd_pf->ds2_u.ds, ctx->fd_pf->ds2_u.im, I_WIDTH / 2, I_HEIGHT / 2);
+				downsampleImageV(ctx->fd_pf->ds2_v.ds, ctx->fd_pf->ds2_v.im, I_WIDTH / 2, I_HEIGHT / 2);
+				if ((ret = I_C(downsampleVDiffPredSelCctxImageSend_UV_, I_N)(&cctx, &data_header, top_bot,
+					ctx, select_prediction
+				)) < 0) {
+					return -1;
+				}
+			}
+			rets += ret;
 		}
 		ctx->fd->flags |= RP_ENC_HAVE_UV;
-		rets += ret;
 	}
 
 	return rets;

@@ -1456,6 +1456,15 @@ static void diffPredSelCctxImage_Y(COMPRESS_CONTEXT *cctx, u8 *dp_fd_im, u8 *dp_
 	cctx_data_sel(cctx, dp_s_im, dp_m_im, dp_s_im_size, dp_m_im_size, dp_fd_im, sel);
 }
 
+static void diffPredSelCctxImage_UV(COMPRESS_CONTEXT *cctx, u8 *dp_fd_u, u8 *dp_u, u8 *dp_u_pf, u8 *dp_p_u,
+	u8 *dp_s_u, u8 *dp_m_u, int dp_s_u_size, int dp_m_u_size, u8 *dp_fd_v, u8 *dp_v, u8 *dp_v_pf, u8 *dp_p_v,
+	u8 *dp_s_v, u8 *dp_m_v, int dp_s_v_size, int dp_m_v_size, int width, int height, u8 sel
+) {
+	diffPredSelImage(dp_fd_u, dp_u, dp_u_pf, dp_p_u, dp_s_u, dp_m_u, dp_m_u + dp_m_u_size, width, height, sel);
+	diffPredSelImage(dp_fd_v, dp_v, dp_v_pf, dp_p_v, dp_s_v, dp_m_v, dp_m_v + dp_m_v_size, width, height, sel);
+	cctx_data_sel(cctx, dp_s_u, dp_m_u, dp_s_u_size + dp_s_v_size, dp_m_u_size + dp_m_v_size, dp_fd_u, sel);
+}
+
 #define RP_ENC_HAVE_Y (1 << 0)
 #define RP_ENC_HAVE_UV (1 << 1)
 #define RP_ENC_DS_Y (1 << 2)
