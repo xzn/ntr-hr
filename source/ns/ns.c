@@ -1613,6 +1613,14 @@ void rpInitDmaHome(void) {
 
 }
 
+void rpCloseGameHandle(void) {
+	if (rpHandleGame) {
+		svc_closeHandle(rpHandleGame);
+		rpHandleGame = 0;
+		rpGameFCRAMBase = 0;
+	}
+}
+
 Handle rpGetGameHandle(void) {
 	int i;
 	Handle hProcess;
@@ -1684,6 +1692,7 @@ static int rpCaptureScreen(int top_bot) {
 	rpHDma[top_bot] = 0;
 
 	if (isInVRAM(phys)) {
+		rpCloseGameHandle();
 		svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
 			(void *)dest, hProcess, (void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)dmaConfig);
 		return bufSize;
