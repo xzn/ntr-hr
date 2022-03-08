@@ -1031,6 +1031,7 @@ void rpSendDataThreadMain(void) {
 	rp_ctx->data_header_id[1][1] = 0;
 
 	int current_screen = rp_ctx->multicore_encode ? current_screen = rpDynPrioGetScreen() : 0;
+	int screen_time = 0;
 	memset(&rp_ctx->dyn_prio, 0, sizeof(rp_ctx->dyn_prio));
 	memset(&rp_ctx->nwm_frame_end, 0, sizeof(rp_ctx->nwm_frame_end));
 
@@ -1059,6 +1060,13 @@ void rpSendDataThreadMain(void) {
 			}
 			if (rp_ctx->nwm_frame_end[current_screen] == 2) {
 				rp_ctx->nwm_frame_end[current_screen] = 0;
+
+				if (current_screen == 0) {
+					rp_ctx->dyn_prio.top_screen_time += 1.0f / screen_time;
+				} else {
+					rp_ctx->dyn_prio.bot_screen_time += 1.0f / screen_time;
+				}
+				screen_time = 0;
 				current_screen = rpDynPrioGetScreen();
 			}
 		} else {
@@ -1091,11 +1099,7 @@ void rpSendDataThreadMain(void) {
 		}
 
 		if (rp_ctx->multicore_encode) {
-			if (current_screen == 0) {
-				rp_ctx->dyn_prio.top_screen_time += 1.0f / ret;
-			} else {
-				rp_ctx->dyn_prio.bot_screen_time += 1.0f / ret;
-			}
+			screen_time += ret;
 
 			if (header.flags & RP_DATA_Y_UV) {
 				++rp_ctx->nwm_frame_end[current_screen];
