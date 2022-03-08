@@ -141,7 +141,7 @@ void viewFile(FS_archive arc, u8 * path) {
 	u32 ret;
 	ret = FSUSER_OpenDirectory(fsUserHandle, &dirHandle, arc, dirPath);
 	if (ret != 0) {
-		xsprintf(buf, "FSUSER_OpenDirectory failed, ret=%08x", ret);
+		xsprintf(buf, "FSUSER_OpenDirectory failed, ret=%08x\n", ret);
 		showMsg(buf);
 		return;
 	}

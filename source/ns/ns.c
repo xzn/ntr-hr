@@ -1621,7 +1621,7 @@ void rpCloseGameHandle(void) {
 	}
 }
 
-Handle rpGetGameHandle(void) {
+void rpOpenGameHandle(void) {
 	int i;
 	Handle hProcess;
 	if (rpHandleGame == 0) {
@@ -1634,7 +1634,7 @@ Handle rpGetGameHandle(void) {
 			}
 		}
 		if (rpHandleGame == 0) {
-			return 0;
+			return;
 		}
 	}
 	if (rpGameFCRAMBase == 0) {
@@ -1645,10 +1645,11 @@ Handle rpGetGameHandle(void) {
 			rpGameFCRAMBase = 0x30000000;
 		}
 		else {
-			return 0;
+			rpCloseGameHandle();
+			return;
 		}
 	}
-	return rpHandleGame;
+	return;
 }
 
 static int isInVRAM(u32 phys) {
@@ -1684,6 +1685,7 @@ static int rpCaptureScreen(int top_bot) {
 	u32 phys = rp_ctx->fb_current[top_bot];
 	u32 dest = (u32)(top_bot == 0 ? rp_ctx->img_buf_top : rp_ctx->img_buf_bot);
 	Handle hProcess = rpHandleHome;
+	u32 fcramBase = 0;
 
 	int ret;
 
@@ -1692,19 +1694,26 @@ static int rpCaptureScreen(int top_bot) {
 	rpHDma[top_bot] = 0;
 
 	if (isInVRAM(phys)) {
-		rpCloseGameHandle();
+		if (top_bot == 0) {
+			rpCloseGameHandle();
+		}
 		svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
 			(void *)dest, hProcess, (void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)dmaConfig);
 		return bufSize;
 	}
 	else if (isInFCRAM(phys)) {
-		hProcess = rpGetGameHandle();
-		if (hProcess) {
-			ret = svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
-				(void *)dest, hProcess, (void *)(rpGameFCRAMBase + (phys - 0x20000000)), bufSize, (u32 *)dmaConfig);
-
+		if (top_bot == 0) {
+			rpOpenGameHandle();
 		}
-		return bufSize;
+		hProcess = rpHandleGame;
+		fcramBase = rpGameFCRAMBase;
+		if (hProcess && fcramBase) {
+			ret = svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
+				(void *)dest, hProcess, (void *)(fcramBase + (phys - 0x20000000)), bufSize, (u32 *)dmaConfig);
+			return bufSize;
+		} else {
+			return 0;
+		}
 	}
 	svc_sleepThread(1000000000);
 	return -1;

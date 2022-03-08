@@ -525,7 +525,7 @@ u32 plgListPlugins(u32* entries, u8* buf, u8* path)  {
 
 	ret = FSUSER_OpenDirectory(fsUserHandle, &dirHandle, plgSdmcArchive, dirPath);
 	if (ret != 0) {
-		nsDbgPrint("FSUSER_OpenDirectory failed, ret=%08x", ret);
+		nsDbgPrint("FSUSER_OpenDirectory failed, ret=%08x\n", ret);
 		return 0;
 	}
 	while (1) {
