@@ -335,7 +335,7 @@ svc_getDmaState:
 
 	str r0, [sp,#-0x4]!
 	svc 0x57
-	ldr r3, [sp], #4
+	ldrb r3, [sp], #4
 	str r1, [r3]
 	bx lr
 
