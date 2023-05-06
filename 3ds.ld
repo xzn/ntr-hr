@@ -11,7 +11,7 @@ SECTIONS
 	bootloader.o (.text*)
 	*(.text*)
 }
-. = ALIGN(4);
+. = ALIGN(CONSTANT(COMMONPAGESIZE));
 .data : { 
 	*(.data) 
 }

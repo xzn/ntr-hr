@@ -45,4 +45,5 @@ run(OC+" -O binary a.out payload.bin -S")
 run("rm *.o")
 run("rm *.out")
 # run('copy payload.bin  \\\\3DS-8141\\microSD\\ntr.bin');
-run(COPY + ' payload.bin  release/ntr.n3ds.bin');
+run(COPY + ' payload.bin  release/ntr.n3ds.hr.bin');
+run(COPY + ' release/ntr.n3ds.hr.bin ../BootNTR-Selector/romfs/');
