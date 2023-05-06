@@ -124,7 +124,7 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 		state = 0;
 		ret = svc_getDmaState(&state, hdma);
 		if (ntrConfig->InterProcessDmaFinishState == 0) {
-			if (state == 0xfff54204 || state == 0xfff04504 || state == 0xfff04204) {
+			if (state == 4) {
 				break;
 			}
 		}
@@ -139,6 +139,7 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 
 	if (i >= 10000) {
 		showDbg("readRemoteMemory time out %08x", state, 0);
+		svc_closeHandle(hdma);
 		return 1;
 	}
 
