@@ -3035,6 +3035,7 @@ void nsMainLoop(void) {
 		return;
 	}
 
+	struct pollfd pi[2];
 	fd_set rset;
 	int maxfdp1;
 	int nready;
@@ -3062,6 +3063,21 @@ void nsMainLoop(void) {
 		}
 	}
 
+#define RP_PROCESS_SELECT2(s) \
+	if (rpProcess) { \
+		pi[0].fd = s; \
+		pi[1].fd = rp_recv_sock; \
+		pi[1].events = pi[0].events = POLLIN; \
+		pi[1].revents = pi[0].revents = 0; \
+		nready = poll2(pi, 2, -1); \
+		if (nready <= 0) \
+			continue; \
+	} \
+	if (rpProcess && pi[1].revents & (POLLIN|POLLHUP)) { \
+		rpControlRecv(); \
+	} \
+	if (!rpProcess || pi[0].revents & (POLLIN|POLLHUP))
+
 #define RP_PROCESS_SELECT(s) \
 	if (rpProcess) { \
 		FD_ZERO(&rset); \
@@ -3069,6 +3085,8 @@ void nsMainLoop(void) {
 		FD_SET(rp_recv_sock, &rset); \
 		maxfdp1 = HR_MAX(s, rp_recv_sock) + 1; \
 		nready = select2(maxfdp1, &rset, NULL, NULL, NULL); \
+		if (nready <= 0) \
+			continue; \
 	} \
  \
 	if (rpProcess && FD_ISSET(rp_recv_sock, &rset)) { \
@@ -3092,7 +3110,7 @@ void nsMainLoop(void) {
 			fcntl(sockfd, F_SETFL, tmp | O_NONBLOCK);
 			*/
 			while (1) {
-				RP_PROCESS_SELECT(sockfd) {
+				RP_PROCESS_SELECT2(sockfd) {
 					ret = rtRecvSocket(sockfd, (u8*)&(g_nsCtx->packetBuf), sizeof(NS_PACKET));
 					if (ret != sizeof(NS_PACKET)) {
 						nsDbgPrint("rtRecvSocket failed: %08x\n", ret, 0);
