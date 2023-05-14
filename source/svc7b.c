@@ -137,9 +137,7 @@ void keDoKernelHax(void) {
 	InvalidateEntireDataCache();
 }
 
-
-
-void remotePlayKernelCallback(int isTop);
+void rpKernelCallback(int top_bot);
 
 void kernelCallback(u32 msr) {
 	typedef u32(*keRefHandleType)(u32, u32);
