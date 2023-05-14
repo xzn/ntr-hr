@@ -11,6 +11,7 @@
 
 #include "umm_malloc.h"
 #include "ikcp.h"
+#include "libavcodec/jpegls.h"
 
 NS_CONTEXT* g_nsCtx = 0;
 NS_CONFIG* g_nsConfig;
@@ -91,9 +92,9 @@ static sendPacketTypedef nwmSendPacket = 0;
 #define RP_UMM_HEAP_SIZE (256 * 1024)
 #define RP_STACK_SIZE (0x10000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
+#define RP_JLS_ENCODE_BUFFER_SIZE (400 * 240)
 
 static int rpInited = 0;
-static u8 *rpScreenBuffer = 0;
 
 static ikcpcb *rp_kcp;
 static Handle rp_kcp_mutex;
@@ -110,6 +111,15 @@ static struct {
 	u8 thread_stack[RP_STACK_SIZE] ALIGN_4;
 	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
 	u8 umm_heap[RP_UMM_HEAP_SIZE] ALIGN_4;
+
+	u8 screen_buffer[RP_SCREEN_BUFFER_SIZE];
+	u8 jls_encode_last_row[400] ALIGN_4;
+	u8 jls_encode_buffer[RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
+	u8 y_image[400 * 240] ALIGN_4;
+	u8 u_image[400 * 240] ALIGN_4;
+	u8 v_image[400 * 240] ALIGN_4;
+	u8 ds_u_image[200 * 120] ALIGN_4;
+	u8 ds_v_image[200 * 120] ALIGN_4;
 } *rp_storage_ctx;
 
 static uint16_t ip_checksum(void* vdata, size_t length) {
@@ -302,7 +312,7 @@ static struct {
 static void rpCaptureScreen(int top_bot) {
 	u32 bufSize = top_bot_ctx[top_bot].pitch * (top_bot == 0 ? 400 : 320);
 	u32 phys = top_bot_ctx[top_bot].fbaddr;
-	u8 *dest = rpScreenBuffer;
+	u8 *dest = rp_storage_ctx->screen_buffer;
 	Handle hProcess = rpHandleHome;
 
 	int ret;
@@ -327,6 +337,217 @@ static void rpCaptureScreen(int top_bot) {
 		return;
 	}
 	svc_sleepThread(1000000000);
+}
+
+static int rpJLSEncodeImage(u8 *dst, int dst_size, const u8 *src, int w, int h) {
+	JLSState state = { 0 };
+	state.bpp = 8;
+
+	ff_jpegls_reset_coding_parameters(&state, 0);
+	ff_jpegls_init_state(&state);
+
+	PutBitContext s;
+    init_put_bits(&s, rp_storage_ctx->jls_encode_buffer, RP_JLS_ENCODE_BUFFER_SIZE);
+
+	u8 *last = rp_storage_ctx->jls_encode_last_row;
+	memset(last, 0, sizeof(rp_storage_ctx->jls_encode_last_row));
+
+	const u8 *in = src;
+	int t = 0;
+
+	for (int i = 0; i < h; ++i) {
+        int last0 = last[0];
+        ls_encode_line(&state, &s, last, in, t, w, 1, 0, 8);
+        t = last0;
+        in += w;
+    }
+
+	put_bits(&s, 7, 0);
+    // int size_in_bits = put_bits_count(&s);
+    flush_put_bits(&s);
+    int size = put_bytes_output(&s);
+
+	return size;
+}
+
+#define rshift_to_even(n, s) ((n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
+#define srshift_to_even(n, s) ((s16)(n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
+
+static void downscale_image(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
+	const u8 *src_end = src + wOrig * hOrig;
+	const u8 *src_col0 = src;
+	const u8 *src_col1 = src + hOrig;
+	while (src_col0 < src_end) {
+		const u8 *src_col_end = src_col1;
+		while (src_col0 < src_col_end) {
+			u16 p = *src_col0++;
+			p += *src_col0++;
+			p += *src_col1++;
+			p += *src_col1++;
+
+			*ds_dst++ = rshift_to_even(p, 2);
+		}
+		src_col0 += hOrig;
+		src_col1 += hOrig;
+	}
+}
+
+static void convert_yuv(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
+	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
+	s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
+	s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
+	*y_out = rshift_to_even(y, 8);
+	*u_out = srshift_to_even(u, 8) + 128;
+	*v_out = srshift_to_even(v, 8) + 128;
+}
+
+static int convert_yuv_image(
+	int format, int width, int height, int bytes_per_pixel, int bytes_to_next_column,
+	const u8 *sp, u8 *dp_y_out, u8 *dp_u_out, u8 *dp_v_out
+) {
+	int x, y;
+	u8 r, g, b, y_out, u_out, v_out;
+
+	switch (format) {
+		// untested
+		case 0:
+			++sp;
+
+			// fallthru
+		case 1: {
+			for (x = 0; x < width; ++x) {
+				for (y = 0; y < height; ++y) {
+					r = sp[2];
+					g = sp[1];
+					b = sp[0];
+					convert_yuv(r, g, b, &y_out, &u_out, &v_out);
+					*dp_y_out++ = y_out;
+					*dp_u_out++ = u_out;
+					*dp_v_out++ = v_out;
+					sp += bytes_per_pixel;
+				}
+				sp += bytes_to_next_column;
+			}
+			break;
+		}
+
+		case 2: {
+			for (x = 0; x < width; x++) {
+				for (y = 0; y < height; y++) {
+					u16 pix = *(u16*)sp;
+					r = (pix >> 11) & 0x1f;
+					g = (pix >> 5) & 0x3f;
+					b = pix & 0x1f;
+					convert_yuv(r, g, b, &y_out, &u_out, &v_out);
+					*dp_y_out++ = y_out;
+					*dp_u_out++ = u_out;
+					*dp_v_out++ = v_out;
+					sp += bytes_per_pixel;
+				}
+				sp += bytes_to_next_column;
+			}
+			break;
+		}
+
+		// untested
+		case 3: {
+			for (x = 0; x < width; x++) {
+				for (y = 0; y < height; y++) {
+					u16 pix = *(u16*)sp;
+					r = (pix >> 11) & 0x1f;
+					g = (pix >> 6) & 0x1f;
+					b = (pix >> 1) & 0x1f;
+					convert_yuv(r, g, b, &y_out, &u_out, &v_out);
+					*dp_y_out++ = y_out;
+					*dp_u_out++ = u_out;
+					*dp_v_out++ = v_out;
+					sp += bytes_per_pixel;
+				}
+				sp += bytes_to_next_column;
+			}
+			break;
+		}
+
+		// untested
+		case 4: {
+			for (x = 0; x < width; x++) {
+				for (y = 0; y < height; y++) {
+					u16 pix = *(u16*)sp;
+					r = (pix >> 12) & 0x0f;
+					g = (pix >> 8) & 0x0f;
+					b = (pix >> 4) & 0x0f;
+					convert_yuv(r, g, b, &y_out, &u_out, &v_out);
+					*dp_y_out++ = y_out;
+					*dp_u_out++ = u_out;
+					*dp_v_out++ = v_out;
+					sp += bytes_per_pixel;
+				}
+				sp += bytes_to_next_column;
+			}
+			break;
+		}
+
+		default:
+			return -1;
+	}
+	return 0;
+}
+
+static int rpEncodeImage(int top_bot) {
+	int width, height;
+	if (top_bot == 0) {
+		width = 400;
+	} else {
+		width = 320;
+	}
+	height = 240;
+
+	int format = top_bot_ctx[top_bot].format;
+	format &= 0x0f;
+	int bytes_per_pixel;
+	if (format == 0) {
+		bytes_per_pixel = 4;
+	} else if (format == 1) {
+		bytes_per_pixel = 3;
+	} else {
+		bytes_per_pixel = 2;
+	}
+	int bytes_per_column = bytes_per_pixel * height;
+	int pitch = top_bot_ctx[top_bot].pitch;
+	int bytes_to_next_column = pitch - bytes_per_column;
+
+	int ret = convert_yuv_image(
+		format, width, height, bytes_per_pixel, bytes_to_next_column,
+		rp_storage_ctx->screen_buffer,
+		rp_storage_ctx->y_image,
+		rp_storage_ctx->u_image,
+		rp_storage_ctx->v_image
+	);
+
+	if (ret < 0)
+		return ret;
+
+	downscale_image(
+		rp_storage_ctx->ds_u_image,
+		rp_storage_ctx->u_image,
+		width, height
+	);
+
+	downscale_image(
+		rp_storage_ctx->ds_v_image,
+		rp_storage_ctx->v_image,
+		width, height
+	);
+
+	ret = rpJLSEncodeImage(
+		rp_storage_ctx->jls_encode_buffer,
+		RP_JLS_ENCODE_BUFFER_SIZE,
+		rp_storage_ctx->y_image,
+		width,
+		height
+	);
+
+	return ret;
 }
 
 void rpKernelCallback(int top_bot);
@@ -354,7 +575,7 @@ static void rpSendFrames() {
 
 		rpCaptureScreen(top_bot);
 
-		top_bot = !top_bot;
+		ret = rpEncodeImage(top_bot);
 
 		// kcp send
 		svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
@@ -372,24 +593,19 @@ static void rpSendFrames() {
 		ikcp_update(rp_kcp, iclock());
 		svc_releaseMutex(rp_kcp_mutex);
 
+		top_bot = !top_bot;
+
 		svc_sleepThread(1000000000);
 	}
 }
 
 static void rpThreadStart() {
-	rpScreenBuffer = (u8 *)plgRequestMemorySpecifyRegion(RP_SCREEN_BUFFER_SIZE, 1);
-	if (!rpScreenBuffer)
-	{
-		nsDbgPrint("rpScreenBuffer: %08x\n", rpScreenBuffer);
-		goto final;
-	}
-
 	rpInitDmaHome();
 	// kRemotePlayCallback();
 
 	svc_createMutex(&rp_kcp_mutex, 0);
 	rp_control_ready = 1;
-	
+
 	while (1) {
 		rpSendFrames();
 	}
@@ -454,7 +670,7 @@ void rpKernelCallback(int top_bot) {
 	if (top_bot == 0) {
 		top_bot_ctx[0].format = REG(IoBasePdc + 0x470);
 		top_bot_ctx[0].pitch = REG(IoBasePdc + 0x490);
-		
+
 		current_fb = REG(IoBasePdc + 0x478);
 		current_fb &= 1;
 
@@ -467,7 +683,7 @@ void rpKernelCallback(int top_bot) {
 
 		current_fb = REG(IoBasePdc + 0x578);
 		current_fb &= 1;
-		
+
 		top_bot_ctx[1].fbaddr = current_fb == 0 ?
 			REG(IoBasePdc + 0x568) :
 			REG(IoBasePdc + 0x56c);

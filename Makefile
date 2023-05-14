@@ -7,11 +7,12 @@ LD := $(DEV_BIN_DIR)/arm-none-eabi-ld
 CP := cp
 
 CFLAGS := -Ofast -s -march=armv6 -mlittle-endian -fomit-frame-pointer -ffast-math -march=armv6k -mtune=mpcore -mfloat-abi=hard
-CPPFLAGS := -Iinclude
+CPPFLAGS := -Iinclude -Isource/ffmpeg
 LDFLAGS := -L. -A armv6k -pie --print-gc-sections -T 3ds.ld -Map=test.map
 LDLIBS := -lc -lm -lgcc --nostdlib
 
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
+SRC_C += $(wildcard source/ffmpeg/libavcodec/*.c) $(wildcard source/ffmpeg/libavfilter/*.c) $(wildcard source/ffmpeg/libavutil/*.c)
 SRC_S := $(wildcard source/*.s) $(wildcard source/libctru/*.s)
 OBJ := $(addprefix obj/,$(notdir $(SRC_S:.s=.o) $(SRC_C:.c=.o)))
 DEP := $(OBJ:.o=.d)
@@ -56,6 +57,15 @@ obj/%.o: source/%.c
 	$(CC_CMD)
 
 obj/%.o: source/libctru/%.c
+	$(CC_CMD)
+
+obj/%.o: source/ffmpeg/libavcodec/%.c
+	$(CC_CMD)
+
+obj/%.o: source/ffmpeg/libavfilter/%.c
+	$(CC_CMD)
+
+obj/%.o: source/ffmpeg/libavutil/%.c
 	$(CC_CMD)
 
 -include $(DEP)
