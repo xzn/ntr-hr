@@ -373,7 +373,7 @@ static int rpJLSEncodeImage(u8 *dst, int dst_size, const u8 *src, int w, int h) 
 #define rshift_to_even(n, s) ((n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
 #define srshift_to_even(n, s) ((s16)(n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
 
-static void downscale_image(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
+static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
 	const u8 *src_end = src + wOrig * hOrig;
 	const u8 *src_col0 = src;
 	const u8 *src_col1 = src + hOrig;
@@ -392,7 +392,8 @@ static void downscale_image(u8 *ds_dst, const u8 *src, int wOrig, int hOrig) {
 	}
 }
 
-static void convert_yuv(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
+static __attribute__((always_inline)) inline
+void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
 	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
 	s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 	s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
@@ -403,7 +404,7 @@ static void convert_yuv(u8 r, u8 g, u8 b, u8 *y_out, u8 *u_out, u8 *v_out) {
 
 static int convert_yuv_image(
 	int format, int width, int height, int bytes_per_pixel, int bytes_to_next_column,
-	const u8 *sp, u8 *dp_y_out, u8 *dp_u_out, u8 *dp_v_out
+	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out
 ) {
 	int x, y;
 	u8 r, g, b, y_out, u_out, v_out;
@@ -411,7 +412,10 @@ static int convert_yuv_image(
 	switch (format) {
 		// untested
 		case 0:
-			++sp;
+			if (0)
+				++sp;
+			else
+				return -1;
 
 			// fallthru
 		case 1: {
@@ -450,7 +454,8 @@ static int convert_yuv_image(
 		}
 
 		// untested
-		case 3: {
+		case 3:
+		if (0) {
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
@@ -469,7 +474,8 @@ static int convert_yuv_image(
 		}
 
 		// untested
-		case 4: {
+		case 4:
+		if (0) {
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
