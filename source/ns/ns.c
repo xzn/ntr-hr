@@ -242,7 +242,7 @@ static Handle rpHDma[2], rpHandleHome, rpHandleGame;
 static u32 rpGameFCRAMBase = 0;
 
 void rpInitDmaHome() {
-	// u32 dmaConfig[20] = { 0 };
+	// u32 rp_dma_config[20] = { 0 };
 	svc_openProcess(&rpHandleHome, 0xf);
 }
 
@@ -302,16 +302,16 @@ static int isInFCRAM(u32 phys) {
 	return 0;
 }
 
-static u8 dmaConfig[80] = { 0, 0, 4 };
+static u8 rp_dma_config[80] = { 0, 0, 4 };
 static struct {
 	u32 format;
 	u32 pitch;
 	u32 fbaddr;
-} top_bot_ctx[2];
+} rp_screen_ctx[2];
 
 static void rpCaptureScreen(int top_bot) {
-	u32 bufSize = top_bot_ctx[top_bot].pitch * (top_bot == 0 ? 400 : 320);
-	u32 phys = top_bot_ctx[top_bot].fbaddr;
+	u32 bufSize = rp_screen_ctx[top_bot].pitch * (top_bot == 0 ? 400 : 320);
+	u32 phys = rp_screen_ctx[top_bot].fbaddr;
 	u8 *dest = rp_storage_ctx->screen_buffer;
 	Handle hProcess = rpHandleHome;
 
@@ -324,14 +324,14 @@ static void rpCaptureScreen(int top_bot) {
 	if (isInVRAM(phys)) {
 		rpCloseGameHandle();
 		svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
-			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)dmaConfig);
+			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)rp_dma_config);
 		return;
 	}
 	else if (isInFCRAM(phys)) {
 		hProcess = rpGetGameHandle();
 		if (hProcess) {
 			ret = svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
-				dest, hProcess, (const void *)(rpGameFCRAMBase + (phys - 0x20000000)), bufSize, (u32 *)dmaConfig);
+				dest, hProcess, (const void *)(rpGameFCRAMBase + (phys - 0x20000000)), bufSize, (u32 *)rp_dma_config);
 
 		}
 		return;
@@ -508,7 +508,7 @@ static int rpEncodeImage(int top_bot) {
 	}
 	height = 240;
 
-	int format = top_bot_ctx[top_bot].format;
+	int format = rp_screen_ctx[top_bot].format;
 	format &= 0x0f;
 	int bytes_per_pixel;
 	if (format == 0) {
@@ -519,7 +519,7 @@ static int rpEncodeImage(int top_bot) {
 		bytes_per_pixel = 2;
 	}
 	int bytes_per_column = bytes_per_pixel * height;
-	int pitch = top_bot_ctx[top_bot].pitch;
+	int pitch = rp_screen_ctx[top_bot].pitch;
 	int bytes_to_next_column = pitch - bytes_per_column;
 
 	int ret = convert_yuv_image(
@@ -674,23 +674,23 @@ void rpKernelCallback(int top_bot) {
 	u32 current_fb;
 
 	if (top_bot == 0) {
-		top_bot_ctx[0].format = REG(IoBasePdc + 0x470);
-		top_bot_ctx[0].pitch = REG(IoBasePdc + 0x490);
+		rp_screen_ctx[0].format = REG(IoBasePdc + 0x470);
+		rp_screen_ctx[0].pitch = REG(IoBasePdc + 0x490);
 
 		current_fb = REG(IoBasePdc + 0x478);
 		current_fb &= 1;
 
-		top_bot_ctx[0].fbaddr = current_fb == 0 ?
+		rp_screen_ctx[0].fbaddr = current_fb == 0 ?
 			REG(IoBasePdc + 0x468) :
 			REG(IoBasePdc + 0x46c);
 	} else {
-		top_bot_ctx[1].format = REG(IoBasePdc + 0x570);
-		top_bot_ctx[1].pitch = REG(IoBasePdc + 0x590);
+		rp_screen_ctx[1].format = REG(IoBasePdc + 0x570);
+		rp_screen_ctx[1].pitch = REG(IoBasePdc + 0x590);
 
 		current_fb = REG(IoBasePdc + 0x578);
 		current_fb &= 1;
 
-		top_bot_ctx[1].fbaddr = current_fb == 0 ?
+		rp_screen_ctx[1].fbaddr = current_fb == 0 ?
 			REG(IoBasePdc + 0x568) :
 			REG(IoBasePdc + 0x56c);
 	}
