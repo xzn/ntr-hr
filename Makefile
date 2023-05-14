@@ -7,12 +7,12 @@ LD := $(DEV_BIN_DIR)/arm-none-eabi-ld
 CP := cp
 
 CFLAGS := -Ofast -s -march=armv6 -mlittle-endian -fomit-frame-pointer -ffast-math -march=armv6k -mtune=mpcore -mfloat-abi=hard
-CPPFLAGS := -Iinclude -I$(DEVKITARM)/../portlibs/3ds/include
+CPPFLAGS := -Iinclude
 LDFLAGS := -L. -A armv6k -pie --print-gc-sections -T 3ds.ld -Map=test.map
 LDLIBS := -lc -lm -lgcc --nostdlib
 
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
-SRC_S := $(wildcard source/ns/*.s) $(wildcard source/*.s) $(wildcard source/libctru/*.s)
+SRC_S := $(wildcard source/*.s) $(wildcard source/libctru/*.s)
 OBJ := $(addprefix obj/,$(notdir $(SRC_S:.s=.o) $(SRC_C:.c=.o)))
 DEP := $(OBJ:.o=.d)
 
@@ -39,9 +39,6 @@ $(PAYLOAD_LOCAL_ELF): $(OBJ)
 	$(LD) -o $@ $(LDFLAGS) -Lobj $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $<
-
-obj/%.o: source/ns/%.s
-	$(CC_CMD)
 
 obj/%.o: source/%.s
 	$(CC_CMD)

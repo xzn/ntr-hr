@@ -18,9 +18,6 @@ NS_CONFIG* g_nsConfig;
 static RT_HOOK nwmValParamHook;
 static int rp_recv_sock = -1;
 
-#define PACKET_SIZE 1448
-#define NWM_HEADER_SIZE (0x2a + 8)
-
 #define SYSTICK_PER_US (268)
 #define SYSTICK_PER_MS (268123)
 #define SYSTICK_PER_SEC (268123480)
@@ -78,18 +75,328 @@ int nsRecvPacketData(u8* buf, u32 size) {
 typedef u32(*sendPacketTypedef) (u8*, u32);
 static sendPacketTypedef nwmSendPacket = 0;
 
-static void rpControlRecv(void) {
+#define KCP_PACKET_SIZE 1448
+#define NWM_HEADER_SIZE (0x2a + 8)
+#define NWM_PACKET_SIZE (KCP_PACKET_SIZE + NWM_HEADER_SIZE)
+
+#define KCP_MAGIC 0x12345fff
+#define KCP_SOCKET_TIMEOUT 10
+#define KCP_TIMEOUT_TICKS (250 * SYSTICK_PER_MS)
+#define RP_PACKET_SIZE (KCP_PACKET_SIZE - IKCP_OVERHEAD)
+#define KCP_SND_WND_SIZE 40
+
+#define RP_PORT (8001)
+#define RP_DEST_PORT RP_PORT
+#define RP_SCREEN_BUFFER_SIZE (0x00200000)
+#define RP_UMM_HEAP_SIZE (256 * 1024)
+#define RP_STACK_SIZE (0x10000)
+#define RP_CONTROL_RECV_BUFFER_SIZE (2000)
+
+static int rpInited = 0;
+static u8 *rpScreenBuffer = 0;
+
+static ikcpcb *rp_kcp;
+static Handle rp_kcp_mutex;
+static int rp_control_ready = 0;
+
+// attribute aligned
+#define ALIGN_4 __attribute__ ((aligned (4)))
+// assume aligned
+#define ASSUME_ALIGN_4(a) (a = __builtin_assume_aligned (a, 4))
+
+static struct {
+	u8 nwm_send_buffer[NWM_PACKET_SIZE] ALIGN_4;
+	u8 kcp_send_buffer[KCP_PACKET_SIZE] ALIGN_4;
+	u8 thread_stack[RP_STACK_SIZE] ALIGN_4;
+	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
+	u8 umm_heap[RP_UMM_HEAP_SIZE] ALIGN_4;
+} *rp_storage_ctx;
+
+static uint16_t ip_checksum(void* vdata, size_t length) {
+	// Cast the data pointer to one that can be indexed.
+	char* data = (char*)vdata;
+	size_t i;
+	// Initialise the accumulator.
+	uint32_t acc = 0xffff;
+
+	// Handle complete 16-bit blocks.
+	for (i = 0; i + 1 < length; i += 2) {
+		uint16_t word;
+		memcpy(&word, data + i, 2);
+		acc += ntohs(word);
+		if (acc > 0xffff) {
+			acc -= 0xffff;
+		}
+	}
+
+	// Handle any partial block at the end of the data.
+	if (length & 1) {
+		uint16_t word = 0;
+		memcpy(&word, data + length - 1, 1);
+		acc += ntohs(word);
+		if (acc > 0xffff) {
+			acc -= 0xffff;
+		}
+	}
+
+	// Return the checksum in network byte order.
+	return htons(~acc);
 }
 
-#define GL_RGBA8_OES (0)
-#define GL_RGB8_OES (1)
-#define GL_RGB565_OES (2)
-#define GL_RGB5_A1_OES (3)
-#define GL_RGBA4_OES (4)
-#define GL_RGB565_LE (5)
+static int rpInitUDPPacket(int dataLen) {
+	dataLen += 8;
 
-#define REMOTE_PLAY_PORT (8001)
-#define RP_DBG_PORT (8002)
+	u8 *rpSendBuffer = rp_storage_ctx->nwm_send_buffer;
+	*(u16*)(rpSendBuffer + 0x22 + 8) = htons(8000); // src port
+	*(u16*)(rpSendBuffer + 0x24 + 8) = htons(RP_DEST_PORT); // dest port
+	*(u16*)(rpSendBuffer + 0x26 + 8) = htons(dataLen);
+	*(u16*)(rpSendBuffer + 0x28 + 8) = 0; // no checksum
+	dataLen += 20;
+
+	*(u16*)(rpSendBuffer + 0x10 + 8) = htons(dataLen);
+	*(u16*)(rpSendBuffer + 0x12 + 8) = 0xaf01; // packet id is a random value since we won't use the fragment
+	*(u16*)(rpSendBuffer + 0x14 + 8) = 0x0040; // no fragment
+	*(u16*)(rpSendBuffer + 0x16 + 8) = 0x1140; // ttl 64, udp
+	*(u16*)(rpSendBuffer + 0x18 + 8) = 0;
+	*(u16*)(rpSendBuffer + 0x18 + 8) = ip_checksum(rpSendBuffer + 0xE + 8, 0x14);
+
+	dataLen += 22;
+	*(u16*)(rpSendBuffer + 12) = htons(dataLen);
+
+	return dataLen;
+}
+
+int rp_udp_output(const char *buf, int len, ikcpcb *kcp, void *user) {
+	u8 *sendBuf = rp_storage_ctx->nwm_send_buffer;
+	u8 *dataBuf = sendBuf + NWM_HEADER_SIZE;
+
+	if (len > KCP_PACKET_SIZE) {
+		nsDbgPrint("rp_udp_output len exceeded PACKET_SIZE: %d\n", len);
+		return 0;
+	}
+
+	memcpy(dataBuf, buf, len);
+	int packetLen = rpInitUDPPacket(KCP_PACKET_SIZE);
+	nwmSendPacket(sendBuf, packetLen);
+
+	return len;
+}
+
+static IINT64 iclock64(void)
+{
+	u64 value = svc_getSystemTick();
+	return value / SYSTICK_PER_MS;
+}
+
+static IUINT32 iclock()
+{
+	return (IUINT32)(iclock64() & 0xfffffffful);
+}
+
+static void rpControlRecvHandle(u8* buf, int buf_size) {
+}
+
+static void rpControlRecv(void) {
+	if (!rp_control_ready) {
+		svc_sleepThread(100000000);
+		return;
+	}
+
+	u8 *rpRecvBuffer = rp_storage_ctx->control_recv_buffer;
+	int ret = recv(rp_recv_sock, rpRecvBuffer, RP_CONTROL_RECV_BUFFER_SIZE, 0);
+	if (ret == 0) {
+		nsDbgPrint("rpControlRecv nothing\n");
+		return;
+	} else if (ret < 0) {
+		int err = SOC_GetErrno();
+		nsDbgPrint("rpControlRecv failed: %d\n", ret);
+		return;
+	}
+
+	svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
+	if (rp_kcp) {
+		int bufSize = ret;
+		if ((ret = ikcp_input(rp_kcp, rpRecvBuffer, bufSize)) < 0) {
+			nsDbgPrint("ikcp_input failed: %d\n", ret);
+		}
+
+		ret = ikcp_recv(rp_kcp, rpRecvBuffer, RP_CONTROL_RECV_BUFFER_SIZE);
+		if (ret >= 0) {
+			rpControlRecvHandle(rpRecvBuffer, ret);
+		}
+	}
+	svc_releaseMutex(rp_kcp_mutex);
+}
+
+static Handle rpHDma[2], rpHandleHome, rpHandleGame;
+static u32 rpGameFCRAMBase = 0;
+
+void rpInitDmaHome() {
+	// u32 dmaConfig[20] = { 0 };
+	svc_openProcess(&rpHandleHome, 0xf);
+}
+
+void rpCloseGameHandle(void) {
+	if (rpHandleGame) {
+		svc_closeHandle(rpHandleGame);
+		rpHandleGame = 0;
+		rpGameFCRAMBase = 0;
+	}
+}
+
+static Handle rpGetGameHandle() {
+	int i;
+	Handle hProcess;
+	if (rpHandleGame == 0) {
+		for (i = 0x28; i < 0x38; i++) {
+			int ret = svc_openProcess(&hProcess, i);
+			if (ret == 0) {
+				nsDbgPrint("game process: %x\n", i);
+				rpHandleGame = hProcess;
+				break;
+			}
+		}
+		if (rpHandleGame == 0) {
+			return 0;
+		}
+	}
+	if (rpGameFCRAMBase == 0) {
+		if (svc_flushProcessDataCache(hProcess, 0x14000000, 0x1000) == 0) {
+			rpGameFCRAMBase = 0x14000000;
+		}
+		else if (svc_flushProcessDataCache(hProcess, 0x30000000, 0x1000) == 0) {
+			rpGameFCRAMBase = 0x30000000;
+		}
+		else {
+			return 0;
+		}
+	}
+	return rpHandleGame;
+}
+
+static int isInVRAM(u32 phys) {
+	if (phys >= 0x18000000) {
+		if (phys < 0x18000000 + 0x00600000) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static int isInFCRAM(u32 phys) {
+	if (phys >= 0x20000000) {
+		if (phys < 0x20000000 + 0x10000000) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static u8 dmaConfig[80] = { 0, 0, 4 };
+static struct {
+	u32 format;
+	u32 pitch;
+	u32 fbaddr;
+} top_bot_ctx[2];
+
+static void rpCaptureScreen(int top_bot) {
+	u32 bufSize = top_bot_ctx[top_bot].pitch * (top_bot == 0 ? 400 : 320);
+	u32 phys = top_bot_ctx[top_bot].fbaddr;
+	u8 *dest = rpScreenBuffer;
+	Handle hProcess = rpHandleHome;
+
+	int ret;
+
+	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)dest, bufSize);
+	svc_closeHandle(rpHDma[top_bot]);
+	rpHDma[top_bot] = 0;
+
+	if (isInVRAM(phys)) {
+		rpCloseGameHandle();
+		svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
+			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)dmaConfig);
+		return;
+	}
+	else if (isInFCRAM(phys)) {
+		hProcess = rpGetGameHandle();
+		if (hProcess) {
+			ret = svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
+				dest, hProcess, (const void *)(rpGameFCRAMBase + (phys - 0x20000000)), bufSize, (u32 *)dmaConfig);
+
+		}
+		return;
+	}
+	svc_sleepThread(1000000000);
+}
+
+void rpKernelCallback(int top_bot);
+static void rpSendFrames() {
+	int top_bot = 0, ret;
+
+	// kcp init
+	svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
+	rp_kcp = ikcp_create(KCP_MAGIC, 0);
+	if (!rp_kcp) {
+		nsDbgPrint("ikcp_create failed\n");
+	} else {
+		rp_kcp->output = rp_udp_output;
+		if ((ret = ikcp_setmtu(rp_kcp, KCP_PACKET_SIZE)) < 0) {
+			nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
+		}
+		ikcp_nodelay(rp_kcp, 1, 10, 1, 1);
+		rp_kcp->rx_minrto = 10;
+		ikcp_wndsize(rp_kcp, KCP_SND_WND_SIZE, 0);
+	}
+	svc_releaseMutex(rp_kcp_mutex);
+
+	while (1) {
+		rpKernelCallback(top_bot);
+
+		rpCaptureScreen(top_bot);
+
+		top_bot = !top_bot;
+
+		// kcp send
+		svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
+		int waitsnd = ikcp_waitsnd(rp_kcp);
+		if (waitsnd < KCP_SND_WND_SIZE) {
+			u8 *kcp_send_buf = rp_storage_ctx->kcp_send_buffer;
+			kcp_send_buf[0] = 0;
+			ret = ikcp_send(rp_kcp, kcp_send_buf, 1);
+
+			if (ret < 0) {
+				nsDbgPrint("ikcp_send failed: %d\n", ret);
+				break;
+			}
+		}
+		ikcp_update(rp_kcp, iclock());
+		svc_releaseMutex(rp_kcp_mutex);
+
+		svc_sleepThread(1000000000);
+	}
+}
+
+static void rpThreadStart() {
+	rpScreenBuffer = (u8 *)plgRequestMemorySpecifyRegion(RP_SCREEN_BUFFER_SIZE, 1);
+	if (!rpScreenBuffer)
+	{
+		nsDbgPrint("rpScreenBuffer: %08x\n", rpScreenBuffer);
+		goto final;
+	}
+
+	rpInitDmaHome();
+	// kRemotePlayCallback();
+
+	svc_createMutex(&rp_kcp_mutex, 0);
+	rp_control_ready = 1;
+	
+	while (1) {
+		rpSendFrames();
+	}
+
+final:
+	svc_exitThread();
+}
 
 int nwmValParamCallback(u8* buf, int buflen) {
 	//rtDisableHook(&nwmValParamHook);
@@ -101,6 +408,35 @@ int nwmValParamCallback(u8* buf, int buflen) {
 	nsDbgPrint("%02x ", buf[i]);
 	}
 	}*/
+
+	int ret;
+	Handle hThread;
+	// int stackSize = RP_STACK_SIZE;
+
+	if (rpInited) {
+		return 0;
+	}
+	if (buf[0x17 + 0x8] == 6) {
+		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
+			rp_storage_ctx = (typeof(rp_storage_ctx))plgRequestMemory(sizeof(*rp_storage_ctx));
+			if (!rp_storage_ctx) {
+				nsDbgPrint("Request memory for RemotePlay failed: %08x\n", ret);
+				return 0;
+			}
+
+			rpInited = 1;
+			memcpy(rp_storage_ctx->nwm_send_buffer, buf, 0x22 + 8);
+
+			umm_init_heap(rp_storage_ctx->umm_heap, RP_UMM_HEAP_SIZE);
+			ikcp_allocator(umm_malloc, umm_free);
+
+			ret = svc_createThread(&hThread, (void*)rpThreadStart, 0, (u32 *)&rp_storage_ctx->thread_stack[RP_STACK_SIZE - 40], 0x10, 2);
+			if (ret != 0) {
+				nsDbgPrint("Create RemotePlay thread failed: %08x\n", ret);
+			}
+		}
+	}
+
 	return 0;
 }
 
@@ -110,10 +446,98 @@ void remotePlayMain(void) {
 	rtEnableHook(&nwmValParamHook);
 }
 
-void remotePlayKernelCallback(int top_bot) {
+void rpKernelCallback(int top_bot) {
+	// u32 ret;
+	// u32 fbP2VOffset = 0xc0000000;
+	u32 current_fb;
+
+	if (top_bot == 0) {
+		top_bot_ctx[0].format = REG(IoBasePdc + 0x470);
+		top_bot_ctx[0].pitch = REG(IoBasePdc + 0x490);
+		
+		current_fb = REG(IoBasePdc + 0x478);
+		current_fb &= 1;
+
+		top_bot_ctx[0].fbaddr = current_fb == 0 ?
+			REG(IoBasePdc + 0x468) :
+			REG(IoBasePdc + 0x46c);
+	} else {
+		top_bot_ctx[1].format = REG(IoBasePdc + 0x570);
+		top_bot_ctx[1].pitch = REG(IoBasePdc + 0x590);
+
+		current_fb = REG(IoBasePdc + 0x578);
+		current_fb &= 1;
+		
+		top_bot_ctx[1].fbaddr = current_fb == 0 ?
+			REG(IoBasePdc + 0x568) :
+			REG(IoBasePdc + 0x56c);
+	}
 }
 
 int nsHandleRemotePlay(void) {
+	NS_PACKET* pac = &(g_nsCtx->packetBuf);
+
+	Handle hProcess;
+	u32 ret;
+	u32 pid = 0x1a;
+	u32 remotePC = 0x001231d0;
+	NS_CONFIG	cfg;
+
+	memset(&cfg, 0, sizeof(NS_CONFIG));
+	cfg.startupCommand = NS_STARTCMD_DEBUG;
+	cfg.startupInfo[8] = pac->args[0];
+	cfg.startupInfo[9] = pac->args[1];
+	cfg.startupInfo[10] = pac->args[2];
+
+	ret = svc_openProcess(&hProcess, pid);
+	if (ret != 0) {
+		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
+		hProcess = 0;
+		goto final;
+	}
+
+	u8 desiredHeader[16] = { 0x04, 0x00, 0x2D, 0xE5, 0x4F, 0x00, 0x00, 0xEF, 0x00, 0x20, 0x9D, 0xE5, 0x00, 0x10, 0x82, 0xE5 };
+	u8 buf[16] = { 0 };
+	if (!(ntrConfig->isNew3DS)) {
+		nsDbgPrint("remoteplay is available on new3ds only\n");
+		goto final;
+	}
+
+	int isFirmwareSupported = 0;
+	int firmwareType = 0;
+	for (firmwareType = 0; firmwareType <= 1; firmwareType++) {
+		if (firmwareType == 0) {
+			cfg.startupInfo[11] = 0x120464; //nwmvalparamhook
+			cfg.startupInfo[12] = 0x00120DC8 + 1; //nwmSendPacket
+			remotePC = 0x001231d0;
+		}
+		else if (firmwareType == 1) {
+			cfg.startupInfo[11] = 0x120630; //nwmvalparamhook
+			cfg.startupInfo[12] = 0x00120f94 + 1; //nwmSendPacket
+			remotePC = 0x123394;
+
+		}
+		copyRemoteMemory(CURRENT_PROCESS_HANDLE, buf, hProcess, (void *)remotePC, 16);
+		svc_sleepThread(100000000);
+		if (memcmp(buf, desiredHeader, sizeof(desiredHeader)) == 0) {
+			isFirmwareSupported = 1;
+			break;
+		}
+	}
+	if (!isFirmwareSupported) {
+		nsDbgPrint("remoteplay is not supported on current firmware\n");
+		goto final;
+	}
+	setCpuClockLock(3);
+	nsDbgPrint("cpu was locked on 804MHz, L2 Enabled\n");
+	nsDbgPrint("starting remoteplay...\n");
+	nsAttachProcess(hProcess, remotePC, &cfg, 1);
+
+	final:
+	if (hProcess != 0) {
+		svc_closeHandle(hProcess);
+	}
+
 	return 0;
 }
 
@@ -964,7 +1388,7 @@ void nsMainLoop(void) {
 
 		struct sockaddr_in sai = {0};
 		sai.sin_family = AF_INET;
-		sai.sin_port = htons(REMOTE_PLAY_PORT);
+		sai.sin_port = htons(RP_PORT);
 		sai.sin_addr.s_addr = htonl(INADDR_ANY);
 
 		int ret = bind(rp_recv_sock, (struct sockaddr *)&sai, sizeof(sai));

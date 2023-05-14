@@ -187,8 +187,8 @@ void kernelCallback(u32 msr) {
 	}
 
 	if (t == 7) {
-		int isTop = kernelArgs[1];
-		remotePlayKernelCallback(isTop);
+		int top_bot = kernelArgs[1];
+		rpKernelCallback(top_bot);
 	}
 }
 
@@ -236,17 +236,17 @@ void kDoKernelHax(void) {
 // Use own variable since multithreading
 // can call from separate thread from rest of the functions here
 // obviously still cannot be called by multiple threads at the same time
-static int kRemotePlayKernelCallback_top_bot;
+static int kRemotePlayKernelCallback_arg;
 static void kRemotePlayKernelCallback(void) {
-	remotePlayKernelCallback(kRemotePlayKernelCallback_top_bot);
+	rpKernelCallback(kRemotePlayKernelCallback_arg);
 }
 
 void kRemotePlayCallback(int top_bot) {
 	// kernelArgs[0] = 7;
-	// kernelArgs[1] = (u32)isTop;
+	// kernelArgs[1] = (u32)top_bot;
 
 	// svc_backDoor(currentBackdoorHandler);
 
-	kRemotePlayKernelCallback_top_bot = top_bot;
+	kRemotePlayKernelCallback_arg = top_bot;
 	svc_backDoor(kRemotePlayKernelCallback);
 }
