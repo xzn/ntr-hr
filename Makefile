@@ -26,7 +26,9 @@ PAYLOAD_BIN := payload.bin
 PAYLOAD_ELF := a.out
 PAYLOAD_LOCAL_ELF := bin/homebrew.elf
 
-all: $(PAYLOAD_TARGET_BIN) $(PAYLOAD_LOCAL_ELF)
+all: $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF)
+
+install: $(PAYLOAD_TARGET_BIN)
 
 CP_CMD = $(CP) $< $@
 
@@ -70,7 +72,7 @@ obj/%.o: source/ffmpeg/libavutil/%.c
 
 -include $(DEP)
 
-.PHONY: clean
+.PHONY: clean all install
 
 clean:
 	-rm test.map $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF) obj/*.d obj/*.o

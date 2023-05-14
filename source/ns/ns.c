@@ -88,38 +88,64 @@ static sendPacketTypedef nwmSendPacket = 0;
 
 #define RP_PORT (8001)
 #define RP_DEST_PORT RP_PORT
-#define RP_SCREEN_BUFFER_SIZE (0x00200000)
+#define RP_SCREEN_BUFFER_SIZE (400 * 240 * 4)
 #define RP_UMM_HEAP_SIZE (256 * 1024)
 #define RP_STACK_SIZE (0x10000)
+#define RP_WORKER_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
 #define RP_JLS_ENCODE_BUFFER_SIZE (400 * 240)
 
-static int rpInited = 0;
+static u8 rpInited = 0;
 
 static ikcpcb *rp_kcp;
 static Handle rp_kcp_mutex;
-static int rp_control_ready = 0;
+static u8 rp_control_ready = 0;
+
+static u8 exit_rp_thread = 0;
+static u8 exit_rp_network_thread = 0;
+static u8 reset_kcp = 0;
+static Handle rp_second_thread;
+static Handle rp_screen_thread;
+static Handle rp_network_thread;
 
 // attribute aligned
 #define ALIGN_4 __attribute__ ((aligned (4)))
 // assume aligned
 #define ASSUME_ALIGN_4(a) (a = __builtin_assume_aligned (a, 4))
 
+#define RP_ENCODE_THREAD_COUNT (2)
+#define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
+#define RP_SCREEN_BUFFER_COUNT RP_ENCODE_BUFFER_COUNT
+#define RP_IMAGE_BUFFER_COUNT (2)
 static struct {
 	u8 nwm_send_buffer[NWM_PACKET_SIZE] ALIGN_4;
 	u8 kcp_send_buffer[KCP_PACKET_SIZE] ALIGN_4;
 	u8 thread_stack[RP_STACK_SIZE] ALIGN_4;
+	u8 second_thread_stack[RP_STACK_SIZE] ALIGN_4;
+	u8 network_transfer_thread_stack[RP_WORKER_STACK_SIZE] ALIGN_4;
+	u8 screen_transfer_thread_stack[RP_WORKER_STACK_SIZE] ALIGN_4;
 	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
 	u8 umm_heap[RP_UMM_HEAP_SIZE] ALIGN_4;
 
-	u8 screen_buffer[RP_SCREEN_BUFFER_SIZE];
-	u8 jls_encode_last_row[400] ALIGN_4;
-	u8 jls_encode_buffer[RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
-	u8 y_image[400 * 240] ALIGN_4;
-	u8 u_image[400 * 240] ALIGN_4;
-	u8 v_image[400 * 240] ALIGN_4;
-	u8 ds_u_image[200 * 120] ALIGN_4;
-	u8 ds_v_image[200 * 120] ALIGN_4;
+	u8 screen_buffer[RP_SCREEN_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE];
+	u8 jls_last_col_buffer[RP_ENCODE_THREAD_COUNT][240] ALIGN_4;
+	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
+
+	struct {
+		u8 y_image[400 * 240] ALIGN_4;
+		u8 u_image[400 * 240] ALIGN_4;
+		u8 v_image[400 * 240] ALIGN_4;
+		u8 ds_u_image[200 * 120] ALIGN_4;
+		u8 ds_v_image[200 * 120] ALIGN_4;
+	} top_image[RP_IMAGE_BUFFER_COUNT];
+
+	struct {
+		u8 y_image[320 * 240] ALIGN_4;
+		u8 u_image[320 * 240] ALIGN_4;
+		u8 v_image[320 * 240] ALIGN_4;
+		u8 ds_u_image[160 * 120] ALIGN_4;
+		u8 ds_v_image[160 * 120] ALIGN_4;
+	} bot_image[RP_IMAGE_BUFFER_COUNT];
 } *rp_storage_ctx;
 
 static uint16_t ip_checksum(void* vdata, size_t length) {
@@ -238,10 +264,63 @@ static void rpControlRecv(void) {
 	svc_releaseMutex(rp_kcp_mutex);
 }
 
+void rpNetworkTransfer(void) {
+	int ret;
+
+	// kcp init
+	svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
+	rp_kcp = ikcp_create(KCP_MAGIC, 0);
+	if (!rp_kcp) {
+		nsDbgPrint("ikcp_create failed\n");
+	} else {
+		rp_kcp->output = rp_udp_output;
+		if ((ret = ikcp_setmtu(rp_kcp, KCP_PACKET_SIZE)) < 0) {
+			nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
+		}
+		ikcp_nodelay(rp_kcp, 1, 10, 1, 1);
+		rp_kcp->rx_minrto = 10;
+		ikcp_wndsize(rp_kcp, KCP_SND_WND_SIZE, 0);
+	}
+	svc_releaseMutex(rp_kcp_mutex);
+
+	while (!exit_rp_network_thread && !reset_kcp) {
+		// kcp send
+		svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
+		int waitsnd = ikcp_waitsnd(rp_kcp);
+		if (waitsnd < KCP_SND_WND_SIZE) {
+			u8 *kcp_send_buf = rp_storage_ctx->kcp_send_buffer;
+			kcp_send_buf[0] = 0;
+			ret = ikcp_send(rp_kcp, kcp_send_buf, 1);
+
+			if (ret < 0) {
+				nsDbgPrint("ikcp_send failed: %d\n", ret);
+				break;
+			}
+		}
+		ikcp_update(rp_kcp, iclock());
+		svc_releaseMutex(rp_kcp_mutex);
+
+		svc_sleepThread(100000000);
+	}
+
+	// kcp deinit
+	svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
+	ikcp_release(rp_kcp);
+	rp_kcp = 0;
+	svc_releaseMutex(rp_kcp_mutex);
+}
+
+void rpNetworkTransferThread(u32 arg) {
+	while (!exit_rp_network_thread) {
+		rpNetworkTransfer();
+	}
+	svc_exitThread();
+}
+
 static Handle rpHDma[2], rpHandleHome, rpHandleGame;
 static u32 rpGameFCRAMBase = 0;
 
-void rpInitDmaHome() {
+void rpInitDmaHome(void) {
 	// u32 rp_dma_config[20] = { 0 };
 	svc_openProcess(&rpHandleHome, 0xf);
 }
@@ -254,7 +333,7 @@ void rpCloseGameHandle(void) {
 	}
 }
 
-static Handle rpGetGameHandle() {
+static Handle rpGetGameHandle(void) {
 	int i;
 	Handle hProcess;
 	if (rpHandleGame == 0) {
@@ -308,11 +387,17 @@ static struct {
 	u32 pitch;
 	u32 fbaddr;
 } rp_screen_ctx[2];
+static int rp_next_screen_transfer;
 
-static void rpCaptureScreen(int top_bot) {
+static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 	u32 bufSize = rp_screen_ctx[top_bot].pitch * (top_bot == 0 ? 400 : 320);
+	if (bufSize > RP_SCREEN_BUFFER_SIZE) {
+		nsDbgPrint("rpCaptureScreen bufSize too large: %x > %x\n", bufSize, RP_SCREEN_BUFFER_SIZE);
+		return -1;
+	}
+
 	u32 phys = rp_screen_ctx[top_bot].fbaddr;
-	u8 *dest = rp_storage_ctx->screen_buffer;
+	u8 *dest = rp_storage_ctx->screen_buffer[screen_buffer_n];
 	Handle hProcess = rpHandleHome;
 
 	int ret;
@@ -325,7 +410,7 @@ static void rpCaptureScreen(int top_bot) {
 		rpCloseGameHandle();
 		svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
 			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)rp_dma_config);
-		return;
+		return 0;
 	}
 	else if (isInFCRAM(phys)) {
 		hProcess = rpGetGameHandle();
@@ -334,12 +419,14 @@ static void rpCaptureScreen(int top_bot) {
 				dest, hProcess, (const void *)(rpGameFCRAMBase + (phys - 0x20000000)), bufSize, (u32 *)rp_dma_config);
 
 		}
-		return;
+		return 0;
 	}
 	svc_sleepThread(1000000000);
+
+	return 01;
 }
 
-static int rpJLSEncodeImage(u8 *dst, int dst_size, const u8 *src, int w, int h) {
+static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, int w, int h) {
 	JLSState state = { 0 };
 	state.bpp = 8;
 
@@ -347,19 +434,19 @@ static int rpJLSEncodeImage(u8 *dst, int dst_size, const u8 *src, int w, int h) 
 	ff_jpegls_init_state(&state);
 
 	PutBitContext s;
-    init_put_bits(&s, rp_storage_ctx->jls_encode_buffer, RP_JLS_ENCODE_BUFFER_SIZE);
+    init_put_bits(&s, rp_storage_ctx->jls_encode_buffer[encode_buffer_n], RP_JLS_ENCODE_BUFFER_SIZE);
 
-	u8 *last = rp_storage_ctx->jls_encode_last_row;
-	memset(last, 0, sizeof(rp_storage_ctx->jls_encode_last_row));
+	u8 *last = rp_storage_ctx->jls_last_col_buffer[thread_n];
+	memset(last, 0, h);
 
 	const u8 *in = src;
 	int t = 0;
 
-	for (int i = 0; i < h; ++i) {
+	for (int i = 0; i < w; ++i) {
         int last0 = last[0];
-        ls_encode_line(&state, &s, last, in, t, w, 1, 0, 8);
+        ls_encode_line(&state, &s, last, in, t, h, 1, 0, 8);
         t = last0;
-        in += w;
+        in += h;
     }
 
 	put_bits(&s, 7, 0);
@@ -421,13 +508,13 @@ static int convert_yuv_image(
 		case 1: {
 			for (x = 0; x < width; ++x) {
 				for (y = 0; y < height; ++y) {
-					r = sp[2];
-					g = sp[1];
-					b = sp[0];
-					convert_yuv(r, g, b, &y_out, &u_out, &v_out);
-					*dp_y_out++ = y_out;
-					*dp_u_out++ = u_out;
-					*dp_v_out++ = v_out;
+					convert_yuv(
+						sp[2],
+						sp[1],
+						sp[0],
+						dp_y_out++,
+						dp_u_out++,
+						dp_v_out++);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
@@ -439,13 +526,13 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					r = (pix >> 11) & 0x1f;
-					g = (pix >> 5) & 0x3f;
-					b = pix & 0x1f;
-					convert_yuv(r, g, b, &y_out, &u_out, &v_out);
-					*dp_y_out++ = y_out;
-					*dp_u_out++ = u_out;
-					*dp_v_out++ = v_out;
+					convert_yuv(
+						(pix >> 11) & 0x1f,
+						(pix >> 5) & 0x3f,
+						pix & 0x1f,
+						dp_y_out++,
+						dp_u_out++,
+						dp_v_out++);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
@@ -499,7 +586,7 @@ static int convert_yuv_image(
 	return 0;
 }
 
-static int rpEncodeImage(int top_bot) {
+static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 	int width, height;
 	if (top_bot == 0) {
 		width = 400;
@@ -522,101 +609,174 @@ static int rpEncodeImage(int top_bot) {
 	int pitch = rp_screen_ctx[top_bot].pitch;
 	int bytes_to_next_column = pitch - bytes_per_column;
 
+	u8 *y_image;
+	u8 *u_image;
+	u8 *v_image;
+	u8 *ds_u_image;
+	u8 *ds_v_image;
+	if (top_bot == 0) {
+		y_image = rp_storage_ctx->top_image[image_buffer_n].y_image;
+		u_image = rp_storage_ctx->top_image[image_buffer_n].u_image;
+		v_image = rp_storage_ctx->top_image[image_buffer_n].v_image;
+		ds_u_image = rp_storage_ctx->top_image[image_buffer_n].ds_u_image;
+		ds_v_image = rp_storage_ctx->top_image[image_buffer_n].ds_v_image;
+	} else {
+		y_image = rp_storage_ctx->bot_image[image_buffer_n].y_image;
+		u_image = rp_storage_ctx->bot_image[image_buffer_n].u_image;
+		v_image = rp_storage_ctx->bot_image[image_buffer_n].v_image;
+		ds_u_image = rp_storage_ctx->bot_image[image_buffer_n].ds_u_image;
+		ds_v_image = rp_storage_ctx->bot_image[image_buffer_n].ds_v_image;
+	}
+
 	int ret = convert_yuv_image(
 		format, width, height, bytes_per_pixel, bytes_to_next_column,
-		rp_storage_ctx->screen_buffer,
-		rp_storage_ctx->y_image,
-		rp_storage_ctx->u_image,
-		rp_storage_ctx->v_image
+		rp_storage_ctx->screen_buffer[screen_buffer_n],
+		y_image,
+		u_image,
+		v_image
 	);
 
 	if (ret < 0)
 		return ret;
 
 	downscale_image(
-		rp_storage_ctx->ds_u_image,
-		rp_storage_ctx->u_image,
+		ds_u_image,
+		u_image,
 		width, height
 	);
 
 	downscale_image(
-		rp_storage_ctx->ds_v_image,
-		rp_storage_ctx->v_image,
+		ds_v_image,
+		v_image,
 		width, height
 	);
 
-	ret = rpJLSEncodeImage(
-		rp_storage_ctx->jls_encode_buffer,
-		RP_JLS_ENCODE_BUFFER_SIZE,
-		rp_storage_ctx->y_image,
-		width,
-		height
-	);
+	return 0;
+}
 
-	return ret;
+static void rpSecondThreadStart(u32 arg) {
+	while (!exit_rp_thread) {
+		svc_sleepThread(1000000000);
+	}
+
+	svc_exitThread();
+}
+
+static void rpScreenTransferThread(u32 arg) {
+	u32 current_screen = 0;
+	int ret;
+
+	while (!exit_rp_thread) {
+		svc_sleepThread(1000000000);
+	}
+
+	svc_exitThread();
 }
 
 void rpKernelCallback(int top_bot);
-static void rpSendFrames() {
+static int rpSendFrames(void) {
 	int top_bot = 0, ret;
+	int thread_n = 0;
 
-	// kcp init
-	svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
-	rp_kcp = ikcp_create(KCP_MAGIC, 0);
-	if (!rp_kcp) {
-		nsDbgPrint("ikcp_create failed\n");
-	} else {
-		rp_kcp->output = rp_udp_output;
-		if ((ret = ikcp_setmtu(rp_kcp, KCP_PACKET_SIZE)) < 0) {
-			nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
-		}
-		ikcp_nodelay(rp_kcp, 1, 10, 1, 1);
-		rp_kcp->rx_minrto = 10;
-		ikcp_wndsize(rp_kcp, KCP_SND_WND_SIZE, 0);
+	exit_rp_thread = 0;
+	ret = svc_createThread(
+		&rp_second_thread,
+		rpSecondThreadStart,
+		0,
+		(u32 *)&rp_storage_ctx->second_thread_stack[RP_STACK_SIZE - 40],
+		0x10,
+		3);
+	if (ret != 0) {
+		nsDbgPrint("Create rpSecondThreadStart Thread Failed: %08x\n", ret);
+		return -1;
 	}
-	svc_releaseMutex(rp_kcp_mutex);
+	ret = svc_createThread(
+		&rp_screen_thread,
+		rpScreenTransferThread,
+		0,
+		(u32 *)&rp_storage_ctx->screen_transfer_thread_stack[RP_WORKER_STACK_SIZE - 40],
+		0x8,
+		2);
+	if (ret != 0) {
+		nsDbgPrint("Create rpScreenTransferThread Thread Failed: %08x\n", ret);
 
+		exit_rp_thread = 1;
+		svc_waitSynchronization1(rp_second_thread, U64_MAX);
+		svc_closeHandle(rp_second_thread);
+		return -1;
+	}
+
+	rp_next_screen_transfer = 0;
 	while (1) {
 		rpKernelCallback(top_bot);
 
-		rpCaptureScreen(top_bot);
+		ret = rpCaptureScreen(0, top_bot);
+		if (ret < 0)
+			break;
 
-		ret = rpEncodeImage(top_bot);
+		int image_buffer_n = 0, screen_buffer_n = 0, encode_buffer_n = 0;
 
-		// kcp send
-		svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
-		int waitsnd = ikcp_waitsnd(rp_kcp);
-		if (waitsnd < KCP_SND_WND_SIZE) {
-			u8 *kcp_send_buf = rp_storage_ctx->kcp_send_buffer;
-			kcp_send_buf[0] = 0;
-			ret = ikcp_send(rp_kcp, kcp_send_buf, 1);
+		ret = rpEncodeImage(screen_buffer_n, image_buffer_n, top_bot);
+		if (ret < 0)
+			break;
 
-			if (ret < 0) {
-				nsDbgPrint("ikcp_send failed: %d\n", ret);
-				break;
-			}
-		}
-		ikcp_update(rp_kcp, iclock());
-		svc_releaseMutex(rp_kcp_mutex);
+		ret = rpJLSEncodeImage(thread_n, encode_buffer_n,
+			top_bot == 0 ?
+				rp_storage_ctx->top_image[image_buffer_n].y_image :
+				rp_storage_ctx->bot_image[image_buffer_n].y_image,
+			top_bot == 0 ? 400 : 320,
+			240
+		);
+		if (ret < 0)
+			break;
 
 		top_bot = !top_bot;
 
 		svc_sleepThread(1000000000);
 	}
+
+	exit_rp_thread = 1;
+	svc_waitSynchronization1(rp_second_thread, U64_MAX);
+	svc_waitSynchronization1(rp_screen_thread, U64_MAX);
+	svc_closeHandle(rp_second_thread);
+	svc_closeHandle(rp_screen_thread);
+
+	return ret;
 }
 
-static void rpThreadStart() {
+static void rpThreadStart(void) {
 	rpInitDmaHome();
 	// kRemotePlayCallback();
 
 	svc_createMutex(&rp_kcp_mutex, 0);
 	rp_control_ready = 1;
 
-	while (1) {
-		rpSendFrames();
+	int ret = 0;
+	while (ret >= 0) {
+		exit_rp_network_thread = 0;
+		ret = svc_createThread(
+			&rp_network_thread,
+			rpNetworkTransferThread,
+			0,
+			(u32 *)&rp_storage_ctx->network_transfer_thread_stack[RP_WORKER_STACK_SIZE - 40],
+			0x8,
+			3);
+		if (ret != 0) {
+			nsDbgPrint("Create rpNetworkTransferThread Failed: %08x\n", ret);
+			goto final;
+		}
+
+		ret = rpSendFrames();
+
+		exit_rp_network_thread = 1;
+		svc_waitSynchronization1(rp_network_thread, U64_MAX);
+		svc_closeHandle(rp_network_thread);
+
+		svc_sleepThread(250000000);
 	}
 
 final:
+	rpInited = 0;
 	svc_exitThread();
 }
 
@@ -645,6 +805,7 @@ int nwmValParamCallback(u8* buf, int buflen) {
 				nsDbgPrint("Request memory for RemotePlay failed: %08x\n", ret);
 				return 0;
 			}
+			nsDbgPrint("RemotePlay memory: 0x%08x (0x%x bytes)\n", rp_storage_ctx, sizeof(*rp_storage_ctx));
 
 			rpInited = 1;
 			memcpy(rp_storage_ctx->nwm_send_buffer, buf, 0x22 + 8);
@@ -1687,6 +1848,7 @@ void nsMainLoop(void) {
 		}
 	}
 #undef RP_PROCESS_SELECT
+#undef RP_PROCESS_SELECT2
 }
 
 void nsThreadStart(void) {
