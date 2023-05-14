@@ -54,34 +54,6 @@ typedef struct _NS_BREAKPOINT {
 #define NS_BPTYPE_CODE		1
 #define NS_BPTYPE_CODEONESHOT	2
 
-#define RP_FRAME_DELTA ((u32)1 << 0)
-#define RP_TRIPLE_BUFFER_ENCODE ((u32)1 << 1)
-#define RP_SELECT_PREDICTION ((u32)1 << 2)
-#define RP_DYNAMIC_DOWNSAMPLE ((u32)1 << 3)
-#define RP_RLE_ENCODE ((u32)1 << 4)
-#define RP_YUV_LQ ((u32)1 << 5)
-#define RP_INTERLACE ((u32)1 << 6)
-#define RP_DYNAMIC_PRIORITY ((u32)1 << 7)
-#define RP_MULTICORE_NETWORK ((u32)1 << 8)
-#define RP_MULTICORE_ENCODE ((u32)1 << 9)
-#define RP_DEBUG ((u32)1 << 30)
-#define RP_EXTENDED ((u32)1 << 31)
-#define RP_FLAG_DBG 0
-
-#define RP_MAGIC 0xfff54321
-
-// disabled
-#undef RP_DYNAMIC_DOWNSAMPLE
-#define RP_DYNAMIC_DOWNSAMPLE 0
-
-typedef struct _RP_CONFIG {
-	u32 flags; // flags
-	u32 mode;
-	u32 quality;
-	u32 qos;
-	vu32 control; // control
-} RP_CONFIG;
-
 typedef struct _NS_CONFIG {
 	u32 initMode;
 	u32 startupCommand;
@@ -100,7 +72,6 @@ typedef struct _NS_CONFIG {
 
 	u32 sharedFunc[100];
 	NTR_CONFIG ntrConfig;
-	RP_CONFIG rpConfig;
 } NS_CONFIG;
 
 #define NS_INITMODE_FROMBOOT	0
@@ -179,9 +150,6 @@ void rtInitHook(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr);
 void rtEnableHook(RT_HOOK* hook);
 void rtDisableHook(RT_HOOK* hook);
 void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr);
-
-void rpSendBuffer(u8* buf, u32 size, u32 flag);
-
 
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion);
 u32 rtGenerateJumpCode(u32 dst, u32* buf);

@@ -21,7 +21,7 @@ INLINES = ""
 WARNS = ""
 
 with open('include/gen.h', 'w') as f:
-    f.write('#define HAS_HUFFMAN_RLE (1)');
+    f.write('');
 
 def allFile(pattern):
     s = "";

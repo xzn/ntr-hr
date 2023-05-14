@@ -1,1 +1,0 @@
-#define HAS_HUFFMAN_RLE (1)

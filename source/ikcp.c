@@ -11,19 +11,10 @@
 //=====================================================================
 #include "ikcp.h"
 
-// #include <stddef.h>
-// #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
-#include <stdarg.h>
-// #include <stdio.h>
 
-#ifdef assert
-#undef assert
-#endif
-#define assert(...) ((void *)0)
-#define abort() ((void *)0)
-#define malloc(...) ((void *)0)
-#define free(...) ((void *)0)
+#define assert(...)
 
 //=====================================================================
 // KCP BASIC
@@ -154,18 +145,18 @@ static void (*ikcp_free_hook)(void *) = NULL;
 
 // internal malloc
 static void* ikcp_malloc(size_t size) {
-	if (ikcp_malloc_hook) 
+	// if (ikcp_malloc_hook) 
 		return ikcp_malloc_hook(size);
-	return malloc(size);
+	// return malloc(size);
 }
 
 // internal free
 static void ikcp_free(void *ptr) {
-	if (ikcp_free_hook) {
+	// if (ikcp_free_hook) {
 		ikcp_free_hook(ptr);
-	}	else {
-		free(ptr);
-	}
+	// }	else {
+	// 	free(ptr);
+	// }
 }
 
 // redefine allocator
@@ -188,25 +179,26 @@ static void ikcp_segment_delete(ikcpcb *kcp, IKCPSEG *seg)
 }
 
 // write log
-void ikcp_log(ikcpcb *kcp, int mask, const char *fmt, ...)
-{
-#if 0
-	char buffer[1024];
-	va_list argptr;
-	if ((mask & kcp->logmask) == 0 || kcp->writelog == 0) return;
-	va_start(argptr, fmt);
-	vsprintf(buffer, fmt, argptr);
-	va_end(argptr);
-	kcp->writelog(buffer, kcp, kcp->user);
-#endif
-}
+// void ikcp_log(ikcpcb *kcp, int mask, const char *fmt, ...)
+// {
+// 	char buffer[1024];
+// 	va_list argptr;
+// 	if ((mask & kcp->logmask) == 0 || kcp->writelog == 0) return;
+// 	va_start(argptr, fmt);
+// 	vsprintf(buffer, fmt, argptr);
+// 	va_end(argptr);
+// 	kcp->writelog(buffer, kcp, kcp->user);
+// }
 
 // check log mask
-static int ikcp_canlog(const ikcpcb *kcp, int mask)
-{
-	if ((mask & kcp->logmask) == 0 || kcp->writelog == NULL) return 0;
-	return 1;
-}
+// static int ikcp_canlog(const ikcpcb *kcp, int mask)
+// {
+// 	if ((mask & kcp->logmask) == 0 || kcp->writelog == NULL) return 0;
+// 	return 1;
+// }
+
+#define ikcp_canlog(...) (0)
+#define ikcp_log(...)
 
 // output segment
 static int ikcp_output(ikcpcb *kcp, const void *data, int size)
@@ -478,6 +470,7 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 {
 	IKCPSEG *seg;
 	int count, i;
+	int sent = 0;
 
 	assert(kcp->mss > 0);
 	if (len < 0) return -1;
@@ -505,17 +498,22 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 				len -= extend;
 				iqueue_del_init(&old->node);
 				ikcp_segment_delete(kcp, old);
+				sent = extend;
 			}
 		}
 		if (len <= 0) {
-			return 0;
+			return sent;
 		}
 	}
 
 	if (len <= (int)kcp->mss) count = 1;
 	else count = (len + kcp->mss - 1) / kcp->mss;
 
-	if (count >= (int)IKCP_WND_RCV) return -4;
+	if (count >= (int)IKCP_WND_RCV) {
+		if (kcp->stream != 0 && sent > 0) 
+			return sent;
+		return -2;
+	}
 
 	if (count == 0) count = 1;
 
@@ -525,7 +523,7 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 		seg = ikcp_segment_new(kcp, size);
 		assert(seg);
 		if (seg == NULL) {
-			return -3;
+			return -2;
 		}
 		if (buffer && len > 0) {
 			memcpy(seg->data, buffer, size);
@@ -539,9 +537,10 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 			buffer += size;
 		}
 		len -= size;
+		sent += size;
 	}
 
-	return 0;
+	return sent;
 }
 
 
@@ -656,8 +655,8 @@ static int ikcp_ack_push(ikcpcb *kcp, IUINT32 sn, IUINT32 ts)
 
 		if (acklist == NULL) {
 			assert(acklist != NULL);
-			abort();
-			return -1;
+			// abort();
+			return IKCP_ERR_ABORT;
 		}
 
 		if (kcp->acklist != NULL) {
@@ -677,6 +676,7 @@ static int ikcp_ack_push(ikcpcb *kcp, IUINT32 sn, IUINT32 ts)
 	ptr[0] = sn;
 	ptr[1] = ts;
 	kcp->ackcount++;
+
 	return 0;
 }
 
@@ -835,9 +835,9 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 					"input psh: sn=%lu ts=%lu", (unsigned long)sn, (unsigned long)ts);
 			}
 			if (_itimediff(sn, kcp->rcv_nxt + kcp->rcv_wnd) < 0) {
-				if (ikcp_ack_push(kcp, sn, ts) < 0) {
-					return -4;
-				}
+				int ret = ikcp_ack_push(kcp, sn, ts);
+				if (ret < 0)
+					return ret;
 				if (_itimediff(sn, kcp->rcv_nxt) >= 0) {
 					seg = ikcp_segment_new(kcp, len);
 					seg->conv = conv;
