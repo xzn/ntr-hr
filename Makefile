@@ -14,6 +14,7 @@ LDLIBS := -lc -lm -lgcc --nostdlib
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
 SRC_S := $(wildcard source/ns/*.s) $(wildcard source/*.s) $(wildcard source/libctru/*.s)
 OBJ := $(addprefix obj/,$(notdir $(SRC_S:.s=.o) $(SRC_C:.c=.o)))
+DEP := $(OBJ:.o=.d)
 
 PAYLOAD_BIN_NAME := ntr.n3ds.hr.bin
 PAYLOAD_TARGET_DIR := ../BootNTR-Selector/romfs/
@@ -37,7 +38,7 @@ $(PAYLOAD_LOCAL_BIN): $(PAYLOAD_LOCAL_ELF)
 $(PAYLOAD_LOCAL_ELF): $(OBJ)
 	$(LD) -o $@ $(LDFLAGS) -Lobj $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
-CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
+CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $<
 
 obj/%.o: source/ns/%.s
 	$(CC_CMD)
@@ -60,5 +61,9 @@ obj/%.o: source/%.c
 obj/%.o: source/libctru/%.c
 	$(CC_CMD)
 
+-include $(DEP)
+
+.PHONY: clean
+
 clean:
-	-rm test.map $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF) obj/*.o
+	-rm test.map $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF) obj/*.d obj/*.o
