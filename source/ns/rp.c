@@ -682,16 +682,6 @@ static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOr
 }
 
 static __attribute__((always_inline)) inline
-void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
-	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
-	s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
-	s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
-	*y_out = rshift_to_even(y, 8);
-	*u_out = srshift_to_even(u, 8) + 128;
-	*v_out = srshift_to_even(v, 8) + 128;
-}
-
-static __attribute__((always_inline)) inline
 void convert_yuv_r(int bpp, u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
 	u8 half_range = 1 << (bpp - 1);
 	switch (rp_config.arg1) {
@@ -760,6 +750,20 @@ void convert_yuv_r_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u
 			*v_out = b;
 			break;
 	}
+}
+
+static __attribute__((always_inline)) inline
+void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
+	if (rp_config.arg1) {
+		convert_yuv_r(8, r, g, b, y_out, u_out, v_out);
+		return;
+	}
+	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
+	s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
+	s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
+	*y_out = rshift_to_even(y, 8);
+	*u_out = srshift_to_even(u, 8) + 128;
+	*v_out = srshift_to_even(v, 8) + 128;
 }
 
 static int convert_yuv_image(
