@@ -692,19 +692,75 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 }
 
 static __attribute__((always_inline)) inline
-void convert_yuv_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
-	*y_out = r;
-	*u_out = g;
-	*v_out = b;
+void convert_yuv_r(int bpp, u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
+	u8 half_range = 1 << (bpp - 1);
+	switch (rp_config.arg1) {
+		case 1:
+			*y_out = r - g + half_range;
+			*u_out = g;
+			*v_out = b - g + half_range;
+			break;
+
+		case 2:
+			*y_out = r - g + half_range;
+			*u_out = g;
+			*v_out = b - ((u16)r + g) >> 1 - half_range;
+			break;
+
+		case 3: {
+			u8 quarter_range = 1 << (bpp - 2);
+			u8 x = r - g + half_range;
+			u8 y = b - g + half_range;
+
+			*y_out = x;
+			*u_out = g + (x + y) >> 2 - quarter_range;
+			*v_out = y;
+			break;
+		}
+
+		default:
+			*y_out = r;
+			*u_out = g;
+			*v_out = b;
+			break;
+	}
 }
 
-static void convert_yuv_3(
-	u8 r UNUSED, u8 g UNUSED, u8 b UNUSED, u8 *y_out UNUSED, u8 *u_out UNUSED, u8 *v_out UNUSED
-) {}
+static __attribute__((always_inline)) inline
+void convert_yuv_r_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
+	int bpp = 5;
+	u8 half_range = 1 << (bpp - 1);
+	u8 half_g = g >> 1;
+	switch (rp_config.arg1) {
+		case 1:
+			*y_out = r - half_g + half_range;
+			*u_out = g;
+			*v_out = b - half_g + half_range;
+			break;
 
-static void convert_yuv_4(
-	u8 r UNUSED, u8 g UNUSED, u8 b UNUSED, u8 *y_out UNUSED, u8 *u_out UNUSED, u8 *v_out UNUSED
-) {}
+		case 2:
+			*y_out = r - half_g + half_range;
+			*u_out = g;
+			*v_out = b - ((u16)r + half_g) >> 1 - half_range;
+			break;
+
+		case 3: {
+			u8 x = r - half_g + half_range;
+			u8 y = b - half_g + half_range;
+
+			*y_out = x;
+			*u_out = g + (x + y) >> 1 - half_range;
+			*v_out = y;
+			break;
+		}
+
+		default:
+			*y_out = r;
+			*u_out = g;
+			*v_out = b;
+			break;
+	}
+}
 
 static int convert_yuv_image(
 	int format, int width, int height, int bytes_per_pixel, int bytes_to_next_column,
@@ -743,7 +799,7 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					convert_yuv_2(
+					convert_yuv_r_2(
 						(pix >> 11) & 0x1f, (pix >> 5) & 0x3f, pix & 0x1f,
 						dp_y_out++, dp_u_out++, dp_v_out++
 					);
@@ -763,7 +819,8 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					convert_yuv_3(
+					convert_yuv_r(
+						5,
 						(pix >> 11) & 0x1f, (pix >> 6) & 0x1f, (pix >> 1) & 0x1f,
 						dp_y_out++, dp_u_out++, dp_v_out++
 					);
@@ -781,7 +838,8 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					convert_yuv_4(
+					convert_yuv_r(
+						4,
 						(pix >> 12) & 0x0f, (pix >> 8) & 0x0f, (pix >> 4) & 0x0f,
 						dp_y_out++, dp_u_out++, dp_v_out++
 					);
