@@ -230,7 +230,7 @@ static u8 rp_atomic_incb(u8 *pos) {
 	return val;
 }
 
-static s32 rp_atomic_inc_mod(s32 *pos, int factor) {
+static __attribute__((always_inline)) inline s32 rp_atomic_inc_mod(s32 *pos, int factor) {
 	s32 val, val_new;
 	do {
 		val = __ldrex(pos);
