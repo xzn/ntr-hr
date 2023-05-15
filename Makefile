@@ -39,7 +39,7 @@ $(PAYLOAD_LOCAL_BIN): $(PAYLOAD_LOCAL_ELF)
 	$(OBJCOPY) -O binary $< $@ -S
 
 $(PAYLOAD_LOCAL_ELF): $(OBJ)
-	$(LD) -o $@ $(LDFLAGS) -Lobj $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+	$(LD) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $<
 
