@@ -247,6 +247,7 @@ static s32 rp_mpsc_acquire(s32 *pos_arg, s32 *can_arg, int factor, s64 timeout) 
 		if (val >= 0) {
 			*pos_arg = (pos + 1) % factor;
 			*can = -1;
+			__dmb();
 			return val;
 		} else {
 			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
@@ -262,6 +263,7 @@ static void rp_mpsc_release(s32 *pos_arg, s32 *can_arg, int factor, int p_n, s32
 	*pos_arg = (pos + 1) % factor;
 	s32 *can = &can_arg[pos];
 	*can = val;
+	__dmb();
 	syncArbitrateAddress(can, ARBITRATION_SIGNAL, p_n);
 }
 
@@ -293,6 +295,7 @@ static void rp_spmc_release(s32 *pos_arg, s32 *can_arg, int factor, s32 val) {
 	s32 pos = rp_atomic_inc_mod(pos_arg, factor);
 	s32 *can = &can_arg[pos];
 	*can = val;
+	__dmb();
 	syncArbitrateAddress(can, ARBITRATION_SIGNAL, 1);
 }
 
