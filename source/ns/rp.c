@@ -139,7 +139,7 @@ static int rpInitUDPPacket(int dataLen) {
 	return dataLen;
 }
 
-int rp_udp_output(const char *buf, int len, ikcpcb *kcp, void *user) {
+static int rp_udp_output(const char *buf, int len, ikcpcb *kcp, void *user) {
 	u8 *sendBuf = rp_storage_ctx->nwm_send_buffer;
 	u8 *dataBuf = sendBuf + NWM_HEADER_SIZE;
 
@@ -201,7 +201,7 @@ void rpControlRecv(void) {
 	svc_releaseMutex(rp_kcp_mutex);
 }
 
-void rpNetworkTransfer(void) {
+static void rpNetworkTransfer(void) {
 	int ret;
 
 	// kcp init
@@ -247,7 +247,7 @@ void rpNetworkTransfer(void) {
 	svc_releaseMutex(rp_kcp_mutex);
 }
 
-void rpNetworkTransferThread(u32 arg) {
+static void rpNetworkTransferThread(u32 arg) {
 	while (!exit_rp_network_thread) {
 		rpNetworkTransfer();
 	}
@@ -257,12 +257,12 @@ void rpNetworkTransferThread(u32 arg) {
 static Handle rpHDma[2], rpHandleHome, rpHandleGame;
 static u32 rpGameFCRAMBase = 0;
 
-void rpInitDmaHome(void) {
+static void rpInitDmaHome(void) {
 	// u32 rp_dma_config[20] = { 0 };
 	svc_openProcess(&rpHandleHome, 0xf);
 }
 
-void rpCloseGameHandle(void) {
+static void rpCloseGameHandle(void) {
 	if (rpHandleGame) {
 		svc_closeHandle(rpHandleGame);
 		rpHandleGame = 0;
@@ -717,7 +717,7 @@ final:
 	svc_exitThread();
 }
 
-int nwmValParamCallback(u8* buf, int buflen) {
+static int nwmValParamCallback(u8* buf, int buflen) {
 	//rtDisableHook(&nwmValParamHook);
 
 	/*
