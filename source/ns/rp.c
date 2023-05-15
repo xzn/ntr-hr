@@ -908,6 +908,7 @@ static void rpScreenTransferThread(u32 arg) {
 
 			rp_storage_ctx->screen_top_bot[pos] = top_bot;
 			rp_screen_release_process(pos);
+			top_bot = !top_bot;
 			break;
 		}
 	}
