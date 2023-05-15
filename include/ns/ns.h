@@ -82,8 +82,6 @@ typedef struct _NS_CONFIG {
 #define NS_STARTCMD_INJECTGAME	1001
 #define NS_STARTCMD_DEBUG		1002
 
-
-
 typedef struct _NS_PACKET {
 	u32 magic;
 	u32 seq;
@@ -130,7 +128,9 @@ typedef struct _NS_CONTEXT {
 extern NS_CONTEXT *g_nsCtx;
 extern NS_CONFIG *g_nsConfig;
 
-
+#define RP_PORT (8001)
+extern int rp_recv_sock;
+void rpControlRecv(void);
 
 void rtInitLock(RT_LOCK *lock) ;
 void rtAcquireLock(RT_LOCK *lock) ;
@@ -153,6 +153,3 @@ void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr);
 
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion);
 u32 rtGenerateJumpCode(u32 dst, u32* buf);
-
-
-
