@@ -1,12 +1,19 @@
 #include "global.h"
+#include "ctr/syn.h"
+#include "ctr/res.h"
 
 #include "umm_malloc.h"
 #include "ikcp.h"
 #include "libavcodec/jpegls.h"
 
+extern IUINT32 IKCP_OVERHEAD;
+
 #define SYSTICK_PER_US (268)
 #define SYSTICK_PER_MS (268123)
 #define SYSTICK_PER_SEC (268123480)
+
+#define RP_MAX(a,b) ((a) > (b) ? (a) : (b))
+#define RP_MIN(a,b) ((a) > (b) ? (b) : (a))
 
 typedef u32(*sendPacketTypedef) (u8*, u32);
 static sendPacketTypedef nwmSendPacket = 0;
@@ -40,7 +47,7 @@ static Handle rp_network_thread;
 #define RP_DEST_PORT RP_PORT
 #define RP_SCREEN_BUFFER_SIZE (400 * 240 * 4)
 #define RP_UMM_HEAP_SIZE (256 * 1024)
-#define RP_STACK_SIZE (0x10000)
+#define RP_STACK_SIZE (0x8000)
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
 #define RP_JLS_ENCODE_BUFFER_SIZE (400 * 240)
@@ -53,7 +60,7 @@ static Handle rp_network_thread;
 #define RP_ENCODE_THREAD_COUNT (2)
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
 #define RP_SCREEN_BUFFER_COUNT RP_ENCODE_BUFFER_COUNT
-#define RP_IMAGE_BUFFER_COUNT (2)
+#define RP_IMAGE_BUFFER_COUNT RP_MAX(2, RP_ENCODE_THREAD_COUNT)
 static struct {
 	u8 nwm_send_buffer[NWM_PACKET_SIZE] ALIGN_4;
 	u8 kcp_send_buffer[KCP_PACKET_SIZE] ALIGN_4;
@@ -64,9 +71,13 @@ static struct {
 	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
 	u8 umm_heap[RP_UMM_HEAP_SIZE] ALIGN_4;
 
-	u8 screen_buffer[RP_SCREEN_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE];
+	u8 screen_buffer[RP_SCREEN_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE] ALIGN_4;
+	u8 screen_top_bot[RP_SCREEN_BUFFER_COUNT] ALIGN_4;
 	u8 jls_last_col_buffer[RP_ENCODE_THREAD_COUNT][240] ALIGN_4;
 	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
+	u8 jls_encode_top_bot[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
+	u8 jls_encode_frame_n[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
+	u32 jls_encode_size[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
 
 	struct {
 		u8 y_image[400 * 240] ALIGN_4;
@@ -74,7 +85,7 @@ static struct {
 		u8 v_image[400 * 240] ALIGN_4;
 		u8 ds_u_image[200 * 120] ALIGN_4;
 		u8 ds_v_image[200 * 120] ALIGN_4;
-	} top_image[RP_IMAGE_BUFFER_COUNT];
+	} top_image[RP_IMAGE_BUFFER_COUNT] ALIGN_4;
 
 	struct {
 		u8 y_image[320 * 240] ALIGN_4;
@@ -82,8 +93,13 @@ static struct {
 		u8 v_image[320 * 240] ALIGN_4;
 		u8 ds_u_image[160 * 120] ALIGN_4;
 		u8 ds_v_image[160 * 120] ALIGN_4;
-	} bot_image[RP_IMAGE_BUFFER_COUNT];
+	} bot_image[RP_IMAGE_BUFFER_COUNT] ALIGN_4;
 } *rp_storage_ctx;
+
+static s32 rp_top_image_n;
+static s32 rp_bot_image_n;
+static u8 rp_top_image_send_n;
+static u8 rp_bot_image_send_n;
 
 static uint16_t ip_checksum(void* vdata, size_t length) {
 	// Cast the data pointer to one that can be indexed.
@@ -182,24 +198,210 @@ void rpControlRecv(void) {
 		return;
 	} else if (ret < 0) {
 		int err = SOC_GetErrno();
-		nsDbgPrint("rpControlRecv failed: %d\n", ret);
+		nsDbgPrint("rpControlRecv failed: %d, errno = %d\n", ret, err);
 		return;
 	}
 
 	svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
 	if (rp_kcp) {
 		int bufSize = ret;
-		if ((ret = ikcp_input(rp_kcp, rpRecvBuffer, bufSize)) < 0) {
+		if ((ret = ikcp_input(rp_kcp, (const char *)rpRecvBuffer, bufSize)) < 0) {
 			nsDbgPrint("ikcp_input failed: %d\n", ret);
 		}
 
-		ret = ikcp_recv(rp_kcp, rpRecvBuffer, RP_CONTROL_RECV_BUFFER_SIZE);
+		ret = ikcp_recv(rp_kcp, (char *)rpRecvBuffer, RP_CONTROL_RECV_BUFFER_SIZE);
 		if (ret >= 0) {
 			rpControlRecvHandle(rpRecvBuffer, ret);
 		}
 	}
 	svc_releaseMutex(rp_kcp_mutex);
 }
+
+static u8 rp_atomic_incb(u8 *pos) {
+	u8 val, val_new;
+	do {
+		val = __ldrexb(pos);
+		val_new = val + 1;
+	} while (__strexb(pos, val_new));
+	return val;
+}
+
+static s32 rp_atomic_inc_mod(s32 *pos, int factor) {
+	s32 val, val_new;
+	do {
+		val = __ldrex(pos);
+		val_new = (val + 1) % factor;
+	} while (__strex(pos, val_new));
+	return val;
+}
+
+static s32 rp_screen_can_transfer[RP_SCREEN_BUFFER_COUNT];
+static s32 rp_screen_can_process[RP_SCREEN_BUFFER_COUNT];
+static s32 rp_screen_transfer_acq_pos;
+static s32 rp_screen_transfer_rel_pos;
+static s32 rp_screen_process_acq_pos;
+static s32 rp_screen_process_rel_pos;
+static LightLock rp_screen_process_acq_state[RP_SCREEN_BUFFER_COUNT];
+
+static void rp_screen_queue_init(void) {
+	for (s32 i = 0; i < RP_SCREEN_BUFFER_COUNT; ++i) {
+		rp_screen_can_transfer[i] = i;
+		rp_screen_can_process[i] = -1;
+		LightLock_Init(&rp_screen_process_acq_state[i]);
+	}
+	rp_screen_transfer_acq_pos =
+		rp_screen_transfer_rel_pos =
+		rp_screen_process_acq_pos =
+		rp_screen_process_rel_pos = 0;
+}
+
+static s32 rp_screen_acquire_transfer(s64 timeout) {
+	s32 pos = rp_screen_transfer_acq_pos;
+	s32 *can = &rp_screen_can_transfer[pos];
+	while (1) {
+		s32 val = *can;
+		if (val >= 0) {
+			rp_screen_transfer_acq_pos = (pos + 1) % RP_SCREEN_BUFFER_COUNT;
+			*can = -1;
+			return val;
+		} else {
+			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
+			if (R_DESCRIPTION(rc) == RD_TIMEOUT) {
+				return -1;
+			}
+		}
+	}
+}
+
+static void rp_screen_release_process(s32 val) {
+	s32 pos = rp_screen_process_rel_pos;
+	rp_screen_process_rel_pos = (pos + 1) % RP_SCREEN_BUFFER_COUNT;
+	s32 *can = &rp_screen_can_process[pos];
+	*can = val;
+	syncArbitrateAddress(can, ARBITRATION_SIGNAL, RP_ENCODE_THREAD_COUNT);
+}
+
+static s32 rp_screen_queue_atomic_inc_mod(s32 *pos) {
+	return rp_atomic_inc_mod(pos, RP_SCREEN_BUFFER_COUNT);
+}
+
+static s32 rp_screen_acquire_process(s64 timeout) {
+	while (1) {
+		s32 pos = rp_screen_process_acq_pos;
+		s32 *can = &rp_screen_can_process[pos];
+		LightLock *state = &rp_screen_process_acq_state[pos];
+		if (LightLock_TryLock(state)) {
+			continue;
+		}
+		s32 val = *can;
+		if (val >= 0) {
+			rp_screen_queue_atomic_inc_mod(&rp_screen_process_acq_pos);
+			*can = -1;
+			LightLock_Unlock(state);
+			return val;
+		} else {
+			LightLock_Unlock(state);
+			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
+			if (R_DESCRIPTION(rc) == RD_TIMEOUT) {
+				return -1;
+			}
+		}
+	}
+}
+
+static void rp_screen_release_transfer(s32 val) {
+	s32 pos = rp_screen_queue_atomic_inc_mod(&rp_screen_transfer_rel_pos);
+	s32 *can = &rp_screen_can_transfer[pos];
+	*can = val;
+	syncArbitrateAddress(can, ARBITRATION_SIGNAL, 1);
+}
+
+static s32 rp_encode_can_process[RP_ENCODE_BUFFER_COUNT];
+static s32 rp_encode_can_send[RP_ENCODE_BUFFER_COUNT];
+static s32 rp_encode_process_acq_pos;
+static s32 rp_encode_process_rel_pos;
+static s32 rp_encode_send_acq_pos;
+static s32 rp_encode_send_rel_pos;
+static LightLock rp_encode_process_acq_state[RP_ENCODE_BUFFER_COUNT];
+
+static void rp_encode_queue_init(void) {
+	for (s32 i = 0; i < RP_ENCODE_BUFFER_COUNT; ++i) {
+		rp_encode_can_process[i] = i;
+		rp_encode_can_send[i] = -1;
+		LightLock_Init(&rp_encode_process_acq_state[i]);
+	}
+	rp_encode_process_acq_pos =
+		rp_encode_process_rel_pos =
+		rp_encode_send_acq_pos =
+		rp_encode_send_rel_pos = 0;
+}
+
+static s32 rp_encode_queue_atomic_inc_mod(s32 *pos) {
+	return rp_atomic_inc_mod(pos, RP_ENCODE_BUFFER_COUNT);
+}
+
+static s32 rp_encode_acquire_process(s64 timeout) {
+	while (1) {
+		s32 pos = rp_encode_process_acq_pos;
+		s32 *can = &rp_encode_can_process[pos];
+		LightLock *state = &rp_encode_process_acq_state[pos];
+		if (LightLock_TryLock(state)) {
+			continue;
+		}
+		s32 val = *can;
+		if (val >= 0) {
+			rp_encode_queue_atomic_inc_mod(&rp_encode_process_acq_pos);
+			*can = -1;
+			LightLock_Unlock(state);
+			return val;
+		} else {
+			LightLock_Unlock(state);
+			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
+			if (R_DESCRIPTION(rc) == RD_TIMEOUT) {
+				return -1;
+			}
+		}
+	}
+}
+
+static void rp_encode_release_send(s32 val) {
+	s32 pos = rp_encode_queue_atomic_inc_mod(&rp_encode_send_rel_pos);
+	s32 *can = &rp_encode_can_send[pos];
+	*can = val;
+	syncArbitrateAddress(can, ARBITRATION_SIGNAL, 1);
+}
+
+static s32 rp_encode_acquire_send(s64 timeout) {
+	s32 pos = rp_encode_send_acq_pos;
+	s32 *can = &rp_encode_can_send[pos];
+	while (1) {
+		s32 val = *can;
+		if (val >= 0) {
+			rp_encode_send_acq_pos = (pos + 1) % RP_ENCODE_BUFFER_COUNT;
+			*can = -1;
+			return val;
+		} else {
+			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
+			if (R_DESCRIPTION(rc) == RD_TIMEOUT) {
+				return -1;
+			}
+		}
+	}
+}
+
+static void rp_encode_release_process(s32 val) {
+	s32 pos = rp_encode_process_rel_pos;
+	rp_encode_process_rel_pos = (pos + 1) % RP_ENCODE_BUFFER_COUNT;
+	s32 *can = &rp_encode_can_process[pos];
+	*can = val;
+	syncArbitrateAddress(can, ARBITRATION_SIGNAL, RP_ENCODE_THREAD_COUNT);
+}
+
+struct rp_send_header {
+	u32 size;
+	u8 frame_n;
+	u8 top_bot;
+};
 
 static void rpNetworkTransfer(void) {
 	int ret;
@@ -221,23 +423,79 @@ static void rpNetworkTransfer(void) {
 	svc_releaseMutex(rp_kcp_mutex);
 
 	while (!exit_rp_network_thread && !reset_kcp) {
-		// kcp send
-		svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
-		int waitsnd = ikcp_waitsnd(rp_kcp);
-		if (waitsnd < KCP_SND_WND_SIZE) {
-			u8 *kcp_send_buf = rp_storage_ctx->kcp_send_buffer;
-			kcp_send_buf[0] = 0;
-			ret = ikcp_send(rp_kcp, kcp_send_buf, 1);
+		s32 pos = rp_encode_acquire_send(1000000000);
+		if (pos < 0) {
+			continue;
+		}
 
-			if (ret < 0) {
-				nsDbgPrint("ikcp_send failed: %d\n", ret);
+		struct rp_send_header header = {
+			.size = rp_storage_ctx->jls_encode_size[pos],
+			.frame_n = rp_storage_ctx->jls_encode_frame_n[pos],
+			.top_bot = rp_storage_ctx->jls_encode_top_bot[pos]
+		};
+
+		u32 size_remain = header.size;
+		u8 *data = rp_storage_ctx->jls_encode_buffer[pos];
+
+		while (1) {
+			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
+
+			svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
+			int waitsnd = ikcp_waitsnd(rp_kcp);
+			if (waitsnd < KCP_SND_WND_SIZE) {
+				u8 *kcp_send_buffer = rp_storage_ctx->kcp_send_buffer;
+				memcpy(kcp_send_buffer, &header, sizeof(header));
+				memcpy(kcp_send_buffer + sizeof(header), data, data_size);
+
+				ret = ikcp_send(rp_kcp, (const char *)kcp_send_buffer, data_size + sizeof(header));
+
+				if (ret < 0) {
+					nsDbgPrint("ikcp_send failed: %d\n", ret);
+
+					exit_rp_thread = 1;
+					svc_releaseMutex(rp_kcp_mutex);
+					break;
+				}
+
+				size_remain -= data_size;
+				data += data_size;
+
+				svc_releaseMutex(rp_kcp_mutex);
 				break;
 			}
+			ikcp_update(rp_kcp, iclock());
+			svc_releaseMutex(rp_kcp_mutex);
 		}
-		ikcp_update(rp_kcp, iclock());
-		svc_releaseMutex(rp_kcp_mutex);
 
-		svc_sleepThread(100000000);
+		while (size_remain) {
+			if (exit_rp_network_thread || reset_kcp) {
+				break;
+			}
+
+			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
+
+			// kcp send data
+			svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
+			int waitsnd = ikcp_waitsnd(rp_kcp);
+			if (waitsnd < KCP_SND_WND_SIZE) {
+				ret = ikcp_send(rp_kcp, (const char *)data, data_size);
+
+				if (ret < 0) {
+					nsDbgPrint("ikcp_send failed: %d\n", ret);
+
+					exit_rp_thread = 1;
+					svc_releaseMutex(rp_kcp_mutex);
+					break;
+				}
+
+				size_remain -= data_size;
+				data += data_size;
+			}
+			ikcp_update(rp_kcp, iclock());
+			svc_releaseMutex(rp_kcp_mutex);
+		}
+
+		rp_encode_release_process(pos);
 	}
 
 	// kcp deinit
@@ -324,7 +582,6 @@ static struct {
 	u32 pitch;
 	u32 fbaddr;
 } rp_screen_ctx[2];
-static int rp_next_screen_transfer;
 
 static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 	u32 bufSize = rp_screen_ctx[top_bot].pitch * (top_bot == 0 ? 400 : 320);
@@ -337,30 +594,29 @@ static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 	u8 *dest = rp_storage_ctx->screen_buffer[screen_buffer_n];
 	Handle hProcess = rpHandleHome;
 
-	int ret;
-
 	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)dest, bufSize);
 	svc_closeHandle(rpHDma[top_bot]);
 	rpHDma[top_bot] = 0;
 
+	int ret;
 	if (isInVRAM(phys)) {
 		rpCloseGameHandle();
-		svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
+		ret = svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
 			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)rp_dma_config);
-		return 0;
+		return ret;
 	}
 	else if (isInFCRAM(phys)) {
 		hProcess = rpGetGameHandle();
 		if (hProcess) {
 			ret = svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
 				dest, hProcess, (const void *)(rpGameFCRAMBase + (phys - 0x20000000)), bufSize, (u32 *)rp_dma_config);
-
+			return ret;
 		}
 		return 0;
 	}
 	svc_sleepThread(1000000000);
 
-	return 01;
+	return 0;
 }
 
 static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, int w, int h) {
@@ -371,7 +627,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 	ff_jpegls_init_state(&state);
 
 	PutBitContext s;
-    init_put_bits(&s, rp_storage_ctx->jls_encode_buffer[encode_buffer_n], RP_JLS_ENCODE_BUFFER_SIZE);
+	init_put_bits(&s, rp_storage_ctx->jls_encode_buffer[encode_buffer_n], RP_JLS_ENCODE_BUFFER_SIZE);
 
 	u8 *last = rp_storage_ctx->jls_last_col_buffer[thread_n];
 	memset(last, 0, h);
@@ -380,16 +636,16 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 	int t = 0;
 
 	for (int i = 0; i < w; ++i) {
-        int last0 = last[0];
-        ls_encode_line(&state, &s, last, in, t, h, 1, 0, 8);
-        t = last0;
-        in += h;
-    }
+		int last0 = last[0];
+		ls_encode_line(&state, &s, last, in, t, h, 1, 0, 8);
+		t = last0;
+		in += h;
+	}
 
 	put_bits(&s, 7, 0);
-    // int size_in_bits = put_bits_count(&s);
-    flush_put_bits(&s);
-    int size = put_bytes_output(&s);
+	// int size_in_bits = put_bits_count(&s);
+	flush_put_bits(&s);
+	int size = put_bytes_output(&s);
 
 	return size;
 }
@@ -591,31 +847,120 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 	return 0;
 }
 
-static void rpSecondThreadStart(u32 arg) {
+static void rpEncodeScreenAndSend(int thread_n) {
+	int ret;
 	while (!exit_rp_thread) {
-		svc_sleepThread(1000000000);
-	}
+		s32 pos = rp_screen_acquire_process(1000000000);
+		if (pos < 0) {
+			continue;
+		}
 
-	svc_exitThread();
+		int top_bot = rp_storage_ctx->screen_top_bot[pos];
+
+		int screen_buffer_n = pos;
+		int image_buffer_n = top_bot == 0 ?
+			rp_atomic_inc_mod(&rp_top_image_n, RP_IMAGE_BUFFER_COUNT) :
+			rp_atomic_inc_mod(&rp_bot_image_n, RP_IMAGE_BUFFER_COUNT);
+		ret = rpEncodeImage(screen_buffer_n, image_buffer_n, top_bot);
+		if (ret < 0) {
+			nsDbgPrint("rpEncodeImage failed");
+			exit_rp_thread = 1;
+			break;
+		}
+
+		rp_screen_release_transfer(pos);
+
+		int frame_n = top_bot == 0 ?
+			rp_atomic_incb(&rp_top_image_send_n) :
+			rp_atomic_incb(&rp_bot_image_send_n);
+
+#define RP_PROCESS_IMAGE_AND_SEND(n, w1, w2, h) do { \
+	pos = rp_encode_acquire_process(1000000000); \
+	if (pos < 0) { \
+		continue; \
+	} \
+	int encode_buffer_n = pos; \
+	ret = rpJLSEncodeImage(thread_n, encode_buffer_n, \
+		top_bot == 0 ? \
+			rp_storage_ctx->top_image[image_buffer_n].n : \
+			rp_storage_ctx->bot_image[image_buffer_n].n, \
+		top_bot == 0 ? w1 : w2, \
+		h \
+	); \
+	if (ret < 0) { \
+		nsDbgPrint("rpJLSEncodeImage failed"); \
+		exit_rp_thread = 1; \
+		break; \
+	} \
+	rp_storage_ctx->jls_encode_top_bot[pos] = top_bot; \
+	rp_storage_ctx->jls_encode_frame_n[pos] = frame_n; \
+	rp_storage_ctx->jls_encode_size[pos] = ret; \
+	rp_encode_release_send(pos); } while (0)
+
+		// y_image
+		while (!exit_rp_thread) {
+			RP_PROCESS_IMAGE_AND_SEND(y_image, 400, 320, 240);
+
+			// ds_u_image
+			while (!exit_rp_thread) {
+				RP_PROCESS_IMAGE_AND_SEND(ds_u_image, 200, 160, 120);
+
+				// ds_v_image
+				while (!exit_rp_thread) {
+					RP_PROCESS_IMAGE_AND_SEND(ds_v_image, 200, 160, 120);
+
+					break;
+				}
+
+				break;
+			}
+
+			break;
+		}
+#undef RP_PROCESS_IMAGE_AND_SEND
+	}
 }
 
-static void rpScreenTransferThread(u32 arg) {
-	u32 current_screen = 0;
-	int ret;
-
-	while (!exit_rp_thread) {
-		svc_sleepThread(1000000000);
-	}
-
+static void rpSecondThreadStart(u32 arg) {
+	rpEncodeScreenAndSend(1);
 	svc_exitThread();
 }
 
 void rpKernelCallback(int top_bot);
+static void rpScreenTransferThread(u32 arg) {
+	int top_bot = 0;
+	int ret;
+
+	while (!exit_rp_thread) {
+		s32 pos = rp_screen_acquire_transfer(1000000000);
+		if (pos < 0) {
+			continue;
+		}
+
+		while (!exit_rp_thread) {
+			rpKernelCallback(top_bot);
+
+			ret = rpCaptureScreen(pos, top_bot);
+
+			if (ret < 0) {
+				svc_sleepThread(1000000000);
+				continue;
+			}
+
+			rp_storage_ctx->screen_top_bot[pos] = top_bot;
+			rp_screen_release_process(pos);
+			break;
+		}
+	}
+
+	svc_exitThread();
+}
+
 static int rpSendFrames(void) {
-	int top_bot = 0, ret;
-	int thread_n = 0;
+	int ret;
 
 	exit_rp_thread = 0;
+	rp_screen_queue_init();
 	ret = svc_createThread(
 		&rp_second_thread,
 		rpSecondThreadStart,
@@ -643,36 +988,8 @@ static int rpSendFrames(void) {
 		return -1;
 	}
 
-	rp_next_screen_transfer = 0;
-	while (1) {
-		rpKernelCallback(top_bot);
+	rpEncodeScreenAndSend(0);
 
-		ret = rpCaptureScreen(0, top_bot);
-		if (ret < 0)
-			break;
-
-		int image_buffer_n = 0, screen_buffer_n = 0, encode_buffer_n = 0;
-
-		ret = rpEncodeImage(screen_buffer_n, image_buffer_n, top_bot);
-		if (ret < 0)
-			break;
-
-		ret = rpJLSEncodeImage(thread_n, encode_buffer_n,
-			top_bot == 0 ?
-				rp_storage_ctx->top_image[image_buffer_n].y_image :
-				rp_storage_ctx->bot_image[image_buffer_n].y_image,
-			top_bot == 0 ? 400 : 320,
-			240
-		);
-		if (ret < 0)
-			break;
-
-		top_bot = !top_bot;
-
-		svc_sleepThread(1000000000);
-	}
-
-	exit_rp_thread = 1;
 	svc_waitSynchronization1(rp_second_thread, U64_MAX);
 	svc_waitSynchronization1(rp_screen_thread, U64_MAX);
 	svc_closeHandle(rp_second_thread);
@@ -691,6 +1008,7 @@ static void rpThreadStart(void) {
 	int ret = 0;
 	while (ret >= 0) {
 		exit_rp_network_thread = 0;
+		rp_encode_queue_init();
 		ret = svc_createThread(
 			&rp_network_thread,
 			rpNetworkTransferThread,
@@ -739,7 +1057,7 @@ static int nwmValParamCallback(u8* buf, int buflen) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
 			rp_storage_ctx = (typeof(rp_storage_ctx))plgRequestMemory(sizeof(*rp_storage_ctx));
 			if (!rp_storage_ctx) {
-				nsDbgPrint("Request memory for RemotePlay failed: %08x\n", ret);
+				nsDbgPrint("Request memory for RemotePlay failed\n");
 				return 0;
 			}
 			nsDbgPrint("RemotePlay memory: 0x%08x (0x%x bytes)\n", rp_storage_ctx, sizeof(*rp_storage_ctx));
