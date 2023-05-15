@@ -239,33 +239,13 @@ static s32 rp_atomic_inc_mod(s32 *pos, int factor) {
 	return val;
 }
 
-static s32 rp_screen_can_transfer[RP_SCREEN_BUFFER_COUNT];
-static s32 rp_screen_can_process[RP_SCREEN_BUFFER_COUNT];
-static s32 rp_screen_transfer_acq_pos;
-static s32 rp_screen_transfer_rel_pos;
-static s32 rp_screen_process_acq_pos;
-static s32 rp_screen_process_rel_pos;
-static LightLock rp_screen_process_acq_state[RP_SCREEN_BUFFER_COUNT];
-
-static void rp_screen_queue_init(void) {
-	for (s32 i = 0; i < RP_SCREEN_BUFFER_COUNT; ++i) {
-		rp_screen_can_transfer[i] = i;
-		rp_screen_can_process[i] = -1;
-		LightLock_Init(&rp_screen_process_acq_state[i]);
-	}
-	rp_screen_transfer_acq_pos =
-		rp_screen_transfer_rel_pos =
-		rp_screen_process_acq_pos =
-		rp_screen_process_rel_pos = 0;
-}
-
-static s32 rp_screen_acquire_transfer(s64 timeout) {
-	s32 pos = rp_screen_transfer_acq_pos;
-	s32 *can = &rp_screen_can_transfer[pos];
+static s32 rp_mpsc_acquire(s32 *pos_arg, s32 *can_arg, int factor, s64 timeout) {
+	s32 pos = *pos_arg;
+	s32 *can = &can_arg[pos];
 	while (1) {
 		s32 val = *can;
 		if (val >= 0) {
-			rp_screen_transfer_acq_pos = (pos + 1) % RP_SCREEN_BUFFER_COUNT;
+			*pos_arg = (pos + 1) % factor;
 			*can = -1;
 			return val;
 		} else {
@@ -277,29 +257,25 @@ static s32 rp_screen_acquire_transfer(s64 timeout) {
 	}
 }
 
-static void rp_screen_release_process(s32 val) {
-	s32 pos = rp_screen_process_rel_pos;
-	rp_screen_process_rel_pos = (pos + 1) % RP_SCREEN_BUFFER_COUNT;
-	s32 *can = &rp_screen_can_process[pos];
+static void rp_mpsc_release(s32 *pos_arg, s32 *can_arg, int factor, int p_n, s32 val) {
+	s32 pos = *pos_arg;
+	*pos_arg = (pos + 1) % factor;
+	s32 *can = &can_arg[pos];
 	*can = val;
-	syncArbitrateAddress(can, ARBITRATION_SIGNAL, RP_ENCODE_THREAD_COUNT);
+	syncArbitrateAddress(can, ARBITRATION_SIGNAL, p_n);
 }
 
-static s32 rp_screen_queue_atomic_inc_mod(s32 *pos) {
-	return rp_atomic_inc_mod(pos, RP_SCREEN_BUFFER_COUNT);
-}
-
-static s32 rp_screen_acquire_process(s64 timeout) {
+static s32 rp_spmc_acquire(s32 *pos_arg, s32 *can_arg, LightLock *state_arg, int factor, s64 timeout) {
 	while (1) {
-		s32 pos = rp_screen_process_acq_pos;
-		s32 *can = &rp_screen_can_process[pos];
-		LightLock *state = &rp_screen_process_acq_state[pos];
+		s32 pos = *pos_arg;
+		s32 *can = &can_arg[pos];
+		LightLock *state = &state_arg[pos];
 		if (LightLock_TryLock(state)) {
 			continue;
 		}
 		s32 val = *can;
 		if (val >= 0) {
-			rp_screen_queue_atomic_inc_mod(&rp_screen_process_acq_pos);
+			rp_atomic_inc_mod(pos_arg, factor);
 			*can = -1;
 			LightLock_Unlock(state);
 			return val;
@@ -313,93 +289,74 @@ static s32 rp_screen_acquire_process(s64 timeout) {
 	}
 }
 
-static void rp_screen_release_transfer(s32 val) {
-	s32 pos = rp_screen_queue_atomic_inc_mod(&rp_screen_transfer_rel_pos);
-	s32 *can = &rp_screen_can_transfer[pos];
+static void rp_spmc_release(s32 *pos_arg, s32 *can_arg, int factor, s32 val) {
+	s32 pos = rp_atomic_inc_mod(pos_arg, factor);
+	s32 *can = &can_arg[pos];
 	*can = val;
 	syncArbitrateAddress(can, ARBITRATION_SIGNAL, 1);
 }
 
-static s32 rp_encode_can_process[RP_ENCODE_BUFFER_COUNT];
-static s32 rp_encode_can_send[RP_ENCODE_BUFFER_COUNT];
-static s32 rp_encode_process_acq_pos;
-static s32 rp_encode_process_rel_pos;
-static s32 rp_encode_send_acq_pos;
-static s32 rp_encode_send_rel_pos;
-static LightLock rp_encode_process_acq_state[RP_ENCODE_BUFFER_COUNT];
-
-static void rp_encode_queue_init(void) {
-	for (s32 i = 0; i < RP_ENCODE_BUFFER_COUNT; ++i) {
-		rp_encode_can_process[i] = i;
-		rp_encode_can_send[i] = -1;
-		LightLock_Init(&rp_encode_process_acq_state[i]);
-	}
-	rp_encode_process_acq_pos =
-		rp_encode_process_rel_pos =
-		rp_encode_send_acq_pos =
-		rp_encode_send_rel_pos = 0;
+#define RP_DEFINE_QUEUE_FUNCTION( \
+	mpsc_acq, mpsc_acq_pos, mpsc_rel, mpsc_rel_pos, spmc_acq, spmc_acq_pos, spmc_rel, spmc_rel_pos, \
+	mpsc_can, spmc_can, spmc_state, buffer_count, thread_count, init, init_avail \
+) \
+static s32 mpsc_can[buffer_count]; \
+static s32 spmc_can[buffer_count]; \
+static s32 mpsc_acq_pos; \
+static s32 mpsc_rel_pos; \
+static s32 spmc_acq_pos; \
+static s32 spmc_rel_pos; \
+static LightLock spmc_state[buffer_count]; \
+ \
+static s32 mpsc_acq(s64 timeout) { \
+	return rp_mpsc_acquire(&mpsc_acq_pos, mpsc_can, buffer_count, timeout); \
+} \
+ \
+static void mpsc_rel(s32 val) { \
+	rp_mpsc_release(&mpsc_rel_pos, spmc_can, buffer_count, thread_count, val); \
+} \
+ \
+static s32 spmc_acq(s64 timeout) { \
+	return rp_spmc_acquire(&spmc_acq_pos, spmc_can, spmc_state, buffer_count, timeout); \
+} \
+ \
+static void spmc_rel(s32 val) { \
+	rp_spmc_release(&spmc_rel_pos, mpsc_can, buffer_count, val); \
+} \
+ \
+static void init(void) { \
+	for (s32 i = 0; i < buffer_count; ++i) { \
+		if (init_avail) { \
+			mpsc_can[i] = i; spmc_can[i] = -1; \
+		} else { \
+			mpsc_can[i] = -1; spmc_can[i] = i; \
+		} \
+		LightLock_Init(&spmc_state[i]); \
+	} \
+	mpsc_acq_pos = mpsc_rel_pos = spmc_acq_pos = spmc_rel_pos = 0; \
 }
 
-static s32 rp_encode_queue_atomic_inc_mod(s32 *pos) {
-	return rp_atomic_inc_mod(pos, RP_ENCODE_BUFFER_COUNT);
-}
+RP_DEFINE_QUEUE_FUNCTION(
+	rp_screen_acquire_transfer, rp_screen_transfer_acq_pos,
+	rp_screen_release_process, rp_screen_process_rel_pos,
+	rp_screen_acquire_process, rp_screen_process_acq_pos,
+	rp_screen_release_transfer, rp_screen_transfer_rel_pos,
+	rp_screen_can_transfer, rp_screen_can_process, rp_screen_process_acq_state,
+	RP_SCREEN_BUFFER_COUNT, RP_ENCODE_THREAD_COUNT,
+	rp_screen_queue_init, 0
+)
 
-static s32 rp_encode_acquire_process(s64 timeout) {
-	while (1) {
-		s32 pos = rp_encode_process_acq_pos;
-		s32 *can = &rp_encode_can_process[pos];
-		LightLock *state = &rp_encode_process_acq_state[pos];
-		if (LightLock_TryLock(state)) {
-			continue;
-		}
-		s32 val = *can;
-		if (val >= 0) {
-			rp_encode_queue_atomic_inc_mod(&rp_encode_process_acq_pos);
-			*can = -1;
-			LightLock_Unlock(state);
-			return val;
-		} else {
-			LightLock_Unlock(state);
-			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
-			if (R_DESCRIPTION(rc) == RD_TIMEOUT) {
-				return -1;
-			}
-		}
-	}
-}
+RP_DEFINE_QUEUE_FUNCTION(
+	rp_encode_acquire_send, rp_encode_send_acq_pos,
+	rp_encode_release_process, rp_encode_process_rel_pos,
+	rp_encode_acquire_process, rp_encode_process_acq_pos,
+	rp_encode_release_send, rp_encode_send_rel_pos,
+	rp_encode_can_send, rp_encode_can_process, rp_encode_process_acq_state,
+	RP_ENCODE_BUFFER_COUNT, RP_ENCODE_THREAD_COUNT,
+	rp_encode_queue_init, 1
+)
 
-static void rp_encode_release_send(s32 val) {
-	s32 pos = rp_encode_queue_atomic_inc_mod(&rp_encode_send_rel_pos);
-	s32 *can = &rp_encode_can_send[pos];
-	*can = val;
-	syncArbitrateAddress(can, ARBITRATION_SIGNAL, 1);
-}
-
-static s32 rp_encode_acquire_send(s64 timeout) {
-	s32 pos = rp_encode_send_acq_pos;
-	s32 *can = &rp_encode_can_send[pos];
-	while (1) {
-		s32 val = *can;
-		if (val >= 0) {
-			rp_encode_send_acq_pos = (pos + 1) % RP_ENCODE_BUFFER_COUNT;
-			*can = -1;
-			return val;
-		} else {
-			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
-			if (R_DESCRIPTION(rc) == RD_TIMEOUT) {
-				return -1;
-			}
-		}
-	}
-}
-
-static void rp_encode_release_process(s32 val) {
-	s32 pos = rp_encode_process_rel_pos;
-	rp_encode_process_rel_pos = (pos + 1) % RP_ENCODE_BUFFER_COUNT;
-	s32 *can = &rp_encode_can_process[pos];
-	*can = val;
-	syncArbitrateAddress(can, ARBITRATION_SIGNAL, RP_ENCODE_THREAD_COUNT);
-}
+#undef RP_DEFINE_QUEUE_FUNCTION
 
 struct rp_send_header {
 	u32 size;
