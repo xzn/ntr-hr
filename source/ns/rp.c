@@ -33,6 +33,7 @@ static u8 rp_kcp_ready = 0;
 
 static u8 exit_rp_thread = 0;
 static u8 exit_rp_network_thread = 0;
+static u8 rp_reset_kcp = 0;
 static Handle rp_second_thread;
 static Handle rp_screen_thread;
 static Handle rp_network_thread;
@@ -42,14 +43,13 @@ static Handle rp_network_thread;
 #define NWM_PACKET_SIZE (KCP_PACKET_SIZE + NWM_HEADER_SIZE)
 
 #define KCP_MAGIC 0x12345fff
-#define KCP_SOCKET_TIMEOUT 10
 #define KCP_TIMEOUT_TICKS (250 * SYSTICK_PER_MS)
 #define RP_PACKET_SIZE (KCP_PACKET_SIZE - IKCP_OVERHEAD)
 #define KCP_SND_WND_SIZE 40
 
 #define RP_DEST_PORT RP_PORT
 #define RP_SCREEN_BUFFER_SIZE (400 * 240 * 4)
-#define RP_UMM_HEAP_SIZE (256 * 1024)
+#define RP_UMM_HEAP_SIZE (128 * 1024)
 #define RP_STACK_SIZE (0x8000)
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
@@ -59,6 +59,8 @@ static Handle rp_network_thread;
 #define ALIGN_4 __attribute__ ((aligned (4)))
 // assume aligned
 #define ASSUME_ALIGN_4(a) (a = __builtin_assume_aligned (a, 4))
+#define UNUSED __attribute__((unused))
+#define FALLTHRU __attribute__((fallthrough));
 
 #define RP_ENCODE_THREAD_COUNT (2)
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
@@ -158,7 +160,9 @@ static int rpInitUDPPacket(int dataLen) {
 	return dataLen;
 }
 
-static int rp_udp_output(const char *buf, int len, ikcpcb *kcp, void *user) {
+static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *user UNUSED) {
+
+
 	u8 *sendBuf = rp_storage_ctx->nwm_send_buffer;
 	u8 *dataBuf = sendBuf + NWM_HEADER_SIZE;
 
@@ -185,7 +189,7 @@ static IUINT32 iclock()
 	return (IUINT32)(iclock64() & 0xfffffffful);
 }
 
-static void rpControlRecvHandle(u8* buf, int buf_size) {
+static void rpControlRecvHandle(u8* buf UNUSED, int buf_size UNUSED) {
 }
 
 void rpControlRecv(void) {
@@ -201,7 +205,7 @@ void rpControlRecv(void) {
 	}
 
 	if (!__atomic_load_n(&rp_kcp_ready, __ATOMIC_ACQUIRE)) {
-		svc_sleepThread(100000000);
+		svc_sleepThread(10000000);
 		return;
 	}
 
@@ -385,12 +389,12 @@ static void rpNetworkTransfer(void) {
 	}
 	LightLock_Unlock(&rp_kcp_mutex);
 
-	while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST)) {
+	while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST) && !rp_reset_kcp) {
 		LightLock_Lock(&rp_kcp_mutex);
 		ikcp_update(rp_kcp, iclock());
 		LightLock_Unlock(&rp_kcp_mutex);
 
-		s32 pos = rp_encode_acquire_send(250000000);
+		s32 pos = rp_encode_acquire_send(10000000);
 		if (pos < 0) {
 			continue;
 		}
@@ -404,7 +408,13 @@ static void rpNetworkTransfer(void) {
 		u32 size_remain = header.size;
 		u8 *data = rp_storage_ctx->jls_encode_buffer[pos];
 
+		u64 last_tick = svc_getSystemTick();
+
 		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST)) {
+			if (svc_getSystemTick() - last_tick > KCP_TIMEOUT_TICKS) {
+				rp_reset_kcp = 1;
+				break;
+			}
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
 
 			// kcp send header data
@@ -434,7 +444,13 @@ static void rpNetworkTransfer(void) {
 			LightLock_Unlock(&rp_kcp_mutex);
 		}
 
-		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST) && size_remain) {
+		last_tick = svc_getSystemTick();
+
+		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST) &&
+			!rp_reset_kcp &&
+			size_remain &&
+			svc_getSystemTick() - last_tick <= KCP_TIMEOUT_TICKS
+		) {
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
 
 			// kcp send data
@@ -460,6 +476,8 @@ static void rpNetworkTransfer(void) {
 		rp_encode_release_process(pos);
 	}
 
+	rp_reset_kcp = 0;
+
 	// kcp deinit
 	LightLock_Lock(&rp_kcp_mutex);
 	ikcp_release(rp_kcp);
@@ -467,7 +485,7 @@ static void rpNetworkTransfer(void) {
 	LightLock_Unlock(&rp_kcp_mutex);
 }
 
-static void rpNetworkTransferThread(u32 arg) {
+static void rpNetworkTransferThread(u32 arg UNUSED) {
 	while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST)) {
 		rpNetworkTransfer();
 	}
@@ -616,6 +634,9 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 #define srshift_to_even(n, s) ((s16)(n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
 
 static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
+	ASSUME_ALIGN_4(ds_dst);
+	ASSUME_ALIGN_4(src);
+
 	const u8 *src_end = src + wOrig * hOrig;
 	const u8 *src_col0 = src;
 	const u8 *src_col1 = src + hOrig;
@@ -648,8 +669,12 @@ static int convert_yuv_image(
 	int format, int width, int height, int bytes_per_pixel, int bytes_to_next_column,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out
 ) {
+	ASSUME_ALIGN_4(sp);
+	ASSUME_ALIGN_4(dp_y_out);
+	ASSUME_ALIGN_4(dp_u_out);
+	ASSUME_ALIGN_4(dp_v_out);
+
 	int x, y;
-	u8 r, g, b, y_out, u_out, v_out;
 
 	switch (format) {
 		// untested
@@ -659,17 +684,11 @@ static int convert_yuv_image(
 			else
 				return -1;
 
-			// fallthru
+			FALLTHRU
 		case 1: {
 			for (x = 0; x < width; ++x) {
 				for (y = 0; y < height; ++y) {
-					convert_yuv(
-						sp[2],
-						sp[1],
-						sp[0],
-						dp_y_out++,
-						dp_u_out++,
-						dp_v_out++);
+					convert_yuv(sp[2], sp[1], sp[0], dp_y_out++, dp_u_out++, dp_v_out++);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
@@ -682,12 +701,9 @@ static int convert_yuv_image(
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
-						(pix >> 11) & 0x1f,
-						(pix >> 5) & 0x3f,
-						pix & 0x1f,
-						dp_y_out++,
-						dp_u_out++,
-						dp_v_out++);
+						(pix >> 11) & 0x1f, (pix >> 5) & 0x3f, pix & 0x1f,
+						dp_y_out++, dp_u_out++, dp_v_out++
+					);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
@@ -701,19 +717,16 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					r = (pix >> 11) & 0x1f;
-					g = (pix >> 6) & 0x1f;
-					b = (pix >> 1) & 0x1f;
-					convert_yuv(r, g, b, &y_out, &u_out, &v_out);
-					*dp_y_out++ = y_out;
-					*dp_u_out++ = u_out;
-					*dp_v_out++ = v_out;
+					convert_yuv(
+						(pix >> 11) & 0x1f, (pix >> 6) & 0x1f, (pix >> 1) & 0x1f,
+						dp_y_out++, dp_u_out++, dp_v_out++
+					);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 			}
 			break;
-		}
+		} FALLTHRU
 
 		// untested
 		case 4:
@@ -721,19 +734,16 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					r = (pix >> 12) & 0x0f;
-					g = (pix >> 8) & 0x0f;
-					b = (pix >> 4) & 0x0f;
-					convert_yuv(r, g, b, &y_out, &u_out, &v_out);
-					*dp_y_out++ = y_out;
-					*dp_u_out++ = u_out;
-					*dp_v_out++ = v_out;
+					convert_yuv(
+						(pix >> 12) & 0x0f, (pix >> 8) & 0x0f, (pix >> 4) & 0x0f,
+						dp_y_out++, dp_u_out++, dp_v_out++
+					);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 			}
 			break;
-		}
+		} FALLTHRU
 
 		default:
 			return -1;
@@ -877,13 +887,13 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	}
 }
 
-static void rpSecondThreadStart(u32 arg) {
+static void rpSecondThreadStart(u32 arg UNUSED) {
 	rpEncodeScreenAndSend(1);
 	svc_exitThread();
 }
 
 void rpKernelCallback(int top_bot);
-static void rpScreenTransferThread(u32 arg) {
+static void rpScreenTransferThread(u32 arg UNUSED) {
 	int top_bot = 0;
 	int ret;
 
@@ -955,7 +965,7 @@ static int rpSendFrames(void) {
 	return ret;
 }
 
-static void rpThreadStart(u32 arg) {
+static void rpThreadStart(u32 arg UNUSED) {
 	rpInitDmaHome();
 	// kRemotePlayCallback();
 
@@ -992,7 +1002,7 @@ final:
 	svc_exitThread();
 }
 
-static int nwmValParamCallback(u8* buf, int buflen) {
+static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
 	//rtDisableHook(&nwmValParamHook);
 
 	/*
