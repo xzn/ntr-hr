@@ -404,6 +404,7 @@ static void rpNetworkTransfer(void) {
 		while (1) {
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
 
+			// kcp send header data
 			svc_waitSynchronization1(rp_kcp_mutex, U64_MAX);
 			int waitsnd = ikcp_waitsnd(rp_kcp);
 			if (waitsnd < KCP_SND_WND_SIZE) {
