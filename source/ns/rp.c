@@ -6,6 +6,10 @@
 #include "ikcp.h"
 #include "libavcodec/jpegls.h"
 
+// #pragma GCC diagnostic warning "-Wall"
+// #pragma GCC diagnostic warning "-Wextra"
+// #pragma GCC diagnostic warning "-Wpedantic"
+
 extern IUINT32 IKCP_OVERHEAD;
 
 #define SYSTICK_PER_US (268)
@@ -874,7 +878,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			rp_atomic_incb(&rp_top_image_send_n) :
 			rp_atomic_incb(&rp_bot_image_send_n);
 
-#define RP_PROCESS_IMAGE_AND_SEND(n, w1, w2, h) do { \
+#define RP_PROCESS_IMAGE_AND_SEND(n, w1, w2, h) while (!exit_rp_thread) { \
 	pos = rp_encode_acquire_process(1000000000); \
 	if (pos < 0) { \
 		continue; \
@@ -895,28 +899,22 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	rp_storage_ctx->jls_encode_top_bot[pos] = top_bot; \
 	rp_storage_ctx->jls_encode_frame_n[pos] = frame_n; \
 	rp_storage_ctx->jls_encode_size[pos] = ret; \
-	rp_encode_release_send(pos); } while (0)
+	rp_encode_release_send(pos);
+
+#define RP_PROCESS_IMAGE_AND_SEND_END break; }
 
 		// y_image
-		while (!exit_rp_thread) {
 			RP_PROCESS_IMAGE_AND_SEND(y_image, 400, 320, 240);
-
 			// ds_u_image
-			while (!exit_rp_thread) {
 				RP_PROCESS_IMAGE_AND_SEND(ds_u_image, 200, 160, 120);
-
 				// ds_v_image
-				while (!exit_rp_thread) {
 					RP_PROCESS_IMAGE_AND_SEND(ds_v_image, 200, 160, 120);
 
-					break;
-				}
+					RP_PROCESS_IMAGE_AND_SEND_END
 
-				break;
-			}
+				RP_PROCESS_IMAGE_AND_SEND_END
 
-			break;
-		}
+			RP_PROCESS_IMAGE_AND_SEND_END
 #undef RP_PROCESS_IMAGE_AND_SEND
 	}
 }
@@ -998,7 +996,7 @@ static int rpSendFrames(void) {
 	return ret;
 }
 
-static void rpThreadStart(void) {
+static void rpThreadStart(u32 arg) {
 	rpInitDmaHome();
 	// kRemotePlayCallback();
 
@@ -1068,7 +1066,7 @@ static int nwmValParamCallback(u8* buf, int buflen) {
 			umm_init_heap(rp_storage_ctx->umm_heap, RP_UMM_HEAP_SIZE);
 			ikcp_allocator(umm_malloc, umm_free);
 
-			ret = svc_createThread(&hThread, (void*)rpThreadStart, 0, (u32 *)&rp_storage_ctx->thread_stack[RP_STACK_SIZE - 40], 0x10, 2);
+			ret = svc_createThread(&hThread, rpThreadStart, 0, (u32 *)&rp_storage_ctx->thread_stack[RP_STACK_SIZE - 40], 0x10, 2);
 			if (ret != 0) {
 				nsDbgPrint("Create RemotePlay thread failed: %08x\n", ret);
 			}
