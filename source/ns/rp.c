@@ -27,6 +27,11 @@ static sendPacketTypedef nwmSendPacket = 0;
 static RT_HOOK nwmValParamHook;
 
 static struct {
+	int rgb8_yuv_option;
+	int color_transform_method;
+	int encoder_which;
+	int downscale_uv;
+
 	int arg0;
 	int arg1;
 	int arg2;
@@ -618,7 +623,7 @@ static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 
 static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, int w, int h, int bpp) {
 	u8 *dst = rp_storage_ctx->jls_encode_buffer[encode_buffer_n];
-	if (rp_config.arg2 == 0) {
+	if (rp_config.encoder_which == 0) {
 		JLSState state = { 0 };
 		state.bpp = bpp;
 
@@ -654,6 +659,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 		if (ret > RP_JLS_ENCODE_BUFFER_SIZE)
 			return -1; // if we didn't crash, fail because buffer overflow
 	}
+	return 0;
 }
 
 #define rshift_to_even(n, s) ((n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
@@ -684,33 +690,33 @@ static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOr
 static __attribute__((always_inline)) inline
 void convert_yuv_r(int bpp, u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
 	u8 half_range = 1 << (bpp - 1);
-	switch (rp_config.arg1) {
+	switch (rp_config.color_transform_method) {
 		case 1:
-			*y_out = r - g + half_range;
-			*u_out = g;
+			*y_out = g;
+			*u_out = r - g + half_range;
 			*v_out = b - g + half_range;
 			break;
 
 		case 2:
-			*y_out = r - g + half_range;
-			*u_out = g;
-			*v_out = b - ((u16)r + g) >> 1 - half_range;
+			*y_out = g;
+			*u_out = r - g + half_range;
+			*v_out = b - (((u16)r + g) >> 1) - half_range;
 			break;
 
 		case 3: {
 			u8 quarter_range = 1 << (bpp - 2);
-			u8 x = r - g + half_range;
-			u8 y = b - g + half_range;
+			u8 u = r - g + half_range;
+			u8 v = b - g + half_range;
 
-			*y_out = x;
-			*u_out = g + (x + y) >> 2 - quarter_range;
-			*v_out = y;
+			*y_out = g + ((u + v) >> 2) - quarter_range;
+			*u_out = u;
+			*v_out = v;
 			break;
 		}
 
 		default:
-			*y_out = r;
-			*u_out = g;
+			*y_out = g;
+			*u_out = r;
 			*v_out = b;
 			break;
 	}
@@ -721,32 +727,32 @@ void convert_yuv_r_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u
 	int bpp = 5;
 	u8 half_range = 1 << (bpp - 1);
 	u8 half_g = g >> 1;
-	switch (rp_config.arg1) {
+	switch (rp_config.color_transform_method) {
 		case 1:
-			*y_out = r - half_g + half_range;
-			*u_out = g;
+			*y_out = g;
+			*u_out = r - half_g + half_range;
 			*v_out = b - half_g + half_range;
 			break;
 
 		case 2:
-			*y_out = r - half_g + half_range;
-			*u_out = g;
-			*v_out = b - ((u16)r + half_g) >> 1 - half_range;
+			*y_out = g;
+			*u_out = r - half_g + half_range;
+			*v_out = b - (((u16)r + half_g) >> 1) - half_range;
 			break;
 
 		case 3: {
-			u8 x = r - half_g + half_range;
-			u8 y = b - half_g + half_range;
+			u8 u = r - half_g + half_range;
+			u8 v = b - half_g + half_range;
 
-			*y_out = x;
-			*u_out = g + (x + y) >> 1 - half_range;
-			*v_out = y;
+			*y_out = g + ((u + v) >> 1) - half_range;
+			*u_out = u;
+			*v_out = v;
 			break;
 		}
 
 		default:
-			*y_out = r;
-			*u_out = g;
+			*y_out = g;
+			*u_out = r;
 			*v_out = b;
 			break;
 	}
@@ -754,16 +760,30 @@ void convert_yuv_r_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u
 
 static __attribute__((always_inline)) inline
 void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
-	if (rp_config.arg1) {
-		convert_yuv_r(8, r, g, b, y_out, u_out, v_out);
-		return;
-	}
-	u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
-	s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
-	s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
-	*y_out = rshift_to_even(y, 8);
-	*u_out = srshift_to_even(u, 8) + 128;
-	*v_out = srshift_to_even(v, 8) + 128;
+	switch (rp_config.rgb8_yuv_option) {
+		case 1: {
+			u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
+			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
+			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
+			*y_out = rshift_to_even(y, 8);
+			*u_out = srshift_to_even(u, 8) + 128;
+			*v_out = srshift_to_even(v, 8) + 128;
+			break;
+		}
+
+		case 2: {
+			u16 y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
+			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
+			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
+			*y_out = rshift_to_even(y, 8) + 16;
+			*u_out = srshift_to_even(u, 8) + 128;
+			*v_out = srshift_to_even(v, 8) + 128;
+			break;
+		}
+
+		default:
+			convert_yuv_r(8, r, g, b, y_out, u_out, v_out);
+	};
 }
 
 static int convert_yuv_image(
@@ -811,8 +831,8 @@ static int convert_yuv_image(
 				}
 				sp += bytes_to_next_column;
 			}
-			*y_bpp = 5;
-			*u_bpp = 6;
+			*y_bpp = 6;
+			*u_bpp = 5;
 			*v_bpp = 5;
 			break;
 		}
@@ -921,17 +941,19 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 	if (ret < 0)
 		return ret;
 
-	downscale_image(
-		ds_u_image,
-		u_image,
-		width, height
-	);
+	if (rp_config.downscale_uv) {
+		downscale_image(
+			ds_u_image,
+			u_image,
+			width, height
+		);
 
-	downscale_image(
-		ds_v_image,
-		v_image,
-		width, height
-	);
+		downscale_image(
+			ds_v_image,
+			v_image,
+			width, height
+		);
+	}
 
 	return 0;
 }
@@ -991,7 +1013,9 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 #define RP_PROCESS_IMAGE_AND_SEND_END break; }
 
-		// y_image
+		if (rp_config.downscale_uv)
+		{
+			// y_image
 			RP_PROCESS_IMAGE_AND_SEND(y_image, 400, 320, 240, y_bpp);
 			// ds_u_image
 				RP_PROCESS_IMAGE_AND_SEND(ds_u_image, 200, 160, 120, u_bpp);
@@ -1003,7 +1027,23 @@ static void rpEncodeScreenAndSend(int thread_n) {
 				RP_PROCESS_IMAGE_AND_SEND_END
 
 			RP_PROCESS_IMAGE_AND_SEND_END
+		} else {
+			// y_image
+			RP_PROCESS_IMAGE_AND_SEND(y_image, 400, 320, 240, y_bpp);
+			// u_image
+				RP_PROCESS_IMAGE_AND_SEND(u_image, 400, 320, 240, u_bpp);
+				// v_image
+					RP_PROCESS_IMAGE_AND_SEND(v_image, 400, 320, 240, v_bpp);
+
+					RP_PROCESS_IMAGE_AND_SEND_END
+
+				RP_PROCESS_IMAGE_AND_SEND_END
+
+			RP_PROCESS_IMAGE_AND_SEND_END
+		}
+
 #undef RP_PROCESS_IMAGE_AND_SEND
+#undef RP_PROCESS_IMAGE_AND_SEND_END
 	}
 }
 
@@ -1089,6 +1129,11 @@ static void rp_set_params() {
 	rp_config.arg0 = g_nsConfig->startupInfo[8];
 	rp_config.arg1 = g_nsConfig->startupInfo[9];
 	rp_config.arg2 = g_nsConfig->startupInfo[10];
+
+	rp_config.downscale_uv = rp_config.arg0 & 0x1;
+	rp_config.encoder_which = rp_config.arg0 & 0x2 >> 1;
+	rp_config.rgb8_yuv_option = rp_config.arg1 & 0x3;
+	rp_config.color_transform_method = rp_config.arg1 & 0xc >> 2;
 }
 
 static void rpThreadStart(u32 arg UNUSED) {
