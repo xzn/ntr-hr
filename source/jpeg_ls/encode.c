@@ -35,7 +35,7 @@ static void jpeg_ls_init(struct jls_enc_ctx *ctx, int bpp) {
     prepareLUTs(ctx);
 }
 
-static pixel psl0[240 + LEFTMARGIN + RIGHTMARGIN];
+const uint8_t psl0[240 + LEFTMARGIN + RIGHTMARGIN];
 int jpeg_ls_encode(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, int bpp) {
     jpeg_ls_init(ctx, bpp);
 

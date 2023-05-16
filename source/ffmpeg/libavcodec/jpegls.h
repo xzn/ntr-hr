@@ -33,13 +33,16 @@
 
 #include "put_golomb.h"
 
-#undef near /* This file uses struct member 'near' which in windows.h is defined as empty. */
+// #undef near /* This file uses struct member 'near' which in windows.h is defined as empty. */
+#undef NEAR
+
+#define NEAR 0
+#define TWO_NEAR 1
 
 typedef struct JLSState {
     int T1, T2, T3;
     int A[367], B[367], C[365], N[367];
     int limit, reset, bpp, qbpp, maxval, range;
-    int near, twonear;
     int run_index[4];
 } JLSState;
 
@@ -62,11 +65,11 @@ static inline int ff_jpegls_quantize(JLSState *s, int v)
             return -3;
         if (v <= -s->T1)
             return -2;
-        if (v < -s->near)
+        if (v < -NEAR)
             return -1;
         return 0;
     } else {
-        if (v <= s->near)
+        if (v <= NEAR)
             return 0;
         if (v < s->T1)
             return 1;
@@ -99,7 +102,7 @@ static inline int ff_jpegls_update_state_regular(JLSState *state,
     if(FFABS(err) > 0xFFFF || FFABS(err) > INT_MAX - state->A[Q])
         return -0x10000;
     state->A[Q] += FFABS(err);
-    err         *= state->twonear;
+    err         *= TWO_NEAR;
     state->B[Q] += err;
 
     ff_jpegls_downscale_state(state, Q);
@@ -117,11 +120,12 @@ static inline int ff_jpegls_update_state_regular(JLSState *state,
     return err;
 }
 
-#define R(a, i)    (bits == 8 ?  ((uint8_t *)(a))[i]      :  ((uint16_t *)(a))[i])
-#define W(a, i, v) (bits == 8 ? (((uint8_t *)(a))[i] = v) : (((uint16_t *)(a))[i] = v))
+// #define R(a, i)    (bits == 8 ?  ((uint8_t *)(a))[i]      :  ((uint16_t *)(a))[i])
+// #define W(a, i, v) (bits == 8 ? (((uint8_t *)(a))[i] = v) : (((uint16_t *)(a))[i] = v))
+#define R(a, i)    a[i]
+#define W(a, i, v)
 
 void ls_encode_line(JLSState *state, PutBitContext *pb,
-                    void *tmp, const void *in, int last2, int w,
-                    int stride, int comp, int bits);
+                    const uint8_t *last, const uint8_t *in, int last2, int w);
 
 #endif /* AVCODEC_JPEGLS_H */

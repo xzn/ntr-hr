@@ -154,6 +154,7 @@ int bpp,			/* bits per sample */
 #define DEF_NEAR	0
 
 /* loss tolerance */
+#undef NEAR
 #define NEAR DEF_NEAR
 
 

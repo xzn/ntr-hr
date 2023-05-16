@@ -91,7 +91,6 @@ static struct {
 
 	u8 screen_buffer[RP_SCREEN_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE] ALIGN_4;
 	u8 screen_top_bot[RP_SCREEN_BUFFER_COUNT] ALIGN_4;
-	u8 jls_last_col_buffer[RP_ENCODE_THREAD_COUNT][240] ALIGN_4;
 	struct jls_enc_ctx jls_enc_ctx[RP_ENCODE_THREAD_COUNT];
 	struct bito_ctx jls_bito_ctx[RP_ENCODE_THREAD_COUNT];
 	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
@@ -100,22 +99,22 @@ static struct {
 	u32 jls_encode_size[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
 
 	struct {
-		u8 y_image[400 * 240] ALIGN_4;
-		u8 u_image[400 * 240] ALIGN_4;
-		u8 v_image[400 * 240] ALIGN_4;
-		u8 ds_u_image[200 * 120] ALIGN_4;
-		u8 ds_v_image[200 * 120] ALIGN_4;
+		u8 y_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		u8 u_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		u8 v_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		u8 ds_u_image[200 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		u8 ds_v_image[200 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		u8 y_bpp;
 		u8 u_bpp;
 		u8 v_bpp;
 	} top_image[RP_IMAGE_BUFFER_COUNT] ALIGN_4;
 
 	struct {
-		u8 y_image[320 * 240] ALIGN_4;
-		u8 u_image[320 * 240] ALIGN_4;
-		u8 v_image[320 * 240] ALIGN_4;
-		u8 ds_u_image[160 * 120] ALIGN_4;
-		u8 ds_v_image[160 * 120] ALIGN_4;
+		u8 y_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		u8 u_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		u8 v_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		u8 ds_u_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		u8 ds_v_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		u8 y_bpp;
 		u8 u_bpp;
 		u8 v_bpp;
@@ -620,6 +619,7 @@ static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 	return 0;
 }
 
+extern const uint8_t psl0[];
 static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, int w, int h, int bpp) {
 	u8 *dst = rp_storage_ctx->jls_encode_buffer[encode_buffer_n];
 	if (rp_config.encoder_which == 0) {
@@ -632,15 +632,14 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 		PutBitContext s;
 		init_put_bits(&s, dst, RP_JLS_ENCODE_BUFFER_SIZE);
 
-		u8 *last = rp_storage_ctx->jls_last_col_buffer[thread_n];
-		memset(last, 0, h);
-
+		const u8 *last = psl0;
 		const u8 *in = src + LEFTMARGIN;
 		int t = 0;
 
 		for (int i = 0; i < w; ++i) {
 			int last0 = last[0];
-			ls_encode_line(&state, &s, last, in, t, h, 1, 0, 8);
+			ls_encode_line(&state, &s, last, in, t, h);
+			last = in;
 			t = last0;
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
@@ -788,8 +787,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
 			*y_out = rshift_to_even(y, 8 + spp_2);
-			*u_out = srshift_to_even(u, 8 + spp) + 128 >> spp;
-			*v_out = srshift_to_even(v, 8 + spp) + 128 >> spp;
+			*u_out = srshift_to_even(u, 8 + spp) + (128 >> spp);
+			*v_out = srshift_to_even(v, 8 + spp) + (128 >> spp);
 			break;
 		}
 
@@ -798,9 +797,9 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			u16 y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
 			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
 			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
-			*y_out = rshift_to_even(y, 8 + spp_2) + 16 >> spp_2;
-			*u_out = srshift_to_even(u, 8) + 128 >> spp;
-			*v_out = srshift_to_even(v, 8) + 128 >> spp;
+			*y_out = rshift_to_even(y, 8 + spp_2) + (16 >> spp_2);
+			*u_out = srshift_to_even(u, 8) + (128 >> spp);
+			*v_out = srshift_to_even(v, 8) + (128 >> spp);
 			break;
 		}
 
@@ -814,6 +813,40 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 	};
 }
 
+static __attribute__((always_inline)) inline
+void convert_yuv_set_3_zero(
+	u8 *restrict *restrict dp_y_out,
+	u8 *restrict *restrict dp_u_out,
+	u8 *restrict *restrict dp_v_out,
+	int count
+) {
+	for (int i = 0; i < count; ++i) {
+		*(*dp_y_out)++ = 0;
+		*(*dp_u_out)++ = 0;
+		*(*dp_v_out)++ = 0;
+	}
+}
+
+static __attribute__((always_inline)) inline
+void convert_yuv_set_last(u8 *restrict *restrict dp_y_out, int count) {
+	for (int i = 0; i < count; ++i) {
+		**dp_y_out = *(*dp_y_out - 1);
+		++*dp_y_out;
+	}
+}
+
+static __attribute__((always_inline)) inline
+void convert_yuv_set_3_last(
+	u8 *restrict *restrict dp_y_out,
+	u8 *restrict *restrict dp_u_out,
+	u8 *restrict *restrict dp_v_out,
+	int count
+) {
+	convert_yuv_set_last(dp_y_out, count);
+	convert_yuv_set_last(dp_u_out, count);
+	convert_yuv_set_last(dp_v_out, count);
+}
+
 static int convert_yuv_image(
 	int format, int width, int height, int bytes_per_pixel, int bytes_to_next_column,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
@@ -825,6 +858,8 @@ static int convert_yuv_image(
 	ASSUME_ALIGN_4(dp_v_out);
 
 	int x, y;
+
+	convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 
 	switch (format) {
 		// untested
@@ -844,6 +879,8 @@ static int convert_yuv_image(
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
+				convert_yuv_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
+				convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 			}
 			*y_bpp = *u_bpp = *v_bpp = 8;
 			break;
@@ -861,6 +898,8 @@ static int convert_yuv_image(
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
+				convert_yuv_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
+				convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 			}
 			*y_bpp = 6;
 			*u_bpp = 5;
@@ -882,6 +921,8 @@ static int convert_yuv_image(
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
+				convert_yuv_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
+				convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 			}
 			*y_bpp = *u_bpp = *v_bpp = 5;
 			break;
@@ -901,6 +942,8 @@ static int convert_yuv_image(
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
+				convert_yuv_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
+				convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 			}
 			*y_bpp = *u_bpp = *v_bpp = 4;
 			break;

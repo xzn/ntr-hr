@@ -42,7 +42,7 @@ static inline void ls_encode_regular(JLSState *state, PutBitContext *pb, int Q,
     for (k = 0; (state->N[Q] << k) < state->A[Q]; k++)
         ;
 
-    map = !state->near && !k && (2 * state->B[Q] <= -state->N[Q]);
+    map = !NEAR && !k && (2 * state->B[Q] <= -state->N[Q]);
 
     if (err < 0)
         err += state->range;
@@ -116,60 +116,60 @@ static inline void ls_encode_run(JLSState *state, PutBitContext *pb, int run,
  * Encode one line of image
  */
 void ls_encode_line(JLSState *state, PutBitContext *pb,
-                    void *tmp, const void *in, int last2, int w,
-                    int stride, int comp, int bits)
+                    const uint8_t *last, const uint8_t *in, int last2, int w)
 {
+    const int stride = 1, comp = 0, bits = 8;
     int x = 0;
-    int Ra = R(tmp, 0), Rb, Rc = last2, Rd;
+    int Ra = R(last, 0), Rb, Rc = last2, Rd;
     int D0, D1, D2;
 
     while (x < w) {
         int err, pred, sign;
 
         /* compute gradients */
-        Rb = R(tmp, x);
-        Rd = (x >= w - stride) ? R(tmp, x) : R(tmp, x + stride);
+        Rb = R(last, x);
+        Rd = (x >= w - stride) ? R(last, x) : R(last, x + stride);
         D0 = Rd - Rb;
         D1 = Rb - Rc;
         D2 = Rc - Ra;
 
         /* run mode */
-        if ((FFABS(D0) <= state->near) &&
-            (FFABS(D1) <= state->near) &&
-            (FFABS(D2) <= state->near)) {
+        if ((FFABS(D0) <= NEAR) &&
+            (FFABS(D1) <= NEAR) &&
+            (FFABS(D2) <= NEAR)) {
             int RUNval, RItype, run;
 
             run    = 0;
             RUNval = Ra;
-            while (x < w && (FFABS(R(in, x) - RUNval) <= state->near)) {
+            while (x < w && (FFABS(R(in, x) - RUNval) <= NEAR)) {
                 run++;
-                W(tmp, x, Ra);
+                W(last, x, Ra);
                 x += stride;
             }
             ls_encode_run(state, pb, run, comp, x < w);
             if (x >= w)
                 return;
-            Rb     = R(tmp, x);
-            RItype = FFABS(Ra - Rb) <= state->near;
+            Rb     = R(last, x);
+            RItype = FFABS(Ra - Rb) <= NEAR;
             pred   = RItype ? Ra : Rb;
             err    = R(in, x) - pred;
 
             if (!RItype && Ra > Rb)
                 err = -err;
 
-            if (state->near) {
+            if (NEAR) {
                 if (err > 0)
-                    err =  (state->near + err) / state->twonear;
+                    err =  (NEAR + err) / TWO_NEAR;
                 else
-                    err = -(state->near - err) / state->twonear;
+                    err = -(NEAR - err) / TWO_NEAR;
 
                 if (RItype || (Rb >= Ra))
-                    Ra = av_clip(pred + err * state->twonear, 0, state->maxval);
+                    Ra = av_clip(pred + err * TWO_NEAR, 0, state->maxval);
                 else
-                    Ra = av_clip(pred - err * state->twonear, 0, state->maxval);
+                    Ra = av_clip(pred - err * TWO_NEAR, 0, state->maxval);
             } else
                 Ra = R(in, x);
-            W(tmp, x, Ra);
+            W(last, x, Ra);
 
             if (err < 0)
                 err += state->range;
@@ -200,18 +200,18 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
                 err  = R(in, x) - pred;
             }
 
-            if (state->near) {
+            if (NEAR) {
                 if (err > 0)
-                    err =  (state->near + err) / state->twonear;
+                    err =  (NEAR + err) / TWO_NEAR;
                 else
-                    err = -(state->near - err) / state->twonear;
+                    err = -(NEAR - err) / TWO_NEAR;
                 if (!sign)
-                    Ra = av_clip(pred + err * state->twonear, 0, state->maxval);
+                    Ra = av_clip(pred + err * TWO_NEAR, 0, state->maxval);
                 else
-                    Ra = av_clip(pred - err * state->twonear, 0, state->maxval);
+                    Ra = av_clip(pred - err * TWO_NEAR, 0, state->maxval);
             } else
                 Ra = R(in, x);
-            W(tmp, x, Ra);
+            W(last, x, Ra);
 
             ls_encode_regular(state, pb, context, err);
         }
