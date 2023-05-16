@@ -54,6 +54,7 @@
 #define GLOBAL_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifndef CLOCKS_PER_SEC
 #define CLOCKS_PER_SEC 10e6
@@ -271,11 +272,11 @@ int	N[TOT_CONTEXTS],
 /****** Type prototypes */
 
 /* Portability types */
-typedef unsigned char byte;
-typedef unsigned short word;
-typedef unsigned long dword;
+typedef uint8_t byte;
+typedef uint16_t word;
+typedef uint32_t dword;
 
-typedef unsigned char pixel;
+typedef byte pixel;
 
 
 /****** Function prototypes */

@@ -54,7 +54,7 @@
 #ifndef BITIO_H
 #define BITIO_H
 
-#include "global.h"
+#include <stdint.h>
 
 
 #define ESCAPE 0
@@ -64,12 +64,12 @@ struct bito_ctx {
 /* BYTE I/O variables */
 #define BUFSIZE ((16*1024)-4) /* Size of input BYTE buffer */
 int fp;                /* index into byte  buffer */
-byte negbuff[BUFSIZE+4];        /* the buffer */
+uint8_t negbuff[BUFSIZE+4];        /* the buffer */
 #define buff(bctx) (bctx->negbuff+4)
 
 
 /* BIT I/O variables */
-dword reg;         /* BIT buffer for input/output */
+uint32_t reg;         /* BIT buffer for input/output */
 int bits;          /* number of bits free in bit buffer (on output) */
                           /* (number of bits free)-8 in bit buffer (on input)*/
 #define BITBUFSIZE (8*sizeof(reg))
@@ -83,10 +83,6 @@ int bits;          /* number of bits free in bit buffer (on output) */
 extern void mywrite(const void *buffer, size_t size, size_t count, char *out);
 
 #define assert(...)
-
-
-/* Flushes the bit output buffers and closes the output file */
-extern void bitoflush();
 
 
 #define put_zeros(ctx,bctx,n)                                          \

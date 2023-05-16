@@ -5,7 +5,6 @@
 #include "umm_malloc.h"
 #include "ikcp.h"
 #include "libavcodec/jpegls.h"
-
 #include "../jpeg_ls/global.h"
 #include "../jpeg_ls/bitio.h"
 
