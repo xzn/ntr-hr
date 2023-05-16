@@ -27,8 +27,8 @@ static sendPacketTypedef nwmSendPacket = 0;
 static RT_HOOK nwmValParamHook;
 
 static struct {
-	int rgb8_yuv_option;
-	int color_transform_method;
+	int yuv_option;
+	int color_transform_hp;
 	int encoder_which;
 	int downscale_uv;
 
@@ -662,8 +662,8 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 	return 0;
 }
 
-#define rshift_to_even(n, s) ((n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
-#define srshift_to_even(n, s) ((s16)(n + (s > 1 ? (1 << (s - 1)) : 0)) >> s)
+#define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
+#define srshift_to_even(n, s) ((s16)((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
 
 static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
 	ASSUME_ALIGN_4(ds_dst);
@@ -688,9 +688,11 @@ static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOr
 }
 
 static __attribute__((always_inline)) inline
-void convert_yuv_r(int bpp, u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
+void convert_yuv_hp(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
+	int bpp
+) {
 	u8 half_range = 1 << (bpp - 1);
-	switch (rp_config.color_transform_method) {
+	switch (rp_config.color_transform_hp) {
 		case 1:
 			*y_out = g;
 			*u_out = r - g + half_range;
@@ -723,11 +725,12 @@ void convert_yuv_r(int bpp, u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u
 }
 
 static __attribute__((always_inline)) inline
-void convert_yuv_r_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
-	int bpp = 5;
+void convert_yuv_hp_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
+	int bpp
+) {
 	u8 half_range = 1 << (bpp - 1);
 	u8 half_g = g >> 1;
-	switch (rp_config.color_transform_method) {
+	switch (rp_config.color_transform_hp) {
 		case 1:
 			*y_out = g;
 			*u_out = r - half_g + half_range;
@@ -759,30 +762,56 @@ void convert_yuv_r_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u
 }
 
 static __attribute__((always_inline)) inline
-void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out) {
-	switch (rp_config.rgb8_yuv_option) {
-		case 1: {
+void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
+	u8 bpp, u8 bpp_2
+) {
+	switch (rp_config.yuv_option) {
+		case 1:
+			if (bpp_2) {
+				convert_yuv_hp_2(r, g, b, y_out, u_out, v_out, bpp);
+			} else {
+				convert_yuv_hp(r, g, b, y_out, u_out, v_out, bpp);
+			}
+			break;
+
+#define RP_RGB_SHIFT \
+	u8 spp = 8 - bpp; \
+	u8 spp_2 = 8 - bpp - (bpp_2 ? 1 : 0); \
+	if (spp) { \
+		r <<= spp; \
+		g <<= spp_2; \
+		b <<= spp; \
+	}
+
+		case 2: {
+			RP_RGB_SHIFT
 			u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
 			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
-			*y_out = rshift_to_even(y, 8);
-			*u_out = srshift_to_even(u, 8) + 128;
-			*v_out = srshift_to_even(v, 8) + 128;
+			*y_out = rshift_to_even(y, 8 + spp_2);
+			*u_out = srshift_to_even(u, 8 + spp) + 128 >> spp;
+			*v_out = srshift_to_even(v, 8 + spp) + 128 >> spp;
 			break;
 		}
 
-		case 2: {
+		case 3: {
+			RP_RGB_SHIFT
 			u16 y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
 			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
 			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
-			*y_out = rshift_to_even(y, 8) + 16;
-			*u_out = srshift_to_even(u, 8) + 128;
-			*v_out = srshift_to_even(v, 8) + 128;
+			*y_out = rshift_to_even(y, 8 + spp_2) + 16 >> spp_2;
+			*u_out = srshift_to_even(u, 8) + 128 >> spp;
+			*v_out = srshift_to_even(v, 8) + 128 >> spp;
 			break;
 		}
 
+#undef RP_RGB_SHIFT
+
 		default:
-			convert_yuv_r(8, r, g, b, y_out, u_out, v_out);
+			*y_out = g;
+			*u_out = r;
+			*v_out = b;
+			break;
 	};
 }
 
@@ -810,7 +839,9 @@ static int convert_yuv_image(
 		case 1: {
 			for (x = 0; x < width; ++x) {
 				for (y = 0; y < height; ++y) {
-					convert_yuv(sp[2], sp[1], sp[0], dp_y_out++, dp_u_out++, dp_v_out++);
+					convert_yuv(sp[2], sp[1], sp[0], dp_y_out++, dp_u_out++, dp_v_out++,
+						8, 0
+					);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
@@ -823,9 +854,10 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					convert_yuv_r_2(
+					convert_yuv(
 						(pix >> 11) & 0x1f, (pix >> 5) & 0x3f, pix & 0x1f,
-						dp_y_out++, dp_u_out++, dp_v_out++
+						dp_y_out++, dp_u_out++, dp_v_out++,
+						5, 1
 					);
 					sp += bytes_per_pixel;
 				}
@@ -843,10 +875,10 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					convert_yuv_r(
-						5,
+					convert_yuv(
 						(pix >> 11) & 0x1f, (pix >> 6) & 0x1f, (pix >> 1) & 0x1f,
-						dp_y_out++, dp_u_out++, dp_v_out++
+						dp_y_out++, dp_u_out++, dp_v_out++,
+						5, 0
 					);
 					sp += bytes_per_pixel;
 				}
@@ -862,10 +894,10 @@ static int convert_yuv_image(
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					convert_yuv_r(
-						4,
+					convert_yuv(
 						(pix >> 12) & 0x0f, (pix >> 8) & 0x0f, (pix >> 4) & 0x0f,
-						dp_y_out++, dp_u_out++, dp_v_out++
+						dp_y_out++, dp_u_out++, dp_v_out++,
+						4, 0
 					);
 					sp += bytes_per_pixel;
 				}
@@ -1132,8 +1164,8 @@ static void rp_set_params() {
 
 	rp_config.downscale_uv = rp_config.arg0 & 0x1;
 	rp_config.encoder_which = rp_config.arg0 & 0x2 >> 1;
-	rp_config.rgb8_yuv_option = rp_config.arg1 & 0x3;
-	rp_config.color_transform_method = rp_config.arg1 & 0xc >> 2;
+	rp_config.yuv_option = rp_config.arg1 & 0x3;
+	rp_config.color_transform_hp = rp_config.arg1 & 0xc >> 2;
 }
 
 static void rpThreadStart(u32 arg UNUSED) {
