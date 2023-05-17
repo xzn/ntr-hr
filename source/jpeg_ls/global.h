@@ -161,7 +161,7 @@ int bpp,			/* bits per sample */
 
 int  	T1, T2, T3, Ta;
 
-word (*vLUT)[3];
+const word (*vLUT)[3];
 
 };
 
@@ -320,7 +320,7 @@ void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3);
 void init_stats(struct jls_enc_ctx *, int alpha);
 void prepare_classmap(void);
 
-void jpeg_ls_init(struct jls_enc_params *params, int bpp);
+void jpeg_ls_init(struct jls_enc_params *params, int bpp, const word (*vLUT)[3]);
 int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, int bpp);
 
 #ifdef BIG_ENDIAN

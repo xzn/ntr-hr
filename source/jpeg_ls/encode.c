@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 
-void jpeg_ls_init(struct jls_enc_params *ctx, int bpp) {
+void jpeg_ls_init(struct jls_enc_params *ctx, int bpp, const word (*vLUT)[3]) {
     ctx->T1 = 0;
     ctx->T2 = 0;
     ctx->T3 = 0;
@@ -32,12 +32,7 @@ void jpeg_ls_init(struct jls_enc_params *ctx, int bpp) {
 
     set_thresholds(ALPHA(ctx), &ctx->T1, &ctx->T2, &ctx->T3);
 
-    switch (bpp) {
-        case 8: ctx->vLUT = jls_encoder_vLUT_bpp8; break;
-        case 5: ctx->vLUT = jls_encoder_vLUT_bpp5; break;
-        case 6: ctx->vLUT = jls_encoder_vLUT_bpp6; break;
-    }
-    prepare_vLUT(ctx->vLUT, ctx->alpha, ctx->T1, ctx->T2, ctx->T3);
+    ctx->vLUT = vLUT;
 }
 
 const uint8_t psl0[240 + LEFTMARGIN + RIGHTMARGIN];

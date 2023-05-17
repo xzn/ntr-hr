@@ -628,9 +628,19 @@ static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 
 static void jls_encoder_prepare_LUTs(void) {
 	prepare_classmap();
-	jpeg_ls_init(&rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP8], 8);
-	jpeg_ls_init(&rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP5], 5);
-	jpeg_ls_init(&rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP6], 6);
+	struct jls_enc_params *p;
+
+	p = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP8];
+	jpeg_ls_init(p, 8, (const word (*)[3])jls_encoder_vLUT_bpp8);
+	prepare_vLUT(jls_encoder_vLUT_bpp8, p->alpha, p->T1, p->T2, p->T3);
+
+	p = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP5];
+	jpeg_ls_init(p, 5, (const word (*)[3])jls_encoder_vLUT_bpp5);
+	prepare_vLUT(jls_encoder_vLUT_bpp5, p->alpha, p->T1, p->T2, p->T3);
+
+	p = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP6];
+	jpeg_ls_init(p, 6, (const word (*)[3])jls_encoder_vLUT_bpp6);
+	prepare_vLUT(jls_encoder_vLUT_bpp6, p->alpha, p->T1, p->T2, p->T3);
 }
 
 extern const uint8_t psl0[];
