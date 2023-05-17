@@ -709,28 +709,6 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 #define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
 #define srshift_to_even(n, s) ((s16)((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
 
-static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
-	ASSUME_ALIGN_4(ds_dst);
-	ASSUME_ALIGN_4(src);
-
-	const u8 *src_end = src + wOrig * hOrig;
-	const u8 *src_col0 = src;
-	const u8 *src_col1 = src + hOrig;
-	while (src_col0 < src_end) {
-		const u8 *src_col_end = src_col1;
-		while (src_col0 < src_col_end) {
-			u16 p = *src_col0++;
-			p += *src_col0++;
-			p += *src_col1++;
-			p += *src_col1++;
-
-			*ds_dst++ = rshift_to_even(p, 2);
-		}
-		src_col0 += hOrig;
-		src_col1 += hOrig;
-	}
-}
-
 static __attribute__((always_inline)) inline
 void convert_yuv_hp(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
 	int bpp
@@ -860,21 +838,27 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 }
 
 static __attribute__((always_inline)) inline
-void convert_yuv_set_3_zero(
+void convert_set_zero(u8 *restrict *restrict dp_y_out, int count) {
+	for (int i = 0; i < count; ++i) {
+		*(*dp_y_out)++ = 0;
+		++*dp_y_out;
+	}
+}
+
+static __attribute__((always_inline)) inline
+void convert_set_3_zero(
 	u8 *restrict *restrict dp_y_out,
 	u8 *restrict *restrict dp_u_out,
 	u8 *restrict *restrict dp_v_out,
 	int count
 ) {
-	for (int i = 0; i < count; ++i) {
-		*(*dp_y_out)++ = 0;
-		*(*dp_u_out)++ = 0;
-		*(*dp_v_out)++ = 0;
-	}
+	convert_set_zero(dp_y_out, count);
+	convert_set_zero(dp_u_out, count);
+	convert_set_zero(dp_v_out, count);
 }
 
 static __attribute__((always_inline)) inline
-void convert_yuv_set_last(u8 *restrict *restrict dp_y_out, int count) {
+void convert_set_last(u8 *restrict *restrict dp_y_out, int count) {
 	for (int i = 0; i < count; ++i) {
 		**dp_y_out = *(*dp_y_out - 1);
 		++*dp_y_out;
@@ -882,15 +866,15 @@ void convert_yuv_set_last(u8 *restrict *restrict dp_y_out, int count) {
 }
 
 static __attribute__((always_inline)) inline
-void convert_yuv_set_3_last(
+void convert_set_3_last(
 	u8 *restrict *restrict dp_y_out,
 	u8 *restrict *restrict dp_u_out,
 	u8 *restrict *restrict dp_v_out,
 	int count
 ) {
-	convert_yuv_set_last(dp_y_out, count);
-	convert_yuv_set_last(dp_u_out, count);
-	convert_yuv_set_last(dp_v_out, count);
+	convert_set_last(dp_y_out, count);
+	convert_set_last(dp_u_out, count);
+	convert_set_last(dp_v_out, count);
 }
 
 static int convert_yuv_image(
@@ -905,8 +889,6 @@ static int convert_yuv_image(
 
 	int x, y;
 
-	convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
-
 	switch (format) {
 		// untested
 		case 0:
@@ -918,6 +900,7 @@ static int convert_yuv_image(
 			FALLTHRU
 		case 1: {
 			for (x = 0; x < width; ++x) {
+				convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 				for (y = 0; y < height; ++y) {
 					convert_yuv(sp[2], sp[1], sp[0], dp_y_out++, dp_u_out++, dp_v_out++,
 						8, 0
@@ -925,8 +908,7 @@ static int convert_yuv_image(
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
-				convert_yuv_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
-				convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
 			}
 			*y_bpp = *u_bpp = *v_bpp = 8;
 			break;
@@ -934,6 +916,7 @@ static int convert_yuv_image(
 
 		case 2: {
 			for (x = 0; x < width; x++) {
+				convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
@@ -944,8 +927,7 @@ static int convert_yuv_image(
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
-				convert_yuv_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
-				convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
 			}
 			*y_bpp = 6;
 			*u_bpp = 5;
@@ -957,6 +939,7 @@ static int convert_yuv_image(
 		case 3:
 		if (0) {
 			for (x = 0; x < width; x++) {
+				convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
@@ -967,8 +950,7 @@ static int convert_yuv_image(
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
-				convert_yuv_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
-				convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
 			}
 			*y_bpp = *u_bpp = *v_bpp = 5;
 			break;
@@ -978,6 +960,7 @@ static int convert_yuv_image(
 		case 4:
 		if (0) {
 			for (x = 0; x < width; x++) {
+				convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
@@ -988,8 +971,7 @@ static int convert_yuv_image(
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
-				convert_yuv_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
-				convert_yuv_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out, RIGHTMARGIN);
 			}
 			*y_bpp = *u_bpp = *v_bpp = 4;
 			break;
@@ -999,6 +981,32 @@ static int convert_yuv_image(
 			return -1;
 	}
 	return 0;
+}
+
+static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
+	ASSUME_ALIGN_4(ds_dst);
+	ASSUME_ALIGN_4(src);
+
+	src += LEFTMARGIN;
+	int pitch = hOrig + LEFTMARGIN + RIGHTMARGIN;
+	const u8 *src_end = src + wOrig * pitch;
+	const u8 *src_col0 = src;
+	const u8 *src_col1 = src + pitch;
+	while (src_col0 < src_end) {
+		convert_set_zero(&ds_dst, LEFTMARGIN);
+		const u8 *src_col0_end = src_col0 + hOrig;
+		while (src_col0 < src_col0_end) {
+			u16 p = *src_col0++;
+			p += *src_col0++;
+			p += *src_col1++;
+			p += *src_col1++;
+
+			*ds_dst++ = rshift_to_even(p, 2);
+		}
+		src_col0 += LEFTMARGIN + RIGHTMARGIN + pitch;
+		src_col1 += LEFTMARGIN + RIGHTMARGIN + pitch;
+		convert_set_last(&ds_dst, RIGHTMARGIN);
+	}
 }
 
 static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
