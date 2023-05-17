@@ -288,14 +288,6 @@ unsigned long melcorder[MAX_COMPONENTS];  /* 2^ melclen */
 
 /* for look-up-tables */
 #define lutmax LUTMAX8
-struct jls_enc_luts {
-
-word vLUT_bpp8[2 * (1 << 8)][3];
-word vLUT_bpp5[2 * (1 << 5)][3];
-word vLUT_bpp6[2 * (1 << 6)][3];
-word classmap[CONTEXTS1];
-
-};
 
 /*extern byte getk[65][3000];*/
 /*extern int clipPx[510];*/

@@ -100,7 +100,12 @@ static struct {
 	struct jls_enc_params jls_enc_params[RP_ENCODE_PARAMS_COUNT];
 	struct jls_enc_ctx jls_enc_ctx[RP_ENCODE_THREAD_COUNT];
 	struct bito_ctx jls_bito_ctx[RP_ENCODE_THREAD_COUNT];
-	struct jls_enc_luts jls_enc_luts;
+	struct {
+		word vLUT_bpp8[2 * (1 << 8)][3];
+		word vLUT_bpp5[2 * (1 << 5)][3];
+		word vLUT_bpp6[2 * (1 << 6)][3];
+		word classmap[9 * 9 * 9];
+	} jls_enc_luts;
 	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
 	u8 jls_encode_top_bot[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
 	u8 jls_encode_frame_n[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
