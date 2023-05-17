@@ -116,6 +116,6 @@ static inline int ff_jpegls_update_state_regular(JLSState *state,
 }
 
 void ls_encode_line(JLSState *state, PutBitContext *pb,
-                    const uint8_t *last, const uint8_t *in, int w);
+                    const uint8_t *last, const uint8_t *in, int w, const uint16_t (*vLUT)[3]);
 
 #endif /* AVCODEC_JPEGLS_H */

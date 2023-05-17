@@ -40,7 +40,7 @@
 */
 
 /* initialize.c --- functions to initialize look up tables
- *                  and statistics tables            
+ *                  and statistics tables
  *
  * Initial code by Alex Jakulin,  Aug. 1995
  *
@@ -60,38 +60,27 @@
 /*byte getk[65][3000];*/
 /*int clipPx[510];*/
 
-#define ABSIZE_MAX 256
-static int
-	qdiv0[2*ABSIZE_MAX-1], *qdiv,        /* quantization table (division via look-up) */
-	qmul0[2*ABSIZE_MAX-1], *qmul;        /* dequantization table */
-
-
-
+word jls_encoder_vLUT_bpp8[2 * (1 << 8)][3];
+word jls_encoder_vLUT_bpp5[2 * (1 << 5)][3];
+word jls_encoder_vLUT_bpp6[2 * (1 << 6)][3];
+word jls_encoder_classmap[CONTEXTS1];
 
 
 /* Setup Look Up Tables for quantized gradient merging */
-int prepareLUTs(struct jls_enc_ctx *ctx)
+void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3)
 {
-	int i, j, idx, lmax;
+	int i, j, idx;
 	byte k;
-
-	lmax = min(ALPHA(ctx),lutmax);
-	
-	/* implementation limitation: */
-	if ( ctx->T3 > lmax-1 ) {
-		return -1;
-	}
-
 
 	/* Build classification tables (lossless or lossy) */
 
-	for (i = -lmax + 1; i < lmax; i++) {
+	for (i = -alpha + 1; i < alpha; i++) {
 
-		if  ( i <= -ctx->T3 )        /* ...... -T3  */
+		if  ( i <= -T3 )        /* ...... -T3  */
 			idx = 7;
-		else if ( i <= -ctx->T2 )    /* -(T3-1) ... -T2 */
+		else if ( i <= -T2 )    /* -(T3-1) ... -T2 */
 			idx = 5;
-		else if ( i <= -ctx->T1 )    /* -(T2-1) ... -T1 */
+		else if ( i <= -T1 )    /* -(T2-1) ... -T1 */
 			idx = 3;
 
 		else if ( i <= -1 )     /* -(T1-1) ...  -1 */
@@ -99,27 +88,48 @@ int prepareLUTs(struct jls_enc_ctx *ctx)
 		else if ( i == 0 )      /*  just 0 */
 			idx = 0;
 
-		else if ( i < ctx->T1 )      /* 1 ... T1-1 */
+		else if ( i < T1 )      /* 1 ... T1-1 */
 			idx = 2;
-		else if ( i < ctx->T2 )      /* T1 ... T2-1 */
+		else if ( i < T2 )      /* T1 ... T2-1 */
 			idx = 4;
-		else if ( i < ctx->T3 )      /* T2 ... T3-1 */
+		else if ( i < T3 )      /* T2 ... T3-1 */
 			idx = 6;
 		else                    /* T3 ... */
 			idx = 8;
 
-		ctx->vLUT[0][i + lutmax] = CREGIONS * CREGIONS * idx;
-		ctx->vLUT[1][i + lutmax] = CREGIONS * idx;
-		ctx->vLUT[2][i + lutmax] = idx;
+		vLUT[i + lutmax][0] = CREGIONS * CREGIONS * idx;
+		vLUT[i + lutmax][1] = CREGIONS * idx;
+		vLUT[i + lutmax][2] = idx;
 	}
 
+	/* prepare table to find k */
 
+
+/*	for (i=1; i< 65; i++)	/* value of N[] */
+/*		for (j=1; j<2500; j++)	/* value of A[] */
+/*		{
+			register nst = i;
+			for(k=0; nst < j; nst<<=1, k++);
+			getk[i][j]=k;
+		}*/
+
+	/* prepare table to find clip of Px with 8-bit */
+/*	for (i=0; i<127; i++)
+		clipPx[i] = 0;
+	for (i=127; i<382; i++)
+		clipPx[i] = i - 127;
+	for (i=382; i<510; i++)
+		clipPx[i] = 255;*/
+}
+
+void prepare_classmap(void) {
+	int i, j;
 	/*  prepare context mapping table (symmetric context merging) */
-	ctx->classmap[0] = 0;
+	jls_encoder_classmap[0] = 0;
 	for ( i=1, j=0; i<CONTEXTS1; i++) {
 	    int q1, q2, q3, n1=0, n2=0, n3=0, ineg, sgn;
 
-	    if(ctx->classmap[i])
+	    if(jls_encoder_classmap[i])
 			continue;
 
 	    q1 = i/(CREGIONS*CREGIONS);		/* first digit */
@@ -138,33 +148,11 @@ int prepareLUTs(struct jls_enc_ctx *ctx)
 
 	    ineg = (n1*CREGIONS+n2)*CREGIONS+n3;
 	    j++ ;    /* next class number */
-	    ctx->classmap[i] = sgn*j;
-	    ctx->classmap[ineg] = -sgn*j;
+	    jls_encoder_classmap[i] = sgn*j;
+	    jls_encoder_classmap[ineg] = -sgn*j;
 
 	}
-
-	/* prepare table to find k */
-
-	
-/*	for (i=1; i< 65; i++)	/* value of N[] */
-/*		for (j=1; j<2500; j++)	/* value of A[] */
-/*		{
-			register nst = i;
-			for(k=0; nst < j; nst<<=1, k++);
-			getk[i][j]=k;
-		}*/
-
-	/* prepare table to find clip of Px with 8-bit */
-/*	for (i=0; i<127; i++)
-		clipPx[i] = 0;
-	for (i=127; i<382; i++)
-		clipPx[i] = i - 127;
-	for (i=382; i<510; i++)
-		clipPx[i] = 255;*/
-
-	return 0;
 }
-
 
 
 
@@ -173,12 +161,12 @@ int prepareLUTs(struct jls_enc_ctx *ctx)
 
 
 /* Initialize A[], B[], C[], and N[] arrays */
-void init_stats(struct jls_enc_ctx *ctx) 
+void init_stats(struct jls_enc_ctx *ctx, int alpha)
 {
 	int i, initabstat, slack;
 
 	slack = 1<<INITABSLACK;
-	initabstat = (ALPHA(ctx) + slack/2)/slack;
+	initabstat = (alpha + slack/2)/slack;
 	if ( initabstat < MIN_INITABSTAT ) initabstat = MIN_INITABSTAT;
 
 	/* do the statistics initialization */

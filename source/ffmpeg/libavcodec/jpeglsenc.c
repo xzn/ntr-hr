@@ -112,28 +112,27 @@ static inline void ls_encode_run(JLSState *state, PutBitContext *pb, int run,
     }
 }
 
+extern uint16_t jls_encoder_classmap[9 * 9 * 9];
 /**
  * Encode one line of image
  */
 void ls_encode_line(JLSState *state, PutBitContext *pb,
-                    const uint8_t *last, const uint8_t *in, int w)
+                    const uint8_t *last, const uint8_t *in, int w, const uint16_t (*vLUT)[3])
 {
     int x = 0;
     int Ra = in[-1], Rb = last[0], Rc = last[-1], Rd = last[1];
-    int D0, D1, D2;
+    int cont;
 
     while (1) {
         int err, pred, sign;
 
         /* compute gradients */
-        D0 = Rd - Rb;
-        D1 = Rb - Rc;
-        D2 = Rc - Ra;
+        cont =  vLUT[Rd - Rb + 256][0] +
+                vLUT[Rb - Rc + 256][1] +
+                vLUT[Rc - Ra + 256][2];
 
         /* run mode */
-        if (D0 == 0 &&
-            D1 == 0 &&
-            D2 == 0) {
+        if (cont == 0) {
             int RUNval, RItype, run;
 
             run    = 0;
@@ -166,27 +165,23 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
             if (state->run_index[0] > 0)
                 state->run_index[0]--;
         } else { /* regular mode */
-            int context;
-
-            context = ff_jpegls_quantize(state, D0) * 81 +
-                      ff_jpegls_quantize(state, D1) *  9 +
-                      ff_jpegls_quantize(state, D2);
+            cont = jls_encoder_classmap[cont];
             pred    = mid_pred(Ra, Ra + Rb - Rc, Rb);
 
-            if (context < 0) {
-                context = -context;
+            if (cont < 0) {
+                cont = -cont;
                 sign    = 1;
-                pred    = av_clip(pred - state->C[context], 0, state->maxval);
+                pred    = av_clip(pred - state->C[cont], 0, state->maxval);
                 err     = pred - in[x];
             } else {
                 sign = 0;
-                pred = av_clip(pred + state->C[context], 0, state->maxval);
+                pred = av_clip(pred + state->C[cont], 0, state->maxval);
                 err  = in[x] - pred;
             }
 
             Ra = in[x];
 
-            ls_encode_regular(state, pb, context, err);
+            ls_encode_regular(state, pb, cont, err);
         }
         x += 1;
         if (x >= w)

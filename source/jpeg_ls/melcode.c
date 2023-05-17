@@ -58,31 +58,21 @@
 
 #define MELCSTATES	32	/* number of melcode states */
 
-static char J[MELCSTATES] = {
+static const char J[MELCSTATES] = {
 	0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,5,5,6,6,7,
 	7,8,9,10,11,12,13,14,15 
 };
 
-static int melcstate[MAX_COMPONENTS],        /* index to the state array */
-		   melclen[MAX_COMPONENTS];          /* contents of the state array location
-												indexed by melcstate: the "expected"
-												run length is 2^melclen, shorter runs are
-												encoded by a 1 followed by the run length
-												in binary representation, wit a fixed length
-												of melclen bits */
 
-static unsigned long melcorder[MAX_COMPONENTS];  /* 2^ melclen */
-
-
-void init_process_run(int maxrun)    /* maxrun is ignoreed when using MELCODE,
+void init_process_run(struct jls_enc_ctx *ctx, int maxrun)    /* maxrun is ignoreed when using MELCODE,
 					 					kept here for function compatibility */				    
 {
 	int	n_c;
 
 	for (n_c=0;n_c<components;n_c++) {
-	melcstate[n_c] = 0;
-	melclen[n_c] = J[0];
-	melcorder[n_c] = 1<<melclen[n_c];
+	ctx->melcstate[n_c] = 0;
+	ctx->melclen[n_c] = J[0];
+	ctx->melcorder[n_c] = 1<<ctx->melclen[n_c];
 	}
 }
 
@@ -94,12 +84,12 @@ void process_run(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int runlen, int
 	int color = 0;
 
 
-	while ( runlen >= melcorder[color] ) {
+	while ( runlen >= ctx->melcorder[color] ) {
 		hits ++;
-		runlen -= melcorder[color];
-		if ( melcstate[color] < MELCSTATES ) {
-			melclen[color] = J[++melcstate[color]];
-			melcorder[color] = (1L<<melclen[color]);
+		runlen -= ctx->melcorder[color];
+		if ( ctx->melcstate[color] < MELCSTATES ) {
+			ctx->melclen[color] = J[++ctx->melcstate[color]];
+			ctx->melcorder[color] = (1L<<ctx->melclen[color]);
 		}
 	}
 
@@ -121,13 +111,13 @@ void process_run(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int runlen, int
 
 	/* now send the length of the remainder, encoded as a 0 followed
 	   by the length in binary representation, to melclen bits */
-	ctx->limit_reduce = melclen[color]+1;
+	ctx->limit_reduce = ctx->melclen[color]+1;
 	PUTBITS(ctx,bctx,runlen,ctx->limit_reduce);
 
 	/* adjust melcoder parameters */
-	if ( melcstate[color] ) {
-		melclen[color] = J[--melcstate[color]];
-		melcorder[color] = (1L<<melclen[color]);
+	if ( ctx->melcstate[color] ) {
+		ctx->melclen[color] = J[--ctx->melcstate[color]];
+		ctx->melcorder[color] = (1L<<ctx->melclen[color]);
 	}
 	return;
 }
@@ -136,7 +126,7 @@ void process_run(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int runlen, int
 
 
 void
-close_process_run()
+close_process_run(struct jls_enc_ctx *ctx)
 {
 /* retained for compatibility with ranked runs */
 }

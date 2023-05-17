@@ -75,6 +75,12 @@ static Handle rp_network_thread;
 #define UNUSED __attribute__((unused))
 #define FALLTHRU __attribute__((fallthrough));
 
+enum {
+	RP_ENCODE_PARAMS_BPP8,
+	RP_ENCODE_PARAMS_BPP5,
+	RP_ENCODE_PARAMS_BPP6,
+	RP_ENCODE_PARAMS_COUNT
+};
 #define RP_ENCODE_THREAD_COUNT (2)
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
 #define RP_SCREEN_BUFFER_COUNT RP_ENCODE_BUFFER_COUNT
@@ -91,6 +97,7 @@ static struct {
 
 	u8 screen_buffer[RP_SCREEN_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE] ALIGN_4;
 	u8 screen_top_bot[RP_SCREEN_BUFFER_COUNT] ALIGN_4;
+	struct jls_enc_params jls_enc_params[RP_ENCODE_PARAMS_COUNT];
 	struct jls_enc_ctx jls_enc_ctx[RP_ENCODE_THREAD_COUNT];
 	struct bito_ctx jls_bito_ctx[RP_ENCODE_THREAD_COUNT];
 	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
@@ -619,9 +626,32 @@ static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 	return 0;
 }
 
+static void jls_encoder_prepare_LUTs(void) {
+	prepare_classmap();
+	jpeg_ls_init(&rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP8], 8);
+	jpeg_ls_init(&rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP5], 5);
+	jpeg_ls_init(&rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP6], 6);
+}
+
 extern const uint8_t psl0[];
 static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, int w, int h, int bpp) {
 	u8 *dst = rp_storage_ctx->jls_encode_buffer[encode_buffer_n];
+	struct jls_enc_params *params;
+	switch (bpp) {
+		case 8:
+			params = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP8]; break;
+
+		case 5:
+			params = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP5]; break;
+
+		case 6:
+			params = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP6]; break;
+
+		default:
+			nsDbgPrint("Unsupported bpp in rpJLSEncodeImage: %d\n", bpp);
+			return -1;
+	}
+
 	if (rp_config.encoder_which == 0) {
 		JLSState state = { 0 };
 		state.bpp = bpp;
@@ -636,7 +666,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 		const u8 *in = src + LEFTMARGIN;
 
 		for (int i = 0; i < w; ++i) {
-			ls_encode_line(&state, &s, last, in, h);
+			ls_encode_line(&state, &s, last, in, h, (const uint16_t (*)[3])params->vLUT);
 			last = in;
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
@@ -650,9 +680,11 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 	} else {
 		struct jls_enc_ctx *ctx = &rp_storage_ctx->jls_enc_ctx[thread_n];
 		struct bito_ctx *bctx = &rp_storage_ctx->jls_bito_ctx[thread_n];
-		int ret = jpeg_ls_encode(ctx, bctx, (char *)dst, src, h, w, h + LEFTMARGIN + RIGHTMARGIN, bpp);
-		if (ret > RP_JLS_ENCODE_BUFFER_SIZE)
+		int ret = jpeg_ls_encode(params, ctx, bctx, (char *)dst, src, h, w, h + LEFTMARGIN + RIGHTMARGIN, bpp);
+		if (ret > RP_JLS_ENCODE_BUFFER_SIZE) {
+			nsDbgPrint("Buffer overrun in rpJLSEncodeImage\n");
 			return -1; // if we didn't crash, fail because buffer overflow
+		}
 	}
 	return 0;
 }
@@ -1209,6 +1241,7 @@ static void rp_set_params() {
 
 static void rpThreadStart(u32 arg UNUSED) {
 	rp_set_params();
+	jls_encoder_prepare_LUTs();
 	rpInitDmaHome();
 	// kRemotePlayCallback();
 

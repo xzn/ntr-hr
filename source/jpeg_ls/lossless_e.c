@@ -65,7 +65,7 @@ static int eor_limit;
 
 
 /* Do Golomb statistics and ENCODING for LOSS-LESS images */
-static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int Q, int SIGN, int Px, pixel Ix)
+static inline void lossless_regular_mode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int Q, int SIGN, int Px, pixel Ix)
 {
 	int At, Nt, Bt, absErrval, Errval, MErrval;
 	int	unary;
@@ -80,13 +80,13 @@ static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ct
 	   , and error quantization (A.4.4) */
 	Px = Px + (SIGN) * ctx->C[Q];
 /*Px = clipPx[Px+127];*/
-	clip(ctx,Px);
+	clip(params,Px);
 	Errval = SIGN * (Ix - Px);
 
 
 	/* Modulo reduction of predication error (A.4.5) */
 	if (Errval < 0)
-		Errval += ALPHA(ctx);     /* Errval is now in [0.. alpha-1] */
+		Errval += ALPHA(params);     /* Errval is now in [0.. alpha-1] */
 
 
 	/* Estimate k - Golomb coding variable computation (A.5.1) */
@@ -102,8 +102,8 @@ static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ct
 
 	/* Error Mapping (A.5.2) */
 	temp = ( k==0 && ((Bt<<1) <= -Nt) );
-	if (Errval >= CEIL_HALF_ALPHA(ctx)) {
-		Errval -= ALPHA(ctx);
+	if (Errval >= CEIL_HALF_ALPHA(params)) {
+		Errval -= ALPHA(params);
 		absErrval = -Errval;
 		MErrval = (absErrval<<1) - 1 - temp;
 	} else {
@@ -152,13 +152,13 @@ static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ct
 
 	/* Actually output the code: Mapped Error Encoding (Appendix G) */
 	unary = MErrval >> k;
-	if ( unary < ctx->limit ) {
+	if ( unary < params->limit ) {
 	    put_zeros(ctx,bctx,unary);
 		putbits(ctx,bctx,(1 << k) + (MErrval & ((1 << k) - 1)), k + 1);
 	}
 	else {
-	    put_zeros(ctx,bctx,ctx->limit);
-	    putbits(ctx,bctx,(1<<ctx->qbpp) + MErrval - 1, ctx->qbpp+1);
+	    put_zeros(ctx,bctx,params->limit);
+	    putbits(ctx,bctx,(1<<params->qbpp) + MErrval - 1, params->qbpp+1);
 	}
 }
 
@@ -166,7 +166,7 @@ static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ct
 
 
 /* Do end of run encoding for LOSSLESS images */
-static inline void lossless_end_of_run(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, pixel Ra, pixel Rb, pixel Ix, int RItype)
+static inline void lossless_end_of_run(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, pixel Ra, pixel Rb, pixel Ix, int RItype)
 {
 	int Errval,
 		MErrval,
@@ -196,9 +196,9 @@ static inline void lossless_end_of_run(struct jls_enc_ctx *ctx, struct bito_ctx 
 	for(k=0; Nt < At; Nt<<=1, k++);
 
 	if (Errval < 0)
-		Errval += ALPHA(ctx);
-	if( Errval >= CEIL_HALF_ALPHA(ctx) )
-		Errval -= ALPHA(ctx);
+		Errval += ALPHA(params);
+	if( Errval >= CEIL_HALF_ALPHA(params) )
+		Errval -= ALPHA(params);
 
 
 	oldmap = ( k==0 && Errval && (ctx->B[Q]<<1)<Nt );
@@ -228,7 +228,7 @@ static inline void lossless_end_of_run(struct jls_enc_ctx *ctx, struct bito_ctx 
 	ctx->N[Q]++; /* for next pixel */
 
 	/* Do the actual Golomb encoding: */
-	eor_limit = ctx->limit - ctx->limit_reduce;
+	eor_limit = params->limit - ctx->limit_reduce;
 	unary = MErrval >> k;
 	if ( unary < eor_limit ) {
 		put_zeros(ctx,bctx,unary);
@@ -236,7 +236,7 @@ static inline void lossless_end_of_run(struct jls_enc_ctx *ctx, struct bito_ctx 
 	}
 	else {
 		put_zeros(ctx,bctx,eor_limit);
-		putbits(ctx,bctx,(1<<ctx->qbpp) + MErrval-1, ctx->qbpp+1);
+		putbits(ctx,bctx,(1<<params->qbpp) + MErrval-1, params->qbpp+1);
 	}
 }
 
@@ -247,7 +247,8 @@ static inline void lossless_end_of_run(struct jls_enc_ctx *ctx, struct bito_ctx 
 
 /* For line and plane interleaved mode in LOSS-LESS mode */
 
-void lossless_doscanline( struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
+void lossless_doscanline( const struct jls_enc_params *params,
+			  struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
 			  const pixel *psl,            /* previous scanline */
 			  const pixel *sl,             /* current scanline */
 			  int no)     /* number of values in it */
@@ -289,9 +290,9 @@ void lossless_doscanline( struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
 			state determination */
 
 
-		cont =  ctx->vLUT[0][Rd - Rb + LUTMAX8] +
-				ctx->vLUT[1][Rb - Rc + LUTMAX8] +
-				ctx->vLUT[2][Rc - Ra + LUTMAX8];
+		cont =  params->vLUT[Rd - Rb + LUTMAX8][0] +
+				params->vLUT[Rb - Rc + LUTMAX8][1] +
+				params->vLUT[Rc - Ra + LUTMAX8][2];
 
 		if ( cont == 0 )
 		{
@@ -330,7 +331,7 @@ void lossless_doscanline( struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
 
 
 			/* This is the END_OF_RUN state */
-			lossless_end_of_run(ctx, bctx, Ra, Rb, Ix, (Ra==Rb));
+			lossless_end_of_run(params, ctx, bctx, Ra, Rb, Ix, (Ra==Rb));
 
 		}
 		else {
@@ -340,7 +341,7 @@ void lossless_doscanline( struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
 			predict(Rb, Ra, Rc);
 
 			/* do symmetric context merging */
-			cont = ctx->classmap[cont];
+			cont = jls_encoder_classmap[cont];
 
 			if (cont<0) {
 				SIGN=-1;
@@ -350,7 +351,7 @@ void lossless_doscanline( struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
 				SIGN=+1;
 
 			/* output a rice code */
-			lossless_regular_mode(ctx, bctx, cont, SIGN, Px, Ix);
+			lossless_regular_mode(params, ctx, bctx, cont, SIGN, Px, Ix);
 		}
 
 		/* context for next pixel: */

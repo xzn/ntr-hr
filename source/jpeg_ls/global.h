@@ -84,7 +84,17 @@
 #define BIG_ENDIAN	1
 #endif
 
-struct jls_enc_ctx {
+
+/****** Type prototypes */
+
+/* Portability types */
+typedef uint8_t byte;
+typedef uint16_t word;
+typedef uint32_t dword;
+
+typedef byte pixel;
+
+struct jls_enc_params {
 
 #define components 1
 
@@ -147,9 +157,15 @@ int      highmask;  /* for powers of 2, a mask for high bits */
 
 int bpp,			/* bits per sample */
            qbpp,		/* bits per sample for quantized prediction errors */
-           limit,		/* limit for unary part of Golomb code */
-           limit_reduce;	/* reduction on above for EOR states */
+           limit;		/* limit for unary part of Golomb code */
 
+int  	T1, T2, T3, Ta;
+
+word (*vLUT)[3];
+
+};
+
+struct jls_enc_ctx {
 
 #define DEF_NEAR	0
 
@@ -246,16 +262,9 @@ int	RESET;
 /****** Global variables prototypes */
 
 char	*out;
-int  	T1, T2, T3, Ta;
 
 #define bpp16 FALSE
 #define lossy FALSE
-
-
-/* for look-up-tables */
-int vLUT[3][2 * LUTMAX16];
-#define lutmax LUTMAX8
-int classmap[CONTEXTS1];
 
 /* statistics tables */
 int	N[TOT_CONTEXTS],
@@ -263,21 +272,29 @@ int	N[TOT_CONTEXTS],
 			B[TOT_CONTEXTS],
 			C[TOT_CONTEXTS];
 
+int limit_reduce;	/* reduction on above for EOR states */
+
+int melcstate[MAX_COMPONENTS],        /* index to the state array */
+		   melclen[MAX_COMPONENTS];          /* contents of the state array location
+												indexed by melcstate: the "expected"
+												run length is 2^melclen, shorter runs are
+												encoded by a 1 followed by the run length
+												in binary representation, wit a fixed length
+												of melclen bits */
+
+unsigned long melcorder[MAX_COMPONENTS];  /* 2^ melclen */
+
 };
 
+/* for look-up-tables */
+#define lutmax LUTMAX8
+extern word jls_encoder_vLUT_bpp8[2 * (1 << 8)][3];
+extern word jls_encoder_vLUT_bpp5[2 * (1 << 5)][3];
+extern word jls_encoder_vLUT_bpp6[2 * (1 << 6)][3];
+extern word jls_encoder_classmap[CONTEXTS1];
 
 /*extern byte getk[65][3000];*/
 /*extern int clipPx[510];*/
-
-
-/****** Type prototypes */
-
-/* Portability types */
-typedef uint8_t byte;
-typedef uint16_t word;
-typedef uint32_t dword;
-
-typedef byte pixel;
 
 
 /****** Function prototypes */
@@ -287,22 +304,24 @@ struct bito_ctx;
 void set_thresholds(int alfa, int *T1p, int *T2p, int *T3p);
 
 /* lossless.c */
-void lossless_doscanline(struct jls_enc_ctx *, struct bito_ctx *, const pixel *psl, const pixel *sl, int no);
+void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx *, struct bito_ctx *, const pixel *psl, const pixel *sl, int no);
 
 /* bitio.c */
 void bitoflush(struct bito_ctx *, char *);
 void bitoinit(struct bito_ctx *);
 
 /*  melcode.c */
-void init_process_run(int);
-void close_process_run();
+void init_process_run(struct jls_enc_ctx *ctx, int);
+void close_process_run(struct jls_enc_ctx *ctx);
 void  process_run(struct jls_enc_ctx *, struct bito_ctx *, int,int);
 
 /* initialize.c */
-int prepareLUTs(struct jls_enc_ctx *);
-void init_stats(struct jls_enc_ctx *);
+void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3);
+void init_stats(struct jls_enc_ctx *, int alpha);
+void prepare_classmap(void);
 
-int jpeg_ls_encode(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, int bpp);
+void jpeg_ls_init(struct jls_enc_params *params, int bpp);
+int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, int bpp);
 
 #ifdef BIG_ENDIAN
 #    define ENDIAN8(x)   (x)
