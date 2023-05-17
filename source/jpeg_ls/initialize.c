@@ -60,11 +60,6 @@
 /*byte getk[65][3000];*/
 /*int clipPx[510];*/
 
-word jls_encoder_vLUT_bpp8[2 * (1 << 8)][3];
-word jls_encoder_vLUT_bpp5[2 * (1 << 5)][3];
-word jls_encoder_vLUT_bpp6[2 * (1 << 6)][3];
-word jls_encoder_classmap[CONTEXTS1];
-
 
 /* Setup Look Up Tables for quantized gradient merging */
 void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3)
@@ -122,14 +117,14 @@ void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3)
 		clipPx[i] = 255;*/
 }
 
-void prepare_classmap(void) {
+void prepare_classmap(word classmap[]) {
 	int i, j;
 	/*  prepare context mapping table (symmetric context merging) */
-	jls_encoder_classmap[0] = 0;
+	classmap[0] = 0;
 	for ( i=1, j=0; i<CONTEXTS1; i++) {
 	    int q1, q2, q3, n1=0, n2=0, n3=0, ineg, sgn;
 
-	    if(jls_encoder_classmap[i])
+	    if(classmap[i])
 			continue;
 
 	    q1 = i/(CREGIONS*CREGIONS);		/* first digit */
@@ -148,8 +143,8 @@ void prepare_classmap(void) {
 
 	    ineg = (n1*CREGIONS+n2)*CREGIONS+n3;
 	    j++ ;    /* next class number */
-	    jls_encoder_classmap[i] = sgn*j;
-	    jls_encoder_classmap[ineg] = -sgn*j;
+	    classmap[i] = sgn*j;
+	    classmap[ineg] = -sgn*j;
 
 	}
 }

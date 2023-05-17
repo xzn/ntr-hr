@@ -288,10 +288,14 @@ unsigned long melcorder[MAX_COMPONENTS];  /* 2^ melclen */
 
 /* for look-up-tables */
 #define lutmax LUTMAX8
-extern word jls_encoder_vLUT_bpp8[2 * (1 << 8)][3];
-extern word jls_encoder_vLUT_bpp5[2 * (1 << 5)][3];
-extern word jls_encoder_vLUT_bpp6[2 * (1 << 6)][3];
-extern word jls_encoder_classmap[CONTEXTS1];
+struct jls_enc_luts {
+
+word vLUT_bpp8[2 * (1 << 8)][3];
+word vLUT_bpp5[2 * (1 << 5)][3];
+word vLUT_bpp6[2 * (1 << 6)][3];
+word classmap[CONTEXTS1];
+
+};
 
 /*extern byte getk[65][3000];*/
 /*extern int clipPx[510];*/
@@ -304,7 +308,7 @@ struct bito_ctx;
 void set_thresholds(int alfa, int *T1p, int *T2p, int *T3p);
 
 /* lossless.c */
-void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx *, struct bito_ctx *, const pixel *psl, const pixel *sl, int no);
+void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx *, struct bito_ctx *, const pixel *psl, const pixel *sl, int no, const word classmap[]);
 
 /* bitio.c */
 void bitoflush(struct bito_ctx *, char *);
@@ -318,10 +322,10 @@ void  process_run(struct jls_enc_ctx *, struct bito_ctx *, int,int);
 /* initialize.c */
 void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3);
 void init_stats(struct jls_enc_ctx *, int alpha);
-void prepare_classmap(void);
+void prepare_classmap(word classmap[]);
 
 void jpeg_ls_init(struct jls_enc_params *params, int bpp, const word (*vLUT)[3]);
-int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, int bpp);
+int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, int bpp, const word classmap[]);
 
 #ifdef BIG_ENDIAN
 #    define ENDIAN8(x)   (x)

@@ -100,6 +100,7 @@ static struct {
 	struct jls_enc_params jls_enc_params[RP_ENCODE_PARAMS_COUNT];
 	struct jls_enc_ctx jls_enc_ctx[RP_ENCODE_THREAD_COUNT];
 	struct bito_ctx jls_bito_ctx[RP_ENCODE_THREAD_COUNT];
+	struct jls_enc_luts jls_enc_luts;
 	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
 	u8 jls_encode_top_bot[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
 	u8 jls_encode_frame_n[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
@@ -627,20 +628,19 @@ static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 }
 
 static void jls_encoder_prepare_LUTs(void) {
-	prepare_classmap();
+	prepare_classmap(rp_storage_ctx->jls_enc_luts.classmap);
 	struct jls_enc_params *p;
 
-	p = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP8];
-	jpeg_ls_init(p, 8, (const word (*)[3])jls_encoder_vLUT_bpp8);
-	prepare_vLUT(jls_encoder_vLUT_bpp8, p->alpha, p->T1, p->T2, p->T3);
+#define RP_JLS_INIT_LUT(bpp, bpp_index, bpp_lut_name) do { \
+	p = &rp_storage_ctx->jls_enc_params[bpp_index]; \
+	jpeg_ls_init(p, bpp, (const word (*)[3])rp_storage_ctx->jls_enc_luts.bpp_lut_name); \
+	prepare_vLUT(rp_storage_ctx->jls_enc_luts.bpp_lut_name, p->alpha, p->T1, p->T2, p->T3); } while (0) \
 
-	p = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP5];
-	jpeg_ls_init(p, 5, (const word (*)[3])jls_encoder_vLUT_bpp5);
-	prepare_vLUT(jls_encoder_vLUT_bpp5, p->alpha, p->T1, p->T2, p->T3);
+	RP_JLS_INIT_LUT(8, RP_ENCODE_PARAMS_BPP8, vLUT_bpp8);
+	RP_JLS_INIT_LUT(5, RP_ENCODE_PARAMS_BPP5, vLUT_bpp5);
+	RP_JLS_INIT_LUT(6, RP_ENCODE_PARAMS_BPP6, vLUT_bpp6);
 
-	p = &rp_storage_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP6];
-	jpeg_ls_init(p, 6, (const word (*)[3])jls_encoder_vLUT_bpp6);
-	prepare_vLUT(jls_encoder_vLUT_bpp6, p->alpha, p->T1, p->T2, p->T3);
+#undef RP_JLS_INIT_LUT
 }
 
 extern const uint8_t psl0[];
@@ -676,7 +676,11 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 		const u8 *in = src + LEFTMARGIN;
 
 		for (int i = 0; i < w; ++i) {
-			ls_encode_line(&state, &s, last, in, h, (const uint16_t (*)[3])params->vLUT);
+			ls_encode_line(
+				&state, &s, last, in, h,
+				(const uint16_t (*)[3])params->vLUT,
+				rp_storage_ctx->jls_enc_luts.classmap
+			);
 			last = in;
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
@@ -690,7 +694,10 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 	} else {
 		struct jls_enc_ctx *ctx = &rp_storage_ctx->jls_enc_ctx[thread_n];
 		struct bito_ctx *bctx = &rp_storage_ctx->jls_bito_ctx[thread_n];
-		int ret = jpeg_ls_encode(params, ctx, bctx, (char *)dst, src, h, w, h + LEFTMARGIN + RIGHTMARGIN, bpp);
+		int ret = jpeg_ls_encode(
+			params, ctx, bctx, (char *)dst, src, h, w, h + LEFTMARGIN + RIGHTMARGIN, bpp,
+			rp_storage_ctx->jls_enc_luts.classmap
+		);
 		if (ret > RP_JLS_ENCODE_BUFFER_SIZE) {
 			nsDbgPrint("Buffer overrun in rpJLSEncodeImage\n");
 			return -1; // if we didn't crash, fail because buffer overflow

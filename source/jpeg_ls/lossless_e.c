@@ -251,7 +251,8 @@ void lossless_doscanline( const struct jls_enc_params *params,
 			  struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
 			  const pixel *psl,            /* previous scanline */
 			  const pixel *sl,             /* current scanline */
-			  int no)     /* number of values in it */
+			  int no,                      /* number of values in it */
+			  const word classmap[])
 
 /*** watch it! actual pixels in the scan line are numbered 1 to no .
      pixels with indices < 1 or > no are dummy "border" pixels  */
@@ -341,7 +342,7 @@ void lossless_doscanline( const struct jls_enc_params *params,
 			predict(Rb, Ra, Rc);
 
 			/* do symmetric context merging */
-			cont = jls_encoder_classmap[cont];
+			cont = classmap[cont];
 
 			if (cont<0) {
 				SIGN=-1;

@@ -112,12 +112,11 @@ static inline void ls_encode_run(JLSState *state, PutBitContext *pb, int run,
     }
 }
 
-extern uint16_t jls_encoder_classmap[9 * 9 * 9];
 /**
  * Encode one line of image
  */
 void ls_encode_line(JLSState *state, PutBitContext *pb,
-                    const uint8_t *last, const uint8_t *in, int w, const uint16_t (*vLUT)[3])
+                    const uint8_t *last, const uint8_t *in, int w, const uint16_t (*vLUT)[3], const uint16_t classmap[])
 {
     int x = 0;
     int Ra = in[-1], Rb = last[0], Rc = last[-1], Rd = last[1];
@@ -165,7 +164,7 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
             if (state->run_index[0] > 0)
                 state->run_index[0]--;
         } else { /* regular mode */
-            cont = jls_encoder_classmap[cont];
+            cont = classmap[cont];
             pred    = mid_pred(Ra, Ra + Rb - Rc, Rb);
 
             if (cont < 0) {
