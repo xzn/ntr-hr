@@ -62,7 +62,14 @@ int nsRecvPacketData(u8* buf, u32 size) {
 	rtRecvSocket(g_nsCtx->hSocket, buf, size);
 }
 
+u8 nsRemotePlayStarted;
 int nsHandleRemotePlay(void) {
+	if (nsRemotePlayStarted) {
+		nsDbgPrint("RemotePlay already started\n");
+		return -1;
+	}
+	nsRemotePlayStarted = 1;
+
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
 
 	Handle hProcess;

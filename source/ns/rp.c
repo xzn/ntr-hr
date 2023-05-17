@@ -26,10 +26,15 @@ static sendPacketTypedef nwmSendPacket = 0;
 static RT_HOOK nwmValParamHook;
 
 static struct {
-	int yuv_option;
-	int color_transform_hp;
-	int encoder_which;
-	int downscale_uv;
+	u8 yuv_option;
+	u8 color_transform_hp;
+	u8 encoder_which;
+	u8 downscale_uv;
+
+	u8 target_frame_rate;
+	u8 dynamic_priority;
+	u8 top_priority;
+	u8 bot_priority;
 
 	int arg0;
 	int arg1;
@@ -74,6 +79,7 @@ static Handle rp_network_thread;
 #define ASSUME_ALIGN_4(a) (a = __builtin_assume_aligned (a, 4))
 #define UNUSED __attribute__((unused))
 #define FALLTHRU __attribute__((fallthrough));
+#define ALWAYS_INLINE __attribute__((always_inline)) inline
 
 enum {
 	RP_ENCODE_PARAMS_BPP8,
@@ -257,7 +263,7 @@ void rpControlRecv(void) {
 	LightLock_Unlock(&rp_kcp_mutex);
 }
 
-static u8 rp_atomic_incb(u8 *pos) {
+static ALWAYS_INLINE u8 rp_atomic_incb(u8 *pos) {
 	u8 val, val_new;
 	do {
 		val = __ldrexb(pos);
@@ -266,7 +272,7 @@ static u8 rp_atomic_incb(u8 *pos) {
 	return val;
 }
 
-static __attribute__((always_inline)) inline s32 rp_atomic_inc_mod(s32 *pos, int factor) {
+static ALWAYS_INLINE s32 rp_atomic_inc_mod(s32 *pos, int factor) {
 	s32 val, val_new;
 	do {
 		val = __ldrex(pos);
@@ -275,7 +281,8 @@ static __attribute__((always_inline)) inline s32 rp_atomic_inc_mod(s32 *pos, int
 	return val;
 }
 
-static s32 rp_mpsc_acquire(s32 *pos_arg, s32 *can_arg, int factor, s64 timeout) {
+static ALWAYS_INLINE
+s32 rp_mpsc_acquire(s32 *pos_arg, s32 *can_arg, int factor, s64 timeout) {
 	s32 pos = *pos_arg;
 	s32 *can = &can_arg[pos];
 	while (1) {
@@ -294,7 +301,8 @@ static s32 rp_mpsc_acquire(s32 *pos_arg, s32 *can_arg, int factor, s64 timeout) 
 	}
 }
 
-static void rp_mpsc_release(s32 *pos_arg, s32 *can_arg, int factor, int p_n, s32 val) {
+static ALWAYS_INLINE
+void rp_mpsc_release(s32 *pos_arg, s32 *can_arg, int factor, int p_n, s32 val) {
 	s32 pos = *pos_arg;
 	*pos_arg = (pos + 1) % factor;
 	s32 *can = &can_arg[pos];
@@ -303,7 +311,8 @@ static void rp_mpsc_release(s32 *pos_arg, s32 *can_arg, int factor, int p_n, s32
 	syncArbitrateAddress(can, ARBITRATION_SIGNAL, p_n);
 }
 
-static s32 rp_spmc_acquire(s32 *pos_arg, s32 *can_arg, LightLock *state_arg, int factor, s64 timeout) {
+static ALWAYS_INLINE
+s32 rp_spmc_acquire(s32 *pos_arg, s32 *can_arg, LightLock *state_arg, int factor, s64 timeout) {
 	while (1) {
 		s32 pos = *pos_arg;
 		s32 *can = &can_arg[pos];
@@ -313,7 +322,11 @@ static s32 rp_spmc_acquire(s32 *pos_arg, s32 *can_arg, LightLock *state_arg, int
 		}
 		s32 val = *can;
 		if (val >= 0) {
-			rp_atomic_inc_mod(pos_arg, factor);
+			if (0) {
+				rp_atomic_inc_mod(pos_arg, factor);
+			} else {
+				*pos_arg = (pos + 1) % factor;
+			}
 			*can = -1;
 			LightLock_Unlock(state);
 			return val;
@@ -327,7 +340,8 @@ static s32 rp_spmc_acquire(s32 *pos_arg, s32 *can_arg, LightLock *state_arg, int
 	}
 }
 
-static void rp_spmc_release(s32 *pos_arg, s32 *can_arg, int factor, s32 val) {
+static ALWAYS_INLINE
+void rp_spmc_release(s32 *pos_arg, s32 *can_arg, int factor, s32 val) {
 	s32 pos = rp_atomic_inc_mod(pos_arg, factor);
 	s32 *can = &can_arg[pos];
 	*can = val;
@@ -397,6 +411,106 @@ RP_DEFINE_QUEUE_FUNCTION(
 
 #undef RP_DEFINE_QUEUE_FUNCTION
 
+#define RP_DYN_PRIO_FRAME_COUNT 4
+struct {
+	struct {
+		u8 initializing;
+		u8 priority;
+		u8 priority_time;
+		u32 tick[RP_DYN_PRIO_FRAME_COUNT];
+		u8 tick_index;
+		u8 frame_rate;
+		u8 size_time;
+	} top, bot;
+	u8 top_bot;
+	LightLock mutex;
+} rp_dyn_prio_ctx;
+
+static void rpInitPriorityCtx(void) {
+	memset(&rp_dyn_prio_ctx, 0, sizeof(rp_dyn_prio_ctx));
+	LightLock_Init(&rp_dyn_prio_ctx.mutex);
+	rp_dyn_prio_ctx.top.initializing =
+		rp_dyn_prio_ctx.bot.initializing = RP_DYN_PRIO_FRAME_COUNT;
+	rp_dyn_prio_ctx.top.priority = rp_config.top_priority;
+	rp_dyn_prio_ctx.bot.priority = rp_config.bot_priority;
+}
+
+static int rpGetPriorityScreen(void) {
+	if (rp_config.top_priority == 0)
+		return 0;
+	if (rp_config.bot_priority == 0)
+		return 1;
+
+	typeof(rp_dyn_prio_ctx) *ctx = &rp_dyn_prio_ctx;
+	int top_bot;
+	LightLock_Lock(&ctx->mutex);
+
+#define RP_PRIO_RESET_COUNT(s0, s1, t) do { \
+	ctx->s1.t = ctx->s1.t > ctx->s0.t ? \
+		ctx->s1.t - ctx->s0.t : 0; \
+	ctx->s0.t = 0; } while (0)
+
+	if (rp_config.dynamic_priority) {
+		if (ctx->top_bot == 0) {
+			RP_PRIO_RESET_COUNT(top, bot, size_time);
+		} else {
+			RP_PRIO_RESET_COUNT(bot, top, size_time);
+		}
+	}
+	if (ctx->top_bot == 0) {
+		RP_PRIO_RESET_COUNT(top, bot, priority_time);
+	} else {
+		RP_PRIO_RESET_COUNT(bot, top, priority_time);
+	}
+#undef RP_PRIO_RESET_COUNT
+
+	top_bot = ctx->top_bot;
+	LightLock_Unlock(&ctx->mutex);
+	return top_bot;
+}
+
+static void rpSetPriorityScreen(int top_bot, u32 size) {
+	if (rp_config.top_priority == 0 || rp_config.bot_priority == 0)
+		return;
+
+	typeof(rp_dyn_prio_ctx) *ctx = &rp_dyn_prio_ctx;
+	typeof(rp_dyn_prio_ctx.top) *sctx;
+	if (top_bot == 0) {
+		sctx = &rp_dyn_prio_ctx.top;
+	} else {
+		sctx = &rp_dyn_prio_ctx.bot;
+	}
+
+	LightLock_Lock(&ctx->mutex);
+	if (rp_config.dynamic_priority) {
+		u8 time = 31 - __builtin_clz(size);
+		sctx->size_time += time;
+		u32 tick = svc_getSystemTick();
+		u32 tick_n_delta;
+		if (sctx->initializing) {
+			--sctx->initializing;
+			tick_n_delta = 0;
+		} else {
+			tick_n_delta = tick - sctx->tick[sctx->tick_index];
+		}
+		sctx->tick[sctx->tick_index++] = tick;
+		sctx->tick_index %= RP_DYN_PRIO_FRAME_COUNT;
+		sctx->frame_rate = tick_n_delta ?
+			(u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / tick_n_delta : 0;
+	}
+	sctx->priority_time += sctx->priority;
+
+	if (rp_config.dynamic_priority &&
+		ctx->top.frame_rate + ctx->bot.frame_rate >= rp_config.target_frame_rate
+	) {
+		ctx->top_bot = ctx->top.size_time < ctx->bot.size_time ? 0 : 1;
+	} else {
+		ctx->top_bot = ctx->top.priority_time < ctx->bot.priority_time ? 0 : 1;
+	}
+	LightLock_Unlock(&ctx->mutex);
+}
+#undef RP_DYN_PRIO_FRAME_COUNT
+
 struct rp_send_header {
 	u32 size;
 	u8 frame_n;
@@ -438,6 +552,7 @@ static void rpNetworkTransfer(void) {
 			.top_bot = rp_storage_ctx->jls_encode_top_bot[pos]
 		};
 
+		rpSetPriorityScreen(header.top_bot, header.size);
 		u32 size_remain = header.size;
 		u8 *data = rp_storage_ctx->jls_encode_buffer[pos];
 
@@ -714,7 +829,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 #define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
 #define srshift_to_even(n, s) ((s16)((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
 
-static __attribute__((always_inline)) inline
+static ALWAYS_INLINE
 void convert_yuv_hp(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
 	int bpp
 ) {
@@ -751,7 +866,7 @@ void convert_yuv_hp(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8
 	}
 }
 
-static __attribute__((always_inline)) inline
+static ALWAYS_INLINE
 void convert_yuv_hp_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
 	int bpp
 ) {
@@ -788,7 +903,7 @@ void convert_yuv_hp_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, 
 	}
 }
 
-static __attribute__((always_inline)) inline
+static ALWAYS_INLINE
 void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
 	u8 bpp, u8 bpp_2
 ) {
@@ -842,7 +957,7 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 	};
 }
 
-static __attribute__((always_inline)) inline
+static ALWAYS_INLINE
 void convert_set_zero(u8 *restrict *restrict dp_y_out, int count) {
 	for (int i = 0; i < count; ++i) {
 		*(*dp_y_out)++ = 0;
@@ -850,7 +965,7 @@ void convert_set_zero(u8 *restrict *restrict dp_y_out, int count) {
 	}
 }
 
-static __attribute__((always_inline)) inline
+static ALWAYS_INLINE
 void convert_set_3_zero(
 	u8 *restrict *restrict dp_y_out,
 	u8 *restrict *restrict dp_u_out,
@@ -862,7 +977,7 @@ void convert_set_3_zero(
 	convert_set_zero(dp_v_out, count);
 }
 
-static __attribute__((always_inline)) inline
+static ALWAYS_INLINE
 void convert_set_last(u8 *restrict *restrict dp_y_out, int count) {
 	for (int i = 0; i < count; ++i) {
 		**dp_y_out = *(*dp_y_out - 1);
@@ -870,7 +985,7 @@ void convert_set_last(u8 *restrict *restrict dp_y_out, int count) {
 	}
 }
 
-static __attribute__((always_inline)) inline
+static ALWAYS_INLINE
 void convert_set_3_last(
 	u8 *restrict *restrict dp_y_out,
 	u8 *restrict *restrict dp_u_out,
@@ -1187,7 +1302,6 @@ static void rpSecondThreadStart(u32 arg UNUSED) {
 
 void rpKernelCallback(int top_bot);
 static void rpScreenTransferThread(u32 arg UNUSED) {
-	int top_bot = 0;
 	int ret;
 
 	while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) {
@@ -1197,6 +1311,8 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 		}
 
 		while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) {
+			int top_bot = rpGetPriorityScreen();
+
 			rpKernelCallback(top_bot);
 
 			ret = rpCaptureScreen(pos, top_bot);
@@ -1208,7 +1324,6 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 
 			rp_storage_ctx->screen_top_bot[pos] = top_bot;
 			rp_screen_release_process(pos);
-			top_bot = !top_bot;
 			break;
 		}
 	}
@@ -1267,6 +1382,11 @@ static void rp_set_params() {
 	rp_config.encoder_which = rp_config.arg0 & 0x2 >> 1;
 	rp_config.yuv_option = rp_config.arg1 & 0x3;
 	rp_config.color_transform_hp = rp_config.arg1 & 0xc >> 2;
+
+	rp_config.top_priority = rp_config.arg2 & 0xf;
+	rp_config.bot_priority = rp_config.arg2 & 0xf0 >> 4;
+	rp_config.dynamic_priority = rp_config.arg2 & 0x100 >> 8;
+	rp_config.target_frame_rate = rp_config.arg2 & 0xff0000 >> 16;
 }
 
 static void rpThreadStart(u32 arg UNUSED) {
@@ -1282,6 +1402,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 	while (ret >= 0) {
 		__atomic_store_n(&exit_rp_network_thread, 0, __ATOMIC_SEQ_CST);
 		rp_encode_queue_init();
+		rpInitPriorityCtx();
 		ret = svc_createThread(
 			&rp_network_thread,
 			rpNetworkTransferThread,
