@@ -84,71 +84,33 @@ int prepareLUTs(struct jls_enc_ctx *ctx)
 
 
 	/* Build classification tables (lossless or lossy) */
-	
-	if (lossy==FALSE) {
 
-		for (i = -lmax + 1; i < lmax; i++) {
+	for (i = -lmax + 1; i < lmax; i++) {
 
-			if  ( i <= -ctx->T3 )        /* ...... -T3  */
-				idx = 7;
-			else if ( i <= -ctx->T2 )    /* -(T3-1) ... -T2 */
-				idx = 5;
-			else if ( i <= -ctx->T1 )    /* -(T2-1) ... -T1 */
-				idx = 3;
+		if  ( i <= -ctx->T3 )        /* ...... -T3  */
+			idx = 7;
+		else if ( i <= -ctx->T2 )    /* -(T3-1) ... -T2 */
+			idx = 5;
+		else if ( i <= -ctx->T1 )    /* -(T2-1) ... -T1 */
+			idx = 3;
 
-			else if ( i <= -1 )     /* -(T1-1) ...  -1 */
-				idx = 1;
-			else if ( i == 0 )      /*  just 0 */
-				idx = 0;
+		else if ( i <= -1 )     /* -(T1-1) ...  -1 */
+			idx = 1;
+		else if ( i == 0 )      /*  just 0 */
+			idx = 0;
 
-			else if ( i < ctx->T1 )      /* 1 ... T1-1 */
-				idx = 2;
-			else if ( i < ctx->T2 )      /* T1 ... T2-1 */
-				idx = 4;
-			else if ( i < ctx->T3 )      /* T2 ... T3-1 */
-				idx = 6;
-			else                    /* T3 ... */
-				idx = 8;
+		else if ( i < ctx->T1 )      /* 1 ... T1-1 */
+			idx = 2;
+		else if ( i < ctx->T2 )      /* T1 ... T2-1 */
+			idx = 4;
+		else if ( i < ctx->T3 )      /* T2 ... T3-1 */
+			idx = 6;
+		else                    /* T3 ... */
+			idx = 8;
 
-			ctx->vLUT[0][i + lutmax] = CREGIONS * CREGIONS * idx;
-			ctx->vLUT[1][i + lutmax] = CREGIONS * idx;
-			ctx->vLUT[2][i + lutmax] = idx;
-		}
-
-	} else {
-
-		for (i = -lmax + 1; i < lmax; i++) {
-
-			if ( NEAR >= (ALPHA(ctx)-1) )
-				idx = 0;   /* degenerate case, regardless of thresholds */
-			else
-
-				if  ( i <= -ctx->T3 )        /* ...... -T3  */
-					idx = 7;
-				else if ( i <= -ctx->T2 )    /* -(T3-1) ... -T2 */
-					idx = 5;
-				else if ( i <= -ctx->T1 )    /* -(T2-1) ... -T1 */
-					idx = 3;
-
-				else if ( i <= -NEAR-1 )     /* -(T1-1) ...  -NEAR-1 */
-					idx = 1;
-				else if ( i <= NEAR )      /*  within NEAR of 0 */
-					idx = 0;
-
-				else if ( i < ctx->T1 )      /* 1 ... T1-1 */
-					idx = 2;
-				else if ( i < ctx->T2 )      /* T1 ... T2-1 */
-					idx = 4;
-				else if ( i < ctx->T3 )      /* T2 ... T3-1 */
-					idx = 6;
-				else                    /* T3 ... */
-					idx = 8;
-
-			ctx->vLUT[0][i + lutmax] = CREGIONS * CREGIONS * idx;
-			ctx->vLUT[1][i + lutmax] = CREGIONS * idx;
-			ctx->vLUT[2][i + lutmax] = idx;
-		}
-
+		ctx->vLUT[0][i + lutmax] = CREGIONS * CREGIONS * idx;
+		ctx->vLUT[1][i + lutmax] = CREGIONS * idx;
+		ctx->vLUT[2][i + lutmax] = idx;
 	}
 
 
@@ -208,33 +170,6 @@ int prepareLUTs(struct jls_enc_ctx *ctx)
 
 
 /* prepare quantization tables for near-lossless quantization */
-void prepare_qtables(int absize)
-{
-    int dif, qdiff;
-    int beta, quant;
-
-    quant = 2*NEAR+1;
-    beta = absize;
-
-    memset(qdiv0, 0, (2*absize-1)*sizeof(int));
-    qdiv = qdiv0+absize-1;
-
-	memset(qmul0, 0, (2*beta-1)*sizeof(int));
-    qmul = qmul0+beta-1;
-
-    for ( dif = -(absize-1); dif<absize; dif++ ) {
-	    if ( dif<0 )
-		    qdiff = - ( (NEAR-dif)/quant );
-	    else
-		    qdiff = ( NEAR + dif )/quant;
-	    qdiv[dif] = qdiff;
-    }
-    for ( qdiff = -(beta-1); qdiff<beta; qdiff++ ) {
-	    dif = quant*qdiff;
-	    qmul[qdiff] = dif;
-    }
-}
-
 
 
 /* Initialize A[], B[], C[], and N[] arrays */

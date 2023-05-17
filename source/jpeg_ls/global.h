@@ -300,7 +300,6 @@ void  process_run(struct jls_enc_ctx *, struct bito_ctx *, int,int);
 
 /* initialize.c */
 int prepareLUTs(struct jls_enc_ctx *);
-void prepare_qtables(int);
 void init_stats(struct jls_enc_ctx *);
 
 int jpeg_ls_encode(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, int bpp);
