@@ -632,15 +632,12 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 		PutBitContext s;
 		init_put_bits(&s, dst, RP_JLS_ENCODE_BUFFER_SIZE);
 
-		const u8 *last = psl0;
+		const u8 *last = psl0 + LEFTMARGIN;
 		const u8 *in = src + LEFTMARGIN;
-		int t = 0;
 
 		for (int i = 0; i < w; ++i) {
-			int last0 = last[0];
-			ls_encode_line(&state, &s, last, in, t, h);
+			ls_encode_line(&state, &s, last, in, h);
 			last = in;
-			t = last0;
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
 

@@ -34,7 +34,7 @@ void ff_jpegls_init_state(JLSState *state)
 {
     int i;
 
-    state->range   = (state->maxval + TWO_NEAR - 1) / TWO_NEAR + 1;
+    state->range   = state->maxval + 1;
 
     // QBPP = ceil(log2(RANGE))
     for (state->qbpp = 0; (1 << state->qbpp) < state->range; state->qbpp++)
@@ -74,25 +74,25 @@ void ff_jpegls_reset_coding_parameters(JLSState *s, int reset_all)
         factor = FFMIN(s->maxval, 4095) + 128 >> 8;
 
         if (s->T1 == 0 || reset_all)
-            s->T1 = iso_clip(factor * (basic_t1 - 2) + 2 + 3 * NEAR,
-                             NEAR + 1, s->maxval);
+            s->T1 = iso_clip(factor * (basic_t1 - 2) + 2,
+                             1, s->maxval);
         if (s->T2 == 0 || reset_all)
-            s->T2 = iso_clip(factor * (basic_t2 - 3) + 3 + 5 * NEAR,
+            s->T2 = iso_clip(factor * (basic_t2 - 3) + 3,
                              s->T1, s->maxval);
         if (s->T3 == 0 || reset_all)
-            s->T3 = iso_clip(factor * (basic_t3 - 4) + 4 + 7 * NEAR,
+            s->T3 = iso_clip(factor * (basic_t3 - 4) + 4,
                              s->T2, s->maxval);
     } else {
         factor = 256 / (s->maxval + 1);
 
         if (s->T1 == 0 || reset_all)
-            s->T1 = iso_clip(FFMAX(2, basic_t1 / factor + 3 * NEAR),
-                             NEAR + 1, s->maxval);
+            s->T1 = iso_clip(FFMAX(2, basic_t1 / factor),
+                             1, s->maxval);
         if (s->T2 == 0 || reset_all)
-            s->T2 = iso_clip(FFMAX(3, basic_t2 / factor + 5 * NEAR),
+            s->T2 = iso_clip(FFMAX(3, basic_t2 / factor),
                              s->T1, s->maxval);
         if (s->T3 == 0 || reset_all)
-            s->T3 = iso_clip(FFMAX(4, basic_t3 / factor + 7 * NEAR),
+            s->T3 = iso_clip(FFMAX(4, basic_t3 / factor),
                              s->T2, s->maxval);
     }
 

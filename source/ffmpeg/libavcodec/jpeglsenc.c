@@ -42,7 +42,7 @@ static inline void ls_encode_regular(JLSState *state, PutBitContext *pb, int Q,
     for (k = 0; (state->N[Q] << k) < state->A[Q]; k++)
         ;
 
-    map = !NEAR && !k && (2 * state->B[Q] <= -state->N[Q]);
+    map = !k && (2 * state->B[Q] <= -state->N[Q]);
 
     if (err < 0)
         err += state->range;
@@ -94,21 +94,21 @@ static inline void ls_encode_runterm(JLSState *state, PutBitContext *pb,
  * Encode run value as specified by JPEG-LS standard
  */
 static inline void ls_encode_run(JLSState *state, PutBitContext *pb, int run,
-                                 int comp, int trail)
+                                 int trail)
 {
-    while (run >= (1 << ff_log2_run[state->run_index[comp]])) {
+    while (run >= (1 << ff_log2_run[state->run_index[0]])) {
         put_bits(pb, 1, 1);
-        run -= 1 << ff_log2_run[state->run_index[comp]];
-        if (state->run_index[comp] < 31)
-            state->run_index[comp]++;
+        run -= 1 << ff_log2_run[state->run_index[0]];
+        if (state->run_index[0] < 31)
+            state->run_index[0]++;
     }
     /* if hit EOL, encode another full run, else encode aborted run */
     if (!trail && run) {
         put_bits(pb, 1, 1);
     } else if (trail) {
         put_bits(pb, 1, 0);
-        if (ff_log2_run[state->run_index[comp]])
-            put_bits(pb, ff_log2_run[state->run_index[comp]], run);
+        if (ff_log2_run[state->run_index[0]])
+            put_bits(pb, ff_log2_run[state->run_index[0]], run);
     }
 }
 
@@ -116,60 +116,44 @@ static inline void ls_encode_run(JLSState *state, PutBitContext *pb, int run,
  * Encode one line of image
  */
 void ls_encode_line(JLSState *state, PutBitContext *pb,
-                    const uint8_t *last, const uint8_t *in, int last2, int w)
+                    const uint8_t *last, const uint8_t *in, int w)
 {
-    const int stride = 1, comp = 0, bits = 8;
     int x = 0;
-    int Ra = R(last, 0), Rb, Rc = last2, Rd;
+    int Ra = in[-1], Rb = last[0], Rc = last[-1], Rd = last[1];
     int D0, D1, D2;
 
-    while (x < w) {
+    while (1) {
         int err, pred, sign;
 
         /* compute gradients */
-        Rb = R(last, x);
-        Rd = (x >= w - stride) ? R(last, x) : R(last, x + stride);
         D0 = Rd - Rb;
         D1 = Rb - Rc;
         D2 = Rc - Ra;
 
         /* run mode */
-        if ((FFABS(D0) <= NEAR) &&
-            (FFABS(D1) <= NEAR) &&
-            (FFABS(D2) <= NEAR)) {
+        if (D0 == 0 &&
+            D1 == 0 &&
+            D2 == 0) {
             int RUNval, RItype, run;
 
             run    = 0;
             RUNval = Ra;
-            while (x < w && (FFABS(R(in, x) - RUNval) <= NEAR)) {
+            while (x < w && (in[x] - RUNval == 0)) {
                 run++;
-                W(last, x, Ra);
-                x += stride;
+                x += 1;
             }
-            ls_encode_run(state, pb, run, comp, x < w);
+            ls_encode_run(state, pb, run, x < w);
             if (x >= w)
                 return;
-            Rb     = R(last, x);
-            RItype = FFABS(Ra - Rb) <= NEAR;
+            Rb     = last[x];
+            RItype = Ra - Rb == 0;
             pred   = RItype ? Ra : Rb;
-            err    = R(in, x) - pred;
+            err    = in[x] - pred;
 
             if (!RItype && Ra > Rb)
                 err = -err;
 
-            if (NEAR) {
-                if (err > 0)
-                    err =  (NEAR + err) / TWO_NEAR;
-                else
-                    err = -(NEAR - err) / TWO_NEAR;
-
-                if (RItype || (Rb >= Ra))
-                    Ra = av_clip(pred + err * TWO_NEAR, 0, state->maxval);
-                else
-                    Ra = av_clip(pred - err * TWO_NEAR, 0, state->maxval);
-            } else
-                Ra = R(in, x);
-            W(last, x, Ra);
+            Ra = in[x];
 
             if (err < 0)
                 err += state->range;
@@ -177,10 +161,10 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
                 err -= state->range;
 
             ls_encode_runterm(state, pb, RItype, err,
-                              ff_log2_run[state->run_index[comp]]);
+                              ff_log2_run[state->run_index[0]]);
 
-            if (state->run_index[comp] > 0)
-                state->run_index[comp]--;
+            if (state->run_index[0] > 0)
+                state->run_index[0]--;
         } else { /* regular mode */
             int context;
 
@@ -193,29 +177,23 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
                 context = -context;
                 sign    = 1;
                 pred    = av_clip(pred - state->C[context], 0, state->maxval);
-                err     = pred - R(in, x);
+                err     = pred - in[x];
             } else {
                 sign = 0;
                 pred = av_clip(pred + state->C[context], 0, state->maxval);
-                err  = R(in, x) - pred;
+                err  = in[x] - pred;
             }
 
-            if (NEAR) {
-                if (err > 0)
-                    err =  (NEAR + err) / TWO_NEAR;
-                else
-                    err = -(NEAR - err) / TWO_NEAR;
-                if (!sign)
-                    Ra = av_clip(pred + err * TWO_NEAR, 0, state->maxval);
-                else
-                    Ra = av_clip(pred - err * TWO_NEAR, 0, state->maxval);
-            } else
-                Ra = R(in, x);
-            W(last, x, Ra);
+            Ra = in[x];
 
             ls_encode_regular(state, pb, context, err);
         }
+        x += 1;
+        if (x >= w)
+            break;
+
         Rc = Rb;
-        x += stride;
+        Rb = Rd;
+        Rd = last[x + 1];
     }
 }

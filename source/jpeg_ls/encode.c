@@ -47,8 +47,8 @@ int jpeg_ls_encode(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, co
 
     bitoinit(bctx);
 
-    const pixel *psl = psl0 + LEFTMARGIN;
-    const pixel *sl = src + LEFTMARGIN;
+    const pixel *psl = psl0 + LEFTMARGIN - 1;
+    const pixel *sl = src + LEFTMARGIN - 1;
 
     for (int i = 0; i < w; ++i) {
         lossless_doscanline(ctx, bctx, psl, sl, h);

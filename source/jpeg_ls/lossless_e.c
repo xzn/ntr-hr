@@ -74,8 +74,8 @@ static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ct
 
 	Nt = ctx->N[Q];
     At = ctx->A[Q];
-	
-	
+
+
 	/* Prediction correction (A.4.2), compute prediction error (A.4.3)
 	   , and error quantization (A.4.4) */
 	Px = Px + (SIGN) * ctx->C[Q];
@@ -87,7 +87,7 @@ static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ct
 	/* Modulo reduction of predication error (A.4.5) */
 	if (Errval < 0)
 		Errval += ALPHA(ctx);     /* Errval is now in [0.. alpha-1] */
-	
+
 
 	/* Estimate k - Golomb coding variable computation (A.5.1) */
 	{
@@ -110,7 +110,7 @@ static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ct
 		absErrval = Errval;
 		MErrval = (Errval<<1) + temp;
 	}
-			
+
 
 	/* update bias stats (after correction of the difference) (A.6.1) */
 	ctx->B[Q] = (Bt += Errval);
@@ -131,25 +131,25 @@ static inline void lossless_regular_mode(struct jls_enc_ctx *ctx, struct bito_ct
 
 
 	/* Do bias estimation for NEXT pixel */
-	/* Bias cancelation tries to put error in (-1,0] (A.6.2)*/	
+	/* Bias cancelation tries to put error in (-1,0] (A.6.2)*/
 	if  ( Bt <= -Nt ) {
 
 	    if (ctx->C[Q] > MIN_C)
 			--ctx->C[Q];
 
-	    if ( (ctx->B[Q] += Nt) <= -Nt ) 
+	    if ( (ctx->B[Q] += Nt) <= -Nt )
 			ctx->B[Q] = -Nt+1;
 
 	} else if ( Bt > 0 ) {
-	    
+
 	    if (ctx->C[Q] < MAX_C)
 			++ctx->C[Q];
-		
+
 		if ( (ctx->B[Q] -= Nt) > 0 )
 			ctx->B[Q] = 0;
 	}
 
-	
+
 	/* Actually output the code: Mapped Error Encoding (Appendix G) */
 	unary = MErrval >> k;
 	if ( unary < ctx->limit ) {
@@ -176,7 +176,7 @@ static inline void lossless_end_of_run(struct jls_enc_ctx *ctx, struct bito_ctx 
 		k,
 		At,
 		unary;
-	
+
 	register int Nt;
 
 	Q = EOR_0 + RItype;
@@ -194,27 +194,27 @@ static inline void lossless_end_of_run(struct jls_enc_ctx *ctx, struct bito_ctx 
 
 	/* Estimate k */
 	for(k=0; Nt < At; Nt<<=1, k++);
-					
+
 	if (Errval < 0)
 		Errval += ALPHA(ctx);
 	if( Errval >= CEIL_HALF_ALPHA(ctx) )
 		Errval -= ALPHA(ctx);
-			
-	
-	oldmap = ( k==0 && Errval && (ctx->B[Q]<<1)<Nt );	   
-	/*  Note: the Boolean variable 'oldmap' is not 
+
+
+	oldmap = ( k==0 && Errval && (ctx->B[Q]<<1)<Nt );
+	/*  Note: the Boolean variable 'oldmap' is not
 		identical to the variable 'map' in the
 		JPEG-LS draft. We have
 		oldmap = (Errval<0) ? (1-map) : map;
 	*/
 
-	/* Error mapping for run-interrupted sample (Figure A.22) */			
+	/* Error mapping for run-interrupted sample (Figure A.22) */
 	if( Errval < 0) {
 		MErrval = -(Errval<<1)-1-RItype+oldmap;
-		ctx->B[Q]++; 
+		ctx->B[Q]++;
 	}else
 		MErrval = (Errval<<1)-RItype-oldmap;
-	
+
 	absErrval = (MErrval+1-RItype)>>1;
 
 	/* Update variables for run-interruped sample (Figure A.23) */
@@ -268,217 +268,95 @@ void lossless_doscanline( struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
 	/**********************************************/
 	/* Do for all pixels in the row in 8-bit mode */
 	/**********************************************/
-	if (bpp16==FALSE) {
-		
-		Rc = psl[0];
-		Rb = psl[1];
-		Ra = sl[0];
+	Rc = psl[0];
+	Rb = psl[1];
+	Ra = sl[0];
 
-		/*	For 8-bit Image */
+	/*	For 8-bit Image */
 
-		do {
-			int RUNcnt;
+	do {
+		int RUNcnt;
 
-			Ix = sl[i];
-			Rd = psl[i + 1];
+		Ix = sl[i];
+		Rd = psl[i + 1];
 
-			/* Context determination */
+		/* Context determination */
 
-			/* Quantize the gradient */
-			/* partial context number: if (b-e) is used then its 
-			   contribution is added after determination of the run state.
-			   Also, sign flipping, if any, occurs after run
-			   state determination */
+		/* Quantize the gradient */
+		/* partial context number: if (b-e) is used then its
+			contribution is added after determination of the run state.
+			Also, sign flipping, if any, occurs after run
+			state determination */
 
 
-			cont =  ctx->vLUT[0][Rd - Rb + LUTMAX8] +
-					ctx->vLUT[1][Rb - Rc + LUTMAX8] +
-					ctx->vLUT[2][Rc - Ra + LUTMAX8];
+		cont =  ctx->vLUT[0][Rd - Rb + LUTMAX8] +
+				ctx->vLUT[1][Rb - Rc + LUTMAX8] +
+				ctx->vLUT[2][Rc - Ra + LUTMAX8];
 
-			if ( cont == 0 )
-			{
-		/*************** RUN STATE ***************************/
+		if ( cont == 0 )
+		{
+	/*************** RUN STATE ***************************/
 
-				RUNcnt = 0;
+			RUNcnt = 0;
 
-				if (Ix == Ra) {
-					while ( 1 ) {
+			if (Ix == Ra) {
+				while ( 1 ) {
 
-						++RUNcnt;
+					++RUNcnt;
 
-						if (++i > no) {	
-							/* Run-lenght coding when reach end of line (A.7.1.2) */
-							process_run(ctx, bctx,RUNcnt, EOLINE);
-							return;	 /* end of line */
-						}
-
-						Ix = sl[i];
-
-						if (Ix != Ra)	/* Run is broken */
-						{
-							Rd = psl[i + 1];
-							Rb = psl[i];
-							break;  /* out of while loop */
-						}
-						/* Run continues */
+					if (++i > no) {
+						/* Run-length coding when reach end of line (A.7.1.2) */
+						process_run(ctx, bctx,RUNcnt, EOLINE);
+						return;	 /* end of line */
 					}
-				}
 
-				/* we only get here if the run is broken by
-				   a non-matching symbol */
+					Ix = sl[i];
 
-				/* Run-lenght coding when end of line not reached (A.7.1.2) */
-				process_run(ctx, bctx,RUNcnt,NOEOLINE);
-
-
-				/* This is the END_OF_RUN state */
-				lossless_end_of_run(ctx, bctx, Ra, Rb, Ix, (Ra==Rb));
-
-			}           
-			else {
-
-		/*************** REGULAR CONTEXT *******************/
-
-				predict(Rb, Ra, Rc);
-
-				/* do symmetric context merging */
-				cont = ctx->classmap[cont];
-	
-				if (cont<0) {
-					SIGN=-1;
-					cont = -cont;
-				}
-				else
-					SIGN=+1;
-
-				/* output a rice code */
-				lossless_regular_mode(ctx, bctx, cont, SIGN, Px, Ix);
-			}
-
-			/* context for next pixel: */
-			Ra = Ix;
-			Rc = Rb;
-			Rb = Rd;
-		} while (++i <= no);	
-
-	}
-	else
-	{
-		/***********************************************/
-		/* Do for all pixels in the row in 16-bit mode */
-		/***********************************************/
-
-		Rc = ENDIAN16(psl[0]);
-		Rb = ENDIAN16(psl[1]);
-		Ra = ENDIAN16(sl[0]);
-
-		/*	For 16-bit Image */
-
-		do {
-			int RUNcnt;
-
-			Ix = ENDIAN16(sl[i]);
-			Rd = ENDIAN16(psl[i + 1]);
-
-			/* Context determination */
-
-			/* Quantize the gradient */
-			/* partial context number: if (b-e) is used then its 
-			   contribution is added after determination of the run state.
-			   Also, sign flipping, if any, occurs after run
-			   state determination */
-
-		
-			{
-				register int diff;
-
-				/* Following segment assumes that T3 <= LUTMAX16 */
-				/* This condition should have been checked when the
-					lookup tables were built */
-				diff = Rd - Rb;
-				if (diff < 0)
-					cont = (diff > -LUTMAX16) ? ctx->vLUT[0][diff + LUTMAX16] : 7*CREGIONS*CREGIONS;
-				else 
-					cont = (diff < LUTMAX16) ? ctx->vLUT[0][diff + LUTMAX16] : 8*CREGIONS*CREGIONS;
-
-				diff = Rb - Rc;
-				if (diff < 0)
-					cont += (diff > -LUTMAX16) ? ctx->vLUT[1][diff + LUTMAX16] : 7*CREGIONS;
-				else 
-					cont += (diff < LUTMAX16) ? ctx->vLUT[1][diff + LUTMAX16] : 8*CREGIONS;
-
-				diff = Rc - Ra;
-				if (diff < 0)
-					cont += (diff > -LUTMAX16) ? ctx->vLUT[2][diff + LUTMAX16] : 7;
-				else 
-					cont += (diff < LUTMAX16) ? ctx->vLUT[2][diff + LUTMAX16] : 8;
-			}
-
-
-			if ( cont == 0 ) {      /* Run state? */
-
-		/*************** RUN STATE ***************************/
-
-				RUNcnt = 0;
-
-				if (Ix == Ra) {
-					while ( 1 ) {
-					
-						++RUNcnt;
-
-						if (++i > no) {	
-							/* Run-lenght coding when reach end of line (A.7.1.2) */
-							process_run(ctx, bctx,RUNcnt, EOLINE);
-							return;	 /* end of line */
-						}
-
-						Ix = ENDIAN16(sl[i]);
-
-						if (Ix != Ra)	/* Run is broken */
-						{
-							Rd = ENDIAN16(psl[i + 1]);
-							Rb = ENDIAN16(psl[i]);
-							break;  /* out of while loop */
-						}
-						/* Run continues */
+					if (Ix != Ra)	/* Run is broken */
+					{
+						Rd = psl[i + 1];
+						Rb = psl[i];
+						break;  /* out of while loop */
 					}
+					/* Run continues */
 				}
-
-				/* we only get here if the run is broken by
-				   a non-matching symbol */
-
-				/* Run-lenght coding when end of line not reached (A.7.1.2) */
-				process_run(ctx, bctx,RUNcnt,NOEOLINE);
-
-				/* This is the END_OF_RUN state */
-				lossless_end_of_run(ctx, bctx, Ra, Rb, Ix, (Ra==Rb));
-
-			}
-			else {
-
-		/*************** REGULAR CONTEXT *******************/
-
-				predict(Rb, Ra, Rc);
-
-				/* do symmetric context merging */
-				cont = ctx->classmap[cont];
-	
-				if (cont<0) {
-					SIGN=-1;
-					cont = -cont;
-				}
-				else
-					SIGN=+1;
-
-				/* output a rice code */
-				lossless_regular_mode(ctx, bctx, cont, SIGN, Px, Ix);
 			}
 
-			/* context for next pixel: */
-			Ra = Ix;
-			Rc = Rb;
-			Rb = Rd;
-		} while (++i <= no);
-	}
+			/* we only get here if the run is broken by
+				a non-matching symbol */
+
+			/* Run-length coding when end of line not reached (A.7.1.2) */
+			process_run(ctx, bctx,RUNcnt,NOEOLINE);
+
+
+			/* This is the END_OF_RUN state */
+			lossless_end_of_run(ctx, bctx, Ra, Rb, Ix, (Ra==Rb));
+
+		}
+		else {
+
+	/*************** REGULAR CONTEXT *******************/
+
+			predict(Rb, Ra, Rc);
+
+			/* do symmetric context merging */
+			cont = ctx->classmap[cont];
+
+			if (cont<0) {
+				SIGN=-1;
+				cont = -cont;
+			}
+			else
+				SIGN=+1;
+
+			/* output a rice code */
+			lossless_regular_mode(ctx, bctx, cont, SIGN, Px, Ix);
+		}
+
+		/* context for next pixel: */
+		Ra = Ix;
+		Rc = Rb;
+		Rb = Rd;
+	} while (++i <= no);
 }
 
