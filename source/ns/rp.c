@@ -822,6 +822,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 			nsDbgPrint("Buffer overrun in rpJLSEncodeImage\n");
 			return -1; // if we didn't crash, fail because buffer overflow
 		}
+		return ret;
 	}
 	return 0;
 }
