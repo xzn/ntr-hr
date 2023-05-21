@@ -1456,7 +1456,6 @@ static void rpThreadStart(u32 arg UNUSED) {
 	}
 
 final:
-	rpInited = 0;
 	svc_exitThread();
 }
 
@@ -1480,14 +1479,16 @@ static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
 	}
 	if (buf[0x17 + 0x8] == 6) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
-			rp_storage_ctx = (typeof(rp_storage_ctx))plgRequestMemory(sizeof(*rp_storage_ctx));
+			rpInited = 1;
+
+			int storage_size = (sizeof(*rp_storage_ctx) + 0x1000 - 1) / 0x1000 * 0x1000;
+			rp_storage_ctx = (typeof(rp_storage_ctx))plgRequestMemory(storage_size);
 			if (!rp_storage_ctx) {
 				nsDbgPrint("Request memory for RemotePlay failed\n");
 				return 0;
 			}
-			nsDbgPrint("RemotePlay memory: 0x%08x (0x%x bytes)\n", rp_storage_ctx, sizeof(*rp_storage_ctx));
+			nsDbgPrint("RemotePlay memory: 0x%08x (0x%x bytes)\n", rp_storage_ctx, storage_size);
 
-			rpInited = 1;
 			memcpy(rp_storage_ctx->nwm_send_buffer, buf, 0x22 + 8);
 
 			umm_init_heap(rp_storage_ctx->umm_heap, RP_UMM_HEAP_SIZE);

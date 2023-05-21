@@ -6,9 +6,9 @@ OBJCOPY := $(DEV_BIN_DIR)/arm-none-eabi-objcopy
 LD := $(DEV_BIN_DIR)/arm-none-eabi-ld
 CP := cp
 
-CFLAGS := -s -flto -Ofast -march=armv6k -mtune=mpcore -mfloat-abi=hard
+CFLAGS := -s -Ofast -march=armv6k -mtune=mpcore -mfloat-abi=hard
 CPPFLAGS := -Iinclude
-LDFLAGS := -s -flto=auto -Ofast -march=armv6k -mtune=mpcore -mfloat-abi=hard -pie -Wl,--print-gc-sections -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
+LDFLAGS := -s -Ofast -march=armv6k -mtune=mpcore -mfloat-abi=hard -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
 LDLIBS := -L. -lc -lm -lgcc -nostdlib
 
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)

@@ -943,7 +943,7 @@ void nsMainLoop(void) {
 	while (1) {
 		checkExitFlag();
 		listen_sock = socket(AF_INET, SOCK_STREAM, 0);
-		if (listen_sock > 0) {
+		if (listen_sock >= 0) {
 			break;
 		}
 		svc_sleepThread(1000000000);
