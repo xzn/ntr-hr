@@ -116,7 +116,7 @@ static inline void ls_encode_run(JLSState *state, PutBitContext *pb, int run,
  * Encode one line of image
  */
 void ls_encode_line(JLSState *state, PutBitContext *pb,
-                    const uint8_t *last, const uint8_t *in, int w, const uint16_t (*vLUT)[3], const uint16_t classmap[])
+                    const uint8_t *last, const uint8_t *in, int w, int bpp, const uint16_t (*vLUT)[3], const int16_t classmap[])
 {
     int x = 0;
     int Ra = in[-1], Rb = last[0], Rc = last[-1], Rd = last[1];
@@ -126,9 +126,9 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
         int err, pred, sign;
 
         /* compute gradients */
-        cont =  vLUT[Rd - Rb + 256][0] +
-                vLUT[Rb - Rc + 256][1] +
-                vLUT[Rc - Ra + 256][2];
+        cont =  vLUT[Rd - Rb + (1 << bpp)][0] +
+                vLUT[Rb - Rc + (1 << bpp)][1] +
+                vLUT[Rc - Ra + (1 << bpp)][2];
 
         /* run mode */
         if (cont == 0) {
