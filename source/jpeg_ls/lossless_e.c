@@ -58,9 +58,6 @@
 #include "bitio.h"
 
 
-/*byte getk[65][3000];*/
-/*byte clipPx[510];*/
-
 static int eor_limit;
 
 
@@ -70,7 +67,7 @@ static inline void lossless_regular_mode(const struct jls_enc_params *params, st
 	int At, Nt, Bt, absErrval, Errval, MErrval;
 	int	unary;
 	int temp;
-	byte k;
+	uint8_t k;
 
 	Nt = ctx->N[Q];
     At = ctx->A[Q];
@@ -252,7 +249,7 @@ void lossless_doscanline( const struct jls_enc_params *params,
 			  const pixel *psl,            /* previous scanline */
 			  const pixel *sl,             /* current scanline */
 			  int no,                      /* number of values in it */
-			  const word classmap[])
+			  const int16_t classmap[])
 
 /*** watch it! actual pixels in the scan line are numbered 1 to no .
      pixels with indices < 1 or > no are dummy "border" pixels  */

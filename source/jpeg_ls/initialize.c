@@ -57,15 +57,11 @@
 #include <string.h>
 
 
-/*byte getk[65][3000];*/
-/*int clipPx[510];*/
-
-
 /* Setup Look Up Tables for quantized gradient merging */
-void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3)
+void prepare_vLUT(uint16_t vLUT[][3], int alpha, int T1, int T2, int T3)
 {
 	int i, j, idx;
-	byte k;
+	uint8_t k;
 
 	/* Build classification tables (lossless or lossy) */
 
@@ -117,7 +113,7 @@ void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3)
 		clipPx[i] = 255;*/
 }
 
-void prepare_classmap(word classmap[]) {
+void prepare_classmap(int16_t classmap[]) {
 	int i, j;
 	/*  prepare context mapping table (symmetric context merging) */
 	classmap[0] = 0;

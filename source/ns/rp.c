@@ -107,10 +107,10 @@ static struct {
 	struct jls_enc_ctx jls_enc_ctx[RP_ENCODE_THREAD_COUNT];
 	struct bito_ctx jls_bito_ctx[RP_ENCODE_THREAD_COUNT];
 	struct {
-		word vLUT_bpp8[2 * (1 << 8)][3];
-		word vLUT_bpp5[2 * (1 << 5)][3];
-		word vLUT_bpp6[2 * (1 << 6)][3];
-		word classmap[9 * 9 * 9];
+		uint16_t vLUT_bpp8[2 * (1 << 8)][3];
+		uint16_t vLUT_bpp5[2 * (1 << 5)][3];
+		uint16_t vLUT_bpp6[2 * (1 << 6)][3];
+		int16_t classmap[9 * 9 * 9];
 	} jls_enc_luts;
 	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
 	u8 jls_encode_top_bot[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
@@ -753,7 +753,7 @@ static void jls_encoder_prepare_LUTs(void) {
 
 #define RP_JLS_INIT_LUT(bpp, bpp_index, bpp_lut_name) do { \
 	p = &rp_storage_ctx->jls_enc_params[bpp_index]; \
-	jpeg_ls_init(p, bpp, (const word (*)[3])rp_storage_ctx->jls_enc_luts.bpp_lut_name); \
+	jpeg_ls_init(p, bpp, (const uint16_t (*)[3])rp_storage_ctx->jls_enc_luts.bpp_lut_name); \
 	prepare_vLUT(rp_storage_ctx->jls_enc_luts.bpp_lut_name, p->alpha, p->T1, p->T2, p->T3); } while (0) \
 
 	RP_JLS_INIT_LUT(8, RP_ENCODE_PARAMS_BPP8, vLUT_bpp8);

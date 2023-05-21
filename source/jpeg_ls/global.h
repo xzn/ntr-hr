@@ -87,12 +87,7 @@
 
 /****** Type prototypes */
 
-/* Portability types */
-typedef uint8_t byte;
-typedef uint16_t word;
-typedef uint32_t dword;
-
-typedef byte pixel;
+typedef uint8_t pixel;
 
 struct jls_enc_params {
 
@@ -161,7 +156,7 @@ int bpp,			/* bits per sample */
 
 int  	T1, T2, T3, Ta;
 
-const word (*vLUT)[3];
+const uint16_t (*vLUT)[3];
 
 };
 
@@ -289,9 +284,6 @@ unsigned long melcorder[MAX_COMPONENTS];  /* 2^ melclen */
 /* for look-up-tables */
 #define lutmax LUTMAX8
 
-/*extern byte getk[65][3000];*/
-/*extern int clipPx[510];*/
-
 
 /****** Function prototypes */
 
@@ -300,7 +292,7 @@ struct bito_ctx;
 void set_thresholds(int alfa, int *T1p, int *T2p, int *T3p);
 
 /* lossless.c */
-void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx *, struct bito_ctx *, const pixel *psl, const pixel *sl, int no, const word classmap[]);
+void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx *, struct bito_ctx *, const pixel *psl, const pixel *sl, int no, const int16_t classmap[]);
 
 /* bitio.c */
 void bitoflush(struct bito_ctx *, char **);
@@ -312,12 +304,12 @@ void close_process_run(struct jls_enc_ctx *ctx);
 void  process_run(struct jls_enc_ctx *, struct bito_ctx *, int,int);
 
 /* initialize.c */
-void prepare_vLUT(word vLUT[][3], int alpha, int T1, int T2, int T3);
+void prepare_vLUT(uint16_t vLUT[][3], int alpha, int T1, int T2, int T3);
 void init_stats(struct jls_enc_ctx *, int alpha);
-void prepare_classmap(word classmap[]);
+void prepare_classmap(int16_t classmap[]);
 
-void jpeg_ls_init(struct jls_enc_params *params, int bpp, const word (*vLUT)[3]);
-int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, const word classmap[]);
+void jpeg_ls_init(struct jls_enc_params *params, int bpp, const uint16_t (*vLUT)[3]);
+int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, const int16_t classmap[]);
 
 #ifdef BIG_ENDIAN
 #    define ENDIAN8(x)   (x)
