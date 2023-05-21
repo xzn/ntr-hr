@@ -317,7 +317,7 @@ void init_stats(struct jls_enc_ctx *, int alpha);
 void prepare_classmap(word classmap[]);
 
 void jpeg_ls_init(struct jls_enc_params *params, int bpp, const word (*vLUT)[3]);
-int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, int bpp, const word classmap[]);
+int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, const word classmap[]);
 
 #ifdef BIG_ENDIAN
 #    define ENDIAN8(x)   (x)

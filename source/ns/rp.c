@@ -815,7 +815,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 		struct jls_enc_ctx *ctx = &rp_storage_ctx->jls_enc_ctx[thread_n];
 		struct bito_ctx *bctx = &rp_storage_ctx->jls_bito_ctx[thread_n];
 		int ret = jpeg_ls_encode(
-			params, ctx, bctx, (char *)dst, src, h, w, h + LEFTMARGIN + RIGHTMARGIN, bpp,
+			params, ctx, bctx, (char *)dst, src, h, w, h + LEFTMARGIN + RIGHTMARGIN,
 			rp_storage_ctx->jls_enc_luts.classmap
 		);
 		if (ret > RP_JLS_ENCODE_BUFFER_SIZE) {
