@@ -39,7 +39,7 @@ typedef struct JLSState {
     int T1, T2, T3;
     int A[367], B[367], C[365], N[367];
     int limit, reset, bpp, qbpp, maxval, range;
-    int run_index[4];
+    int run_index;
 } JLSState;
 
 /**
@@ -116,6 +116,6 @@ static inline int ff_jpegls_update_state_regular(JLSState *state,
 }
 
 void ls_encode_line(JLSState *state, PutBitContext *pb,
-                    const uint8_t *last, const uint8_t *in, int w, int bpp, const uint16_t (*vLUT)[3], const int16_t classmap[]);
+                    const uint8_t *last, const uint8_t *in, int w, const uint16_t (*vLUT)[3], const int16_t classmap[]);
 
 #endif /* AVCODEC_JPEGLS_H */

@@ -797,7 +797,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 
 		for (int i = 0; i < w; ++i) {
 			ls_encode_line(
-				&state, &s, last, in, h, bpp,
+				&state, &s, last, in, h,
 				(const uint16_t (*)[3])params->vLUT,
 				rp_storage_ctx->jls_enc_luts.classmap
 			);
