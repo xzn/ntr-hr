@@ -1140,7 +1140,11 @@ static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOr
 	const u8 *src_col0 = src;
 	const u8 *src_col1 = src + pitch;
 	while (src_col0 < src_end) {
-		convert_set_zero(&ds_dst, LEFTMARGIN);
+		if (src_col0 == src) {
+			convert_set_zero(&ds_dst, LEFTMARGIN);
+		} else {
+			convert_set_prev_first(hOrig + RIGHTMARGIN, &ds_dst, LEFTMARGIN);
+		}
 		const u8 *src_col0_end = src_col0 + hOrig;
 		while (src_col0 < src_col0_end) {
 			u16 p = *src_col0++;
