@@ -138,7 +138,7 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
             RUNval = Ra;
             while (x < w && (in[x] - RUNval == 0)) {
                 run++;
-                x += 1;
+                x++;
             }
             ls_encode_run(state, pb, run, x < w);
             if (x >= w)
@@ -163,6 +163,14 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
 
             if (state->run_index[0] > 0)
                 state->run_index[0]--;
+
+            x++;
+            if (x >= w)
+                break;
+
+            Rc = Rb;
+            Rb = last[x];
+            Rd = last[x + 1];
         } else { /* regular mode */
             cont = classmap[cont];
             pred    = mid_pred(Ra, Ra + Rb - Rc, Rb);
@@ -181,13 +189,14 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
             Ra = in[x];
 
             ls_encode_regular(state, pb, cont, err);
-        }
-        x += 1;
-        if (x >= w)
-            break;
 
-        Rc = Rb;
-        Rb = Rd;
-        Rd = last[x + 1];
+            x++;
+            if (x >= w)
+                break;
+
+            Rc = Rb;
+            Rb = Rd;
+            Rd = last[x + 1];
+        }
     }
 }
