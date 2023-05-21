@@ -54,7 +54,7 @@ int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx,
         sl += pitch;
     }
 
-    bitoflush(bctx, ctx->out);
+    bitoflush(bctx, &ctx->out);
 
     return ctx->out - dst;
 }

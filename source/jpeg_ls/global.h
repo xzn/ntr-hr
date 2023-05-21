@@ -303,7 +303,7 @@ void set_thresholds(int alfa, int *T1p, int *T2p, int *T3p);
 void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx *, struct bito_ctx *, const pixel *psl, const pixel *sl, int no, const word classmap[]);
 
 /* bitio.c */
-void bitoflush(struct bito_ctx *, char *);
+void bitoflush(struct bito_ctx *, char **);
 void bitoinit(struct bito_ctx *);
 
 /*  melcode.c */

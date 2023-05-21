@@ -55,6 +55,7 @@
 #define BITIO_H
 
 #include <stdint.h>
+#include <string.h>
 
 
 #define ESCAPE 0
@@ -79,8 +80,11 @@ int bits;          /* number of bits free in bit buffer (on output) */
 #define myputc(bctx, c, fil) ((bctx->fp >= BUFSIZE) ? (flushbuff(bctx, fil), buff(bctx)[bctx->fp++] = c) :\
                                                         (buff(bctx)[bctx->fp++] = c))
 
-#define fwrite mywrite
-extern void mywrite(const void *buffer, size_t size, size_t count, char *out);
+static inline void mywrite(const void *buffer, size_t size, size_t count, char **out) {
+     memcpy(*out, buffer, size * count);
+     *out += size * count;
+}
+
 
 #define assert(...)
 
@@ -90,7 +94,7 @@ extern void mywrite(const void *buffer, size_t size, size_t count, char *out);
         bctx->bits -= n;                                            \
         while (bctx->bits <= 24) {                                  \
                 if (bctx->fp >= BUFSIZE) {                          \
-                        fwrite(buff(bctx), 1, bctx->fp, ctx->out);       \
+                        mywrite(buff(bctx), 1, bctx->fp, &ctx->out);       \
                         bctx->fp = 0;                               \
                 }                                             \
                 buff(bctx)[bctx->fp++] = bctx->reg >> 24;                 \
@@ -134,7 +138,7 @@ extern void mywrite(const void *buffer, size_t size, size_t count, char *out);
         while (bctx->bits <= 24) {                                   	\
 			register unsigned int outbyte;		\
             if (bctx->fp >= BUFSIZE) {                       		\
-				fwrite(buff(bctx), 1, bctx->fp, ctx->out);       \
+				mywrite(buff(bctx), 1, bctx->fp, &ctx->out);       \
 				bctx->fp = 0;                         \
 			}                                       \
             outbyte = (buff(bctx)[bctx->fp++] = (bctx->reg >> 24) );		\

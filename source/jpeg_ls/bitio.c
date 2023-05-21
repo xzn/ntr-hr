@@ -53,27 +53,20 @@
 #include "global.h"
 #include "bitio.h"
 
-
 /****************************************************************************
  *  OUTPUT ROUTINES
  *  note: some routines are implemented as preprocessor macros. See bitio.h.
  ****************************************************************************/
 
-void flushbuff(struct bito_ctx *bctx, char *fil) {
-	/* fwrite must work correctly, even if fp is equal to 0 */
-    fwrite(buff(bctx), 1, bctx->fp, fil);
+void flushbuff(struct bito_ctx *bctx, char **fil) {
+	/* mywrite must work correctly, even if fp is equal to 0 */
+    mywrite(buff(bctx), 1, bctx->fp, fil);
     bctx->fp = 0;
 }
 
 
-
-void mywrite(const void *buffer, size_t size, size_t count, char *out) {
-}
-
-
-
 /* Flushes the bit output buffer and the byte output buffer */
-void bitoflush(struct bito_ctx *bctx, char *out) {
+void bitoflush(struct bito_ctx *bctx, char **out) {
 	register unsigned int outbyte;
     
     while (bctx->bits < 32) {
