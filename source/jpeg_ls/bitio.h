@@ -80,9 +80,9 @@ int bits;          /* number of bits free in bit buffer (on output) */
 #define myputc(bctx, c, fil) ((bctx->fp >= BUFSIZE) ? (flushbuff(bctx, fil), buff(bctx)[bctx->fp++] = c) :\
                                                         (buff(bctx)[bctx->fp++] = c))
 
-static inline void mywrite(const void *buffer, size_t size, size_t count, char **out) {
-     memcpy(*out, buffer, size * count);
-     *out += size * count;
+static inline void mywrite(const void *buffer, size_t size, char **out) {
+     memcpy(*out, buffer, size);
+     *out += size;
 }
 
 
@@ -94,7 +94,7 @@ static inline void mywrite(const void *buffer, size_t size, size_t count, char *
         bctx->bits -= n;                                            \
         while (bctx->bits <= 24) {                                  \
                 if (bctx->fp >= BUFSIZE) {                          \
-                        mywrite(buff(bctx), 1, bctx->fp, &ctx->out);       \
+                        mywrite(buff(bctx), bctx->fp, &ctx->out);       \
                         bctx->fp = 0;                               \
                 }                                             \
                 buff(bctx)[bctx->fp++] = bctx->reg >> 24;                 \
@@ -138,7 +138,7 @@ static inline void mywrite(const void *buffer, size_t size, size_t count, char *
         while (bctx->bits <= 24) {                                   	\
 			register unsigned int outbyte;		\
             if (bctx->fp >= BUFSIZE) {                       		\
-				mywrite(buff(bctx), 1, bctx->fp, &ctx->out);       \
+				mywrite(buff(bctx), bctx->fp, &ctx->out);       \
 				bctx->fp = 0;                         \
 			}                                       \
             outbyte = (buff(bctx)[bctx->fp++] = (bctx->reg >> 24) );		\

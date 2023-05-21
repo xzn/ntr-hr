@@ -60,7 +60,7 @@
 
 void flushbuff(struct bito_ctx *bctx, char **fil) {
 	/* mywrite must work correctly, even if fp is equal to 0 */
-    mywrite(buff(bctx), 1, bctx->fp, fil);
+    mywrite(buff(bctx), bctx->fp, fil);
     bctx->fp = 0;
 }
 
