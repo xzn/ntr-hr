@@ -288,9 +288,9 @@ void lossless_doscanline( const struct jls_enc_params *params,
 			state determination */
 
 
-		cont =  params->vLUT[Rd - Rb + LUTMAX8][0] +
-				params->vLUT[Rb - Rc + LUTMAX8][1] +
-				params->vLUT[Rc - Ra + LUTMAX8][2];
+		cont =  params->vLUT[Rd - Rb + ALPHA(params)][0] +
+				params->vLUT[Rb - Rc + ALPHA(params)][1] +
+				params->vLUT[Rc - Ra + ALPHA(params)][2];
 
 		if ( cont == 0 )
 		{

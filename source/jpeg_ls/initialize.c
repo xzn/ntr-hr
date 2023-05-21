@@ -88,9 +88,9 @@ void prepare_vLUT(uint16_t vLUT[][3], int alpha, int T1, int T2, int T3)
 		else                    /* T3 ... */
 			idx = 8;
 
-		vLUT[i + lutmax][0] = CREGIONS * CREGIONS * idx;
-		vLUT[i + lutmax][1] = CREGIONS * idx;
-		vLUT[i + lutmax][2] = idx;
+		vLUT[i + alpha][0] = CREGIONS * CREGIONS * idx;
+		vLUT[i + alpha][1] = CREGIONS * idx;
+		vLUT[i + alpha][2] = idx;
 	}
 
 	/* prepare table to find k */
