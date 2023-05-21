@@ -961,7 +961,6 @@ static ALWAYS_INLINE
 void convert_set_zero(u8 *restrict *restrict dp_y_out, int count) {
 	for (int i = 0; i < count; ++i) {
 		*(*dp_y_out)++ = 0;
-		++*dp_y_out;
 	}
 }
 
@@ -997,6 +996,27 @@ void convert_set_3_last(
 	convert_set_last(dp_v_out, count);
 }
 
+static ALWAYS_INLINE
+void convert_set_prev_first(int prev_off, u8 *restrict *restrict dp_y_out, int count) {
+	u8 prev_first = *(*dp_y_out - prev_off);
+	for (int i = 0; i < count; ++i) {
+		*(*dp_y_out)++ = prev_first;
+	}
+}
+
+static ALWAYS_INLINE
+void convert_set_3_prev_first(
+	int prev_off,
+	u8 *restrict *restrict dp_y_out,
+	u8 *restrict *restrict dp_u_out,
+	u8 *restrict *restrict dp_v_out,
+	int count
+) {
+	convert_set_prev_first(prev_off, dp_y_out, count);
+	convert_set_prev_first(prev_off, dp_u_out, count);
+	convert_set_prev_first(prev_off, dp_v_out, count);
+}
+
 static int convert_yuv_image(
 	int format, int width, int height, int bytes_per_pixel, int bytes_to_next_column,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
@@ -1007,6 +1027,8 @@ static int convert_yuv_image(
 	ASSUME_ALIGN_4(dp_u_out);
 	ASSUME_ALIGN_4(dp_v_out);
 
+	convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+	int prev_off = height + RIGHTMARGIN;
 	int x, y;
 
 	switch (format) {
@@ -1020,7 +1042,8 @@ static int convert_yuv_image(
 			FALLTHRU
 		case 1: {
 			for (x = 0; x < width; ++x) {
-				convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+				if (x > 0)
+					convert_set_3_prev_first(prev_off, &dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 				for (y = 0; y < height; ++y) {
 					convert_yuv(sp[2], sp[1], sp[0], dp_y_out++, dp_u_out++, dp_v_out++,
 						8, 0
@@ -1036,7 +1059,8 @@ static int convert_yuv_image(
 
 		case 2: {
 			for (x = 0; x < width; x++) {
-				convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+				if (x > 0)
+					convert_set_3_prev_first(prev_off, &dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
@@ -1059,7 +1083,8 @@ static int convert_yuv_image(
 		case 3:
 		if (0) {
 			for (x = 0; x < width; x++) {
-				convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+				if (x > 0)
+					convert_set_3_prev_first(prev_off, &dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
@@ -1080,7 +1105,8 @@ static int convert_yuv_image(
 		case 4:
 		if (0) {
 			for (x = 0; x < width; x++) {
-				convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
+				if (x > 0)
+					convert_set_3_prev_first(prev_off, &dp_y_out, &dp_u_out, &dp_v_out, LEFTMARGIN);
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
