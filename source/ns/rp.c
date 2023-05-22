@@ -26,6 +26,8 @@ static sendPacketTypedef nwmSendPacket = 0;
 static RT_HOOK nwmValParamHook;
 
 static struct {
+	u32 kcp_conv;
+
 	u8 yuv_option;
 	u8 color_transform_hp;
 	u8 encoder_which;
@@ -63,7 +65,6 @@ static Handle rp_network_thread;
 #define NWM_HEADER_SIZE (0x2a + 8)
 #define NWM_PACKET_SIZE (KCP_PACKET_SIZE + NWM_HEADER_SIZE)
 
-#define KCP_MAGIC 0x12345fff
 #define KCP_TIMEOUT_TICKS (250 * SYSTICK_PER_MS)
 #define RP_PACKET_SIZE (KCP_PACKET_SIZE - IKCP_OVERHEAD)
 #define KCP_SND_WND_SIZE 40
@@ -465,7 +466,7 @@ static void rpNetworkTransfer(void) {
 
 	// kcp init
 	LightLock_Lock(&rp_kcp_mutex);
-	rp_kcp = ikcp_create(KCP_MAGIC, 0);
+	rp_kcp = ikcp_create(rp_config.kcp_conv, 0);
 	if (!rp_kcp) {
 		nsDbgPrint("ikcp_create failed\n");
 	} else {
@@ -1369,10 +1370,12 @@ static void rp_set_params() {
 	rp_config.arg1 = g_nsConfig->startupInfo[9];
 	rp_config.arg2 = g_nsConfig->startupInfo[10];
 
-	rp_config.downscale_uv = rp_config.arg0 & 0x1;
-	rp_config.encoder_which = rp_config.arg0 & 0x2 >> 1;
+	rp_config.kcp_conv = rp_config.arg0;
+
 	rp_config.yuv_option = rp_config.arg1 & 0x3;
 	rp_config.color_transform_hp = rp_config.arg1 & 0xc >> 2;
+	rp_config.downscale_uv = rp_config.arg1 & 0x10 >> 4;
+	rp_config.encoder_which = rp_config.arg1 & 0x20 >> 5;
 
 	rp_config.top_priority = rp_config.arg2 & 0xf;
 	rp_config.bot_priority = rp_config.arg2 & 0xf0 >> 4;
