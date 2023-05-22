@@ -65,7 +65,7 @@ static Handle rp_network_thread;
 #define RP_PACKET_SIZE (KCP_PACKET_SIZE - IKCP_OVERHEAD)
 #define KCP_SND_WND_SIZE 40
 
-#define RP_DEST_PORT RP_PORT
+#define RP_DEST_PORT (8001)
 #define RP_SCREEN_BUFFER_SIZE (400 * 240 * 4)
 #define RP_UMM_HEAP_SIZE (128 * 1024)
 #define RP_STACK_SIZE (0x8000)
@@ -276,7 +276,7 @@ static int rpInitUDPPacket(int dataLen) {
 	dataLen += 8;
 
 	u8 *rpSendBuffer = rp_storage_ctx->nwm_send_buffer;
-	*(u16*)(rpSendBuffer + 0x22 + 8) = htons(8000); // src port
+	*(u16*)(rpSendBuffer + 0x22 + 8) = htons(RP_PORT); // src port
 	*(u16*)(rpSendBuffer + 0x24 + 8) = htons(RP_DEST_PORT); // dest port
 	*(u16*)(rpSendBuffer + 0x26 + 8) = htons(dataLen);
 	*(u16*)(rpSendBuffer + 0x28 + 8) = 0; // no checksum

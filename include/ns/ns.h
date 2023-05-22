@@ -128,7 +128,7 @@ typedef struct _NS_CONTEXT {
 extern NS_CONTEXT *g_nsCtx;
 extern NS_CONFIG *g_nsConfig;
 
-#define RP_PORT (8001)
+#define RP_PORT (8000)
 extern int rp_recv_sock;
 void rpControlRecv(void);
 
