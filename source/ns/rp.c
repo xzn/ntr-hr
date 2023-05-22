@@ -1188,6 +1188,7 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 	return 0;
 }
 
+void rpKernelCallback(int top_bot);
 static void rpEncodeScreenAndSend(int thread_n) {
 	int ret;
 	while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) {
@@ -1204,7 +1205,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			rp_atomic_fetch_add_wrap(&rp_bot_image_n, 1, RP_IMAGE_BUFFER_COUNT);
 		ret = rpEncodeImage(screen_buffer_n, image_buffer_n, top_bot);
 		if (ret < 0) {
-			nsDbgPrint("rpEncodeImage failed");
+			nsDbgPrint("rpEncodeImage failed\n");
 			__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_SEQ_CST);
 			break;
 		}
@@ -1232,7 +1233,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			rp_storage_ctx->bot_image[image_buffer_n].b \
 	); \
 	if (ret < 0) { \
-		nsDbgPrint("rpJLSEncodeImage failed"); \
+		nsDbgPrint("rpJLSEncodeImage failed\n"); \
 		__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_SEQ_CST); \
 		break; \
 	} \
@@ -1282,7 +1283,6 @@ static void rpSecondThreadStart(u32 arg UNUSED) {
 	svc_exitThread();
 }
 
-void rpKernelCallback(int top_bot);
 static void rpScreenTransferThread(u32 arg UNUSED) {
 	int ret;
 
