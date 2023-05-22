@@ -65,13 +65,13 @@ static Handle rp_network_thread;
 #define NWM_HEADER_SIZE (0x2a + 8)
 #define NWM_PACKET_SIZE (KCP_PACKET_SIZE + NWM_HEADER_SIZE)
 
-#define KCP_TIMEOUT_TICKS (250 * SYSTICK_PER_MS)
+#define KCP_TIMEOUT_TICKS (500 * SYSTICK_PER_MS)
 #define RP_PACKET_SIZE (KCP_PACKET_SIZE - IKCP_OVERHEAD)
-#define KCP_SND_WND_SIZE 40
+#define KCP_SND_WND_SIZE 96
 
 #define RP_DEST_PORT (8001)
 #define RP_SCREEN_BUFFER_SIZE (400 * 240 * 4)
-#define RP_UMM_HEAP_SIZE (128 * 1024)
+#define RP_UMM_HEAP_SIZE (256 * 1024)
 #define RP_STACK_SIZE (0x8000)
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
@@ -496,6 +496,8 @@ static void rpNetworkTransfer(void) {
 			continue;
 		}
 
+		last_tick = curr_tick;
+
 		struct rp_send_header header = {
 			.size = rp_storage_ctx->jls_encode_size[pos],
 			.frame_n = rp_storage_ctx->jls_encode_frame_n[pos],
@@ -505,8 +507,6 @@ static void rpNetworkTransfer(void) {
 		rpSetPriorityScreen(header.top_bot, header.size);
 		u32 size_remain = header.size;
 		u8 *data = rp_storage_ctx->jls_encode_buffer[pos];
-
-		last_tick = curr_tick;
 
 		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST)) {
 			if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
@@ -538,13 +538,16 @@ static void rpNetworkTransfer(void) {
 
 				ikcp_update(rp_kcp, iclock());
 				LightLock_Unlock(&rp_kcp_mutex);
+
+				last_tick = curr_tick;
 				break;
 			}
 			ikcp_update(rp_kcp, iclock());
 			LightLock_Unlock(&rp_kcp_mutex);
+
+			svc_sleepThread(1000000);
 		}
 
-		last_tick = curr_tick;
 		u32 tick_diff;
 
 		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST) &&
@@ -577,9 +580,17 @@ static void rpNetworkTransfer(void) {
 
 				size_remain -= data_size;
 				data += data_size;
+
+				ikcp_update(rp_kcp, iclock());
+				LightLock_Unlock(&rp_kcp_mutex);
+
+				last_tick = curr_tick;
+				continue;
 			}
 			ikcp_update(rp_kcp, iclock());
 			LightLock_Unlock(&rp_kcp_mutex);
+
+			svc_sleepThread(1000000);
 		}
 
 		rp_network_encode_release();
