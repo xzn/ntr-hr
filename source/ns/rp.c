@@ -32,9 +32,12 @@ static struct {
 	u8 downscale_uv;
 
 	u8 target_frame_rate;
+	u8 target_mbit_rate;
 	u8 dynamic_priority;
 	u8 top_priority;
 	u8 bot_priority;
+
+	u32 min_send_interval_ticks;
 
 	int arg0;
 	int arg1;
@@ -476,7 +479,13 @@ static void rpNetworkTransfer(void) {
 	}
 	LightLock_Unlock(&rp_kcp_mutex);
 
+	u32 last_tick = (u32)svc_getSystemTick(), curr_tick;
 	while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST) && !rp_reset_kcp) {
+		if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
+			rp_reset_kcp = 1;
+			break;
+		}
+
 		LightLock_Lock(&rp_kcp_mutex);
 		ikcp_update(rp_kcp, iclock());
 		LightLock_Unlock(&rp_kcp_mutex);
@@ -496,10 +505,10 @@ static void rpNetworkTransfer(void) {
 		u32 size_remain = header.size;
 		u8 *data = rp_storage_ctx->jls_encode_buffer[pos];
 
-		u64 last_tick = svc_getSystemTick();
+		last_tick = curr_tick;
 
 		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST)) {
-			if (svc_getSystemTick() - last_tick > KCP_TIMEOUT_TICKS) {
+			if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
 				rp_reset_kcp = 1;
 				break;
 			}
@@ -526,6 +535,7 @@ static void rpNetworkTransfer(void) {
 				size_remain -= data_size;
 				data += data_size;
 
+				ikcp_update(rp_kcp, iclock());
 				LightLock_Unlock(&rp_kcp_mutex);
 				break;
 			}
@@ -533,13 +543,21 @@ static void rpNetworkTransfer(void) {
 			LightLock_Unlock(&rp_kcp_mutex);
 		}
 
-		last_tick = svc_getSystemTick();
+		last_tick = curr_tick;
+		u32 tick_diff;
 
 		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST) &&
 			!rp_reset_kcp &&
-			size_remain &&
-			svc_getSystemTick() - last_tick <= KCP_TIMEOUT_TICKS
+			size_remain
 		) {
+			if ((tick_diff = (curr_tick = (u32)svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
+				rp_reset_kcp = 1;
+				break;
+			}
+			if (tick_diff < rp_config.min_send_interval_ticks) {
+				svc_sleepThread((rp_config.min_send_interval_ticks - tick_diff) * 1000 / SYSTICK_PER_US);
+			}
+
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
 
 			// kcp send data
@@ -1358,8 +1376,13 @@ static void rp_set_params() {
 
 	rp_config.top_priority = rp_config.arg2 & 0xf;
 	rp_config.bot_priority = rp_config.arg2 & 0xf0 >> 4;
-	rp_config.dynamic_priority = rp_config.arg2 & 0x100 >> 8;
+	rp_config.dynamic_priority = rp_config.arg2 & 0x8000 >> 15;
 	rp_config.target_frame_rate = rp_config.arg2 & 0xff0000 >> 16;
+	rp_config.target_mbit_rate = rp_config.arg2 & 0x1f00 >> 8;
+
+	rp_config.min_send_interval_ticks =
+		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8 /
+		((u16)rp_config.target_mbit_rate + 1) / 1024 / 1024;
 }
 
 static void rpThreadStart(u32 arg UNUSED) {
