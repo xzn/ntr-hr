@@ -140,10 +140,106 @@ static struct {
 	} bot_image[RP_IMAGE_BUFFER_COUNT] ALIGN_4;
 } *rp_storage_ctx;
 
-static s32 rp_top_image_n;
-static s32 rp_bot_image_n;
+static u32 rp_top_image_n;
+static u32 rp_bot_image_n;
 static u8 rp_top_image_send_n;
 static u8 rp_bot_image_send_n;
+
+static Handle rp_screen_transfer_sem;
+static Handle rp_screen_encode_sem;
+static Handle rp_network_encode_sem;
+static Handle rp_network_transfer_sem;
+
+static u8 rp_screen_transfer_pos;
+static u8 rp_screen_encode_pos;
+static u8 rp_network_encode_pos;
+static u8 rp_network_transfer_pos;
+
+static void rp_screen_queue_init() {
+	if (rp_screen_transfer_sem)
+		svc_closeHandle(rp_screen_transfer_sem);
+	svc_createSemaphore(&rp_screen_transfer_sem, RP_ENCODE_BUFFER_COUNT, RP_ENCODE_BUFFER_COUNT);
+
+	if (rp_screen_encode_sem)
+		svc_closeHandle(rp_screen_encode_sem);
+	svc_createSemaphore(&rp_screen_encode_sem, 0, RP_ENCODE_BUFFER_COUNT);
+
+	rp_screen_encode_pos = rp_screen_transfer_pos = 0;
+}
+
+static void rp_network_queue_init() {
+	if (rp_network_encode_sem)
+		svc_closeHandle(rp_network_encode_sem);
+	svc_createSemaphore(&rp_network_encode_sem, RP_ENCODE_BUFFER_COUNT, RP_ENCODE_BUFFER_COUNT);
+
+	if (rp_network_transfer_sem)
+		svc_closeHandle(rp_network_transfer_sem);
+	svc_createSemaphore(&rp_network_transfer_sem, 0, RP_ENCODE_BUFFER_COUNT);
+
+	rp_network_transfer_pos = rp_network_encode_pos = 0;
+}
+
+static u32 rp_atomic_fetch_add_wrap(u32 *p, u32 a, u32 factor) {
+	u32 v, v_new;
+	do {
+		v = __atomic_load_n(p, __ATOMIC_RELAXED);
+		v_new = (v + a) % factor;
+	} while (!__atomic_compare_exchange_n(p, &v, v_new, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+	return v;
+}
+
+static u8 rp_atomic_fetch_addb_wrap(u8 *p, u8 a, u8 factor) {
+	u8 v, v_new;
+	do {
+		v = __atomic_load_n(p, __ATOMIC_RELAXED);
+		v_new = (v + a) % factor;
+	} while (!__atomic_compare_exchange_n(p, &v, v_new, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+	return v;
+}
+
+static s32 rp_screen_transfer_acquire(s64 timeout) {
+	if (svc_waitSynchronization1(rp_screen_transfer_sem, timeout))
+		return -1;
+	return rp_atomic_fetch_addb_wrap(&rp_screen_transfer_pos, 1, RP_ENCODE_BUFFER_COUNT);
+}
+
+static void rp_screen_encode_release(void) {
+	s32 count;
+	svc_releaseSemaphore(&count, rp_screen_encode_sem, 1);
+}
+
+static s32 rp_screen_encode_acquire(s64 timeout) {
+	if (svc_waitSynchronization1(rp_screen_encode_sem, timeout))
+		return -1;
+	return rp_atomic_fetch_addb_wrap(&rp_screen_encode_pos, 1, RP_ENCODE_BUFFER_COUNT);
+}
+
+static void rp_screen_transfer_release(void) {
+	s32 count;
+	svc_releaseSemaphore(&count, rp_screen_transfer_sem, 1);
+}
+
+static s32 rp_network_encode_acquire(s64 timeout) {
+	if (svc_waitSynchronization1(rp_network_encode_sem, timeout))
+		return -1;
+	return rp_atomic_fetch_addb_wrap(&rp_network_encode_pos, 1, RP_ENCODE_BUFFER_COUNT);
+}
+
+static void rp_network_transfer_release(void) {
+	s32 count;
+	svc_releaseSemaphore(&count, rp_network_transfer_sem, 1);
+}
+
+static s32 rp_network_transfer_acquire(s64 timeout) {
+	if (svc_waitSynchronization1(rp_network_transfer_sem, timeout))
+		return -1;
+	return rp_atomic_fetch_addb_wrap(&rp_network_transfer_pos, 1, RP_ENCODE_BUFFER_COUNT);
+}
+
+static void rp_network_encode_release(void) {
+	s32 count;
+	svc_releaseSemaphore(&count, rp_network_encode_sem, 1);
+}
 
 static uint16_t ip_checksum(void* vdata, size_t length) {
 	// Cast the data pointer to one that can be indexed.
@@ -211,7 +307,7 @@ static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *use
 	}
 
 	memcpy(dataBuf, buf, len);
-	int packetLen = rpInitUDPPacket(KCP_PACKET_SIZE);
+	int packetLen = rpInitUDPPacket(len);
 	nwmSendPacket(sendBuf, packetLen);
 
 	return len;
@@ -255,6 +351,7 @@ void rpControlRecv(void) {
 			nsDbgPrint("ikcp_input failed: %d\n", ret);
 		}
 
+		ikcp_update(rp_kcp, iclock());
 		ret = ikcp_recv(rp_kcp, (char *)rpRecvBuffer, RP_CONTROL_RECV_BUFFER_SIZE);
 		if (ret >= 0) {
 			rpControlRecvHandle(rpRecvBuffer, ret);
@@ -262,154 +359,6 @@ void rpControlRecv(void) {
 	}
 	LightLock_Unlock(&rp_kcp_mutex);
 }
-
-static ALWAYS_INLINE u8 rp_atomic_incb(u8 *pos) {
-	u8 val, val_new;
-	do {
-		val = __ldrexb(pos);
-		val_new = val + 1;
-	} while (__strexb(pos, val_new));
-	return val;
-}
-
-static ALWAYS_INLINE s32 rp_atomic_inc_mod(s32 *pos, int factor) {
-	s32 val, val_new;
-	do {
-		val = __ldrex(pos);
-		val_new = (val + 1) % factor;
-	} while (__strex(pos, val_new));
-	return val;
-}
-
-static ALWAYS_INLINE
-s32 rp_mpsc_acquire(s32 *pos_arg, s32 *can_arg, int factor, s64 timeout) {
-	s32 pos = *pos_arg;
-	s32 *can = &can_arg[pos];
-	while (1) {
-		s32 val = *can;
-		if (val >= 0) {
-			*pos_arg = (pos + 1) % factor;
-			*can = -1;
-			__dmb();
-			return val;
-		} else {
-			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
-			if (R_DESCRIPTION(rc) == RD_TIMEOUT) {
-				return -1;
-			}
-		}
-	}
-}
-
-static ALWAYS_INLINE
-void rp_mpsc_release(s32 *pos_arg, s32 *can_arg, int factor, int p_n, s32 val) {
-	s32 pos = *pos_arg;
-	*pos_arg = (pos + 1) % factor;
-	s32 *can = &can_arg[pos];
-	*can = val;
-	__dmb();
-	syncArbitrateAddress(can, ARBITRATION_SIGNAL, p_n);
-}
-
-static ALWAYS_INLINE
-s32 rp_spmc_acquire(s32 *pos_arg, s32 *can_arg, LightLock *state_arg, int factor, s64 timeout) {
-	while (1) {
-		s32 pos = *pos_arg;
-		s32 *can = &can_arg[pos];
-		LightLock *state = &state_arg[pos];
-		if (LightLock_TryLock(state)) {
-			continue;
-		}
-		s32 val = *can;
-		if (val >= 0) {
-			if (0) {
-				rp_atomic_inc_mod(pos_arg, factor);
-			} else {
-				*pos_arg = (pos + 1) % factor;
-			}
-			*can = -1;
-			LightLock_Unlock(state);
-			return val;
-		} else {
-			LightLock_Unlock(state);
-			Result rc = syncArbitrateAddressWithTimeout(can, ARBITRATION_WAIT_IF_LESS_THAN, 0, timeout);
-			if (R_DESCRIPTION(rc) == RD_TIMEOUT) {
-				return -1;
-			}
-		}
-	}
-}
-
-static ALWAYS_INLINE
-void rp_spmc_release(s32 *pos_arg, s32 *can_arg, int factor, s32 val) {
-	s32 pos = rp_atomic_inc_mod(pos_arg, factor);
-	s32 *can = &can_arg[pos];
-	*can = val;
-	__dmb();
-	syncArbitrateAddress(can, ARBITRATION_SIGNAL, 1);
-}
-
-#define RP_DEFINE_QUEUE_FUNCTION( \
-	mpsc_acq, mpsc_acq_pos, mpsc_rel, mpsc_rel_pos, spmc_acq, spmc_acq_pos, spmc_rel, spmc_rel_pos, \
-	mpsc_can, spmc_can, spmc_state, buffer_count, thread_count, init, init_avail \
-) \
-static s32 mpsc_can[buffer_count]; \
-static s32 spmc_can[buffer_count]; \
-static s32 mpsc_acq_pos; \
-static s32 mpsc_rel_pos; \
-static s32 spmc_acq_pos; \
-static s32 spmc_rel_pos; \
-static LightLock spmc_state[buffer_count]; \
- \
-static s32 mpsc_acq(s64 timeout) { \
-	return rp_mpsc_acquire(&mpsc_acq_pos, mpsc_can, buffer_count, timeout); \
-} \
- \
-static void mpsc_rel(s32 val) { \
-	rp_mpsc_release(&mpsc_rel_pos, spmc_can, buffer_count, thread_count, val); \
-} \
- \
-static s32 spmc_acq(s64 timeout) { \
-	return rp_spmc_acquire(&spmc_acq_pos, spmc_can, spmc_state, buffer_count, timeout); \
-} \
- \
-static void spmc_rel(s32 val) { \
-	rp_spmc_release(&spmc_rel_pos, mpsc_can, buffer_count, val); \
-} \
- \
-static void init(void) { \
-	for (s32 i = 0; i < buffer_count; ++i) { \
-		if (init_avail) { \
-			mpsc_can[i] = i; spmc_can[i] = -1; \
-		} else { \
-			mpsc_can[i] = -1; spmc_can[i] = i; \
-		} \
-		LightLock_Init(&spmc_state[i]); \
-	} \
-	mpsc_acq_pos = mpsc_rel_pos = spmc_acq_pos = spmc_rel_pos = 0; \
-}
-
-RP_DEFINE_QUEUE_FUNCTION(
-	rp_screen_acquire_transfer, rp_screen_transfer_acq_pos,
-	rp_screen_release_process, rp_screen_process_rel_pos,
-	rp_screen_acquire_process, rp_screen_process_acq_pos,
-	rp_screen_release_transfer, rp_screen_transfer_rel_pos,
-	rp_screen_can_transfer, rp_screen_can_process, rp_screen_process_acq_state,
-	RP_SCREEN_BUFFER_COUNT, RP_ENCODE_THREAD_COUNT,
-	rp_screen_queue_init, 0
-)
-
-RP_DEFINE_QUEUE_FUNCTION(
-	rp_encode_acquire_send, rp_encode_send_acq_pos,
-	rp_encode_release_process, rp_encode_process_rel_pos,
-	rp_encode_acquire_process, rp_encode_process_acq_pos,
-	rp_encode_release_send, rp_encode_send_rel_pos,
-	rp_encode_can_send, rp_encode_can_process, rp_encode_process_acq_state,
-	RP_ENCODE_BUFFER_COUNT, RP_ENCODE_THREAD_COUNT,
-	rp_encode_queue_init, 1
-)
-
-#undef RP_DEFINE_QUEUE_FUNCTION
 
 #define RP_DYN_PRIO_FRAME_COUNT 4
 struct {
@@ -541,7 +490,7 @@ static void rpNetworkTransfer(void) {
 		ikcp_update(rp_kcp, iclock());
 		LightLock_Unlock(&rp_kcp_mutex);
 
-		s32 pos = rp_encode_acquire_send(10000000);
+		s32 pos = rp_network_transfer_acquire(10000000);
 		if (pos < 0) {
 			continue;
 		}
@@ -589,6 +538,7 @@ static void rpNetworkTransfer(void) {
 				LightLock_Unlock(&rp_kcp_mutex);
 				break;
 			}
+			ikcp_update(rp_kcp, iclock());
 			LightLock_Unlock(&rp_kcp_mutex);
 		}
 
@@ -618,10 +568,11 @@ static void rpNetworkTransfer(void) {
 				size_remain -= data_size;
 				data += data_size;
 			}
+			ikcp_update(rp_kcp, iclock());
 			LightLock_Unlock(&rp_kcp_mutex);
 		}
 
-		rp_encode_release_process(pos);
+		rp_network_encode_release();
 	}
 
 	rp_reset_kcp = 0;
@@ -1240,7 +1191,7 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 static void rpEncodeScreenAndSend(int thread_n) {
 	int ret;
 	while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) {
-		s32 pos = rp_screen_acquire_process(250000000);
+		s32 pos = rp_screen_encode_acquire(250000000);
 		if (pos < 0) {
 			continue;
 		}
@@ -1249,8 +1200,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 		int screen_buffer_n = pos;
 		int image_buffer_n = top_bot == 0 ?
-			rp_atomic_inc_mod(&rp_top_image_n, RP_IMAGE_BUFFER_COUNT) :
-			rp_atomic_inc_mod(&rp_bot_image_n, RP_IMAGE_BUFFER_COUNT);
+			rp_atomic_fetch_add_wrap(&rp_top_image_n, 1, RP_IMAGE_BUFFER_COUNT) :
+			rp_atomic_fetch_add_wrap(&rp_bot_image_n, 1, RP_IMAGE_BUFFER_COUNT);
 		ret = rpEncodeImage(screen_buffer_n, image_buffer_n, top_bot);
 		if (ret < 0) {
 			nsDbgPrint("rpEncodeImage failed");
@@ -1258,14 +1209,14 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			break;
 		}
 
-		rp_screen_release_transfer(pos);
+		rp_screen_transfer_release();
 
 		int frame_n = top_bot == 0 ?
-			rp_atomic_incb(&rp_top_image_send_n) :
-			rp_atomic_incb(&rp_bot_image_send_n);
+			__atomic_add_fetch(&rp_top_image_send_n, 1, __ATOMIC_RELAXED) :
+			__atomic_add_fetch(&rp_bot_image_send_n, 1, __ATOMIC_RELAXED);
 
 #define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b) while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) { \
-	pos = rp_encode_acquire_process(250000000); \
+	pos = rp_network_encode_acquire(250000000); \
 	if (pos < 0) { \
 		continue; \
 	} \
@@ -1288,7 +1239,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	rp_storage_ctx->jls_encode_top_bot[pos] = top_bot; \
 	rp_storage_ctx->jls_encode_frame_n[pos] = frame_n; \
 	rp_storage_ctx->jls_encode_size[pos] = ret; \
-	rp_encode_release_send(pos);
+	rp_network_transfer_release();
 
 #define RP_PROCESS_IMAGE_AND_SEND_END break; }
 
@@ -1336,7 +1287,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 	int ret;
 
 	while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) {
-		s32 pos = rp_screen_acquire_transfer(250000000);
+		s32 pos = rp_screen_transfer_acquire(250000000);
 		if (pos < 0) {
 			continue;
 		}
@@ -1354,7 +1305,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			}
 
 			rp_storage_ctx->screen_top_bot[pos] = top_bot;
-			rp_screen_release_process(pos);
+			rp_screen_encode_release();
 			break;
 		}
 	}
@@ -1432,7 +1383,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 	int ret = 0;
 	while (ret >= 0) {
 		__atomic_store_n(&exit_rp_network_thread, 0, __ATOMIC_SEQ_CST);
-		rp_encode_queue_init();
+		rp_network_queue_init();
 		rpInitPriorityCtx();
 		ret = svc_createThread(
 			&rp_network_thread,
