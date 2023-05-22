@@ -89,8 +89,8 @@ enum {
 };
 #define RP_ENCODE_THREAD_COUNT (2)
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
-#define RP_SCREEN_BUFFER_COUNT RP_ENCODE_BUFFER_COUNT
-#define RP_IMAGE_BUFFER_COUNT RP_MAX(2, RP_ENCODE_THREAD_COUNT)
+#define RP_SCREEN_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
+#define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT)
 static struct {
 	u8 nwm_send_buffer[NWM_PACKET_SIZE] ALIGN_4;
 	u8 kcp_send_buffer[KCP_PACKET_SIZE] ALIGN_4;
@@ -140,8 +140,8 @@ static struct {
 	} bot_image[RP_IMAGE_BUFFER_COUNT] ALIGN_4;
 } *rp_storage_ctx;
 
-static u32 rp_top_image_n;
-static u32 rp_bot_image_n;
+static u8 rp_top_image_n;
+static u8 rp_bot_image_n;
 static u8 rp_top_image_send_n;
 static u8 rp_bot_image_send_n;
 
@@ -158,11 +158,11 @@ static u8 rp_network_transfer_pos;
 static void rp_screen_queue_init() {
 	if (rp_screen_transfer_sem)
 		svc_closeHandle(rp_screen_transfer_sem);
-	svc_createSemaphore(&rp_screen_transfer_sem, RP_ENCODE_BUFFER_COUNT, RP_ENCODE_BUFFER_COUNT);
+	svc_createSemaphore(&rp_screen_transfer_sem, RP_SCREEN_BUFFER_COUNT, RP_SCREEN_BUFFER_COUNT);
 
 	if (rp_screen_encode_sem)
 		svc_closeHandle(rp_screen_encode_sem);
-	svc_createSemaphore(&rp_screen_encode_sem, 0, RP_ENCODE_BUFFER_COUNT);
+	svc_createSemaphore(&rp_screen_encode_sem, 0, RP_SCREEN_BUFFER_COUNT);
 
 	rp_screen_encode_pos = rp_screen_transfer_pos = 0;
 }
@@ -179,28 +179,19 @@ static void rp_network_queue_init() {
 	rp_network_transfer_pos = rp_network_encode_pos = 0;
 }
 
-static u32 rp_atomic_fetch_add_wrap(u32 *p, u32 a, u32 factor) {
-	u32 v, v_new;
-	do {
-		v = __atomic_load_n(p, __ATOMIC_RELAXED);
-		v_new = (v + a) % factor;
-	} while (!__atomic_compare_exchange_n(p, &v, v_new, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-	return v;
-}
-
 static u8 rp_atomic_fetch_addb_wrap(u8 *p, u8 a, u8 factor) {
 	u8 v, v_new;
 	do {
-		v = __atomic_load_n(p, __ATOMIC_RELAXED);
+		v = __atomic_load_n(p, __ATOMIC_ACQUIRE);
 		v_new = (v + a) % factor;
-	} while (!__atomic_compare_exchange_n(p, &v, v_new, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+	} while (!__atomic_compare_exchange_n(p, &v, v_new, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED));
 	return v;
 }
 
 static s32 rp_screen_transfer_acquire(s64 timeout) {
 	if (svc_waitSynchronization1(rp_screen_transfer_sem, timeout))
 		return -1;
-	return rp_atomic_fetch_addb_wrap(&rp_screen_transfer_pos, 1, RP_ENCODE_BUFFER_COUNT);
+	return rp_screen_transfer_pos = (rp_screen_transfer_pos + 1) % RP_SCREEN_BUFFER_COUNT;
 }
 
 static void rp_screen_encode_release(void) {
@@ -211,7 +202,7 @@ static void rp_screen_encode_release(void) {
 static s32 rp_screen_encode_acquire(s64 timeout) {
 	if (svc_waitSynchronization1(rp_screen_encode_sem, timeout))
 		return -1;
-	return rp_atomic_fetch_addb_wrap(&rp_screen_encode_pos, 1, RP_ENCODE_BUFFER_COUNT);
+	return rp_atomic_fetch_addb_wrap(&rp_screen_encode_pos, 1, RP_SCREEN_BUFFER_COUNT);
 }
 
 static void rp_screen_transfer_release(void) {
@@ -233,7 +224,7 @@ static void rp_network_transfer_release(void) {
 static s32 rp_network_transfer_acquire(s64 timeout) {
 	if (svc_waitSynchronization1(rp_network_transfer_sem, timeout))
 		return -1;
-	return rp_atomic_fetch_addb_wrap(&rp_network_transfer_pos, 1, RP_ENCODE_BUFFER_COUNT);
+	return rp_network_transfer_pos = (rp_network_transfer_pos + 1) % RP_ENCODE_BUFFER_COUNT;
 }
 
 static void rp_network_encode_release(void) {
@@ -1201,8 +1192,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 		int screen_buffer_n = pos;
 		int image_buffer_n = top_bot == 0 ?
-			rp_atomic_fetch_add_wrap(&rp_top_image_n, 1, RP_IMAGE_BUFFER_COUNT) :
-			rp_atomic_fetch_add_wrap(&rp_bot_image_n, 1, RP_IMAGE_BUFFER_COUNT);
+			rp_atomic_fetch_addb_wrap(&rp_top_image_n, 1, RP_IMAGE_BUFFER_COUNT) :
+			rp_atomic_fetch_addb_wrap(&rp_bot_image_n, 1, RP_IMAGE_BUFFER_COUNT);
 		ret = rpEncodeImage(screen_buffer_n, image_buffer_n, top_bot);
 		if (ret < 0) {
 			nsDbgPrint("rpEncodeImage failed\n");
