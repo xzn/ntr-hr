@@ -36,8 +36,11 @@ void jpeg_ls_init(struct jls_enc_params *ctx, int bpp, const uint16_t (*vLUT)[3]
 }
 
 const uint8_t psl0[240 + LEFTMARGIN + RIGHTMARGIN];
-int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, const int16_t classmap[]) {
-    ctx->out = dst;
+int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
+    char *dst, int dst_size, const pixel *src, int w, int h, int pitch, const int16_t classmap[]
+) {
+    ctx->out.ptr = dst;
+    ctx->out.end = dst + dst_size;
 
     init_stats(ctx, params->alpha);
 
@@ -56,5 +59,5 @@ int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx,
 
     bitoflush(bctx, &ctx->out);
 
-    return ctx->out - dst;
+    return ctx->out.ptr - dst;
 }

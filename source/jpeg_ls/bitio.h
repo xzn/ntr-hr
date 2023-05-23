@@ -80,9 +80,12 @@ int bits;          /* number of bits free in bit buffer (on output) */
 #define myputc(bctx, c, fil) ((bctx->fp >= BUFSIZE) ? (flushbuff(bctx, fil), buff(bctx)[bctx->fp++] = c) :\
                                                         (buff(bctx)[bctx->fp++] = c))
 
-static inline void mywrite(const void *buffer, size_t size, char **out) {
-     memcpy(*out, buffer, size);
-     *out += size;
+static inline void mywrite(const void *buffer, size_t size, struct jls_byteo_ctx *out) {
+    if (out->ptr + size > out->end) {
+        size = out->end - out->ptr;
+    }
+    memcpy(out->ptr, buffer, size);
+    out->ptr += size;
 }
 
 

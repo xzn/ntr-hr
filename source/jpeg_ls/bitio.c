@@ -58,7 +58,7 @@
  *  note: some routines are implemented as preprocessor macros. See bitio.h.
  ****************************************************************************/
 
-void flushbuff(struct bito_ctx *bctx, char **fil) {
+void flushbuff(struct bito_ctx *bctx, struct jls_byteo_ctx *fil) {
 	/* mywrite must work correctly, even if fp is equal to 0 */
     mywrite(buff(bctx), bctx->fp, fil);
     bctx->fp = 0;
@@ -66,7 +66,7 @@ void flushbuff(struct bito_ctx *bctx, char **fil) {
 
 
 /* Flushes the bit output buffer and the byte output buffer */
-void bitoflush(struct bito_ctx *bctx, char **out) {
+void bitoflush(struct bito_ctx *bctx, struct jls_byteo_ctx *out) {
 	register unsigned int outbyte;
     
     while (bctx->bits < 32) {

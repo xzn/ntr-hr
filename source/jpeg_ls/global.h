@@ -160,6 +160,11 @@ const uint16_t (*vLUT)[3];
 
 };
 
+struct jls_byteo_ctx {
+     char	*ptr;
+     char *end;
+};
+
 struct jls_enc_ctx {
 
 #define DEF_NEAR	0
@@ -256,7 +261,7 @@ int	RESET;
 
 /****** Global variables prototypes */
 
-char	*out;
+struct jls_byteo_ctx out;
 
 #define bpp16 FALSE
 #define lossy FALSE
@@ -292,10 +297,11 @@ struct bito_ctx;
 void set_thresholds(int alfa, int *T1p, int *T2p, int *T3p);
 
 /* lossless.c */
-void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx *, struct bito_ctx *, const pixel *psl, const pixel *sl, int no, const int16_t classmap[]);
+void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx *, struct bito_ctx *,
+     const pixel *psl, const pixel *sl, int no, const int16_t classmap[]);
 
 /* bitio.c */
-void bitoflush(struct bito_ctx *, char **);
+void bitoflush(struct bito_ctx *, struct jls_byteo_ctx *);
 void bitoinit(struct bito_ctx *);
 
 /*  melcode.c */
@@ -309,7 +315,8 @@ void init_stats(struct jls_enc_ctx *, int alpha);
 void prepare_classmap(int16_t classmap[]);
 
 void jpeg_ls_init(struct jls_enc_params *params, int bpp, const uint16_t (*vLUT)[3]);
-int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, char *dst, const pixel *src, int w, int h, int pitch, const int16_t classmap[]);
+int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
+     char *dst, int dst_size, const pixel *src, int w, int h, int pitch, const int16_t classmap[]);
 
 #ifdef BIG_ENDIAN
 #    define ENDIAN8(x)   (x)

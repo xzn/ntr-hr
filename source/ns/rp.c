@@ -756,6 +756,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 			return -1;
 	}
 
+	int ret = 0;
 	if (rp_config.encoder_which == 0) {
 		JLSState state = { 0 };
 		state.bpp = bpp;
@@ -782,23 +783,22 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 		put_bits(&s, 7, 0);
 		// int size_in_bits = put_bits_count(&s);
 		flush_put_bits(&s);
-		int size = put_bytes_output(&s);
-
-		return size;
+		ret = put_bytes_output(&s);
 	} else {
 		struct jls_enc_ctx *ctx = &rp_storage_ctx->jls_enc_ctx[thread_n];
 		struct bito_ctx *bctx = &rp_storage_ctx->jls_bito_ctx[thread_n];
-		int ret = jpeg_ls_encode(
-			params, ctx, bctx, (char *)dst, src, h, w, h + LEFTMARGIN + RIGHTMARGIN,
+		ret = jpeg_ls_encode(
+			params, ctx, bctx, (char *)dst, RP_JLS_ENCODE_BUFFER_SIZE, src,
+			h, w, h + LEFTMARGIN + RIGHTMARGIN,
 			rp_storage_ctx->jls_enc_luts.classmap
 		);
-		if (ret > RP_JLS_ENCODE_BUFFER_SIZE) {
-			nsDbgPrint("Buffer overrun in rpJLSEncodeImage\n");
-			return -1; // if we didn't crash, fail because buffer overflow
-		}
-		return ret;
 	}
-	return 0;
+
+	if (ret >= RP_JLS_ENCODE_BUFFER_SIZE) {
+		nsDbgPrint("Possible buffer overrun in rpJLSEncodeImage\n");
+		return -1;
+	}
+	return ret;
 }
 
 #define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
