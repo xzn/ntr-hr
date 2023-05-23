@@ -8,18 +8,20 @@
 #include <errno.h>
 
 void rtInitLock(RT_LOCK *lock) {
-	lock->value = 0;
+	__atomic_store_n(lock, 0, __ATOMIC_RELAXED);
 }
 
 void rtAcquireLock(RT_LOCK *lock) {
-	while(lock->value != 0) {
-		svc_sleepThread(1000000);
-	}
-	lock->value = 1;
+	u32 val;
+	do {
+		while(val = __atomic_load_n(lock, __ATOMIC_RELAXED)) {
+			svc_sleepThread(1000000);
+		}
+	} while (!__atomic_compare_exchange_n(lock, &val, 1, 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
 }
 
 void rtReleaseLock(RT_LOCK *lock) {
-	lock->value = 0;
+	__atomic_store_n(lock, 0, __ATOMIC_RELEASE);
 }
 
 u32 rtAlignToPageSize(u32 size) {
@@ -37,7 +39,7 @@ u32 rtGetPageOfAddress(u32 addr) {
 u32 rtCheckRemoteMemoryRegionSafeForWrite(Handle hProcess, u32 addr, u32 size) {
 	u32 ret;
 	u32 startPage, endPage, page;
-	
+
 	startPage = rtGetPageOfAddress(addr);
 	endPage = rtGetPageOfAddress(addr + size - 1);
 
@@ -52,7 +54,7 @@ u32 rtCheckRemoteMemoryRegionSafeForWrite(Handle hProcess, u32 addr, u32 size) {
 
 u32 rtSafeCopyMemory(u32 dst, u32 src, u32 size) {
 	u32 ret;
-	
+
 	ret = rtCheckRemoteMemoryRegionSafeForWrite(0xffff8001, dst, size) ;
 	if (ret != 0) {
 		return ret;
@@ -113,7 +115,7 @@ int rtSendSocket(u32 sockfd, u8 *buf, int size)
 u16 rtIntToPortNumber(u16 x) {
 	u8* buf;
 	u8 tmp;
-	
+
 	buf = (void*)&x;
 	tmp = buf[0];
 	buf[0] = buf[1];
@@ -154,7 +156,7 @@ u32 rtLoadFileToBuffer(u8* fileName, u32* pBuf, u32 bufSize) {
 	u32 hFile, size;
 	u64 size64;
 	u32 tmp;
-	
+
 	FS_path testPath = (FS_path){PATH_CHAR, strlen(fileName) + 1, fileName};
 	ret = FSUSER_OpenFileDirectly(fsUserHandle, &hFile, sdmcArchive, testPath, 7, 0);
 	if (ret != 0) {
@@ -162,7 +164,7 @@ u32 rtLoadFileToBuffer(u8* fileName, u32* pBuf, u32 bufSize) {
 		hFile = 0;
 		goto final;
 	}
-	
+
 	ret = FSFILE_GetSize(hFile, &size64);
 	if (ret != 0) {
 		nsDbgPrint("FSFILE_GetSize failed: %08x\n", ret, 0);
@@ -207,7 +209,7 @@ u32 rtGetThreadReg(Handle hProcess, u32 tid, u32* ctx) {
 	u32 hThread;
 	u32 pKThread, pContext;
 	u32 ret;
-	
+
 	ret = svc_openThread(&hThread, hProcess, tid);
 	if (ret != 0) {
 		nsDbgPrint("openThread failed: %08x\n", ret, 0);
@@ -250,7 +252,7 @@ void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr) {
 	hook->model = 1;
 	hook->isEnabled = 0;
 	hook->funcAddr = funcAddr;
-	
+
 	rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), funcAddr, 8);
 	memcpy(hook->bakCode, (void*)funcAddr, 8);
 	rtGenerateJumpCodeThumbR3(funcAddr, callbackAddr, hook->jmpCode);

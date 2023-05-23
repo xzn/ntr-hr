@@ -8,7 +8,7 @@ CP := cp
 
 CFLAGS := -s -Ofast -march=armv6k -mtune=mpcore -mfloat-abi=hard
 CPPFLAGS := -Iinclude
-LDFLAGS := -s -Ofast -march=armv6k -mtune=mpcore -mfloat-abi=hard -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
+LDFLAGS := $(CFLAGS) -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
 LDLIBS := -L. -lc -lm -lgcc -nostdlib
 
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
