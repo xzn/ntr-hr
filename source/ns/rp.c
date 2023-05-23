@@ -481,7 +481,7 @@ static void rpNetworkTransfer(void) {
 	LightLock_Unlock(&rp_kcp_mutex);
 
 	u32 last_tick = (u32)svc_getSystemTick(), curr_tick;
-	while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST) && !rp_reset_kcp) {
+	while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_RELAXED) && !rp_reset_kcp) {
 		if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
 			rp_reset_kcp = 1;
 			break;
@@ -508,7 +508,7 @@ static void rpNetworkTransfer(void) {
 		u32 size_remain = header.size;
 		u8 *data = rp_storage_ctx->jls_encode_buffer[pos];
 
-		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST)) {
+		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_RELAXED)) {
 			if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
 				rp_reset_kcp = 1;
 				break;
@@ -528,7 +528,8 @@ static void rpNetworkTransfer(void) {
 				if (ret < 0) {
 					nsDbgPrint("ikcp_send failed: %d\n", ret);
 
-					__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_SEQ_CST);
+					__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_RELAXED);
+					exit_rp_network_thread = 1;
 					LightLock_Unlock(&rp_kcp_mutex);
 					break;
 				}
@@ -550,7 +551,7 @@ static void rpNetworkTransfer(void) {
 
 		u32 tick_diff;
 
-		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST) &&
+		while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_RELAXED) &&
 			!rp_reset_kcp &&
 			size_remain
 		) {
@@ -573,7 +574,8 @@ static void rpNetworkTransfer(void) {
 				if (ret < 0) {
 					nsDbgPrint("ikcp_send failed: %d\n", ret);
 
-					__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_SEQ_CST);
+					__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_RELAXED);
+					exit_rp_network_thread = 1;
 					LightLock_Unlock(&rp_kcp_mutex);
 					break;
 				}
@@ -606,7 +608,7 @@ static void rpNetworkTransfer(void) {
 }
 
 static void rpNetworkTransferThread(u32 arg UNUSED) {
-	while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_SEQ_CST)) {
+	while (!__atomic_load_n(&exit_rp_network_thread, __ATOMIC_RELAXED)) {
 		rpNetworkTransfer();
 	}
 	svc_exitThread();
@@ -1212,7 +1214,7 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 void rpKernelCallback(int top_bot);
 static void rpEncodeScreenAndSend(int thread_n) {
 	int ret;
-	while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) {
+	while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_RELAXED)) {
 		s32 pos = rp_screen_encode_acquire(250000000);
 		if (pos < 0) {
 			continue;
@@ -1227,7 +1229,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		ret = rpEncodeImage(screen_buffer_n, image_buffer_n, top_bot);
 		if (ret < 0) {
 			nsDbgPrint("rpEncodeImage failed\n");
-			__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_SEQ_CST);
+			__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_RELAXED);
 			break;
 		}
 
@@ -1237,7 +1239,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			__atomic_add_fetch(&rp_top_image_send_n, 1, __ATOMIC_RELAXED) :
 			__atomic_add_fetch(&rp_bot_image_send_n, 1, __ATOMIC_RELAXED);
 
-#define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b) while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) { \
+#define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b) while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_RELAXED)) { \
 	pos = rp_network_encode_acquire(250000000); \
 	if (pos < 0) { \
 		continue; \
@@ -1255,7 +1257,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	); \
 	if (ret < 0) { \
 		nsDbgPrint("rpJLSEncodeImage failed\n"); \
-		__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_SEQ_CST); \
+		__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_RELAXED); \
 		break; \
 	} \
 	rp_storage_ctx->jls_encode_top_bot[pos] = top_bot; \
@@ -1307,13 +1309,13 @@ static void rpSecondThreadStart(u32 arg UNUSED) {
 static void rpScreenTransferThread(u32 arg UNUSED) {
 	int ret;
 
-	while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) {
+	while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_RELAXED)) {
 		s32 pos = rp_screen_transfer_acquire(250000000);
 		if (pos < 0) {
 			continue;
 		}
 
-		while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_SEQ_CST)) {
+		while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_RELAXED)) {
 			int top_bot = rpGetPriorityScreen();
 
 			rpKernelCallback(top_bot);
@@ -1337,7 +1339,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 static int rpSendFrames(void) {
 	int ret;
 
-	__atomic_store_n(&exit_rp_thread, 0, __ATOMIC_SEQ_CST);
+	__atomic_store_n(&exit_rp_thread, 0, __ATOMIC_RELAXED);
 	rp_screen_queue_init();
 	ret = svc_createThread(
 		&rp_second_thread,
@@ -1360,7 +1362,7 @@ static int rpSendFrames(void) {
 	if (ret != 0) {
 		nsDbgPrint("Create rpScreenTransferThread Thread Failed: %08x\n", ret);
 
-		__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&exit_rp_thread, 1, __ATOMIC_RELAXED);
 		svc_waitSynchronization1(rp_second_thread, U64_MAX);
 		svc_closeHandle(rp_second_thread);
 		return -1;
@@ -1410,7 +1412,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 
 	int ret = 0;
 	while (ret >= 0) {
-		__atomic_store_n(&exit_rp_network_thread, 0, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&exit_rp_network_thread, 0, __ATOMIC_RELAXED);
 		rp_network_queue_init();
 		rpInitPriorityCtx();
 		ret = svc_createThread(
@@ -1427,7 +1429,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 
 		ret = rpSendFrames();
 
-		__atomic_store_n(&exit_rp_network_thread, 1, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&exit_rp_network_thread, 1, __ATOMIC_RELAXED);
 		svc_waitSynchronization1(rp_network_thread, U64_MAX);
 		svc_closeHandle(rp_network_thread);
 
@@ -1459,8 +1461,9 @@ static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
 	if (buf[0x17 + 0x8] == 6) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
 			rpInited = 1;
+			rtDisableHook(&nwmValParamHook);
 
-			int storage_size = (sizeof(*rp_storage_ctx) + 0x1000 - 1) / 0x1000 * 0x1000;
+			int storage_size = rtAlignToPageSize(sizeof(*rp_storage_ctx));
 			rp_storage_ctx = (typeof(rp_storage_ctx))plgRequestMemory(storage_size);
 			if (!rp_storage_ctx) {
 				nsDbgPrint("Request memory for RemotePlay failed\n");
