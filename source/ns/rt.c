@@ -8,20 +8,24 @@
 #include <errno.h>
 
 void rtInitLock(RT_LOCK *lock) {
-	__atomic_store_n(lock, 0, __ATOMIC_RELAXED);
+	// __atomic_store_n(lock, 0, __ATOMIC_RELAXED);
+	__atomic_clear(lock, __ATOMIC_RELAXED);
 }
 
 void rtAcquireLock(RT_LOCK *lock) {
-	u32 val;
-	do {
-		while(val = __atomic_load_n(lock, __ATOMIC_RELAXED)) {
-			svc_sleepThread(1000000);
-		}
-	} while (!__atomic_compare_exchange_n(lock, &val, 1, 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+	// u32 val;
+	// do {
+	// 	while(val = __atomic_load_n(lock, __ATOMIC_RELAXED)) {
+	// 		svc_sleepThread(1000000);
+	// 	}
+	// } while (!__atomic_compare_exchange_n(lock, &val, 1, 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+	while (__atomic_test_and_set(lock, __ATOMIC_ACQUIRE))
+		svc_sleepThread(1000000);
 }
 
 void rtReleaseLock(RT_LOCK *lock) {
-	__atomic_store_n(lock, 0, __ATOMIC_RELEASE);
+	// __atomic_store_n(lock, 0, __ATOMIC_RELEASE);
+	__atomic_clear(lock, __ATOMIC_RELEASE);
 }
 
 u32 rtAlignToPageSize(u32 size) {

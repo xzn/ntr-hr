@@ -8,7 +8,8 @@ extern u32 nsDefaultMemRegion;
 #define GLOBAL_BUFFER_SIZE 0x4000
 #define MAX_BREAKPOINT 64
 
-typedef u32 RT_LOCK;
+// typedef u32 RT_LOCK;
+typedef u8 RT_LOCK;
 
 #define NS_TYPE_NORMAL	0
 #define NS_TYPE_BIGDATA	1
