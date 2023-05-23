@@ -1,9 +1,9 @@
 #include "global.h"
-#include <ctr/SOC.h>
-#include <ctr/syn.h>
+#include "ctr/SOC.h"
+#include "ctr/syn.h"
 #include <sys/select.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include "sys/socket.h"
+#include "netinet/in.h"
 #include <netdb.h>
 #include <fcntl.h>
 #include <errno.h>

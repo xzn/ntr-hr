@@ -1,9 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <ctr/types.h>
-#include <ctr/srv.h>
-#include <ctr/svc.h>
+#include "ctr/types.h"
+#include "ctr/srv.h"
+#include "ctr/svc.h"
 
 Handle srvHandle=0;
 

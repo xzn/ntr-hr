@@ -1,8 +1,8 @@
 #include <string.h>
-#include <ctr/types.h>
-#include <ctr/svc.h>
-#include <ctr/res.h>
-#include <ctr/syn.h>
+#include "ctr/types.h"
+#include "ctr/svc.h"
+#include "ctr/res.h"
+#include "ctr/syn.h"
 
 static Handle arbiter;
 

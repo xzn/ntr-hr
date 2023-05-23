@@ -1,7 +1,7 @@
 #include "global.h"
-#include <ctr/SOC.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include "ctr/SOC.h"
+#include "sys/socket.h"
+#include "netinet/in.h"
 #include <netdb.h>
 #include <fcntl.h>
 #include <errno.h>
