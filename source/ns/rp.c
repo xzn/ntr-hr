@@ -464,10 +464,12 @@ static int rpGetPriorityScreen(void) {
 	} else {
 		if (ctx->top.priority_size_est <= ctx->bot.priority_size_est) {
 			SET_WITH_PRIORITY_SIZE(TOP);
-			SET_FRAME_SIZE(TOP);
+			if (rp_config.dynamic_priority)
+				SET_FRAME_SIZE(TOP);
 		} else {
 			SET_WITH_PRIORITY_SIZE(BOT);
-			SET_FRAME_SIZE(BOT);
+			if (rp_config.dynamic_priority)
+				SET_FRAME_SIZE(BOT);
 		}
 	}
 
