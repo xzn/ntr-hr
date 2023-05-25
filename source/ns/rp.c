@@ -61,6 +61,7 @@ enum {
 	RP_ENCODE_PARAMS_BPP6,
 	RP_ENCODE_PARAMS_COUNT
 };
+#define RP_ENCODE_MULTITHREAD_ENABLED (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)
 #define RP_ENCODE_MULTITHREAD (1)
 #define RP_ENCODE_THREAD_COUNT (1 + RP_ENCODE_MULTITHREAD)
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
@@ -159,6 +160,7 @@ static struct {
 		u8 target_frame_rate;
 		u8 target_mbit_rate;
 		u8 dynamic_priority;
+		u8 multicore_encode;
 		u8 top_priority;
 		u8 bot_priority;
 
@@ -581,7 +583,11 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 }
 #undef RP_DYN_PRIO_FRAME_COUNT
 
-static void rp_set_params() {
+#define RP_BANDWIDTH_CONTROL_CONST_NUM 1
+#define RP_BANDWIDTH_CONTROL_CONST_DENUM 2
+static int rp_set_params() {
+	u8 multicore_encode = rp_ctx->conf.multicore_encode;
+
 	rp_ctx->conf.arg0 = g_nsConfig->startupInfo[8];
 	rp_ctx->conf.arg1 = g_nsConfig->startupInfo[9];
 	rp_ctx->conf.arg2 = g_nsConfig->startupInfo[10];
@@ -597,13 +603,21 @@ static void rp_set_params() {
 
 	rp_ctx->conf.top_priority = (rp_ctx->conf.arg2 & 0xf);
 	rp_ctx->conf.bot_priority = (rp_ctx->conf.arg2 & 0xf0) >> 4;
+	rp_ctx->conf.multicore_encode = (rp_ctx->conf.arg2 & 0x4000) >> 14;
 	rp_ctx->conf.dynamic_priority = (rp_ctx->conf.arg2 & 0x8000) >> 15;
 	rp_ctx->conf.target_frame_rate = (rp_ctx->conf.arg2 & 0xff0000) >> 16;
 	rp_ctx->conf.target_mbit_rate = (rp_ctx->conf.arg2 & 0x1f00) >> 8;
 
 	rp_ctx->conf.min_send_interval_ticks =
-		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8 /
+		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8  *
+		RP_BANDWIDTH_CONTROL_CONST_NUM / RP_BANDWIDTH_CONTROL_CONST_DENUM/
 		((u16)rp_ctx->conf.target_mbit_rate + 1) / 1024 / 1024;
+
+	int ret = 0;
+	if (rp_ctx->conf.multicore_encode != multicore_encode)
+		ret = 1;
+
+	return ret;
 }
 
 static void rp_init_syn_params(void) {
@@ -620,27 +634,35 @@ static void rp_init_syn_params(void) {
 	svc_createEvent(&rp_ctx->conf.syn_event1, RESET_ONESHOT);
 }
 
+// TODO kept crashing ??
+#define RP_QUICK_RESTART (0)
 static void rp_release_params(int thread_n) {
-	u32 syn_count;
-	if ((syn_count = __atomic_fetch_add(&rp_ctx->conf.syn_count, 1, __ATOMIC_ACQ_REL)) == 0) {
+	if (RP_QUICK_RESTART) {
+		u32 syn_count;
+		if ((syn_count = __atomic_fetch_add(&rp_ctx->conf.syn_count, 1, __ATOMIC_ACQ_REL)) == 0) {
+		}
+		// nsDbgPrint("rp_release_params %d: %d\n", thread_n, syn_count);
 	}
-	// nsDbgPrint("rp_release_params %d: %d\n", thread_n, syn_count);
 }
 
 static void rp_acquire_params(int thread_n) {
-	u32 syn_count;
-	if ((syn_count = __atomic_sub_fetch(&rp_ctx->conf.syn_count, 1, __ATOMIC_ACQ_REL)) == 0) {
-		svc_signalEvent(rp_ctx->conf.syn_event);
-	} else if (syn_count == 1) {
-		svc_signalEvent(rp_ctx->conf.syn_event1);
+	if (RP_QUICK_RESTART) {
+		u32 syn_count;
+		if ((syn_count = __atomic_sub_fetch(&rp_ctx->conf.syn_count, 1, __ATOMIC_ACQ_REL)) == 0) {
+			svc_signalEvent(rp_ctx->conf.syn_event);
+		} else if (syn_count == 1) {
+			svc_signalEvent(rp_ctx->conf.syn_event1);
+		}
+		// nsDbgPrint("rp_acquire_params %d: %d\n", thread_n, syn_count);
+		svc_waitSynchronization1(rp_ctx->conf.syn_event, U64_MAX);
 	}
-	// nsDbgPrint("rp_acquire_params %d: %d\n", thread_n, syn_count);
-	svc_waitSynchronization1(rp_ctx->conf.syn_event, U64_MAX);
 }
 
 static void rp_acquire_params1(int thread_n) {
-	// nsDbgPrint("rp_acquire_params1 %d\n", thread_n);
-	svc_waitSynchronization1(rp_ctx->conf.syn_event1, U64_MAX);
+	if (RP_QUICK_RESTART) {
+		// nsDbgPrint("rp_acquire_params1 %d\n", thread_n);
+		svc_waitSynchronization1(rp_ctx->conf.syn_event1, U64_MAX);
+	}
 }
 
 static int rp_check_params(int thread_n) {
@@ -648,26 +670,37 @@ static int rp_check_params(int thread_n) {
 		__atomic_store_n(&g_nsConfig->remotePlayUpdate, 0, __ATOMIC_RELEASE);
 
 		if (!__atomic_test_and_set(&rp_ctx->conf.updated, __ATOMIC_RELAXED)) {
-			rp_acquire_params1(thread_n);
-			rp_set_params();
-			rpInitPriorityCtx();
-			rp_network_queue_init();
-			if (RP_ENCODE_MULTITHREAD)
-				rp_screen_queue_init();
-			rp_acquire_params(thread_n);
-			rp_release_params(thread_n);
-			svc_clearEvent(rp_ctx->conf.syn_event);
-			return 1;
+			if (RP_QUICK_RESTART) {
+				rp_acquire_params1(thread_n);
+				if (rp_set_params()) {
+					__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
+				} else {
+					rpInitPriorityCtx();
+					rp_network_queue_init();
+					if (RP_ENCODE_MULTITHREAD_ENABLED)
+						rp_screen_queue_init();
+				}
+				rp_acquire_params(thread_n);
+				rp_release_params(thread_n);
+				svc_clearEvent(rp_ctx->conf.syn_event);
+				return 1;
+			} else {
+				__atomic_store_n(&rp_ctx->exit_thread , 2, __ATOMIC_RELAXED);
+				return 0;
+			}
 		}
 	}
 
-	if (rp_ctx->conf.updated) {
-		rp_acquire_params(thread_n);
-		rp_release_params(thread_n);
-		return 1;
+	if (RP_QUICK_RESTART) {
+		if (rp_ctx->conf.updated) {
+			rp_acquire_params(thread_n);
+			rp_release_params(thread_n);
+			return 1;
+		}
 	}
 	return 0;
 }
+#undef RP_QUICK_RESTART
 
 struct rp_send_header {
 	u32 size;
@@ -728,7 +761,7 @@ static void rpNetworkTransfer(int thread_n) {
 		}
 
 		if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
-			__atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
+			__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 			break;
 		}
 
@@ -761,7 +794,7 @@ static void rpNetworkTransfer(int thread_n) {
 			!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED)
 		) {
 			if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
-				__atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
+				__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 				break;
 			}
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
@@ -799,14 +832,14 @@ static void rpNetworkTransfer(int thread_n) {
 			svc_sleepThread(1000000);
 		}
 
-		u32 tick_diff;
+		s32 tick_diff;
 
 		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
 			!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED) &&
 			size_remain
 		) {
-			if ((tick_diff = (curr_tick = (u32)svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
-				__atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
+			if ((tick_diff = (s32)(curr_tick = (u32)svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
+				__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 				break;
 			}
 			if (tick_diff < rp_ctx->conf.min_send_interval_ticks) {
@@ -835,7 +868,7 @@ static void rpNetworkTransfer(int thread_n) {
 				ikcp_update(rp_ctx->kcp, iclock());
 				svc_releaseMutex(rp_ctx->kcp_mutex);
 
-				last_tick = curr_tick;
+				last_tick += rp_ctx->conf.min_send_interval_ticks;
 				continue;
 			}
 			ikcp_update(rp_ctx->kcp, iclock());
@@ -855,12 +888,13 @@ static void rpNetworkTransfer(int thread_n) {
 }
 
 static void rpNetworkTransferThread(u32 arg UNUSED) {
+	svc_sleepThread(500000000);
 	int thread_n = -1;
 	rp_release_params(thread_n);
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
-		svc_sleepThread(1000000000);
 		__atomic_store_n(&rp_ctx->kcp_restart , 0, __ATOMIC_RELAXED);
 		rpNetworkTransfer(thread_n);
+		svc_sleepThread(50000000);
 	}
 	rp_acquire_params(thread_n);
 	svc_exitThread();
@@ -1466,8 +1500,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		s32 pos;
 		int top_bot;
 
-		if (RP_ENCODE_MULTITHREAD) {
-			pos = rp_screen_encode_acquire(250000000);
+		if (RP_ENCODE_MULTITHREAD_ENABLED) {
+			pos = rp_screen_encode_acquire(25000000);
 			if (pos < 0) {
 				continue;
 			}
@@ -1508,7 +1542,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			break;
 		}
 
-		if (RP_ENCODE_MULTITHREAD)
+		if (RP_ENCODE_MULTITHREAD_ENABLED)
 			rp_screen_transfer_release(pos);
 
 		int frame_n = top_bot == 0 ?
@@ -1521,7 +1555,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		rp_ctx->bot_image[image_buffer_n].n) \
 
 #define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b) while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) { \
-	pos = rp_network_encode_acquire(250000000); \
+	pos = rp_network_encode_acquire(25000000); \
 	if (pos < 0) { \
 		continue; \
 	} \
@@ -1597,7 +1631,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		rp_check_params(thread_n);
 
-		s32 pos = rp_screen_transfer_acquire(250000000);
+		s32 pos = rp_screen_transfer_acquire(25000000);
 		if (pos < 0) {
 			continue;
 		}
@@ -1629,7 +1663,7 @@ static int rpSendFrames(void) {
 	int ret;
 
 	// __atomic_store_n(&rp_ctx->exit_thread, 0, __ATOMIC_RELAXED);
-	if (RP_ENCODE_MULTITHREAD) {
+	if (RP_ENCODE_MULTITHREAD_ENABLED) {
 		rp_screen_queue_init();
 		ret = svc_createThread(
 			&rp_ctx->second_thread,
@@ -1661,7 +1695,7 @@ static int rpSendFrames(void) {
 
 	rpEncodeScreenAndSend(0);
 
-	if (RP_ENCODE_MULTITHREAD) {
+	if (RP_ENCODE_MULTITHREAD_ENABLED) {
 		svc_waitSynchronization1(rp_ctx->second_thread, U64_MAX);
 		svc_waitSynchronization1(rp_ctx->screen_thread, U64_MAX);
 		svc_closeHandle(rp_ctx->second_thread);
@@ -1700,11 +1734,14 @@ static void rpThreadStart(u32 arg UNUSED) {
 
 		ret = rpSendFrames();
 
+		if (__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) > 1) {
+			rp_set_params();
+		}
 		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 		svc_waitSynchronization1(rp_ctx->network_thread, U64_MAX);
 		svc_closeHandle(rp_ctx->network_thread);
 
-		svc_sleepThread(250000000);
+		svc_sleepThread(100000000);
 	}
 
 final:
