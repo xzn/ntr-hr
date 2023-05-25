@@ -584,7 +584,7 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 #undef RP_DYN_PRIO_FRAME_COUNT
 
 #define RP_BANDWIDTH_CONTROL_CONST_NUM 1
-#define RP_BANDWIDTH_CONTROL_CONST_DENUM 2
+#define RP_BANDWIDTH_CONTROL_CONST_DENUM 1
 static int rp_set_params() {
 	u8 multicore_encode = rp_ctx->conf.multicore_encode;
 
@@ -1057,7 +1057,7 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
 
-		put_bits(&s, 7, 0);
+		// put_bits(&s, 7, 0);
 		// int size_in_bits = put_bits_count(&s);
 		flush_put_bits(&s);
 		ret = put_bytes_output(&s);
