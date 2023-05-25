@@ -88,7 +88,7 @@ static struct {
 
 	Handle screen_hdma[RP_ENCODE_BUFFER_COUNT];
 	u8 screen_buffer[RP_ENCODE_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE] ALIGN_4;
-	u8 screen_top_bot[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
+	u8 screen_top_bot[RP_ENCODE_BUFFER_COUNT];
 	struct jls_enc_params jls_enc_params[RP_ENCODE_PARAMS_COUNT];
 	struct jls_enc_ctx jls_enc_ctx[RP_ENCODE_THREAD_COUNT];
 	struct bito_ctx jls_bito_ctx[RP_ENCODE_THREAD_COUNT];
@@ -99,9 +99,9 @@ static struct {
 		int16_t classmap[9 * 9 * 9];
 	} jls_enc_luts;
 	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
-	u8 jls_encode_top_bot[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
-	u8 jls_encode_frame_n[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
-	u32 jls_encode_size[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
+	u8 jls_encode_top_bot[RP_ENCODE_BUFFER_COUNT];
+	u8 jls_encode_frame_n[RP_ENCODE_BUFFER_COUNT];
+	u32 jls_encode_size[RP_ENCODE_BUFFER_COUNT];
 
 	struct {
 		u8 y_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
@@ -112,7 +112,7 @@ static struct {
 		u8 y_bpp;
 		u8 u_bpp;
 		u8 v_bpp;
-	} top_image[RP_IMAGE_BUFFER_COUNT] ALIGN_4;
+	} top_image[RP_IMAGE_BUFFER_COUNT];
 
 	struct {
 		u8 y_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
@@ -123,7 +123,7 @@ static struct {
 		u8 y_bpp;
 		u8 u_bpp;
 		u8 v_bpp;
-	} bot_image[RP_IMAGE_BUFFER_COUNT] ALIGN_4;
+	} bot_image[RP_IMAGE_BUFFER_COUNT];
 
 	u8 top_image_n;
 	u8 bot_image_n;
@@ -191,7 +191,7 @@ static struct {
 	Handle home_handle, game_handle;
 	u32 game_fcram_base;
 
-	u8 dma_config[80];
+	u8 dma_config[24];
 	struct {
 		u32 format;
 		u32 pitch;
@@ -262,7 +262,7 @@ static void rp_screen_queue_init() {
 }
 
 static void rp_network_queue_init() {
-	rp_syn_init(&rp_ctx->syn.network, 0);
+	rp_syn_init(&rp_ctx->syn.network, 1);
 }
 
 static s32 rp_screen_transfer_acquire(s64 timeout) {
@@ -729,6 +729,7 @@ static void rpNetworkTransfer(void) {
 
 static void rpNetworkTransferThread(u32 arg UNUSED) {
 	while (!__atomic_load_n(&rp_ctx->exit_network_thread, __ATOMIC_RELAXED)) {
+		svc_sleepThread(1000000000);
 		rpNetworkTransfer();
 	}
 	svc_exitThread();
@@ -796,8 +797,6 @@ static int isInFCRAM(u32 phys) {
 }
 
 static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
-	rp_ctx->dma_config[2] = 4;
-
 	u32 bufSize = rp_ctx->screen[top_bot].pitch * (top_bot == 0 ? 400 : 320);
 	if (bufSize > RP_SCREEN_BUFFER_SIZE) {
 		nsDbgPrint("rpCaptureScreen bufSize too large: %x > %x\n", bufSize, RP_SCREEN_BUFFER_SIZE);
@@ -1326,6 +1325,8 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 
 void rpKernelCallback(int top_bot);
 static void rpEncodeScreenAndSend(int thread_n) {
+	svc_sleepThread(250000000);
+
 	int ret;
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		s32 pos;
@@ -1625,6 +1626,8 @@ static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
 
 			umm_init_heap(rp_ctx->umm_heap, RP_UMM_HEAP_SIZE);
 			ikcp_allocator(umm_malloc, umm_free);
+
+			rp_ctx->dma_config[2] = 4;
 
 			ret = svc_createThread(&hThread, rpThreadStart, 0, (u32 *)&rp_ctx->thread_stack[RP_STACK_SIZE - 40], 0x10, 2);
 			if (ret != 0) {
