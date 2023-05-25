@@ -361,23 +361,30 @@ void rpControlRecv(void) {
 	svc_releaseMutex(rp_kcp_mutex);
 }
 
-#define RP_DYN_PRIO_FRAME_COUNT 4
+#define RP_DYN_PRIO_FRAME_COUNT 2
 #define RP_IMAGE_CHANNEL_COUNT 3
 struct {
 	struct {
+		u16 frame_size_acc;
+		u16 priority_size_acc;
+
+		u8 frame_size[RP_DYN_PRIO_FRAME_COUNT];
+		u8 priority_size[RP_DYN_PRIO_FRAME_COUNT];
+
+		u8 frame_size_chn;
+		u8 priority_size_chn;
+		u8 chn_index;
+
+		u8 frame_index;
+
+		u32 tick[RP_DYN_PRIO_FRAME_COUNT];
+		u8 frame_rate;
 		u8 initializing;
 		u8 priority;
-		u16 priority_time;
-		u32 tick[RP_DYN_PRIO_FRAME_COUNT];
-		u8 tick_index;
-		u8 frame_rate;
-		u16 size_time;
-		u8 channel_count;
-		u8 channel_priority_time;
-		u8 channel_size_time;
+
+		u16 frame_size_est;
+		u16 priority_size_est;
 	} top, bot;
-	u8 top_bot[RP_ENCODE_BUFFER_COUNT];
-	u8 top_bot_index;
 	Handle mutex;
 } rp_dyn_prio_ctx;
 
@@ -387,13 +394,15 @@ static void rpInitPriorityCtx(void) {
 	}
 	memset(&rp_dyn_prio_ctx, 0, sizeof(rp_dyn_prio_ctx));
 	svc_createMutex(&rp_dyn_prio_ctx.mutex, 0);
+
 	rp_dyn_prio_ctx.top.initializing =
 		rp_dyn_prio_ctx.bot.initializing = RP_DYN_PRIO_FRAME_COUNT;
+
 	rp_dyn_prio_ctx.top.priority = rp_config.top_priority;
 	rp_dyn_prio_ctx.bot.priority = rp_config.bot_priority;
 }
 
-static int rpGetPriorityScreen(int pos) {
+static int rpGetPriorityScreen(void) {
 	if (rp_config.top_priority == 0)
 		return 0;
 	if (rp_config.bot_priority == 0)
@@ -403,7 +412,78 @@ static int rpGetPriorityScreen(int pos) {
 	int top_bot;
 	svc_waitSynchronization1(ctx->mutex, U64_MAX);
 
-	top_bot = ctx->top_bot[pos];
+#define TOP 0, top, bot
+#define BOT 1, bot, top
+
+#define SET_WITH_SIZE(s, c0, c1, te, ta) do { \
+	top_bot = s; \
+	ctx->c1.te -=ctx->c0.te; \
+	ctx->c0.te = ctx->c0.ta; \
+} while (0)
+#define SET_WITH_FRAME_SIZE(s) SET_WITH_SIZE(s, frame_size_est, frame_size_acc)
+#define SET_WITH_PRIORITY_SIZE(s) SET_WITH_SIZE(s, priority_size_est, priority_size_acc)
+
+#define SET_WITH_SIZE_0(s, c0, c1, te, ta) do { \
+	top_bot = s; \
+	ctx->c1.te = 0; \
+	ctx->c0.te = ctx->c0.ta; \
+} while (0)
+#define SET_WITH_FRAME_SIZE_0(s) SET_WITH_SIZE_0(s, frame_size_est, frame_size_acc)
+
+#define SET_SIZE(_, c0, c1, te, ta) do { \
+	if (ctx->c0.te <= ctx->c1.te) { \
+		ctx->c1.te -=ctx->c0.te; \
+	} else { \
+		ctx->c1.te = 0; \
+	} \
+	ctx->c0.te = ctx->c0.ta; \
+} while (0)
+#define SET_FRAME_SIZE(s) SET_SIZE(s, frame_size_est, frame_size_acc)
+#define SET_PRIORITY_SIZE(s) SET_SIZE(s, priority_size_est, priority_size_acc)
+
+	if (rp_config.dynamic_priority &&
+		ctx->top.frame_rate + ctx->bot.frame_rate >= rp_config.target_frame_rate
+	) {
+		if (ctx->top.frame_size_est <= ctx->bot.frame_size_est) {
+			if (ctx->top.priority_size_est <= ctx->bot.priority) {
+				SET_WITH_FRAME_SIZE(TOP);
+				SET_PRIORITY_SIZE(TOP);
+			} else {
+				SET_WITH_FRAME_SIZE_0(BOT);
+				SET_PRIORITY_SIZE(BOT);
+			}
+		} else {
+			if (ctx->bot.priority_size_est <= ctx->top.priority) {
+				SET_WITH_FRAME_SIZE(BOT);
+				SET_PRIORITY_SIZE(BOT);
+			} else {
+				SET_WITH_FRAME_SIZE_0(TOP);
+				SET_PRIORITY_SIZE(TOP);
+			}
+		}
+	} else {
+		if (ctx->top.priority_size_est <= ctx->bot.priority_size_est) {
+			SET_WITH_PRIORITY_SIZE(TOP);
+			SET_FRAME_SIZE(TOP);
+		} else {
+			SET_WITH_PRIORITY_SIZE(BOT);
+			SET_FRAME_SIZE(BOT);
+		}
+	}
+
+#undef TOP
+#undef BOT
+
+#undef SET_WITH_FRAME_SIZE
+#undef SET_WITH_PRIORITY_SIZE
+#undef SET_WITH_SIZE
+
+#undef SET_WITH_FRAME_SIZE_0
+#undef SET_WITH_SIZE_0
+
+#undef SET_FRAME_SIZE
+#undef SET_PRIORITY_SIZE
+#undef SET_SIZE
 
 	svc_releaseMutex(ctx->mutex);
 	return top_bot;
@@ -423,95 +503,41 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 
 	svc_waitSynchronization1(ctx->mutex, U64_MAX);
 
-	u8 channel = ++sctx->channel_count;
-	sctx->channel_count %= RP_IMAGE_CHANNEL_COUNT;
-	if (rp_config.dynamic_priority) {
-		u8 time = 31 - __builtin_clz(size);
-		sctx->channel_size_time += time;
+#define SET_SIZE(t, ta, tc) do { \
+	sctx->ta += sctx->tc; \
+	sctx->ta -= sctx->t[sctx->frame_index]; \
+	sctx->t[sctx->frame_index] = sctx->tc; \
+	sctx->tc = 0; \
+} while (0)
 
-		if (channel == RP_IMAGE_CHANNEL_COUNT) {
-			sctx->size_time += sctx->channel_size_time;
-			sctx->channel_size_time = 0;
+	u8 chn_index = ++sctx->chn_index;
+	sctx->chn_index %= RP_IMAGE_CHANNEL_COUNT;
+	if (rp_config.dynamic_priority) {
+		sctx->frame_size_chn += 31 - __builtin_clz(size);
+		if (chn_index == RP_IMAGE_CHANNEL_COUNT) {
+			SET_SIZE(frame_size, frame_size_acc, frame_size_chn);
 
 			u32 tick = svc_getSystemTick();
-			u32 tick_n_delta;
+			u32 tick_delta = tick - sctx->tick[sctx->frame_index];
+			sctx->tick[sctx->frame_index] = tick;
+
 			if (sctx->initializing) {
 				--sctx->initializing;
-				tick_n_delta = 0;
+				sctx->frame_rate = 0;
 			} else {
-				tick_n_delta = tick - sctx->tick[sctx->tick_index];
-			}
-			sctx->tick[sctx->tick_index++] = tick;
-			sctx->tick_index %= RP_DYN_PRIO_FRAME_COUNT;
-			if (tick_n_delta)
-				sctx->frame_rate = (u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / 3 / tick_n_delta;
-
-			// nsDbgPrint("priority %s: size time %d, frame rate %d\n",
-			// 	RP_TOP_BOT_STR(top_bot), (int)sctx->size_time,(int)sctx->frame_rate);
-		}
-	}
-	sctx->channel_priority_time += sctx->priority;
-	if (channel == RP_IMAGE_CHANNEL_COUNT) {
-		sctx->priority_time += sctx->channel_priority_time;
-		sctx->channel_priority_time = 0;
-
-		// nsDbgPrint("priority %s: priority time %d\n",
-		// 	RP_TOP_BOT_STR(top_bot), (int)sctx->priority_time);
-
-		u8 top_bot_index = ctx->top_bot_index++;
-		ctx->top_bot_index %= RP_ENCODE_BUFFER_COUNT;
-		u8 *top_bot = &ctx->top_bot[top_bot_index];
-
-#define RP_PRIO_CHECK_COUNT(t) do { \
-	if (ctx->top.t == ctx->bot.t) { \
-		if (ctx->top.frame_rate == ctx->bot.frame_rate) { \
-			*top_bot = ctx->top.priority <= ctx->bot.priority ? 0 : 1; \
-		} else { \
-			*top_bot = ctx->top.frame_rate < ctx->bot.frame_rate ? 0 : 1; \
-		} \
-	} else { \
-		*top_bot = ctx->top.t < ctx->bot.t ? 0 : 1; \
-	} \
-	} while (0)
-
-		if (rp_config.dynamic_priority &&
-			ctx->top.frame_rate + ctx->bot.frame_rate >= rp_config.target_frame_rate
-		) {
-			RP_PRIO_CHECK_COUNT(size_time);
-		} else {
-			RP_PRIO_CHECK_COUNT(priority_time);
-		}
-
-#undef RP_PRIO_CHECK_COUNT
-
-#define RP_PRIO_RESET_COUNT(s0, s1, t) do { \
-	ctx->s1.t = ctx->s1.t > ctx->s0.t ? \
-		ctx->s1.t - ctx->s0.t : 0; \
-	ctx->s0.t = 0; } while (0)
-
-		if (rp_config.dynamic_priority) {
-			if (*top_bot == 0) {
-				RP_PRIO_RESET_COUNT(top, bot, size_time);
-			} else {
-				RP_PRIO_RESET_COUNT(bot, top, size_time);
+				sctx->frame_rate = (u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / tick_delta;
 			}
 		}
-		if (*top_bot == 0) {
-			RP_PRIO_RESET_COUNT(top, bot, priority_time);
-		} else {
-			RP_PRIO_RESET_COUNT(bot, top, priority_time);
-		}
-
-#undef RP_PRIO_RESET_COUNT
-
-		if (*top_bot == 0) {
-			if (ctx->top.initializing)
-				++ctx->top.frame_rate;
-		} else {
-			if (ctx->bot.initializing)
-				++ctx->bot.frame_rate;
-		}
 	}
+	sctx->priority_size_chn += sctx->priority;
+	if (chn_index == RP_IMAGE_CHANNEL_COUNT) {
+		SET_SIZE(priority_size, priority_size_acc, priority_size_chn);
+
+		++sctx->frame_index;
+		sctx->frame_index %= RP_DYN_PRIO_FRAME_COUNT;
+	}
+
+#undef SET_SIZE
 
 	svc_releaseMutex(ctx->mutex);
 }
@@ -1292,7 +1318,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			top_bot = rp_storage_ctx->screen_top_bot[pos];
 		} else {
 			pos = thread_n;
-			top_bot = rpGetPriorityScreen(pos);
+			top_bot = rpGetPriorityScreen();
 
 			rpKernelCallback(top_bot);
 
@@ -1408,7 +1434,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 		}
 
 		while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_RELAXED)) {
-			int top_bot = rpGetPriorityScreen(pos);
+			int top_bot = rpGetPriorityScreen();
 			// nsDbgPrint("screen transfer %s\n", RP_TOP_BOT_STR(top_bot));
 
 			rpKernelCallback(top_bot);
