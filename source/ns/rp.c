@@ -95,7 +95,6 @@ enum {
 #define RP_ENCODE_MULTITHREAD (1)
 #define RP_ENCODE_THREAD_COUNT (1 + RP_ENCODE_MULTITHREAD)
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
-#define RP_SCREEN_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
 #define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT)
 static struct {
 	u8 nwm_send_buffer[NWM_PACKET_SIZE] ALIGN_4;
@@ -107,9 +106,9 @@ static struct {
 	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
 	u8 umm_heap[RP_UMM_HEAP_SIZE] ALIGN_4;
 
-	Handle screen_hdma[RP_SCREEN_BUFFER_COUNT];
-	u8 screen_buffer[RP_SCREEN_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE] ALIGN_4;
-	u8 screen_top_bot[RP_SCREEN_BUFFER_COUNT] ALIGN_4;
+	Handle screen_hdma[RP_ENCODE_BUFFER_COUNT];
+	u8 screen_buffer[RP_ENCODE_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE] ALIGN_4;
+	u8 screen_top_bot[RP_ENCODE_BUFFER_COUNT] ALIGN_4;
 	struct jls_enc_params jls_enc_params[RP_ENCODE_PARAMS_COUNT];
 	struct jls_enc_ctx jls_enc_ctx[RP_ENCODE_THREAD_COUNT];
 	struct bito_ctx jls_bito_ctx[RP_ENCODE_THREAD_COUNT];
@@ -165,11 +164,11 @@ static u8 rp_network_transfer_pos;
 static void rp_screen_queue_init() {
 	if (rp_screen_transfer_sem)
 		svc_closeHandle(rp_screen_transfer_sem);
-	svc_createSemaphore(&rp_screen_transfer_sem, RP_SCREEN_BUFFER_COUNT, RP_SCREEN_BUFFER_COUNT);
+	svc_createSemaphore(&rp_screen_transfer_sem, RP_ENCODE_BUFFER_COUNT, RP_ENCODE_BUFFER_COUNT);
 
 	if (rp_screen_encode_sem)
 		svc_closeHandle(rp_screen_encode_sem);
-	svc_createSemaphore(&rp_screen_encode_sem, 0, RP_SCREEN_BUFFER_COUNT);
+	svc_createSemaphore(&rp_screen_encode_sem, 0, RP_ENCODE_BUFFER_COUNT);
 
 	rp_screen_encode_pos = rp_screen_transfer_pos = 0;
 }
@@ -199,7 +198,7 @@ static s32 rp_screen_transfer_acquire(s64 timeout) {
 	if (svc_waitSynchronization1(rp_screen_transfer_sem, timeout))
 		return -1;
 	s32 ret = rp_screen_transfer_pos;
-	rp_screen_transfer_pos = (ret + 1) % RP_SCREEN_BUFFER_COUNT;
+	rp_screen_transfer_pos = (ret + 1) % RP_ENCODE_BUFFER_COUNT;
 	return ret;
 }
 
@@ -211,7 +210,7 @@ static void rp_screen_encode_release(void) {
 static s32 rp_screen_encode_acquire(s64 timeout) {
 	if (svc_waitSynchronization1(rp_screen_encode_sem, timeout))
 		return -1;
-	return rp_atomic_fetch_addb_wrap(&rp_screen_encode_pos, 1, RP_SCREEN_BUFFER_COUNT);
+	return rp_atomic_fetch_addb_wrap(&rp_screen_encode_pos, 1, RP_ENCODE_BUFFER_COUNT);
 }
 
 static void rp_screen_transfer_release(void) {
@@ -363,17 +362,22 @@ void rpControlRecv(void) {
 }
 
 #define RP_DYN_PRIO_FRAME_COUNT 4
+#define RP_IMAGE_CHANNEL_COUNT 3
 struct {
 	struct {
 		u8 initializing;
 		u8 priority;
-		u8 priority_time;
+		u16 priority_time;
 		u32 tick[RP_DYN_PRIO_FRAME_COUNT];
 		u8 tick_index;
 		u8 frame_rate;
-		u8 size_time;
+		u16 size_time;
+		u8 channel_count;
+		u8 channel_priority_time;
+		u8 channel_size_time;
 	} top, bot;
-	u8 top_bot;
+	u8 top_bot[RP_ENCODE_BUFFER_COUNT];
+	u8 top_bot_index;
 	Handle mutex;
 } rp_dyn_prio_ctx;
 
@@ -389,7 +393,7 @@ static void rpInitPriorityCtx(void) {
 	rp_dyn_prio_ctx.bot.priority = rp_config.bot_priority;
 }
 
-static int rpGetPriorityScreen(void) {
+static int rpGetPriorityScreen(int pos) {
 	if (rp_config.top_priority == 0)
 		return 0;
 	if (rp_config.bot_priority == 0)
@@ -399,26 +403,8 @@ static int rpGetPriorityScreen(void) {
 	int top_bot;
 	svc_waitSynchronization1(ctx->mutex, U64_MAX);
 
-#define RP_PRIO_RESET_COUNT(s0, s1, t) do { \
-	ctx->s1.t = ctx->s1.t > ctx->s0.t ? \
-		ctx->s1.t - ctx->s0.t : 0; \
-	ctx->s0.t = 0; } while (0)
+	top_bot = ctx->top_bot[pos];
 
-	if (rp_config.dynamic_priority) {
-		if (ctx->top_bot == 0) {
-			RP_PRIO_RESET_COUNT(top, bot, size_time);
-		} else {
-			RP_PRIO_RESET_COUNT(bot, top, size_time);
-		}
-	}
-	if (ctx->top_bot == 0) {
-		RP_PRIO_RESET_COUNT(top, bot, priority_time);
-	} else {
-		RP_PRIO_RESET_COUNT(bot, top, priority_time);
-	}
-#undef RP_PRIO_RESET_COUNT
-
-	top_bot = ctx->top_bot;
 	svc_releaseMutex(ctx->mutex);
 	return top_bot;
 }
@@ -436,35 +422,97 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 	}
 
 	svc_waitSynchronization1(ctx->mutex, U64_MAX);
+
+	u8 channel = ++sctx->channel_count;
+	sctx->channel_count %= RP_IMAGE_CHANNEL_COUNT;
 	if (rp_config.dynamic_priority) {
 		u8 time = 31 - __builtin_clz(size);
-		sctx->size_time += time;
-		u32 tick = svc_getSystemTick();
-		u32 tick_n_delta;
-		if (sctx->initializing) {
-			--sctx->initializing;
-			tick_n_delta = 0;
-		} else {
-			tick_n_delta = tick - sctx->tick[sctx->tick_index];
-		}
-		sctx->tick[sctx->tick_index++] = tick;
-		sctx->tick_index %= RP_DYN_PRIO_FRAME_COUNT;
-		sctx->frame_rate = tick_n_delta ?
-			(u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / tick_n_delta : 0;
-		// nsDbgPrint("priority %s: size time %d, frame rate %d\n",
-		// 	RP_TOP_BOT_STR(top_bot), (int)sctx->size_time,(int)sctx->frame_rate);
-	}
-	sctx->priority_time += sctx->priority;
-	// nsDbgPrint("priority %s: priority time %d\n",
-	// 	RP_TOP_BOT_STR(top_bot), (int)sctx->priority_time);
+		sctx->channel_size_time += time;
 
-	if (rp_config.dynamic_priority &&
-		ctx->top.frame_rate + ctx->bot.frame_rate >= rp_config.target_frame_rate
-	) {
-		ctx->top_bot = ctx->top.size_time < ctx->bot.size_time ? 0 : 1;
-	} else {
-		ctx->top_bot = ctx->top.priority_time < ctx->bot.priority_time ? 0 : 1;
+		if (channel == RP_IMAGE_CHANNEL_COUNT) {
+			sctx->size_time += sctx->channel_size_time;
+			sctx->channel_size_time = 0;
+
+			u32 tick = svc_getSystemTick();
+			u32 tick_n_delta;
+			if (sctx->initializing) {
+				--sctx->initializing;
+				tick_n_delta = 0;
+			} else {
+				tick_n_delta = tick - sctx->tick[sctx->tick_index];
+			}
+			sctx->tick[sctx->tick_index++] = tick;
+			sctx->tick_index %= RP_DYN_PRIO_FRAME_COUNT;
+			if (tick_n_delta)
+				sctx->frame_rate = (u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / 3 / tick_n_delta;
+
+			// nsDbgPrint("priority %s: size time %d, frame rate %d\n",
+			// 	RP_TOP_BOT_STR(top_bot), (int)sctx->size_time,(int)sctx->frame_rate);
+		}
 	}
+	sctx->channel_priority_time += sctx->priority;
+	if (channel == RP_IMAGE_CHANNEL_COUNT) {
+		sctx->priority_time += sctx->channel_priority_time;
+		sctx->channel_priority_time = 0;
+
+		// nsDbgPrint("priority %s: priority time %d\n",
+		// 	RP_TOP_BOT_STR(top_bot), (int)sctx->priority_time);
+
+		u8 top_bot_index = ctx->top_bot_index++;
+		ctx->top_bot_index %= RP_ENCODE_BUFFER_COUNT;
+		u8 *top_bot = &ctx->top_bot[top_bot_index];
+
+#define RP_PRIO_CHECK_COUNT(t) do { \
+	if (ctx->top.t == ctx->bot.t) { \
+		if (ctx->top.frame_rate == ctx->bot.frame_rate) { \
+			*top_bot = ctx->top.priority <= ctx->bot.priority ? 0 : 1; \
+		} else { \
+			*top_bot = ctx->top.frame_rate < ctx->bot.frame_rate ? 0 : 1; \
+		} \
+	} else { \
+		*top_bot = ctx->top.t < ctx->bot.t ? 0 : 1; \
+	} \
+	} while (0)
+
+		if (rp_config.dynamic_priority &&
+			ctx->top.frame_rate + ctx->bot.frame_rate >= rp_config.target_frame_rate
+		) {
+			RP_PRIO_CHECK_COUNT(size_time);
+		} else {
+			RP_PRIO_CHECK_COUNT(priority_time);
+		}
+
+#undef RP_PRIO_CHECK_COUNT
+
+#define RP_PRIO_RESET_COUNT(s0, s1, t) do { \
+	ctx->s1.t = ctx->s1.t > ctx->s0.t ? \
+		ctx->s1.t - ctx->s0.t : 0; \
+	ctx->s0.t = 0; } while (0)
+
+		if (rp_config.dynamic_priority) {
+			if (*top_bot == 0) {
+				RP_PRIO_RESET_COUNT(top, bot, size_time);
+			} else {
+				RP_PRIO_RESET_COUNT(bot, top, size_time);
+			}
+		}
+		if (*top_bot == 0) {
+			RP_PRIO_RESET_COUNT(top, bot, priority_time);
+		} else {
+			RP_PRIO_RESET_COUNT(bot, top, priority_time);
+		}
+
+#undef RP_PRIO_RESET_COUNT
+
+		if (*top_bot == 0) {
+			if (ctx->top.initializing)
+				++ctx->top.frame_rate;
+		} else {
+			if (ctx->bot.initializing)
+				++ctx->bot.frame_rate;
+		}
+	}
+
 	svc_releaseMutex(ctx->mutex);
 }
 #undef RP_DYN_PRIO_FRAME_COUNT
@@ -517,7 +565,8 @@ static void rpNetworkTransfer(void) {
 			.frame_n = rp_storage_ctx->jls_encode_frame_n[pos],
 			.top_bot = rp_storage_ctx->jls_encode_top_bot[pos]
 		};
-		// nsDbgPrint("network transfer %s\n", RP_TOP_BOT_STR(header.top_bot));
+		// nsDbgPrint("network transfer %s: %d (%d bytes)\n",
+		// 	RP_TOP_BOT_STR(header.top_bot), header.frame_n, header.size);
 
 		rpSetPriorityScreen(header.top_bot, header.size);
 		u32 size_remain = header.size;
@@ -1243,7 +1292,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			top_bot = rp_storage_ctx->screen_top_bot[pos];
 		} else {
 			pos = thread_n;
-			top_bot = rpGetPriorityScreen();
+			top_bot = rpGetPriorityScreen(pos);
 
 			rpKernelCallback(top_bot);
 
@@ -1359,7 +1408,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 		}
 
 		while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_RELAXED)) {
-			int top_bot = rpGetPriorityScreen();
+			int top_bot = rpGetPriorityScreen(pos);
 			// nsDbgPrint("screen transfer %s\n", RP_TOP_BOT_STR(top_bot));
 
 			rpKernelCallback(top_bot);
@@ -1433,16 +1482,16 @@ static void rp_set_params() {
 
 	rp_config.kcp_conv = rp_config.arg0;
 
-	rp_config.yuv_option = rp_config.arg1 & 0x3;
-	rp_config.color_transform_hp = rp_config.arg1 & 0xc >> 2;
-	rp_config.downscale_uv = rp_config.arg1 & 0x10 >> 4;
-	rp_config.encoder_which = rp_config.arg1 & 0x20 >> 5;
+	rp_config.yuv_option = (rp_config.arg1 & 0x3);
+	rp_config.color_transform_hp = (rp_config.arg1 & 0xc) >> 2;
+	rp_config.downscale_uv = (rp_config.arg1 & 0x10) >> 4;
+	rp_config.encoder_which = (rp_config.arg1 & 0x20) >> 5;
 
-	rp_config.top_priority = rp_config.arg2 & 0xf;
-	rp_config.bot_priority = rp_config.arg2 & 0xf0 >> 4;
-	rp_config.dynamic_priority = rp_config.arg2 & 0x8000 >> 15;
-	rp_config.target_frame_rate = rp_config.arg2 & 0xff0000 >> 16;
-	rp_config.target_mbit_rate = rp_config.arg2 & 0x1f00 >> 8;
+	rp_config.top_priority = (rp_config.arg2 & 0xf);
+	rp_config.bot_priority = (rp_config.arg2 & 0xf0) >> 4;
+	rp_config.dynamic_priority = (rp_config.arg2 & 0x8000) >> 15;
+	rp_config.target_frame_rate = (rp_config.arg2 & 0xff0000) >> 16;
+	rp_config.target_mbit_rate = (rp_config.arg2 & 0x1f00) >> 8;
 
 	rp_config.min_send_interval_ticks =
 		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8 /
