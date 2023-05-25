@@ -76,6 +76,7 @@ static Handle rp_network_thread;
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
 #define RP_JLS_ENCODE_BUFFER_SIZE (400 * 240)
+#define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
 
 // attribute aligned
 #define ALIGN_4 __attribute__ ((aligned (4)))
@@ -106,6 +107,7 @@ static struct {
 	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
 	u8 umm_heap[RP_UMM_HEAP_SIZE] ALIGN_4;
 
+	Handle screen_hdma[RP_SCREEN_BUFFER_COUNT];
 	u8 screen_buffer[RP_SCREEN_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE] ALIGN_4;
 	u8 screen_top_bot[RP_SCREEN_BUFFER_COUNT] ALIGN_4;
 	struct jls_enc_params jls_enc_params[RP_ENCODE_PARAMS_COUNT];
@@ -196,7 +198,9 @@ static u8 rp_atomic_fetch_addb_wrap(u8 *p, u8 a, u8 factor) {
 static s32 rp_screen_transfer_acquire(s64 timeout) {
 	if (svc_waitSynchronization1(rp_screen_transfer_sem, timeout))
 		return -1;
-	return rp_screen_transfer_pos = (rp_screen_transfer_pos + 1) % RP_SCREEN_BUFFER_COUNT;
+	s32 ret = rp_screen_transfer_pos;
+	rp_screen_transfer_pos = (ret + 1) % RP_SCREEN_BUFFER_COUNT;
+	return ret;
 }
 
 static void rp_screen_encode_release(void) {
@@ -229,7 +233,9 @@ static void rp_network_transfer_release(void) {
 static s32 rp_network_transfer_acquire(s64 timeout) {
 	if (svc_waitSynchronization1(rp_network_transfer_sem, timeout))
 		return -1;
-	return rp_network_transfer_pos = (rp_network_transfer_pos + 1) % RP_ENCODE_BUFFER_COUNT;
+	s32 ret = rp_network_transfer_pos;
+	rp_network_transfer_pos = (ret + 1) % RP_ENCODE_BUFFER_COUNT;
+	return ret;
 }
 
 static void rp_network_encode_release(void) {
@@ -445,8 +451,12 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 		sctx->tick_index %= RP_DYN_PRIO_FRAME_COUNT;
 		sctx->frame_rate = tick_n_delta ?
 			(u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / tick_n_delta : 0;
+		// nsDbgPrint("priority %s: size time %d, frame rate %d\n",
+		// 	RP_TOP_BOT_STR(top_bot), (int)sctx->size_time,(int)sctx->frame_rate);
 	}
 	sctx->priority_time += sctx->priority;
+	// nsDbgPrint("priority %s: priority time %d\n",
+	// 	RP_TOP_BOT_STR(top_bot), (int)sctx->priority_time);
 
 	if (rp_config.dynamic_priority &&
 		ctx->top.frame_rate + ctx->bot.frame_rate >= rp_config.target_frame_rate
@@ -507,6 +517,7 @@ static void rpNetworkTransfer(void) {
 			.frame_n = rp_storage_ctx->jls_encode_frame_n[pos],
 			.top_bot = rp_storage_ctx->jls_encode_top_bot[pos]
 		};
+		// nsDbgPrint("network transfer %s\n", RP_TOP_BOT_STR(header.top_bot));
 
 		rpSetPriorityScreen(header.top_bot, header.size);
 		u32 size_remain = header.size;
@@ -618,7 +629,7 @@ static void rpNetworkTransferThread(u32 arg UNUSED) {
 	svc_exitThread();
 }
 
-static Handle rpHDma[2], rpHandleHome, rpHandleGame;
+static Handle rpHandleHome, rpHandleGame;
 static u32 rpGameFCRAMBase = 0;
 
 static void rpInitDmaHome(void) {
@@ -701,20 +712,21 @@ static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
 	Handle hProcess = rpHandleHome;
 
 	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)dest, bufSize);
-	svc_closeHandle(rpHDma[top_bot]);
-	rpHDma[top_bot] = 0;
+	Handle *hdma = &rp_storage_ctx->screen_hdma[screen_buffer_n];
+	svc_closeHandle(*hdma);
+	*hdma = 0;
 
 	int ret;
 	if (isInVRAM(phys)) {
 		rpCloseGameHandle();
-		ret = svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
+		ret = svc_startInterProcessDma(hdma, CURRENT_PROCESS_HANDLE,
 			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)rp_dma_config);
 		return ret;
 	}
 	else if (isInFCRAM(phys)) {
 		hProcess = rpGetGameHandle();
 		if (hProcess) {
-			ret = svc_startInterProcessDma(&rpHDma[top_bot], CURRENT_PROCESS_HANDLE,
+			ret = svc_startInterProcessDma(hdma, CURRENT_PROCESS_HANDLE,
 				dest, hProcess, (const void *)(rpGameFCRAMBase + (phys - 0x20000000)), bufSize, (u32 *)rp_dma_config);
 			return ret;
 		}
@@ -1228,7 +1240,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 				continue;
 			}
 
-			int top_bot = rp_storage_ctx->screen_top_bot[pos];
+			top_bot = rp_storage_ctx->screen_top_bot[pos];
 		} else {
 			pos = thread_n;
 			top_bot = rpGetPriorityScreen();
@@ -1348,6 +1360,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 
 		while (!__atomic_load_n(&exit_rp_thread, __ATOMIC_RELAXED)) {
 			int top_bot = rpGetPriorityScreen();
+			// nsDbgPrint("screen transfer %s\n", RP_TOP_BOT_STR(top_bot));
 
 			rpKernelCallback(top_bot);
 
@@ -1506,6 +1519,7 @@ static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
 				nsDbgPrint("Request memory for RemotePlay failed\n");
 				return 0;
 			}
+			memset(rp_storage_ctx, 0, sizeof(*rp_storage_ctx));
 			nsDbgPrint("RemotePlay memory: 0x%08x (0x%x bytes)\n", rp_storage_ctx, storage_size);
 
 			memcpy(rp_storage_ctx->nwm_send_buffer, buf, 0x22 + 8);
