@@ -62,14 +62,35 @@ int nsRecvPacketData(u8* buf, u32 size) {
 	rtRecvSocket(g_nsCtx->hSocket, buf, size);
 }
 
+static void nsRemotePlayControl(Handle hProcess, NS_CONFIG *cfg) {
+	int ret = copyRemoteMemory(
+		hProcess,
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, startupInfo[8]),
+		CURRENT_PROCESS_HANDLE,
+		&cfg->startupInfo[8],
+		3 * sizeof(cfg->startupInfo[8]));
+	if (ret != 0) {
+		nsDbgPrint("nsRemotePlayControl copyRemoteMemory failed : %08x\n", ret);
+		return;
+	}
+
+	int control = 1;
+	ret = copyRemoteMemory(
+		hProcess,
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, remotePlayUpdate),
+		CURRENT_PROCESS_HANDLE,
+		&control,
+		sizeof(control));
+	if (ret != 0) {
+		nsDbgPrint("nsRemotePlayControl control copy failed : %08x\n", ret);
+		return;
+	}
+
+	return;
+}
+
 u8 nsRemotePlayStarted;
 int nsHandleRemotePlay(void) {
-	if (nsRemotePlayStarted) {
-		nsDbgPrint("RemotePlay already started\n");
-		return -1;
-	}
-	nsRemotePlayStarted = 1;
-
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
 
 	Handle hProcess;
@@ -90,6 +111,14 @@ int nsHandleRemotePlay(void) {
 		hProcess = 0;
 		goto final;
 	}
+
+	if (nsRemotePlayStarted) {
+		nsDbgPrint("RemotePlay already started, updating params\n");
+		nsRemotePlayControl(hProcess, &cfg);
+		svc_closeHandle(hProcess);
+		return 0;
+	}
+	nsRemotePlayStarted = 1;
 
 	u8 desiredHeader[16] = { 0x04, 0x00, 0x2D, 0xE5, 0x4F, 0x00, 0x00, 0xEF, 0x00, 0x20, 0x9D, 0xE5, 0x00, 0x10, 0x82, 0xE5 };
 	u8 buf[16] = { 0 };

@@ -67,12 +67,11 @@ enum {
 #define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT)
 static struct {
 	ikcpcb *kcp;
+	u8 kcp_restart;
 	Handle kcp_mutex;
 	u8 kcp_ready;
 
 	u8 exit_thread;
-	u8 exit_network_thread;
-	u8 reset_kcp;
 	Handle second_thread;
 	Handle screen_thread;
 	Handle network_thread;
@@ -101,6 +100,8 @@ static struct {
 	u8 jls_encode_buffer[RP_ENCODE_BUFFER_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
 	u8 jls_encode_top_bot[RP_ENCODE_BUFFER_COUNT];
 	u8 jls_encode_frame_n[RP_ENCODE_BUFFER_COUNT];
+	u8 jls_encode_bpp[RP_ENCODE_BUFFER_COUNT];
+	u8 jls_encode_format[RP_ENCODE_BUFFER_COUNT];
 	u32 jls_encode_size[RP_ENCODE_BUFFER_COUNT];
 
 	struct {
@@ -112,6 +113,7 @@ static struct {
 		u8 y_bpp;
 		u8 u_bpp;
 		u8 v_bpp;
+		u8 format;
 	} top_image[RP_IMAGE_BUFFER_COUNT];
 
 	struct {
@@ -123,6 +125,7 @@ static struct {
 		u8 y_bpp;
 		u8 u_bpp;
 		u8 v_bpp;
+		u8 format;
 	} bot_image[RP_IMAGE_BUFFER_COUNT];
 
 	u8 top_image_n;
@@ -141,6 +144,11 @@ static struct {
 	} syn;
 
 	struct {
+		u8 updated;
+		u8 syn_count;
+		Handle syn_event;
+		Handle syn_event1;
+
 		u32 kcp_conv;
 
 		u8 yuv_option;
@@ -573,13 +581,103 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 }
 #undef RP_DYN_PRIO_FRAME_COUNT
 
+static void rp_set_params() {
+	rp_ctx->conf.arg0 = g_nsConfig->startupInfo[8];
+	rp_ctx->conf.arg1 = g_nsConfig->startupInfo[9];
+	rp_ctx->conf.arg2 = g_nsConfig->startupInfo[10];
+
+	rp_ctx->conf.updated = 0;
+
+	rp_ctx->conf.kcp_conv = rp_ctx->conf.arg0;
+
+	rp_ctx->conf.yuv_option = (rp_ctx->conf.arg1 & 0x3);
+	rp_ctx->conf.color_transform_hp = (rp_ctx->conf.arg1 & 0xc) >> 2;
+	rp_ctx->conf.downscale_uv = (rp_ctx->conf.arg1 & 0x10) >> 4;
+	rp_ctx->conf.encoder_which = (rp_ctx->conf.arg1 & 0x20) >> 5;
+
+	rp_ctx->conf.top_priority = (rp_ctx->conf.arg2 & 0xf);
+	rp_ctx->conf.bot_priority = (rp_ctx->conf.arg2 & 0xf0) >> 4;
+	rp_ctx->conf.dynamic_priority = (rp_ctx->conf.arg2 & 0x8000) >> 15;
+	rp_ctx->conf.target_frame_rate = (rp_ctx->conf.arg2 & 0xff0000) >> 16;
+	rp_ctx->conf.target_mbit_rate = (rp_ctx->conf.arg2 & 0x1f00) >> 8;
+
+	rp_ctx->conf.min_send_interval_ticks =
+		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8 /
+		((u16)rp_ctx->conf.target_mbit_rate + 1) / 1024 / 1024;
+}
+
+static void rp_init_syn_params(void) {
+	__atomic_store_n(&rp_ctx->conf.syn_count, 0, __ATOMIC_RELAXED);
+
+	if (rp_ctx->conf.syn_event) {
+		svc_closeHandle(rp_ctx->conf.syn_event);
+	}
+	svc_createEvent(&rp_ctx->conf.syn_event, RESET_STICKY);
+
+	if (rp_ctx->conf.syn_event1) {
+		svc_closeHandle(rp_ctx->conf.syn_event1);
+	}
+	svc_createEvent(&rp_ctx->conf.syn_event1, RESET_ONESHOT);
+}
+
+static void rp_release_params(int thread_n) {
+	u32 syn_count;
+	if ((syn_count = __atomic_fetch_add(&rp_ctx->conf.syn_count, 1, __ATOMIC_ACQ_REL)) == 0) {
+	}
+	// nsDbgPrint("rp_release_params %d: %d\n", thread_n, syn_count);
+}
+
+static void rp_acquire_params(int thread_n) {
+	u32 syn_count;
+	if ((syn_count = __atomic_sub_fetch(&rp_ctx->conf.syn_count, 1, __ATOMIC_ACQ_REL)) == 0) {
+		svc_signalEvent(rp_ctx->conf.syn_event);
+	} else if (syn_count == 1) {
+		svc_signalEvent(rp_ctx->conf.syn_event1);
+	}
+	// nsDbgPrint("rp_acquire_params %d: %d\n", thread_n, syn_count);
+	svc_waitSynchronization1(rp_ctx->conf.syn_event, U64_MAX);
+}
+
+static void rp_acquire_params1(int thread_n) {
+	// nsDbgPrint("rp_acquire_params1 %d\n", thread_n);
+	svc_waitSynchronization1(rp_ctx->conf.syn_event1, U64_MAX);
+}
+
+static int rp_check_params(int thread_n) {
+	if (__atomic_load_n(&g_nsConfig->remotePlayUpdate, __ATOMIC_ACQUIRE)) {
+		__atomic_store_n(&g_nsConfig->remotePlayUpdate, 0, __ATOMIC_RELEASE);
+
+		if (!__atomic_test_and_set(&rp_ctx->conf.updated, __ATOMIC_RELAXED)) {
+			rp_acquire_params1(thread_n);
+			rp_set_params();
+			rpInitPriorityCtx();
+			rp_network_queue_init();
+			if (RP_ENCODE_MULTITHREAD)
+				rp_screen_queue_init();
+			rp_acquire_params(thread_n);
+			rp_release_params(thread_n);
+			svc_clearEvent(rp_ctx->conf.syn_event);
+			return 1;
+		}
+	}
+
+	if (rp_ctx->conf.updated) {
+		rp_acquire_params(thread_n);
+		rp_release_params(thread_n);
+		return 1;
+	}
+	return 0;
+}
+
 struct rp_send_header {
 	u32 size;
 	u8 frame_n;
 	u8 top_bot;
+	u8 bpp;
+	u8 format;
 };
 
-static void rpNetworkTransfer(void) {
+static void rpNetworkTransfer(int thread_n) {
 	int ret;
 
 	// kcp init
@@ -587,21 +685,50 @@ static void rpNetworkTransfer(void) {
 	rp_ctx->kcp = ikcp_create(rp_ctx->conf.kcp_conv, 0);
 	if (!rp_ctx->kcp) {
 		nsDbgPrint("ikcp_create failed\n");
+
+		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+		svc_releaseMutex(rp_ctx->kcp_mutex);
+		return;
 	} else {
 		rp_ctx->kcp->output = rp_udp_output;
 		if ((ret = ikcp_setmtu(rp_ctx->kcp, KCP_PACKET_SIZE)) < 0) {
 			nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
 		}
-		ikcp_nodelay(rp_ctx->kcp, 1, 10, 1, 1);
-		rp_ctx->kcp->rx_minrto = 10;
+		ikcp_nodelay(rp_ctx->kcp, 2, 10, 2, 1);
+		// rp_ctx->kcp->rx_minrto = 10;
 		ikcp_wndsize(rp_ctx->kcp, KCP_SND_WND_SIZE, 0);
 	}
-	svc_releaseMutex(rp_ctx->kcp_mutex);
+	// svc_releaseMutex(rp_ctx->kcp_mutex);
 
 	u32 last_tick = (u32)svc_getSystemTick(), curr_tick;
-	while (!__atomic_load_n(&rp_ctx->exit_network_thread, __ATOMIC_RELAXED) && !rp_ctx->reset_kcp) {
+
+	// svc_waitSynchronization1(rp_ctx->kcp_mutex, U64_MAX);
+	// send empty header to mark beginning
+	{
+		struct rp_send_header empty_header = { 0 };
+
+		ret = ikcp_send(rp_ctx->kcp, (const char *)&empty_header, sizeof(empty_header));
+
+		if (ret < 0) {
+			nsDbgPrint("ikcp_send failed: %d\n", ret);
+			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+		}
+	}
+
+	ikcp_update(rp_ctx->kcp, iclock());
+	svc_releaseMutex(rp_ctx->kcp_mutex);
+
+	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
+		!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED)
+	) {
+		ret = rp_check_params(thread_n);
+		if (ret) {
+			__atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
+			break;
+		}
+
 		if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
-			rp_ctx->reset_kcp = 1;
+			__atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
 			break;
 		}
 
@@ -619,7 +746,9 @@ static void rpNetworkTransfer(void) {
 		struct rp_send_header header = {
 			.size = rp_ctx->jls_encode_size[pos],
 			.frame_n = rp_ctx->jls_encode_frame_n[pos],
-			.top_bot = rp_ctx->jls_encode_top_bot[pos]
+			.top_bot = rp_ctx->jls_encode_top_bot[pos],
+			.bpp = rp_ctx->jls_encode_bpp[pos],
+			.format = rp_ctx->jls_encode_format[pos],
 		};
 		// nsDbgPrint("%s %d acquired network transfer: %d\n",
 		// 	RP_TOP_BOT_STR(header.top_bot), header.frame_n, pos);
@@ -628,9 +757,11 @@ static void rpNetworkTransfer(void) {
 		u32 size_remain = header.size;
 		u8 *data = rp_ctx->jls_encode_buffer[pos];
 
-		while (!__atomic_load_n(&rp_ctx->exit_network_thread, __ATOMIC_RELAXED)) {
+		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
+			!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED)
+		) {
 			if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
-				rp_ctx->reset_kcp = 1;
+				__atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
 				break;
 			}
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
@@ -649,7 +780,6 @@ static void rpNetworkTransfer(void) {
 					nsDbgPrint("ikcp_send failed: %d\n", ret);
 
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					rp_ctx->exit_network_thread = 1;
 					svc_releaseMutex(rp_ctx->kcp_mutex);
 					break;
 				}
@@ -671,12 +801,12 @@ static void rpNetworkTransfer(void) {
 
 		u32 tick_diff;
 
-		while (!__atomic_load_n(&rp_ctx->exit_network_thread, __ATOMIC_RELAXED) &&
-			!rp_ctx->reset_kcp &&
+		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
+			!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED) &&
 			size_remain
 		) {
 			if ((tick_diff = (curr_tick = (u32)svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
-				rp_ctx->reset_kcp = 1;
+				__atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
 				break;
 			}
 			if (tick_diff < rp_ctx->conf.min_send_interval_ticks) {
@@ -695,7 +825,6 @@ static void rpNetworkTransfer(void) {
 					nsDbgPrint("ikcp_send failed: %d\n", ret);
 
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					rp_ctx->exit_network_thread = 1;
 					svc_releaseMutex(rp_ctx->kcp_mutex);
 					break;
 				}
@@ -718,8 +847,6 @@ static void rpNetworkTransfer(void) {
 		rp_network_encode_release(pos);
 	}
 
-	rp_ctx->reset_kcp = 0;
-
 	// kcp deinit
 	svc_waitSynchronization1(rp_ctx->kcp_mutex, U64_MAX);
 	ikcp_release(rp_ctx->kcp);
@@ -728,10 +855,14 @@ static void rpNetworkTransfer(void) {
 }
 
 static void rpNetworkTransferThread(u32 arg UNUSED) {
-	while (!__atomic_load_n(&rp_ctx->exit_network_thread, __ATOMIC_RELAXED)) {
+	int thread_n = -1;
+	rp_release_params(thread_n);
+	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		svc_sleepThread(1000000000);
-		rpNetworkTransfer();
+		__atomic_store_n(&rp_ctx->kcp_restart , 0, __ATOMIC_RELAXED);
+		rpNetworkTransfer(thread_n);
 	}
+	rp_acquire_params(thread_n);
 	svc_exitThread();
 }
 
@@ -1277,7 +1408,6 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 	u8 *y_bpp;
 	u8 *u_bpp;
 	u8 *v_bpp;
-
 #define RP_IMAGE_SET(top_bot_image) do { \
 	y_image = rp_ctx->top_bot_image[image_buffer_n].y_image; \
 	u_image = rp_ctx->top_bot_image[image_buffer_n].u_image; \
@@ -1286,7 +1416,8 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int top_bot) {
 	ds_v_image = rp_ctx->top_bot_image[image_buffer_n].ds_v_image; \
 	y_bpp = &rp_ctx->top_bot_image[image_buffer_n].y_bpp; \
 	u_bpp = &rp_ctx->top_bot_image[image_buffer_n].u_bpp; \
-	v_bpp = &rp_ctx->top_bot_image[image_buffer_n].v_bpp; } while (0)
+	v_bpp = &rp_ctx->top_bot_image[image_buffer_n].v_bpp; \
+	rp_ctx->top_bot_image[image_buffer_n].format = format; } while (0)
 
 	if (top_bot == 0) {
 		RP_IMAGE_SET(top_image);
@@ -1328,7 +1459,10 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	svc_sleepThread(250000000);
 
 	int ret;
+	rp_release_params(thread_n);
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
+		rp_check_params(thread_n);
+
 		s32 pos;
 		int top_bot;
 
@@ -1356,7 +1490,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 				if (capture_n++ > 25) {
 					nsDbgPrint("rpCaptureScreen failed\n");
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					return;
+					goto final;
 				}
 
 				svc_sleepThread(10000000);
@@ -1381,21 +1515,23 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			__atomic_add_fetch(&rp_ctx->top_image_send_n, 1, __ATOMIC_RELAXED) :
 			__atomic_add_fetch(&rp_ctx->bot_image_send_n, 1, __ATOMIC_RELAXED);
 
+#define RP_ACCESS_TOP_BOT_IMAGE(s, n) \
+	(s == 0 ? \
+		rp_ctx->top_image[image_buffer_n].n : \
+		rp_ctx->bot_image[image_buffer_n].n) \
+
 #define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b) while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) { \
 	pos = rp_network_encode_acquire(250000000); \
 	if (pos < 0) { \
 		continue; \
 	} \
 	int encode_buffer_n = pos; \
+	int bpp = RP_ACCESS_TOP_BOT_IMAGE(top_bot, b); \
 	ret = rpJLSEncodeImage(thread_n, encode_buffer_n, \
-		top_bot == 0 ? \
-			rp_ctx->top_image[image_buffer_n].n : \
-			rp_ctx->bot_image[image_buffer_n].n, \
+		RP_ACCESS_TOP_BOT_IMAGE(top_bot, n), \
 		top_bot == 0 ? wt : wb, \
 		h, \
-		top_bot == 0 ? \
-			rp_ctx->top_image[image_buffer_n].b : \
-			rp_ctx->bot_image[image_buffer_n].b \
+		bpp \
 	); \
 	if (ret < 0) { \
 		nsDbgPrint("rpJLSEncodeImage failed\n"); \
@@ -1405,6 +1541,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	rp_ctx->jls_encode_top_bot[pos] = top_bot; \
 	rp_ctx->jls_encode_frame_n[pos] = frame_n; \
 	rp_ctx->jls_encode_size[pos] = ret; \
+	rp_ctx->jls_encode_bpp[pos] = bpp; \
+	rp_ctx->jls_encode_format[pos] = RP_ACCESS_TOP_BOT_IMAGE(top_bot, format);
 	// nsDbgPrint("%s %d releasing network transfer: %d\n", RP_TOP_BOT_STR(top_bot), frame_n, pos);
 	rp_network_transfer_release(pos);
 
@@ -1442,6 +1580,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 #undef RP_PROCESS_IMAGE_AND_SEND
 #undef RP_PROCESS_IMAGE_AND_SEND_END
 	}
+final:
+	rp_acquire_params(thread_n);
 }
 
 static void rpSecondThreadStart(u32 arg UNUSED) {
@@ -1451,8 +1591,12 @@ static void rpSecondThreadStart(u32 arg UNUSED) {
 
 static void rpScreenTransferThread(u32 arg UNUSED) {
 	int ret;
+	int thread_n = -2;
 
+	rp_release_params(thread_n);
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
+		rp_check_params(thread_n);
+
 		s32 pos = rp_screen_transfer_acquire(250000000);
 		if (pos < 0) {
 			continue;
@@ -1476,6 +1620,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			break;
 		}
 	}
+	rp_acquire_params(thread_n);
 
 	svc_exitThread();
 }
@@ -1483,7 +1628,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 static int rpSendFrames(void) {
 	int ret;
 
-	__atomic_store_n(&rp_ctx->exit_thread, 0, __ATOMIC_RELAXED);
+	// __atomic_store_n(&rp_ctx->exit_thread, 0, __ATOMIC_RELAXED);
 	if (RP_ENCODE_MULTITHREAD) {
 		rp_screen_queue_init();
 		ret = svc_createThread(
@@ -1526,29 +1671,6 @@ static int rpSendFrames(void) {
 	return ret;
 }
 
-static void rp_set_params() {
-	rp_ctx->conf.arg0 = g_nsConfig->startupInfo[8];
-	rp_ctx->conf.arg1 = g_nsConfig->startupInfo[9];
-	rp_ctx->conf.arg2 = g_nsConfig->startupInfo[10];
-
-	rp_ctx->conf.kcp_conv = rp_ctx->conf.arg0;
-
-	rp_ctx->conf.yuv_option = (rp_ctx->conf.arg1 & 0x3);
-	rp_ctx->conf.color_transform_hp = (rp_ctx->conf.arg1 & 0xc) >> 2;
-	rp_ctx->conf.downscale_uv = (rp_ctx->conf.arg1 & 0x10) >> 4;
-	rp_ctx->conf.encoder_which = (rp_ctx->conf.arg1 & 0x20) >> 5;
-
-	rp_ctx->conf.top_priority = (rp_ctx->conf.arg2 & 0xf);
-	rp_ctx->conf.bot_priority = (rp_ctx->conf.arg2 & 0xf0) >> 4;
-	rp_ctx->conf.dynamic_priority = (rp_ctx->conf.arg2 & 0x8000) >> 15;
-	rp_ctx->conf.target_frame_rate = (rp_ctx->conf.arg2 & 0xff0000) >> 16;
-	rp_ctx->conf.target_mbit_rate = (rp_ctx->conf.arg2 & 0x1f00) >> 8;
-
-	rp_ctx->conf.min_send_interval_ticks =
-		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8 /
-		((u16)rp_ctx->conf.target_mbit_rate + 1) / 1024 / 1024;
-}
-
 static void rpThreadStart(u32 arg UNUSED) {
 	rp_set_params();
 	jls_encoder_prepare_LUTs();
@@ -1560,9 +1682,10 @@ static void rpThreadStart(u32 arg UNUSED) {
 
 	int ret = 0;
 	while (ret >= 0) {
-		__atomic_store_n(&rp_ctx->exit_network_thread, 0, __ATOMIC_RELAXED);
+		__atomic_store_n(&rp_ctx->exit_thread, 0, __ATOMIC_RELAXED);
 		rp_network_queue_init();
 		rpInitPriorityCtx();
+		rp_init_syn_params();
 		ret = svc_createThread(
 			&rp_ctx->network_thread,
 			rpNetworkTransferThread,
@@ -1577,16 +1700,15 @@ static void rpThreadStart(u32 arg UNUSED) {
 
 		ret = rpSendFrames();
 
-		__atomic_store_n(&rp_ctx->exit_network_thread, 1, __ATOMIC_RELAXED);
+		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 		svc_waitSynchronization1(rp_ctx->network_thread, U64_MAX);
 		svc_closeHandle(rp_ctx->network_thread);
 
 		svc_sleepThread(250000000);
 	}
 
-	svc_closeHandle(rp_ctx->kcp_mutex);
-
 final:
+	svc_closeHandle(rp_ctx->kcp_mutex);
 	svc_exitThread();
 }
 

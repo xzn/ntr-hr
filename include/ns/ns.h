@@ -65,7 +65,8 @@ typedef struct _NS_CONFIG {
 
 	RT_LOCK debugBufferLock;
 
-	u32 startupInfo[32];
+	u32 startupInfo[31];
+	u32 remotePlayUpdate;
 	u32 allowDirectScreenAccess;
 	u32 exitFlag;
 
