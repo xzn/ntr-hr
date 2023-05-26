@@ -32,6 +32,7 @@
 #include "libavutil/common.h"
 
 #include "put_golomb.h"
+#include "get_bits.h"
 
 #undef near /* This file uses struct member 'near' which in windows.h is defined as empty. */
 
@@ -117,5 +118,7 @@ static inline int ff_jpegls_update_state_regular(JLSState *state,
 
 void ls_encode_line(JLSState *state, PutBitContext *pb,
                     const uint8_t *last, const uint8_t *in, int w, const uint16_t (*vLUT)[3], const int16_t classmap[]);
+int ls_decode_line(JLSState *state, GetBitContext *gb,
+                   const uint8_t *last, uint8_t *dst, int last2, int w);
 
 #endif /* AVCODEC_JPEGLS_H */

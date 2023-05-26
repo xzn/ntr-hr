@@ -5,6 +5,7 @@
 #include "umm_malloc.h"
 #include "ikcp.h"
 #include "libavcodec/jpegls.h"
+#include "libavcodec/get_bits.h"
 #include "../jpeg_ls/global.h"
 #include "../jpeg_ls/bitio.h"
 
@@ -34,7 +35,7 @@ static u8 rpInited = 0;
 #define NWM_HEADER_SIZE (0x2a + 8)
 #define NWM_PACKET_SIZE (KCP_PACKET_SIZE + NWM_HEADER_SIZE)
 
-#define KCP_TIMEOUT_TICKS (500 * SYSTICK_PER_MS)
+#define KCP_TIMEOUT_TICKS (2000 * SYSTICK_PER_MS)
 #define RP_PACKET_SIZE (KCP_PACKET_SIZE - IKCP_OVERHEAD)
 #define KCP_SND_WND_SIZE 96
 
@@ -44,7 +45,7 @@ static u8 rpInited = 0;
 #define RP_STACK_SIZE (0x8000)
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
-#define RP_JLS_ENCODE_BUFFER_SIZE (400 * 240)
+#define RP_JLS_ENCODE_BUFFER_SIZE ((400 * 240) + (400 * 240) / 8)
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
 
 // attribute aligned
@@ -104,6 +105,9 @@ static struct {
 	u8 jls_encode_bpp[RP_ENCODE_BUFFER_COUNT];
 	u8 jls_encode_format[RP_ENCODE_BUFFER_COUNT];
 	u32 jls_encode_size[RP_ENCODE_BUFFER_COUNT];
+	u8 jls_encode_verify_buffer[RP_ENCODE_THREAD_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
+	u8 jls_decode_verify_buffer[RP_ENCODE_THREAD_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
+	u8 jls_decode_verify_padded_buffer[RP_ENCODE_THREAD_COUNT][400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 
 	struct {
 		u8 y_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
@@ -137,7 +141,8 @@ static struct {
 	struct {
 		struct {
 			struct {
-				Handle sem;
+				u8 id;
+				Handle sem, mutex;
 				u8 pos_head, pos_tail;
 				s8 pos[RP_ENCODE_BUFFER_COUNT];
 			} transfer, encode;
@@ -218,29 +223,44 @@ static u8 rp_atomic_fetch_addb_wrap(u8 *p, u8 a, u8 factor) {
 	return v;
 }
 
-static void rp_syn_init1(typeof(rp_ctx->syn.screen.transfer) *syn1, int init) {
+static void rp_syn_init1(typeof(rp_ctx->syn.screen.transfer) *syn1, int init, int id) {
 	if (syn1->sem)
 		svc_closeHandle(syn1->sem);
 	svc_createSemaphore(&syn1->sem, init ? RP_ENCODE_BUFFER_COUNT : 0, RP_ENCODE_BUFFER_COUNT);
+	if (syn1->mutex)
+		svc_closeHandle(syn1->mutex);
+	svc_createMutex(&syn1->mutex, 0);
 
 	syn1->pos_head = syn1->pos_tail = 0;
+	syn1->id = id;
 
 	for (int i = 0; i < RP_ENCODE_BUFFER_COUNT; ++i) {
 		syn1->pos[i] = init ? i : -1;
 	}
 }
 
-static void rp_syn_init(typeof(rp_ctx->syn.screen) *syn, int transfer_encode) {
-	rp_syn_init1(&syn->transfer, transfer_encode == 0);
-	rp_syn_init1(&syn->encode, transfer_encode == 1);
+static void rp_syn_init(typeof(rp_ctx->syn.screen) *syn, int transfer_encode, int id) {
+	rp_syn_init1(&syn->transfer, transfer_encode == 0, id);
+	rp_syn_init1(&syn->encode, transfer_encode == 1, id);
 }
 
 static s32 rp_syn_acq(typeof(rp_ctx->syn.screen.transfer) *syn1, s64 timeout) {
-	if (svc_waitSynchronization1(syn1->sem, timeout) < 0)
-		return -1;
+	Result res;
+	if ((res = svc_waitSynchronization1(syn1->sem, timeout)) != 0) {
+		if (R_DESCRIPTION(res) == RD_TIMEOUT)
+			return -1;
+		nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
+			R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+	}
 	u8 pos_tail = syn1->pos_tail;
 	syn1->pos_tail = (pos_tail + 1) % RP_ENCODE_BUFFER_COUNT;
-	u8 pos = syn1->pos[pos_tail];
+	// nsDbgPrint("rp_syn_acq id %d at %d\n", syn1->id, pos_tail);
+	s8 pos = syn1->pos[pos_tail];
+	syn1->pos[pos_tail] = -1;
+	if (pos < 0) {
+		nsDbgPrint("error rp_syn_acq id %d at pos %d\n", syn1->id, pos_tail);
+		return 0;
+	}
 	return pos;
 }
 
@@ -248,31 +268,47 @@ static void rp_syn_rel(typeof(rp_ctx->syn.screen.transfer) *syn1, s32 pos) {
 	u8 pos_head = syn1->pos_head;
 	syn1->pos_head = (pos_head + 1) % RP_ENCODE_BUFFER_COUNT;
 	syn1->pos[pos_head] = pos;
+	// nsDbgPrint("rp_syn_rel id %d at %d: %d\n", syn1->id, pos_head, pos);
 	s32 count;
 	svc_releaseSemaphore(&count, syn1->sem, 1);
 }
 
 static s32 rp_syn_acq1(typeof(rp_ctx->syn.screen.transfer) *syn1, s64 timeout) {
-	if (svc_waitSynchronization1(syn1->sem, timeout) < 0)
-		return -1;
+	Result res;
+	if ((res = svc_waitSynchronization1(syn1->sem, timeout)) != 0) {
+		if (R_DESCRIPTION(res) == RD_TIMEOUT)
+			return -1;
+		nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
+			R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+	}
 	u8 pos_tail = rp_atomic_fetch_addb_wrap(&syn1->pos_tail, 1, RP_ENCODE_BUFFER_COUNT);
-	u8 pos = syn1->pos[pos_tail];
+	// nsDbgPrint("rp_syn_acq id %d at %d\n", syn1->id, pos_tail);
+	s8 pos = syn1->pos[pos_tail];
+	syn1->pos[pos_tail] = -1;
+	if (pos < 0) {
+		nsDbgPrint("error rp_syn_acq id %d at pos %d\n", syn1->id, pos_tail);
+		return 0;
+	}
 	return pos;
 }
 
 static void rp_syn_rel1(typeof(rp_ctx->syn.screen.transfer) *syn1, s32 pos) {
-	u8 pos_head = rp_atomic_fetch_addb_wrap(&syn1->pos_head, 1, RP_ENCODE_BUFFER_COUNT);
+	svc_waitSynchronization1(syn1->mutex, U64_MAX);
+	u8 pos_head = syn1->pos_head;
+	syn1->pos_head = (pos_head + 1) % RP_ENCODE_BUFFER_COUNT;
 	syn1->pos[pos_head] = pos;
+	svc_releaseMutex(syn1->mutex);
+	// nsDbgPrint("rp_syn_rel1 id %d at %d: %d\n", syn1->id, pos_head, pos);
 	s32 count;
 	svc_releaseSemaphore(&count, syn1->sem, 1);
 }
 
 static void rp_screen_queue_init() {
-	rp_syn_init(&rp_ctx->syn.screen, 0);
+	rp_syn_init(&rp_ctx->syn.screen, 0, 0);
 }
 
 static void rp_network_queue_init() {
-	rp_syn_init(&rp_ctx->syn.network, 1);
+	rp_syn_init(&rp_ctx->syn.network, 1, 1);
 }
 
 static s32 rp_screen_transfer_acquire(s64 timeout) {
@@ -361,8 +397,19 @@ static int rpInitUDPPacket(int dataLen) {
 	return dataLen;
 }
 
-static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *user UNUSED) {
+static IINT64 iclock64(void)
+{
+	u64 value = svc_getSystemTick();
+	return value / SYSTICK_PER_MS;
+}
 
+static IUINT32 iclock()
+{
+	return (IUINT32)(iclock64() & 0xfffffffful);
+}
+
+static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *user UNUSED) {
+	// nsDbgPrint("rp_udp_output %d\n", iclock());
 
 	u8 *sendBuf = rp_ctx->nwm_send_buffer;
 	u8 *dataBuf = sendBuf + NWM_HEADER_SIZE;
@@ -379,18 +426,9 @@ static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *use
 	return len;
 }
 
-static IINT64 iclock64(void)
-{
-	u64 value = svc_getSystemTick();
-	return value / SYSTICK_PER_MS;
-}
-
-static IUINT32 iclock()
-{
-	return (IUINT32)(iclock64() & 0xfffffffful);
-}
-
 static void rpControlRecvHandle(u8* buf UNUSED, int buf_size UNUSED) {
+	// __atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
+	// __atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
 }
 
 void rpControlRecv(void) {
@@ -733,8 +771,6 @@ static void rpNetworkTransfer(int thread_n) {
 	}
 	// svc_releaseMutex(rp_ctx->kcp_mutex);
 
-	u32 last_tick = (u32)svc_getSystemTick(), curr_tick;
-
 	// svc_waitSynchronization1(rp_ctx->kcp_mutex, U64_MAX);
 	// send empty header to mark beginning
 	{
@@ -751,6 +787,8 @@ static void rpNetworkTransfer(int thread_n) {
 	ikcp_update(rp_ctx->kcp, iclock());
 	svc_releaseMutex(rp_ctx->kcp_mutex);
 
+	u64 last_tick = svc_getSystemTick(), curr_tick, desired_last_tick = last_tick;
+
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
 		!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED)
 	) {
@@ -760,7 +798,8 @@ static void rpNetworkTransfer(int thread_n) {
 			break;
 		}
 
-		if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
+		if ((curr_tick = svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
+			nsDbgPrint("kcp timeout transfer acquire\n");
 			__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 			break;
 		}
@@ -793,7 +832,8 @@ static void rpNetworkTransfer(int thread_n) {
 		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
 			!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED)
 		) {
-			if ((curr_tick = (u32)svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
+			if ((curr_tick = svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
+				nsDbgPrint("kcp timeout send header\n");
 				__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 				break;
 			}
@@ -823,6 +863,7 @@ static void rpNetworkTransfer(int thread_n) {
 				ikcp_update(rp_ctx->kcp, iclock());
 				svc_releaseMutex(rp_ctx->kcp_mutex);
 
+				desired_last_tick += rp_ctx->conf.min_send_interval_ticks;
 				last_tick = curr_tick;
 				break;
 			}
@@ -832,18 +873,28 @@ static void rpNetworkTransfer(int thread_n) {
 			svc_sleepThread(1000000);
 		}
 
-		s32 tick_diff;
+		u64 tick_diff, desired_tick_diff;
 
 		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
 			!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED) &&
 			size_remain
 		) {
-			if ((tick_diff = (s32)(curr_tick = (u32)svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
+			if ((tick_diff = (curr_tick = svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
+				nsDbgPrint("kcp timeout send data\n");
 				__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 				break;
 			}
-			if (tick_diff < rp_ctx->conf.min_send_interval_ticks) {
-				svc_sleepThread((rp_ctx->conf.min_send_interval_ticks - tick_diff) * 1000 / SYSTICK_PER_US);
+			desired_tick_diff = curr_tick - desired_last_tick;
+			if (desired_tick_diff < rp_ctx->conf.min_send_interval_ticks) {
+				u64 duration = (rp_ctx->conf.min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
+				// nsDbgPrint("desired sleep %dus\n", (u32)(duration / 1000));
+				svc_sleepThread(duration);
+			} else {
+				if (tick_diff < rp_ctx->conf.min_send_interval_ticks / 2) {
+					u64 duration = (rp_ctx->conf.min_send_interval_ticks / 2 - tick_diff) * 1000 / SYSTICK_PER_US;
+					// nsDbgPrint("sleep %dus\n", (u32)(duration / 1000));
+					svc_sleepThread(duration);
+				}
 			}
 
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
@@ -852,6 +903,7 @@ static void rpNetworkTransfer(int thread_n) {
 			svc_waitSynchronization1(rp_ctx->kcp_mutex, U64_MAX);
 			int waitsnd = ikcp_waitsnd(rp_ctx->kcp);
 			if (waitsnd < KCP_SND_WND_SIZE) {
+				// nsDbgPrint("ikcp_send %d\n", iclock());
 				ret = ikcp_send(rp_ctx->kcp, (const char *)data, data_size);
 
 				if (ret < 0) {
@@ -868,7 +920,8 @@ static void rpNetworkTransfer(int thread_n) {
 				ikcp_update(rp_ctx->kcp, iclock());
 				svc_releaseMutex(rp_ctx->kcp_mutex);
 
-				last_tick += rp_ctx->conf.min_send_interval_ticks;
+				desired_last_tick += rp_ctx->conf.min_send_interval_ticks;
+				last_tick = curr_tick;
 				continue;
 			}
 			ikcp_update(rp_ctx->kcp, iclock());
@@ -1015,8 +1068,54 @@ static void jls_encoder_prepare_LUTs(void) {
 }
 
 extern const uint8_t psl0[];
+static u8 *jpeg_ls_encode_pad_source(int thread_n, const u8 *src_unpadded, int width, int height);
+
+static int ffmpeg_jls_decode(int thread_n, uint8_t *dst, int width, int height, int pitch, const uint8_t *src, int src_size, int bpp) {
+	JLSState state = { 0 };
+	state.bpp = bpp;
+	ff_jpegls_reset_coding_parameters(&state, 0);
+	ff_jpegls_init_state(&state);
+
+	int ret, t;
+
+	GetBitContext s;
+	ret = init_get_bits8(&s, src, src_size);
+	if (ret < 0) {
+		return ret;
+	}
+
+	const uint8_t *last;
+	uint8_t *cur;
+	last = psl0;
+	cur = dst;
+
+	int i;
+	t = 0;
+	for (i = 0; i < width; ++i) {
+		ret = ls_decode_line(&state, &s, last, cur, t, height);
+		if (ret < 0)
+		{
+			nsDbgPrint("Failed decode at col %d\n", i);
+			return ret;
+		}
+		t = last[0];
+		last = cur;
+		cur += pitch;
+	}
+
+	return width * height;
+}
+
 static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, int w, int h, int bpp) {
 	u8 *dst = rp_ctx->jls_encode_buffer[encode_buffer_n];
+	u8 *dst2 = rp_ctx->jls_encode_verify_buffer[thread_n];
+
+	if (rp_ctx->conf.encoder_which == 1) {
+		u8 *tmp = dst;
+		dst = dst2;
+		dst2 = tmp;
+	}
+
 	struct jls_enc_params *params;
 	switch (bpp) {
 		case 8:
@@ -1033,49 +1132,83 @@ static int rpJLSEncodeImage(int thread_n, int encode_buffer_n, const u8 *src, in
 			return -1;
 	}
 
-	int ret = 0;
-	if (rp_ctx->conf.encoder_which == 0) {
-		JLSState state = { 0 };
-		state.bpp = bpp;
+	int ret;
+	JLSState state = { 0 };
+	state.bpp = bpp;
 
-		ff_jpegls_reset_coding_parameters(&state, 0);
-		ff_jpegls_init_state(&state);
+	ff_jpegls_reset_coding_parameters(&state, 0);
+	ff_jpegls_init_state(&state);
 
-		PutBitContext s;
-		init_put_bits(&s, dst, RP_JLS_ENCODE_BUFFER_SIZE);
+	PutBitContext s;
+	init_put_bits(&s, dst, RP_JLS_ENCODE_BUFFER_SIZE);
 
-		const u8 *last = psl0 + LEFTMARGIN;
-		const u8 *in = src + LEFTMARGIN;
+	const u8 *last = psl0 + LEFTMARGIN;
+	const u8 *in = src + LEFTMARGIN;
 
-		for (int i = 0; i < w; ++i) {
-			ls_encode_line(
-				&state, &s, last, in, h,
-				(const uint16_t (*)[3])params->vLUT,
-				rp_ctx->jls_enc_luts.classmap
-			);
-			last = in;
-			in += h + LEFTMARGIN + RIGHTMARGIN;
-		}
-
-		// put_bits(&s, 7, 0);
-		// int size_in_bits = put_bits_count(&s);
-		flush_put_bits(&s);
-		ret = put_bytes_output(&s);
-	} else {
-		struct jls_enc_ctx *ctx = &rp_ctx->jls_enc_ctx[thread_n];
-		struct bito_ctx *bctx = &rp_ctx->jls_bito_ctx[thread_n];
-		ret = jpeg_ls_encode(
-			params, ctx, bctx, (char *)dst, RP_JLS_ENCODE_BUFFER_SIZE, src,
-			w, h, h + LEFTMARGIN + RIGHTMARGIN,
+	for (int i = 0; i < w; ++i) {
+		ls_encode_line(
+			&state, &s, last, in, h,
+			(const uint16_t (*)[3])params->vLUT,
 			rp_ctx->jls_enc_luts.classmap
 		);
+		last = in;
+		in += h + LEFTMARGIN + RIGHTMARGIN;
+	}
+
+	// put_bits(&s, 7, 0);
+	// int size_in_bits = put_bits_count(&s);
+	flush_put_bits(&s);
+	ret = put_bytes_output(&s);
+
+	int ret2;
+	struct jls_enc_ctx *ctx = &rp_ctx->jls_enc_ctx[thread_n];
+	struct bito_ctx *bctx = &rp_ctx->jls_bito_ctx[thread_n];
+	ret2 = jpeg_ls_encode(
+		params, ctx, bctx, (char *)dst2, RP_JLS_ENCODE_BUFFER_SIZE, src,
+		w, h, h + LEFTMARGIN + RIGHTMARGIN,
+		rp_ctx->jls_enc_luts.classmap
+	);
+
+	if (ret != ret2) {
+		nsDbgPrint("Failed encode size verify: %d, %d\n", ret, ret2);
+	} else if (memcmp(dst, dst2, ret) != 0) {
+		nsDbgPrint("Failed encode content verify\n");
+	} else {
+		u8 *decoded = rp_ctx->jls_decode_verify_buffer[thread_n];
+
+		int ret3 = ffmpeg_jls_decode(thread_n, decoded, w, h, h, dst2, ret2, bpp);
+		if (ret3 != w * h) {
+			nsDbgPrint("Failed decode size verify: %d (expected %d)\n", ret3, w * h);
+		} else {
+			for (int i = 0; i < w; ++i) {
+				if (memcmp(decoded + i * h, src + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN), h) != 0) {
+					nsDbgPrint("Failed decode content verify at col %d\n", i);
+					break;
+				}
+			}
+			decoded = jpeg_ls_encode_pad_source(thread_n, decoded, w, h);
+			if (memcmp(decoded, src, w * (h + LEFTMARGIN + RIGHTMARGIN)) != 0) {
+				nsDbgPrint("Failed decode pad content verify\n");
+			}
+			for (int i = 0; i < w; ++i) {
+				if (memcmp(
+						decoded + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN),
+						src + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN),
+						h
+					) != 0
+				) {
+					nsDbgPrint("Failed decode pad content verify at col %d\n", i);
+					break;
+				}
+			}
+		}
 	}
 
 	if (ret >= RP_JLS_ENCODE_BUFFER_SIZE) {
 		nsDbgPrint("Possible buffer overrun in rpJLSEncodeImage\n");
 		return -1;
 	}
-	return ret;
+	return rp_ctx->conf.encoder_which == 0 ? ret : ret2;
 }
 
 #define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
@@ -1379,6 +1512,31 @@ static int convert_yuv_image(
 			return -1;
 	}
 	return 0;
+}
+
+static u8 *jpeg_ls_encode_pad_source(int thread_n, const u8 *src, int width, int height) {
+	u8 *dst = rp_ctx->jls_decode_verify_padded_buffer[thread_n];
+	u8 *ret = dst;
+	convert_set_zero(&dst, LEFTMARGIN);
+	for (int y = 0; y < width; ++y) {
+		if (y) {
+			convert_set_prev_first(height + RIGHTMARGIN, &dst, LEFTMARGIN);
+		}
+		for (int x = 0; x < height; ++x) {
+			*dst++ = *src++;
+		}
+		convert_set_last(&dst, RIGHTMARGIN);
+	}
+	if (dst - ret != width * (height + LEFTMARGIN + RIGHTMARGIN)) {
+		nsDbgPrint("Failed pad source size: %d (expected %d)\n",
+			dst - ret,
+			width * (height + LEFTMARGIN + RIGHTMARGIN)
+		);
+	}
+	if (dst - ret > sizeof(rp_ctx->jls_decode_verify_padded_buffer[thread_n])) {
+		nsDbgPrint("Failed pad source buffer overflow: %d\n", dst - ret);
+	}
+	return ret;
 }
 
 static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
