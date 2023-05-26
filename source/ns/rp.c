@@ -610,7 +610,7 @@ static int rp_set_params() {
 
 	rp_ctx->conf.min_send_interval_ticks =
 		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8  *
-		RP_BANDWIDTH_CONTROL_CONST_NUM / RP_BANDWIDTH_CONTROL_CONST_DENUM/
+		RP_BANDWIDTH_CONTROL_CONST_NUM / RP_BANDWIDTH_CONTROL_CONST_DENUM /
 		((u16)rp_ctx->conf.target_mbit_rate + 1) / 1024 / 1024;
 
 	int ret = 0;
