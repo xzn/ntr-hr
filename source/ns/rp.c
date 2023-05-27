@@ -830,7 +830,7 @@ static void rpNetworkTransfer(int thread_n) {
 				__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 				break;
 			}
-			desired_tick_diff = (s64)(u32)curr_tick - (u32)desired_last_tick;
+			desired_tick_diff = (s64)(curr_tick & ((1ULL << 48) - 1)) - (desired_last_tick & ((1ULL << 48) - 1));
 			if (desired_tick_diff < rp_ctx->conf.min_send_interval_ticks) {
 				u64 duration = (rp_ctx->conf.min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
 				// nsDbgPrint("desired sleep %dus\n", (u32)(duration / 1000));
