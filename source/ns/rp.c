@@ -825,7 +825,8 @@ static void rpNetworkTransfer(int thread_n) {
 			svc_sleepThread(1000000);
 		}
 
-		s64 tick_diff, desired_tick_diff;
+		u64 tick_diff;
+		s64 desired_tick_diff;
 
 		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
 			!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED) &&
@@ -875,6 +876,11 @@ static void rpNetworkTransfer(int thread_n) {
 
 				desired_last_tick += rp_ctx->conf.min_send_interval_ticks;
 				last_tick = curr_tick;
+
+				if (last_tick - desired_last_tick < (1ULL << 48) &&
+					last_tick - desired_last_tick > rp_ctx->conf.min_send_interval_ticks * KCP_SND_WND_SIZE
+				)
+					desired_last_tick = last_tick - rp_ctx->conf.min_send_interval_ticks * KCP_SND_WND_SIZE;
 				continue;
 			}
 			ikcp_update(rp_ctx->kcp, iclock());
