@@ -684,7 +684,7 @@ static int rp_check_params(int thread_n) {
 		__atomic_store_n(&g_nsConfig->remotePlayUpdate, 0, __ATOMIC_RELEASE);
 
 		if (!__atomic_test_and_set(&rp_ctx->conf.updated, __ATOMIC_RELAXED)) {
-			__atomic_store_n(&rp_ctx->exit_thread , 2, __ATOMIC_RELAXED);
+			__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 		}
 	}
 
@@ -1199,7 +1199,7 @@ void convert_yuv_hp(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8
 			u8 u = r - g + half_range;
 			u8 v = b - g + half_range;
 
-			*y_out = g + ((u + v) >> 2) - quarter_range;
+			*y_out = g + (((u16)u + v) >> 2) - quarter_range;
 			*u_out = u;
 			*v_out = v;
 			break;
