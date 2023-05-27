@@ -429,8 +429,8 @@ static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *use
 }
 
 static void rpControlRecvHandle(u8* buf UNUSED, int buf_size UNUSED) {
-	// __atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
-	// __atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
+	// __atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+	// __atomic_store_n(&rp_ctx->kcp_restart, 1, __ATOMIC_RELAXED);
 }
 
 void rpControlRecv(void) {
@@ -684,7 +684,7 @@ static int rp_check_params(int thread_n) {
 		__atomic_store_n(&g_nsConfig->remotePlayUpdate, 0, __ATOMIC_RELEASE);
 
 		if (!__atomic_test_and_set(&rp_ctx->conf.updated, __ATOMIC_RELAXED)) {
-			__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
+			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 		}
 	}
 
@@ -746,13 +746,13 @@ static void rpNetworkTransfer(int thread_n) {
 	) {
 		ret = rp_check_params(thread_n);
 		if (ret) {
-			__atomic_store_n(&rp_ctx->kcp_restart , 1, __ATOMIC_RELAXED);
+			__atomic_store_n(&rp_ctx->kcp_restart, 1, __ATOMIC_RELAXED);
 			break;
 		}
 
 		if ((curr_tick = svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
 			nsDbgPrint("kcp timeout transfer acquire\n");
-			__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
+			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 			break;
 		}
 
@@ -786,7 +786,7 @@ static void rpNetworkTransfer(int thread_n) {
 		) {
 			if ((curr_tick = svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
 				nsDbgPrint("kcp timeout send header\n");
-				__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
+				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
@@ -834,7 +834,7 @@ static void rpNetworkTransfer(int thread_n) {
 		) {
 			if ((tick_diff = (curr_tick = svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
 				nsDbgPrint("kcp timeout send data\n");
-				__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
+				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
 			desired_tick_diff = (s64)(curr_tick & ((1ULL << 48) - 1)) - (desired_last_tick & ((1ULL << 48) - 1));
@@ -904,7 +904,7 @@ static void rpNetworkTransferThread(u32 arg UNUSED) {
 	int thread_n = -1;
 	rp_acquire_params(thread_n);
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
-		__atomic_store_n(&rp_ctx->kcp_restart , 0, __ATOMIC_RELAXED);
+		__atomic_store_n(&rp_ctx->kcp_restart, 0, __ATOMIC_RELAXED);
 		rpNetworkTransfer(thread_n);
 		svc_sleepThread(50000000);
 	}
