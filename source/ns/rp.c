@@ -678,14 +678,7 @@ static int rp_check_params(int thread_n) {
 		__atomic_store_n(&g_nsConfig->remotePlayUpdate, 0, __ATOMIC_RELEASE);
 
 		if (!__atomic_test_and_set(&rp_ctx->conf.updated, __ATOMIC_RELAXED)) {
-			if (0) {
-				rpInitPriorityCtx();
-				rp_network_queue_init();
-				if (rp_ctx->conf.multicore_encode)
-					rp_screen_queue_init();
-			}
 			__atomic_store_n(&rp_ctx->exit_thread , 2, __ATOMIC_RELAXED);
-			return 0;
 		}
 	}
 
@@ -826,7 +819,7 @@ static void rpNetworkTransfer(int thread_n) {
 			svc_sleepThread(1000000);
 		}
 
-		u64 tick_diff, desired_tick_diff;
+		s64 tick_diff, desired_tick_diff;
 
 		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) &&
 			!__atomic_load_n(&rp_ctx->kcp_restart, __ATOMIC_RELAXED) &&
@@ -837,7 +830,7 @@ static void rpNetworkTransfer(int thread_n) {
 				__atomic_store_n(&rp_ctx->exit_thread , 1, __ATOMIC_RELAXED);
 				break;
 			}
-			desired_tick_diff = curr_tick - desired_last_tick;
+			desired_tick_diff = (s64)(u32)curr_tick - (u32)desired_last_tick;
 			if (desired_tick_diff < rp_ctx->conf.min_send_interval_ticks) {
 				u64 duration = (rp_ctx->conf.min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
 				// nsDbgPrint("desired sleep %dus\n", (u32)(duration / 1000));
@@ -1822,7 +1815,6 @@ static int rpSendFrames(void) {
 }
 
 static void rpThreadStart(u32 arg UNUSED) {
-	rp_set_params();
 	jls_encoder_prepare_LUTs();
 	rp_init_syn_params();
 	rpInitDmaHome();
@@ -1833,6 +1825,8 @@ static void rpThreadStart(u32 arg UNUSED) {
 
 	int ret = 0;
 	while (ret >= 0) {
+		rp_set_params();
+
 		__atomic_store_n(&rp_ctx->exit_thread, 0, __ATOMIC_RELAXED);
 		rp_network_queue_init();
 		rpInitPriorityCtx();
@@ -1850,9 +1844,6 @@ static void rpThreadStart(u32 arg UNUSED) {
 
 		ret = rpSendFrames();
 
-		if (__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED) > 1) {
-			rp_set_params();
-		}
 		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 		svc_waitSynchronization1(rp_ctx->network_thread, U64_MAX);
 		svc_closeHandle(rp_ctx->network_thread);
