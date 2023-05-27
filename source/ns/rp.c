@@ -171,6 +171,7 @@ static struct {
 		u8 encode_buffer_count;
 
 		u32 min_send_interval_ticks;
+		u32 max_capture_interval_ticks;
 
 		int arg0;
 		int arg1;
@@ -479,7 +480,7 @@ static void rpInitPriorityCtx(void) {
 	rp_ctx->dyn_prio.bot.priority = rp_ctx->conf.bot_priority;
 }
 
-static int rpGetPriorityScreen(void) {
+static int rpGetPriorityScreen(int *frame_rate) {
 	if (rp_ctx->conf.top_priority == 0)
 		return 0;
 	if (rp_ctx->conf.bot_priority == 0)
@@ -564,6 +565,8 @@ static int rpGetPriorityScreen(void) {
 #undef SET_PRIORITY_SIZE
 #undef SET_SIZE
 
+	if (frame_rate)
+		*frame_rate = ctx->top.frame_rate + ctx->bot.frame_rate;
 	svc_releaseMutex(ctx->mutex);
 	return top_bot;
 }
@@ -653,6 +656,9 @@ static int rp_set_params() {
 	rp_ctx->conf.min_send_interval_ticks =
 		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8 /
 		((u16)rp_ctx->conf.target_mbit_rate + 1) / 1024 / 1024;
+
+	rp_ctx->conf.max_capture_interval_ticks =
+		(u64)SYSTICK_PER_SEC / ((u16)rp_ctx->conf.target_frame_rate + 1);
 
 	int ret = 0;
 	if (rp_ctx->conf.multicore_encode != multicore_encode)
@@ -1618,7 +1624,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			// nsDbgPrint("%s acquired screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
 		} else {
 			pos = thread_n;
-			top_bot = rpGetPriorityScreen();
+			top_bot = rpGetPriorityScreen(NULL);
 
 			rpKernelCallback(top_bot);
 
@@ -1735,6 +1741,8 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 	int ret;
 	int thread_n = -2;
 
+	u64 last_tick = svc_getSystemTick(), curr_tick;
+
 	rp_acquire_params(thread_n);
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		rp_check_params(thread_n);
@@ -1745,7 +1753,16 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 		}
 
 		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
-			int top_bot = rpGetPriorityScreen();
+			u64 tick_diff = (curr_tick = svc_getSystemTick()) - last_tick;
+
+			int frame_rate;
+			int top_bot = rpGetPriorityScreen(&frame_rate);
+			u64 desired_tick_diff = (u64)SYSTICK_PER_SEC * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM / frame_rate;
+			desired_tick_diff = RP_MIN(desired_tick_diff, rp_ctx->conf.max_capture_interval_ticks);
+			if (tick_diff < desired_tick_diff) {
+				u64 duration = (desired_tick_diff - tick_diff) * 1000 / SYSTICK_PER_US;
+				svc_sleepThread(duration);
+			}
 
 			rpKernelCallback(top_bot);
 
@@ -1760,6 +1777,8 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			rp_ctx->screen_top_bot[pos] = top_bot;
 			rp_screen_encode_release(pos);
 			// nsDbgPrint("%s released screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
+
+			last_tick = curr_tick;
 			break;
 		}
 	}
