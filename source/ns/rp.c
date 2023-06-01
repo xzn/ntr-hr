@@ -16,6 +16,7 @@
 // #pragma GCC diagnostic warning "-Wpedantic"
 
 #define RP_ENCODE_VERIFY (0)
+#define RP_ME_INTERPOLATE (0)
 // extern IUINT32 IKCP_OVERHEAD;
 #define IKCP_OVERHEAD (24)
 
@@ -52,10 +53,10 @@ static u8 rpInited = 0;
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
 #define RP_JLS_ENCODE_IMAGE_BUFFER_SIZE ((400 * 240) + (400 * 240) / 16)
-#define RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE ((50 * 30) + (50 * 30) / 4)
+#define RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE (RP_JLS_ENCODE_IMAGE_BUFFER_SIZE / RP_ME_MIN_BLOCK_SIZE / RP_ME_MIN_BLOCK_SIZE)
 #define RP_JLS_ENCODE_BUFFER_SIZE (RP_JLS_ENCODE_IMAGE_BUFFER_SIZE + RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE)
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
-#define RP_ME_MIN_BLOCK_SIZE (8)
+#define RP_ME_MIN_BLOCK_SIZE (4)
 #define RP_ME_MIN_SEARCH_PARAM (4)
 
 #define RP_ASSERT(c, ...) do { if (!(c)) { nsDbgPrint(__VA_ARGS__); } } while (0) \
@@ -165,9 +166,14 @@ static struct {
 		u8 me_bpp;
 	} bot_image[RP_IMAGE_BUFFER_COUNT];
 
+#define DIV_CEIL(n, d) (((n) + (d - 1)) / d)
+#define ME_SIZE(w, h) DIV_CEIL(w, RP_ME_MIN_BLOCK_SIZE) * (DIV_CEIL(h, RP_ME_MIN_BLOCK_SIZE) + LEFTMARGIN + RIGHTMARGIN)
+#define ME_TOP_SIZE ME_SIZE(400, 240)
+#define ME_BOT_SIZE ME_SIZE(320, 240)
+
 	struct {
-		s8 me_x_image[50 * 30] ALIGN_4; // (400, 240) / RP_ME_MIN_BLOCK_SIZE
-		s8 me_y_image[50 * 30] ALIGN_4;
+		s8 me_x_image[ME_TOP_SIZE] ALIGN_4;
+		s8 me_y_image[ME_TOP_SIZE] ALIGN_4;
 		u8 y_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		u8 u_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		u8 v_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
@@ -176,8 +182,8 @@ static struct {
 	} top_image_me[RP_ENCODE_THREAD_COUNT];
 
 	struct {
-		s8 me_x_image[40 * 30] ALIGN_4;// (320, 240) / RP_ME_MIN_BLOCK_SIZE
-		s8 me_y_image[40 * 30] ALIGN_4;
+		s8 me_x_image[ME_BOT_SIZE] ALIGN_4;
+		s8 me_y_image[ME_BOT_SIZE] ALIGN_4;
 		u8 y_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		u8 u_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		u8 v_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
@@ -218,6 +224,7 @@ static struct {
 		u8 me_bpp;
 		u8 me_bpp_half_range;
 		u8 me_downscale;
+		u8 me_interpolate;
 
 		u8 target_frame_rate;
 		u8 target_mbit_rate;
@@ -714,6 +721,11 @@ static int rp_set_params() {
 	rp_ctx->conf.me_bpp = RP_MAX(3, RP_MIN(6, av_ceil_log2(rp_ctx->conf.me_search_param * 2 + 1)));
 	rp_ctx->conf.me_bpp_half_range = (1 << rp_ctx->conf.me_bpp) >> 1;
 	rp_ctx->conf.me_downscale = ((rp_ctx->conf.arg1 & 0x8000) >> 15);
+#if RP_ME_INTERPOLATE
+	rp_ctx->conf.me_interpolate = ((rp_ctx->conf.arg1 & 0x10000) >> 16);
+#else
+	rp_ctx->conf.me_interpolate = 0;
+#endif
 
 	rp_ctx->conf.top_priority = (rp_ctx->conf.arg2 & 0xf);
 	rp_ctx->conf.bot_priority = (rp_ctx->conf.arg2 & 0xf0) >> 4;
@@ -1279,7 +1291,7 @@ static int rpJLSEncodeImage(int thread_n, u8 *dst, int dst_size, const u8 *src, 
 }
 
 #define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
-#define srshift_to_even(n, s) ((s16)((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
+#define srshift_to_even(t, n, s) ((t)((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
 
 static ALWAYS_INLINE
 void convert_yuv_hp(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
@@ -1383,8 +1395,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
 			*y_out = rshift_to_even(y, 8 + spp_2);
-			*u_out = (u8)((u8)srshift_to_even(u, 8) + 128) >> spp;
-			*v_out = (u8)((u8)srshift_to_even(v, 8) + 128) >> spp;
+			*u_out = (u8)((u8)srshift_to_even(s16, u, 8) + 128) >> spp;
+			*v_out = (u8)((u8)srshift_to_even(s16, v, 8) + 128) >> spp;
 			break;
 		}
 
@@ -1394,8 +1406,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
 			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
 			*y_out = (u8)((u8)rshift_to_even(y, 8) + 16) >> spp_2;
-			*u_out = (u8)((u8)srshift_to_even(u, 8) + 128) >> spp;
-			*v_out = (u8)((u8)srshift_to_even(v, 8) + 128) >> spp;
+			*u_out = (u8)((u8)srshift_to_even(s16, u, 8) + 128) >> spp;
+			*v_out = (u8)((u8)srshift_to_even(s16, v, 8) + 128) >> spp;
 			break;
 		}
 
@@ -1725,6 +1737,43 @@ static void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const
 	}
 }
 
+enum {
+	CORNER_TOP_LEFT,
+	CORNER_BOT_LEFT,
+	CORNER_BOT_RIGHT,
+	CORNER_TOP_RIGHT,
+	CORNER_COUNT,
+};
+
+static void interpolate_me(const s8 *me_x_vec[CORNER_COUNT], const s8 *me_y_vec[CORNER_COUNT], int half_range, int scale_log2, int block_size, int block_size_log2, int i, int j, s8 *x, s8 *y) {
+	int step_count = block_size;
+	int step_total = block_size * 2;
+	int step_base = 1;
+	int step = 2;
+
+	int x_left = i * step + step_base;
+	int x_right = step_total - x_left;
+
+	int y_top = j * step + step_base;
+	int y_bot = step_total - y_top;
+
+	int rshift_scale = (block_size_log2 + 1) * 2 + 2;
+
+	int x_unscaled =
+		((int)*me_x_vec[CORNER_TOP_LEFT] - half_range) * x_left * y_top +
+		((int)*me_x_vec[CORNER_BOT_LEFT] - half_range) * x_left * y_bot +
+		((int)*me_x_vec[CORNER_BOT_RIGHT] - half_range) * x_right * y_bot +
+		((int)*me_x_vec[CORNER_TOP_RIGHT] - half_range) * x_right * y_top;
+	*x = srshift_to_even(int, x_unscaled, rshift_scale) << scale_log2;
+
+	int y_unscaled =
+		((int)*me_y_vec[CORNER_TOP_LEFT] - half_range) * x_left * y_top +
+		((int)*me_y_vec[CORNER_BOT_LEFT] - half_range) * x_left * y_bot +
+		((int)*me_y_vec[CORNER_BOT_RIGHT] - half_range) * x_right * y_bot +
+		((int)*me_y_vec[CORNER_TOP_RIGHT] - half_range) * x_right * y_top;
+	*y = srshift_to_even(int, y_unscaled, rshift_scale) << scale_log2;
+}
+
 static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2, int bpp) {
 	u8 half_range = rp_ctx->conf.me_bpp_half_range;
 
@@ -1734,6 +1783,7 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 
 	u8 block_x_n = width >> block_size_log2;
 	u8 block_y_n = height >> block_size_log2;
+	u8 block_pitch = block_y_n + RIGHTMARGIN + LEFTMARGIN;
 	u8 x_off = (width & block_size_mask) >> 1;
 	u8 y_off = (height & block_size_mask) >> 1;
 
@@ -1743,6 +1793,14 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 
 	const s8 *me_x_col = me_x_image + LEFTMARGIN;
 	const s8 *me_y_col = me_y_image + LEFTMARGIN;
+
+	const s8 *me_x_col_vec[CORNER_COUNT];
+	const s8 *me_y_col_vec[CORNER_COUNT];
+	for (int i = 0; i < CORNER_COUNT; ++i) {
+		me_x_col_vec[i] = me_x_col;
+		me_y_col_vec[i] = me_y_col;
+	}
+
 	for (int i = 0; i < width; ++i) {
 		if (i > 0) {
 			convert_set_prev_first(height + RIGHTMARGIN, &dst, LEFTMARGIN);
@@ -1750,27 +1808,85 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 			cur += LEFTMARGIN;
 		}
 
-		if (i > x_off && (((i - x_off) & block_size_mask) == 0) && i < width - x_off - 1) {
-			me_x_col += block_y_n + RIGHTMARGIN + LEFTMARGIN;
-			me_y_col += block_y_n + RIGHTMARGIN + LEFTMARGIN;
-		}
+#define DO_PREDICTION() do { \
+	const u8 *ref_est = ref++ + (s16)x * (height + LEFTMARGIN + RIGHTMARGIN) + y; \
+	*dst++ = (u8)((*cur++ << (8 - bpp)) - (*ref_est << (8 - bpp)) + 128) >> (8 - bpp); \
+} while (0)
 
-		const s8 *me_x = me_x_col;
-		const s8 *me_y = me_y_col;
-		s8 x = (*me_x - half_range) << scale_log2;
-		s8 y = (*me_y - half_range) << scale_log2;
-		for (int j = 0; j < height; ++j) {
-			if (j > y_off && (((j - y_off) & block_size_mask) == 0) && j < height - y_off - 1) {
-				++me_x;
-				++me_y;
+		if (rp_ctx->conf.me_interpolate) {
+			x_off += block_size >> 1;
+			y_off += block_size >> 1;
 
-				x = (*me_x - half_range) << scale_log2;
-				y = (*me_y - half_range) << scale_log2;
+			int i_off = (i - x_off) & block_size_mask;
+			if (i_off == 0) {
+				if (i < width - x_off - 1) {
+					me_x_col_vec[CORNER_BOT_LEFT] += block_pitch;
+					me_x_col_vec[CORNER_BOT_RIGHT] += block_pitch;
+
+					me_y_col_vec[CORNER_BOT_LEFT] += block_pitch;
+					me_y_col_vec[CORNER_BOT_RIGHT] += block_pitch;
+				}
+				if (i > x_off) {
+					me_x_col_vec[CORNER_TOP_LEFT] += block_pitch;
+					me_x_col_vec[CORNER_TOP_RIGHT] += block_pitch;
+
+					me_y_col_vec[CORNER_TOP_LEFT] += block_pitch;
+					me_y_col_vec[CORNER_TOP_RIGHT] += block_pitch;
+				}
 			}
 
-			// do prediction
-			const u8 *ref_est = ref++ + (s16)x * (height + LEFTMARGIN + RIGHTMARGIN) + y;
-			*dst++ = (u8)((*cur++ << (8 - bpp)) - (*ref_est << (8 - bpp)) + 128) >> (8 - bpp);
+			const s8 *me_x_vec[CORNER_COUNT];
+			const s8 *me_y_vec[CORNER_COUNT];
+			memcpy(me_x_vec, me_x_col_vec, sizeof(me_x_vec));
+			memcpy(me_y_vec, me_y_col_vec, sizeof(me_y_vec));
+			for (int j = 0; j < height; ++j) {
+				int j_off = (j - y_off) & block_size_mask;
+				if (j_off == 0) {
+					if (j < height - y_off - 1) {
+						++me_x_vec[CORNER_BOT_LEFT];
+						++me_x_vec[CORNER_BOT_RIGHT];
+
+						++me_y_vec[CORNER_BOT_LEFT];
+						++me_y_vec[CORNER_BOT_RIGHT];
+					}
+					if (j > y_off) {
+						++me_x_vec[CORNER_TOP_LEFT];
+						++me_x_vec[CORNER_TOP_RIGHT];
+
+						++me_y_vec[CORNER_TOP_LEFT];
+						++me_y_vec[CORNER_TOP_RIGHT];
+					}
+				}
+				s8 x, y;
+				interpolate_me(me_x_vec, me_y_vec, half_range, scale_log2, block_size, block_size_log2, i_off, j_off, &x, &y);
+
+				// do prediction
+				DO_PREDICTION();
+			}
+		} else {
+			int i_off = (i - x_off) & block_size_mask;
+			if (i > x_off && i_off == 0 && i < width - x_off - 1) {
+				me_x_col += block_pitch;
+				me_y_col += block_pitch;
+			}
+
+			const s8 *me_x = me_x_col;
+			const s8 *me_y = me_y_col;
+			s8 x = (*me_x - half_range) << scale_log2;
+			s8 y = (*me_y - half_range) << scale_log2;
+			for (int j = 0; j < height; ++j) {
+				int j_off = (j - y_off) & block_size_mask;
+				if (j > y_off && j_off == 0 && j < height - y_off - 1) {
+					++me_x;
+					++me_y;
+
+					x = (*me_x - half_range) << scale_log2;
+					y = (*me_y - half_range) << scale_log2;
+				}
+
+				// do prediction
+				DO_PREDICTION();
+			}
 		}
 
 		convert_set_last(&dst, RIGHTMARGIN);
@@ -1906,10 +2022,10 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int thread_n, 
 	int ds_width = width / 2;
 	int ds_height = height / 2;
 
-	// if (*p_frame &&
-	// 	(*y_bpp != *y_bpp_prev || *u_bpp != *u_bpp_prev || *v_bpp != *v_bpp_prev)
-	// )
-	// 	*p_frame = 0;
+	if (*p_frame &&
+		(*y_bpp != *y_bpp_prev || *u_bpp != *u_bpp_prev || *v_bpp != *v_bpp_prev)
+	)
+		*p_frame = 0;
 
 	if (*p_frame) {
 		downscale_image(
