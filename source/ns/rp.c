@@ -9,11 +9,13 @@
 #include "libavfilter/motion_estimation.h"
 #include "../jpeg_ls/global.h"
 #include "../jpeg_ls/bitio.h"
+#include "xxhash.h"
 
 // #pragma GCC diagnostic warning "-Wall"
 // #pragma GCC diagnostic warning "-Wextra"
 // #pragma GCC diagnostic warning "-Wpedantic"
 
+#define RP_ENCODE_VERIFY (0)
 // extern IUINT32 IKCP_OVERHEAD;
 #define IKCP_OVERHEAD (24)
 
@@ -49,7 +51,9 @@ static u8 rpInited = 0;
 #define RP_STACK_SIZE (0x8000)
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
-#define RP_JLS_ENCODE_BUFFER_SIZE ((400 * 240) + (400 * 240) / 16 + (50 * 30) + (50 * 30) / 4)
+#define RP_JLS_ENCODE_IMAGE_BUFFER_SIZE ((400 * 240) + (400 * 240) / 16)
+#define RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE ((50 * 30) + (50 * 30) / 4)
+#define RP_JLS_ENCODE_BUFFER_SIZE (RP_JLS_ENCODE_IMAGE_BUFFER_SIZE + RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE)
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
 #define RP_ME_MIN_BLOCK_SIZE (8)
 #define RP_ME_MIN_SEARCH_PARAM (4)
@@ -121,9 +125,11 @@ static struct {
 		u32 size_1;
 		u8 p_frame;
 	} jls_encode[RP_ENCODE_BUFFER_COUNT];
-	// u8 jls_encode_verify_buffer[RP_ENCODE_THREAD_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
-	// u8 jls_decode_verify_buffer[RP_ENCODE_THREAD_COUNT][RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
-	// u8 jls_decode_verify_padded_buffer[RP_ENCODE_THREAD_COUNT][400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+#if RP_ENCODE_VERIFY
+	u8 jls_encode_verify_buffer[RP_ENCODE_THREAD_COUNT][RP_JLS_ENCODE_IMAGE_BUFFER_SIZE] ALIGN_4;
+	u8 jls_decode_verify_buffer[RP_ENCODE_THREAD_COUNT][RP_JLS_ENCODE_IMAGE_BUFFER_SIZE] ALIGN_4;
+	u8 jls_decode_verify_padded_buffer[RP_ENCODE_THREAD_COUNT][400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+#endif
 
 	struct {
 		s8 me_x_image[1];
@@ -390,11 +396,19 @@ static void rp_network_encode_release(u8 pos) {
 }
 
 static s32 rp_network_encode_acquire(s64 timeout) {
-	return rp_syn_acq1(&rp_ctx->syn.network.encode, timeout);
+	if (rp_ctx->conf.multicore_encode) {
+		return rp_syn_acq1(&rp_ctx->syn.network.encode, timeout);
+	} else {
+		return rp_syn_acq(&rp_ctx->syn.network.encode, timeout);
+	}
 }
 
 static void rp_network_transfer_release(u8 pos) {
-	rp_syn_rel1(&rp_ctx->syn.network.transfer, pos);
+	if (rp_ctx->conf.multicore_encode)	{
+		rp_syn_rel1(&rp_ctx->syn.network.transfer, pos);
+	} else {
+		rp_syn_rel(&rp_ctx->syn.network.transfer, pos);
+	}
 }
 
 static uint16_t ip_checksum(void* vdata, size_t length) {
@@ -1135,14 +1149,19 @@ static int ffmpeg_jls_decode(int thread_n, uint8_t *dst, int width, int height, 
 	return width * height;
 }
 
-static int rpJLSEncodeImage(int thread_n, u8 *dst, const u8 *src, int w, int h, int bpp) {
-	// u8 *dst2 = rp_ctx->jls_encode_verify_buffer[thread_n];
+static int rpJLSEncodeImage(int thread_n, u8 *dst, int dst_size, const u8 *src, int w, int h, int bpp) {
+#if RP_ENCODE_VERIFY
+	XXH32_hash_t src_hash = XXH32(src, w * (h + LEFTMARGIN + RIGHTMARGIN), 0);
+	u8 *dst2 = rp_ctx->jls_encode_verify_buffer[thread_n];
 
-	// if (rp_ctx->conf.encoder_which == 1) {
-	// 	u8 *tmp = dst;
-	// 	dst = dst2;
-	// 	dst2 = tmp;
-	// }
+	if (rp_ctx->conf.encoder_which == 1) {
+		u8 *tmp = dst;
+		dst = dst2;
+		dst2 = tmp;
+	}
+#else
+	u8 *dst2 = dst;
+#endif
 
 	struct jls_enc_params *params;
 	switch (bpp) {
@@ -1163,8 +1182,10 @@ static int rpJLSEncodeImage(int thread_n, u8 *dst, const u8 *src, int w, int h, 
 			return -1;
 	}
 
-	int ret;
+	int ret, ret2;
+#if !RP_ENCODE_VERIFY
 	if (rp_ctx->conf.encoder_which == 0) {
+#endif
 		JLSState state = { 0 };
 		state.bpp = bpp;
 
@@ -1172,7 +1193,7 @@ static int rpJLSEncodeImage(int thread_n, u8 *dst, const u8 *src, int w, int h, 
 		ff_jpegls_init_state(&state);
 
 		PutBitContext s;
-		init_put_bits(&s, dst, RP_JLS_ENCODE_BUFFER_SIZE);
+		init_put_bits(&s, dst, dst_size);
 
 		const u8 *last = psl0 + LEFTMARGIN;
 		const u8 *in = src + LEFTMARGIN;
@@ -1180,7 +1201,7 @@ static int rpJLSEncodeImage(int thread_n, u8 *dst, const u8 *src, int w, int h, 
 		for (int i = 0; i < w; ++i) {
 			ls_encode_line(
 				&state, &s, last, in, h,
-				(const uint16_t (*)[3])params->vLUT,
+				params->vLUT,
 				rp_ctx->jls_enc_luts.classmap
 			);
 			last = in;
@@ -1191,57 +1212,70 @@ static int rpJLSEncodeImage(int thread_n, u8 *dst, const u8 *src, int w, int h, 
 		// int size_in_bits = put_bits_count(&s);
 		flush_put_bits(&s);
 		ret = put_bytes_output(&s);
+#if !RP_ENCODE_VERIFY
 	} else {
+#endif
 		struct jls_enc_ctx *ctx = &rp_ctx->jls_enc_ctx[thread_n];
 		struct bito_ctx *bctx = &rp_ctx->jls_bito_ctx[thread_n];
-		ret = jpeg_ls_encode(
-			params, ctx, bctx, (char *)dst, RP_JLS_ENCODE_BUFFER_SIZE, src,
+		ret2 = jpeg_ls_encode(
+			params, ctx, bctx, (char *)dst2, dst_size, src,
 			w, h, h + LEFTMARGIN + RIGHTMARGIN,
 			rp_ctx->jls_enc_luts.classmap
 		);
+#if !RP_ENCODE_VERIFY
+		ret = ret2;
 	}
+#endif
 
-	// if (ret != ret2) {
-	// 	nsDbgPrint("Failed encode size verify: %d, %d\n", ret, ret2);
-	// } else if (memcmp(dst, dst2, ret) != 0) {
-	// 	nsDbgPrint("Failed encode content verify\n");
-	// } else {
-	// 	u8 *decoded = rp_ctx->jls_decode_verify_buffer[thread_n];
+#if RP_ENCODE_VERIFY
+	nsDbgPrint("rpJLSEncodeImage: w = %d, h = %d, bpp = %d\n", w, h, bpp);
+	if (src_hash != XXH32(src, w * (h + LEFTMARGIN + RIGHTMARGIN), 0))
+		nsDbgPrint("rpJLSEncodeImage src buffer corrupt during encode, race condition?\n");
+	if (ret != ret2) {
+		nsDbgPrint("Failed encode size verify: %d, %d\n", ret, ret2);
+	} else if (memcmp(dst, dst2, ret) != 0) {
+		nsDbgPrint("Failed encode content verify\n");
+	} else {
+		u8 *decoded = rp_ctx->jls_decode_verify_buffer[thread_n];
 
-	// 	int ret3 = ffmpeg_jls_decode(thread_n, decoded, w, h, h, dst2, ret2, bpp);
-	// 	if (ret3 != w * h) {
-	// 		nsDbgPrint("Failed decode size verify: %d (expected %d)\n", ret3, w * h);
-	// 	} else {
-	// 		for (int i = 0; i < w; ++i) {
-	// 			if (memcmp(decoded + i * h, src + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN), h) != 0) {
-	// 				nsDbgPrint("Failed decode content verify at col %d\n", i);
-	// 				break;
-	// 			}
-	// 		}
-	// 		decoded = jpeg_ls_encode_pad_source(thread_n, decoded, w, h);
-	// 		if (memcmp(decoded, src, w * (h + LEFTMARGIN + RIGHTMARGIN)) != 0) {
-	// 			nsDbgPrint("Failed decode pad content verify\n");
-	// 		}
-	// 		for (int i = 0; i < w; ++i) {
-	// 			if (memcmp(
-	// 					decoded + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN),
-	// 					src + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN),
-	// 					h
-	// 				) != 0
-	// 			) {
-	// 				nsDbgPrint("Failed decode pad content verify at col %d\n", i);
-	// 				break;
-	// 			}
-	// 		}
-	// 	}
-	// }
+		int ret3 = ffmpeg_jls_decode(thread_n, decoded, w, h, h, dst2, ret2, bpp);
+		if (ret3 != w * h) {
+			nsDbgPrint("Failed decode size verify: %d (expected %d)\n", ret3, w * h);
+		} else {
+			for (int i = 0; i < w; ++i) {
+				if (memcmp(decoded + i * h, src + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN), h) != 0) {
+					nsDbgPrint("Failed decode content verify at col %d\n", i);
+					break;
+				}
+			}
+			decoded = jpeg_ls_encode_pad_source(thread_n, decoded, w, h);
+			if (memcmp(decoded, src, w * (h + LEFTMARGIN + RIGHTMARGIN)) != 0) {
+				nsDbgPrint("Failed decode pad content verify\n");
+			}
+			for (int i = 0; i < w; ++i) {
+				if (memcmp(
+						decoded + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN),
+						src + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN),
+						h
+					) != 0
+				) {
+					nsDbgPrint("Failed decode pad content verify at col %d\n", i);
+					break;
+				}
+			}
+		}
+	}
+#endif
 
-	if (ret >= RP_JLS_ENCODE_BUFFER_SIZE) {
+	if (ret >= dst_size) {
 		nsDbgPrint("Possible buffer overrun in rpJLSEncodeImage\n");
 		return -1;
 	}
+#if RP_ENCODE_VERIFY
+	return rp_ctx->conf.encoder_which == 0 ? ret : ret2;
+#else
 	return ret;
-	// return rp_ctx->conf.encoder_which == 0 ? ret : ret2;
+#endif
 }
 
 #define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
@@ -1349,8 +1383,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
 			*y_out = rshift_to_even(y, 8 + spp_2);
-			*u_out = srshift_to_even(u, 8 + spp) + (128 >> spp);
-			*v_out = srshift_to_even(v, 8 + spp) + (128 >> spp);
+			*u_out = (u8)((u8)srshift_to_even(u, 8) + 128) >> spp;
+			*v_out = (u8)((u8)srshift_to_even(v, 8) + 128) >> spp;
 			break;
 		}
 
@@ -1359,9 +1393,9 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			u16 y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
 			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
 			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
-			*y_out = rshift_to_even(y, 8 + spp_2) + (16 >> spp_2);
-			*u_out = srshift_to_even(u, 8) + (128 >> spp);
-			*v_out = srshift_to_even(v, 8) + (128 >> spp);
+			*y_out = (u8)((u8)rshift_to_even(y, 8) + 16) >> spp_2;
+			*u_out = (u8)((u8)srshift_to_even(u, 8) + 128) >> spp;
+			*v_out = (u8)((u8)srshift_to_even(v, 8) + 128) >> spp;
 			break;
 		}
 
@@ -1547,30 +1581,32 @@ static int convert_yuv_image(
 	return 0;
 }
 
-// static u8 *jpeg_ls_encode_pad_source(int thread_n, const u8 *src, int width, int height) {
-// 	u8 *dst = rp_ctx->jls_decode_verify_padded_buffer[thread_n];
-// 	u8 *ret = dst;
-// 	convert_set_zero(&dst, LEFTMARGIN);
-// 	for (int y = 0; y < width; ++y) {
-// 		if (y) {
-// 			convert_set_prev_first(height + RIGHTMARGIN, &dst, LEFTMARGIN);
-// 		}
-// 		for (int x = 0; x < height; ++x) {
-// 			*dst++ = *src++;
-// 		}
-// 		convert_set_last(&dst, RIGHTMARGIN);
-// 	}
-// 	if (dst - ret != width * (height + LEFTMARGIN + RIGHTMARGIN)) {
-// 		nsDbgPrint("Failed pad source size: %d (expected %d)\n",
-// 			dst - ret,
-// 			width * (height + LEFTMARGIN + RIGHTMARGIN)
-// 		);
-// 	}
-// 	if (dst - ret > sizeof(rp_ctx->jls_decode_verify_padded_buffer[thread_n])) {
-// 		nsDbgPrint("Failed pad source buffer overflow: %d\n", dst - ret);
-// 	}
-// 	return ret;
-// }
+#if RP_ENCODE_VERIFY
+static u8 *jpeg_ls_encode_pad_source(int thread_n, const u8 *src, int width, int height) {
+	u8 *dst = rp_ctx->jls_decode_verify_padded_buffer[thread_n];
+	u8 *ret = dst;
+	convert_set_zero(&dst, LEFTMARGIN);
+	for (int y = 0; y < width; ++y) {
+		if (y) {
+			convert_set_prev_first(height + RIGHTMARGIN, &dst, LEFTMARGIN);
+		}
+		for (int x = 0; x < height; ++x) {
+			*dst++ = *src++;
+		}
+		convert_set_last(&dst, RIGHTMARGIN);
+	}
+	if (dst - ret != width * (height + LEFTMARGIN + RIGHTMARGIN)) {
+		nsDbgPrint("Failed pad source size: %d (expected %d)\n",
+			dst - ret,
+			width * (height + LEFTMARGIN + RIGHTMARGIN)
+		);
+	}
+	if (dst - ret > sizeof(rp_ctx->jls_decode_verify_padded_buffer[thread_n])) {
+		nsDbgPrint("Failed pad source buffer overflow: %d\n", dst - ret);
+	}
+	return ret;
+}
+#endif
 
 static void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
 	ASSUME_ALIGN_4(ds_dst);
@@ -1689,7 +1725,7 @@ static void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const
 	}
 }
 
-static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2) {
+static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2, int bpp) {
 	u8 half_range = rp_ctx->conf.me_bpp_half_range;
 
 	u8 block_size = rp_ctx->conf.me_block_size << scale_log2;
@@ -1714,29 +1750,28 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 			cur += LEFTMARGIN;
 		}
 
-		if (i > x_off && (((i - x_off) & block_size_mask) == 0)) {
+		if (i > x_off && (((i - x_off) & block_size_mask) == 0) && i < width - x_off - 1) {
 			me_x_col += block_y_n + RIGHTMARGIN + LEFTMARGIN;
 			me_y_col += block_y_n + RIGHTMARGIN + LEFTMARGIN;
 		}
 
 		const s8 *me_x = me_x_col;
 		const s8 *me_y = me_y_col;
-		s8 x = *me_x - half_range;
-		s8 y = *me_y - half_range;
+		s8 x = (*me_x - half_range) << scale_log2;
+		s8 y = (*me_y - half_range) << scale_log2;
 		for (int j = 0; j < height; ++j) {
-			if (j > y_off && (((j - y_off) & block_size_mask) == 0)) {
+			if (j > y_off && (((j - y_off) & block_size_mask) == 0) && j < height - y_off - 1) {
 				++me_x;
 				++me_y;
 
-				x = *me_x - half_range;
-				y = *me_y - half_range;
+				x = (*me_x - half_range) << scale_log2;
+				y = (*me_y - half_range) << scale_log2;
 			}
 
 			// do prediction
 			const u8 *ref_est = ref++ + (s16)x * (height + LEFTMARGIN + RIGHTMARGIN) + y;
-			*dst++ = *cur++ - *ref_est + 128;
+			*dst++ = (u8)((*cur++ << (8 - bpp)) - (*ref_est << (8 - bpp)) + 128) >> (8 - bpp);
 		}
-
 
 		convert_set_last(&dst, RIGHTMARGIN);
 		ref += RIGHTMARGIN;
@@ -1871,10 +1906,10 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int thread_n, 
 	int ds_width = width / 2;
 	int ds_height = height / 2;
 
-	if (*p_frame &&
-		(*y_bpp != *y_bpp_prev || *u_bpp != *u_bpp_prev || *v_bpp != *v_bpp_prev)
-	)
-		*p_frame = 0;
+	// if (*p_frame &&
+	// 	(*y_bpp != *y_bpp_prev || *u_bpp != *u_bpp_prev || *v_bpp != *v_bpp_prev)
+	// )
+	// 	*p_frame = 0;
 
 	if (*p_frame) {
 		downscale_image(
@@ -1907,18 +1942,18 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int thread_n, 
 		int scale_log2 = 1 + scale_log2_offset;
 		int ds_scale_log2 = 0 + scale_log2_offset;
 		predict_image(y_image_me, y_image_prev, y_image, me_x_image, me_y_image,
-			width, height, scale_log2);
+			width, height, scale_log2, *y_bpp);
 
 		if (rp_ctx->conf.downscale_uv) {
 			predict_image(ds_u_image_me, ds_u_image_prev, ds_u_image, me_x_image, me_y_image,
-				ds_width, ds_height, ds_scale_log2);
+				ds_width, ds_height, ds_scale_log2, *u_bpp);
 			predict_image(ds_v_image_me, ds_v_image_prev, ds_v_image, me_x_image, me_y_image,
-				ds_width, ds_height, ds_scale_log2);
+				ds_width, ds_height, ds_scale_log2, *v_bpp);
 		} else {
 			predict_image(u_image_me, u_image_prev, u_image, me_x_image, me_y_image,
-				width, height, scale_log2);
+				width, height, scale_log2, *u_bpp);
 			predict_image(v_image_me, v_image_prev, v_image, me_x_image, me_y_image,
-				width, height, scale_log2);
+				width, height, scale_log2, *v_bpp);
 		}
 	}
 
@@ -2013,6 +2048,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	int bpp = RP_ACCESS_TOP_BOT_IMAGE(top_bot, b); \
 	ret = (p_frame || a < 1) ? rpJLSEncodeImage(thread_n, \
 		rp_ctx->jls_encode_buffer[encode_buffer_n] + (a < 1 ? 0 : ret), \
+		(a < 1 ? RP_JLS_ENCODE_IMAGE_BUFFER_SIZE : RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE), \
 		p_frame ? \
 			RP_ACCESS_TOP_BOT_IMAGE_ME(top_bot, n) : \
 			RP_ACCESS_TOP_BOT_IMAGE(top_bot, n), \
