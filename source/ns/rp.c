@@ -49,7 +49,7 @@ static u8 rpInited = 0;
 #define RP_STACK_SIZE (0x8000)
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
-#define RP_JLS_ENCODE_BUFFER_SIZE ((400 * 240) + (400 * 240) / 16)
+#define RP_JLS_ENCODE_BUFFER_SIZE ((400 * 240) + (400 * 240) / 16 + (50 * 30) + (50 * 30) / 4)
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
 #define RP_ME_MIN_BLOCK_SIZE (8)
 #define RP_ME_MIN_SEARCH_PARAM (4)
@@ -64,6 +64,7 @@ static u8 rpInited = 0;
 #define FALLTHRU __attribute__((fallthrough));
 #define ALWAYS_INLINE __attribute__((always_inline)) inline
 
+#define SCREEN_COUNT (2)
 enum {
 	RP_ENCODE_PARAMS_BPP8,
 	RP_ENCODE_PARAMS_BPP5,
@@ -178,12 +179,10 @@ static struct {
 		u8 ds_v_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 	} bot_image_me[RP_ENCODE_THREAD_COUNT];
 
-	u8 top_image_buffer_n;
-	u8 bot_image_buffer_n;
-	u8 top_image_frame_n;
-	u8 bot_image_frame_n;
-	u8 top_image_p_frame;
-	u8 bot_image_p_frame;
+	u8 image_buffer_n[SCREEN_COUNT];
+	u8 image_frame_n[SCREEN_COUNT];
+	u8 image_p_frame[SCREEN_COUNT];
+	Handle image_mutex[SCREEN_COUNT];
 
 	struct {
 		struct {
@@ -211,6 +210,7 @@ static struct {
 		u8 me_block_size_log2;
 		u8 me_search_param;
 		u8 me_bpp;
+		u8 me_bpp_half_range;
 		u8 me_downscale;
 
 		u8 target_frame_rate;
@@ -697,7 +697,8 @@ static int rp_set_params() {
 	rp_ctx->conf.me_block_size = ((rp_ctx->conf.arg1 & 0x200) >> 9) == 0 ? RP_ME_MIN_BLOCK_SIZE : (RP_ME_MIN_BLOCK_SIZE << 1);
 	rp_ctx->conf.me_block_size_log2 = av_ceil_log2(rp_ctx->conf.me_block_size);
 	rp_ctx->conf.me_search_param = ((rp_ctx->conf.arg1 & 0x7c00) >> 10) + RP_ME_MIN_SEARCH_PARAM;
-	rp_ctx->conf.me_bpp = RP_MAX(3, RP_MIN(6, av_ceil_log2(rp_ctx->conf.me_search_param)));
+	rp_ctx->conf.me_bpp = RP_MAX(3, RP_MIN(6, av_ceil_log2(rp_ctx->conf.me_search_param * 2 + 1)));
+	rp_ctx->conf.me_bpp_half_range = (1 << rp_ctx->conf.me_bpp) >> 1;
 	rp_ctx->conf.me_downscale = ((rp_ctx->conf.arg1 & 0x8000) >> 15);
 
 	rp_ctx->conf.top_priority = (rp_ctx->conf.arg2 & 0xf);
@@ -1613,8 +1614,8 @@ static void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const
 		width = height;
 		height = temp;
 	}
-	s8 *const me_x_image_entry = me_x_image;
-	s8 *const me_y_image_entry = me_y_image;
+
+	u8 half_range = rp_ctx->conf.me_bpp_half_range;
 
 	AVMotionEstContext me_ctx;
 	AVMotionEstPredictor *preds = me_ctx.preds;
@@ -1679,8 +1680,8 @@ static void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const
 					break;
 			}
 
-			*me_x_image++ = mv[0] - x + 128;
-			*me_y_image++ = mv[1] - y + 128;
+			*me_x_image++ = mv[0] - x + half_range;
+			*me_y_image++ = mv[1] - y + half_range;
 		}
 
 		convert_set_last((u8 **)&me_x_image, RIGHTMARGIN);
@@ -1689,6 +1690,8 @@ static void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const
 }
 
 static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2) {
+	u8 half_range = rp_ctx->conf.me_bpp_half_range;
+
 	u8 block_size = rp_ctx->conf.me_block_size << scale_log2;
 	u8 block_size_log2 = rp_ctx->conf.me_block_size_log2 + scale_log2;
 	u8 block_size_mask = (1 << block_size_log2) - 1;
@@ -1718,15 +1721,15 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 
 		const s8 *me_x = me_x_col;
 		const s8 *me_y = me_y_col;
-		s8 x = *me_x - 128;
-		s8 y = *me_y - 128;
+		s8 x = *me_x - half_range;
+		s8 y = *me_y - half_range;
 		for (int j = 0; j < height; ++j) {
 			if (j > y_off && (((j - y_off) & block_size_mask) == 0)) {
 				++me_x;
 				++me_y;
 
-				x = *me_x - 128;
-				y = *me_y - 128;
+				x = *me_x - half_range;
+				y = *me_y - half_range;
 			}
 
 			// do prediction
@@ -1941,6 +1944,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			}
 
 			top_bot = rp_ctx->screen_top_bot[pos];
+			svc_waitSynchronization1(rp_ctx->image_mutex[top_bot], U64_MAX);
 			// nsDbgPrint("%s acquired screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
 		} else {
 			pos = thread_n;
@@ -1966,17 +1970,14 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		}
 
 		int screen_buffer_n = pos;
-		int image_buffer_n = top_bot == 0 ?
-			rp_atomic_fetch_addb_wrap(&rp_ctx->top_image_buffer_n, 1, RP_IMAGE_BUFFER_COUNT) :
-			rp_atomic_fetch_addb_wrap(&rp_ctx->bot_image_buffer_n, 1, RP_IMAGE_BUFFER_COUNT);
+		u8 *image_buffer_n_prev = &rp_ctx->image_buffer_n[top_bot];
+		int image_buffer_n = *image_buffer_n_prev;
+		*image_buffer_n_prev = (*image_buffer_n_prev + 1) % RP_IMAGE_BUFFER_COUNT;
 
-		u8 *image_p_frame = top_bot == 0 ? &rp_ctx->top_image_p_frame : &rp_ctx->bot_image_p_frame;
-		int p_frame;
-		if (!*image_p_frame) {
-			p_frame = __atomic_test_and_set(image_p_frame, __ATOMIC_RELAXED);
-		} else {
-			p_frame = 1;
-		}
+		u8 *p_frame_prev = &rp_ctx->image_p_frame[top_bot];
+		int p_frame = *p_frame_prev;
+		if (!*p_frame_prev)
+			*p_frame_prev = 1;
 
 		ret = rpEncodeImage(screen_buffer_n, image_buffer_n, thread_n, top_bot, &p_frame);
 		if (ret < 0) {
@@ -1985,12 +1986,12 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			break;
 		}
 
-		if (rp_ctx->conf.multicore_encode)
-			rp_screen_transfer_release(pos);
+		int frame_n = rp_ctx->image_frame_n[top_bot]++;
 
-		int frame_n = top_bot == 0 ?
-			__atomic_add_fetch(&rp_ctx->top_image_frame_n, 1, __ATOMIC_RELAXED) :
-			__atomic_add_fetch(&rp_ctx->bot_image_frame_n, 1, __ATOMIC_RELAXED);
+		if (rp_ctx->conf.multicore_encode) {
+			svc_releaseMutex(rp_ctx->image_mutex[top_bot]);
+			rp_screen_transfer_release(pos);
+		}
 
 #define RP_ACCESS_TOP_BOT_IMAGE(s, n) \
 	(s == 0 ? \
@@ -2003,22 +2004,22 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		rp_ctx->bot_image_me[thread_n].n) \
 
 #define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b, a) while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) { \
-	if (a) \
+	if (a < 1) \
 		pos = rp_network_encode_acquire(25000000); \
 	if (pos < 0) { \
 		continue; \
 	} \
 	int encode_buffer_n = pos; \
 	int bpp = RP_ACCESS_TOP_BOT_IMAGE(top_bot, b); \
-	u8 *dst = rp_ctx->jls_encode_buffer[encode_buffer_n] + (a ? ret : 0); \
-	ret = rpJLSEncodeImage(thread_n, dst, \
+	ret = (p_frame || a < 1) ? rpJLSEncodeImage(thread_n, \
+		rp_ctx->jls_encode_buffer[encode_buffer_n] + (a < 1 ? 0 : ret), \
 		p_frame ? \
 			RP_ACCESS_TOP_BOT_IMAGE_ME(top_bot, n) : \
 			RP_ACCESS_TOP_BOT_IMAGE(top_bot, n), \
 		top_bot == 0 ? wt : wb, \
 		h, \
 		bpp \
-	); \
+	) : 0; \
 	if (ret < 0) { \
 		nsDbgPrint("rpJLSEncodeImage failed\n"); \
 		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED); \
@@ -2035,7 +2036,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	} else { \
 		rp_ctx->jls_encode[pos].size_1 = ret; \
 	} \
-	if (a) \
+	if (p_frame ? a != 0 : a < 1) \
 		rp_network_transfer_release(pos); \
 	// nsDbgPrint("%s %d released network transfer: %d\n", RP_TOP_BOT_STR(top_bot), frame_n, pos);
 
@@ -2046,14 +2047,13 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		u8 block_size_log2 = rp_ctx->conf.me_block_size_log2 + scale_log2;
 
 		int top_width = 400;
-		int bot_width = 400;
+		int bot_width = 320;
 		int height = 240;
 
 		int me_top_width = top_width >> block_size_log2;
 		int me_bot_width = bot_width >> block_size_log2;
 		int me_height = height >> block_size_log2;
 
-		ret = 0;
 		if (rp_ctx->conf.downscale_uv)
 		{
 			int ds_top_width = top_width / 2;
@@ -2061,15 +2061,15 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			int ds_height = height / 2;
 
 			// y_image
-			RP_PROCESS_IMAGE_AND_SEND(y_image, top_width, bot_width, height, y_bpp, -1);
+			RP_PROCESS_IMAGE_AND_SEND(y_image, top_width, bot_width, height, y_bpp, -1)
 				// ds_u_image
-				RP_PROCESS_IMAGE_AND_SEND(ds_u_image, ds_top_width, ds_bot_width, ds_height, u_bpp, 0);
+				RP_PROCESS_IMAGE_AND_SEND(ds_u_image, ds_top_width, ds_bot_width, ds_height, u_bpp, 0)
 					// me_x_image
-					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_top_width, me_bot_width, me_height, me_bpp, 1);
+					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
 						// ds_v_image
-						RP_PROCESS_IMAGE_AND_SEND(ds_v_image, ds_top_width, ds_bot_width, ds_height, v_bpp, 0);
+						RP_PROCESS_IMAGE_AND_SEND(ds_v_image, ds_top_width, ds_bot_width, ds_height, v_bpp, 0)
 							// me_x_image
-							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_top_width, me_bot_width, me_height, me_bpp, 1);
+							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
 
 							RP_PROCESS_IMAGE_AND_SEND_END
 
@@ -2082,16 +2082,16 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			RP_PROCESS_IMAGE_AND_SEND_END
 		} else {
 			// y_image
-			RP_PROCESS_IMAGE_AND_SEND(y_image, top_width, bot_width, height, y_bpp, -1);
+			RP_PROCESS_IMAGE_AND_SEND(y_image, top_width, bot_width, height, y_bpp, -1)
 				// u_image
-				RP_PROCESS_IMAGE_AND_SEND(u_image, top_width, bot_width, height, u_bpp, 0);
+				RP_PROCESS_IMAGE_AND_SEND(u_image, top_width, bot_width, height, u_bpp, 0)
 					// me_x_image
-					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_top_width, me_bot_width, me_height, me_bpp, 1);
+					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
 						// v_image
-						RP_PROCESS_IMAGE_AND_SEND(v_image, top_width, bot_width, height, v_bpp, 0);
+						RP_PROCESS_IMAGE_AND_SEND(v_image, top_width, bot_width, height, v_bpp, 0)
 
 							// me_x_image
-							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_top_width, me_bot_width, me_height, me_bpp, 1);
+							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
 
 							RP_PROCESS_IMAGE_AND_SEND_END
 
@@ -2223,6 +2223,9 @@ static void rpThreadStart(u32 arg UNUSED) {
 	svc_createMutex(&rp_ctx->kcp_mutex, 0);
 	__atomic_store_n(&rp_ctx->kcp_ready, 1, __ATOMIC_RELEASE);
 
+	for (int i = 0; i < SCREEN_COUNT; ++i)
+		svc_createMutex(&rp_ctx->image_mutex[i], 0);
+
 	int ret = 0;
 	while (ret >= 0) {
 		rp_set_params();
@@ -2242,8 +2245,8 @@ static void rpThreadStart(u32 arg UNUSED) {
 			goto final;
 		}
 
-		rp_ctx->top_image_p_frame = 0;
-		rp_ctx->bot_image_p_frame = 0;
+		for (int i = 0; i < SCREEN_COUNT; ++i)
+			rp_ctx->image_p_frame[i] = 0;
 
 		ret = rpSendFrames();
 
