@@ -39,7 +39,7 @@ typedef struct AVMotionEstPredictor {
 } AVMotionEstPredictor;
 
 typedef struct AVMotionEstContext {
-    uint8_t *data_cur, *data_ref;
+    const uint8_t *data_cur, *data_ref;
     int linesize;
 
     int mb_size;

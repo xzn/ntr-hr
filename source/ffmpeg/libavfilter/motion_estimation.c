@@ -60,8 +60,8 @@ void ff_me_init_context(AVMotionEstContext *me_ctx, int mb_size, int search_para
 uint64_t ff_me_cmp_sad(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int x_mv, int y_mv)
 {
     const int linesize = me_ctx->linesize;
-    uint8_t *data_ref = me_ctx->data_ref;
-    uint8_t *data_cur = me_ctx->data_cur;
+    const uint8_t *data_ref = me_ctx->data_ref;
+    const uint8_t *data_cur = me_ctx->data_cur;
     uint64_t sad = 0;
     int i, j;
 
