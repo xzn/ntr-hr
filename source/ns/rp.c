@@ -169,7 +169,8 @@ static struct {
 	} bot_image[RP_IMAGE_BUFFER_COUNT];
 
 #define DIV_CEIL(n, d) (((n) + (d - 1)) / d)
-#define ME_SIZE(w, h) DIV_CEIL(w, RP_ME_MIN_BLOCK_SIZE) * (DIV_CEIL(h, RP_ME_MIN_BLOCK_SIZE) + LEFTMARGIN + RIGHTMARGIN)
+// (* 2) since motion estimation operates on images downscaled at least once
+#define ME_SIZE(w, h) DIV_CEIL(w, RP_ME_MIN_BLOCK_SIZE * 2) * (DIV_CEIL(h, RP_ME_MIN_BLOCK_SIZE * 2) + LEFTMARGIN + RIGHTMARGIN)
 #define ME_TOP_SIZE ME_SIZE(400, 240)
 #define ME_BOT_SIZE ME_SIZE(320, 240)
 
