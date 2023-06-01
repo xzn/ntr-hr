@@ -16,7 +16,7 @@
 // #pragma GCC diagnostic warning "-Wpedantic"
 
 #define RP_ENCODE_VERIFY (0)
-#define RP_ME_INTERPOLATE (0)
+#define RP_ME_INTERPOLATE (1)
 // extern IUINT32 IKCP_OVERHEAD;
 #define IKCP_OVERHEAD (24)
 
@@ -57,7 +57,7 @@ static u8 rpInited = 0;
 #define RP_JLS_ENCODE_BUFFER_SIZE (RP_JLS_ENCODE_IMAGE_BUFFER_SIZE + RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE)
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
 #define RP_ME_MIN_BLOCK_SIZE (4)
-#define RP_ME_MIN_SEARCH_PARAM (4)
+#define RP_ME_MIN_SEARCH_PARAM (8)
 
 #define RP_ASSERT(c, ...) do { if (!(c)) { nsDbgPrint(__VA_ARGS__); } } while (0) \
 
@@ -72,8 +72,9 @@ static u8 rpInited = 0;
 #define SCREEN_COUNT (2)
 enum {
 	RP_ENCODE_PARAMS_BPP8,
-	RP_ENCODE_PARAMS_BPP5,
+	RP_ENCODE_PARAMS_BPP7,
 	RP_ENCODE_PARAMS_BPP6,
+	RP_ENCODE_PARAMS_BPP5,
 	RP_ENCODE_PARAMS_BPP4,
 	RP_ENCODE_PARAMS_COUNT
 };
@@ -111,8 +112,9 @@ static struct {
 	struct bito_ctx jls_bito_ctx[RP_ENCODE_THREAD_COUNT];
 	struct {
 		uint16_t vLUT_bpp8[2 * (1 << 8)][3];
-		uint16_t vLUT_bpp5[2 * (1 << 5)][3];
+		uint16_t vLUT_bpp7[2 * (1 << 7)][3];
 		uint16_t vLUT_bpp6[2 * (1 << 6)][3];
+		uint16_t vLUT_bpp5[2 * (1 << 5)][3];
 		uint16_t vLUT_bpp4[2 * (1 << 4)][3];
 		int16_t classmap[9 * 9 * 9];
 	} jls_enc_luts;
@@ -715,14 +717,14 @@ static int rp_set_params() {
 	rp_ctx->conf.encoder_which = (rp_ctx->conf.arg1 & 0x20) >> 5;
 
 	rp_ctx->conf.me_method = (rp_ctx->conf.arg1 & 0x1c0) >> 6;
-	rp_ctx->conf.me_block_size = ((rp_ctx->conf.arg1 & 0x200) >> 9) == 0 ? RP_ME_MIN_BLOCK_SIZE : (RP_ME_MIN_BLOCK_SIZE << 1);
+	rp_ctx->conf.me_block_size = RP_ME_MIN_BLOCK_SIZE << ((rp_ctx->conf.arg1 & 0x600) >> 9);
 	rp_ctx->conf.me_block_size_log2 = av_ceil_log2(rp_ctx->conf.me_block_size);
-	rp_ctx->conf.me_search_param = ((rp_ctx->conf.arg1 & 0x7c00) >> 10) + RP_ME_MIN_SEARCH_PARAM;
-	rp_ctx->conf.me_bpp = RP_MAX(3, RP_MIN(6, av_ceil_log2(rp_ctx->conf.me_search_param * 2 + 1)));
+	rp_ctx->conf.me_search_param = ((rp_ctx->conf.arg1 & 0xf800) >> 11) + RP_ME_MIN_SEARCH_PARAM;
+	rp_ctx->conf.me_bpp = av_ceil_log2(rp_ctx->conf.me_search_param * 2 + 1);
 	rp_ctx->conf.me_bpp_half_range = (1 << rp_ctx->conf.me_bpp) >> 1;
-	rp_ctx->conf.me_downscale = ((rp_ctx->conf.arg1 & 0x8000) >> 15);
+	rp_ctx->conf.me_downscale = ((rp_ctx->conf.arg1 & 0x10000) >> 16);
 #if RP_ME_INTERPOLATE
-	rp_ctx->conf.me_interpolate = ((rp_ctx->conf.arg1 & 0x10000) >> 16);
+	rp_ctx->conf.me_interpolate = ((rp_ctx->conf.arg1 & 0x20000) >> 17);
 #else
 	rp_ctx->conf.me_interpolate = 0;
 #endif
@@ -1115,8 +1117,9 @@ static void jls_encoder_prepare_LUTs(void) {
 	prepare_vLUT(rp_ctx->jls_enc_luts.bpp_lut_name, p->alpha, p->T1, p->T2, p->T3); } while (0) \
 
 	RP_JLS_INIT_LUT(8, RP_ENCODE_PARAMS_BPP8, vLUT_bpp8);
-	RP_JLS_INIT_LUT(5, RP_ENCODE_PARAMS_BPP5, vLUT_bpp5);
+	RP_JLS_INIT_LUT(7, RP_ENCODE_PARAMS_BPP7, vLUT_bpp7);
 	RP_JLS_INIT_LUT(6, RP_ENCODE_PARAMS_BPP6, vLUT_bpp6);
+	RP_JLS_INIT_LUT(5, RP_ENCODE_PARAMS_BPP5, vLUT_bpp5);
 	RP_JLS_INIT_LUT(4, RP_ENCODE_PARAMS_BPP4, vLUT_bpp4);
 
 #undef RP_JLS_INIT_LUT
@@ -1180,11 +1183,14 @@ static int rpJLSEncodeImage(int thread_n, u8 *dst, int dst_size, const u8 *src, 
 		case 8:
 			params = &rp_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP8]; break;
 
-		case 5:
-			params = &rp_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP5]; break;
+		case 7:
+			params = &rp_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP7]; break;
 
 		case 6:
 			params = &rp_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP6]; break;
+
+		case 5:
+			params = &rp_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP5]; break;
 
 		case 4:
 			params = &rp_ctx->jls_enc_params[RP_ENCODE_PARAMS_BPP4]; break;
