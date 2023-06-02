@@ -390,8 +390,8 @@ static void rp_screen_encode_release(u8 pos) {
 }
 
 static s32 rp_screen_encode_acquire(s64 timeout) {
-	return rp_syn_acq(&rp_ctx->syn.screen.encode, timeout);
-	// return rp_syn_acq1(&rp_ctx->syn.screen.encode, timeout);
+	// return rp_syn_acq(&rp_ctx->syn.screen.encode, timeout);
+	return rp_syn_acq1(&rp_ctx->syn.screen.encode, timeout);
 }
 
 static void rp_screen_transfer_release(u8 pos) {
@@ -2104,15 +2104,15 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		int top_bot;
 
 		if (rp_ctx->conf.multicore_encode) {
-			svc_waitSynchronization1(rp_ctx->syn.screen.encode.mutex, U64_MAX);
+			// svc_waitSynchronization1(rp_ctx->syn.screen.encode.mutex, U64_MAX);
 			pos = rp_screen_encode_acquire(25000000);
 			if (pos < 0) {
-				svc_releaseMutex(rp_ctx->syn.screen.encode.mutex);
+				// svc_releaseMutex(rp_ctx->syn.screen.encode.mutex);
 				continue;
 			}
 
 			top_bot = rp_ctx->screen_top_bot[pos];
-			// svc_waitSynchronization1(rp_ctx->image_mutex[top_bot], U64_MAX);
+			svc_waitSynchronization1(rp_ctx->image_mutex[top_bot], U64_MAX);
 			// svc_releaseMutex(rp_ctx->syn.screen.encode.mutex);
 			// nsDbgPrint("%s acquired screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
 		} else {
@@ -2158,8 +2158,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		int frame_n = rp_ctx->image_frame_n[top_bot]++;
 
 		if (rp_ctx->conf.multicore_encode) {
-			// svc_releaseMutex(rp_ctx->image_mutex[top_bot]);
-			svc_releaseMutex(rp_ctx->syn.screen.encode.mutex);
+			svc_releaseMutex(rp_ctx->image_mutex[top_bot]);
+			// svc_releaseMutex(rp_ctx->syn.screen.encode.mutex);
 			rp_screen_transfer_release(pos);
 		}
 
