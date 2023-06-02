@@ -29,8 +29,8 @@
 
 #define RP_SVC_MS(ms) ((u64)ms * 1000 * 1000)
 
-#define RP_SYN_WAIT_MAX RP_SVC_MS(250)
-#define RP_SYN_WAIT_IDLE RP_SVC_MS(100)
+#define RP_SYN_WAIT_MAX RP_SVC_MS (250)
+#define RP_SYN_WAIT_IDLE RP_SVC_MS (100)
 #define RP_THREAD_LOOP_WAIT_COUNT (25)
 #define RP_THREAD_LOOP_SLOW_WAIT RP_SVC_MS(50)
 #define RP_THREAD_LOOP_MED_WAIT RP_SVC_MS(25)
@@ -82,7 +82,11 @@ static u8 rpInited = 0;
 #define FALLTHRU __attribute__((fallthrough));
 #define ALWAYS_INLINE __attribute__((always_inline)) inline
 
-#define SCREEN_COUNT (2)
+enum {
+	SCREEN_TOP,
+	SCREEN_BOT,
+	SCREEN_COUNT,
+};
 enum {
 	RP_ENCODE_PARAMS_BPP8,
 	RP_ENCODE_PARAMS_BPP7,
@@ -95,8 +99,8 @@ enum {
 #define RP_ENCODE_THREAD_COUNT (1 + RP_ENCODE_MULTITHREAD)
 // (+ 1) for screen/network transfer then (+ 1) again for start/finish at different time
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 2)
-// minimum 2 for motion estimation reference
-#define RP_IMAGE_BUFFER_COUNT RP_MAX(RP_ENCODE_THREAD_COUNT, 2)
+// (+ 1) for motion estimation reference
+#define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
 static struct rp_ctx_t {
 	ikcpcb *kcp;
 	u8 kcp_restart;
@@ -130,7 +134,6 @@ static struct rp_ctx_t {
 		u8 top_bot;
 		u8 p_frame;
 		u8 frame_n;
-		Handle sem;
 		struct rp_image_t *image, *image_prev;
 	} screen_encode[RP_ENCODE_BUFFER_COUNT];
 	struct rp_network_encode_t {
@@ -152,14 +155,16 @@ static struct rp_ctx_t {
 		int16_t classmap[9 * 9 * 9];
 	} jls_enc_luts;
 	struct jls_enc_params jls_enc_params[RP_ENCODE_PARAMS_COUNT];
-#if RP_ENCODE_VERIFY
-	u8 jls_encode_verify_buffer[RP_ENCODE_THREAD_COUNT][RP_JLS_ENCODE_IMAGE_BUFFER_SIZE] ALIGN_4;
-	u8 jls_decode_verify_buffer[RP_ENCODE_THREAD_COUNT][RP_JLS_ENCODE_IMAGE_BUFFER_SIZE] ALIGN_4;
-	u8 jls_decode_verify_padded_buffer[RP_ENCODE_THREAD_COUNT][400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
-#endif
 	struct rp_jls_ctx_t {
 		struct jls_enc_ctx enc;
 		struct bito_ctx bito;
+#if RP_ENCODE_VERIFY
+		struct {
+			u8 encode[RP_JLS_ENCODE_IMAGE_BUFFER_SIZE] ALIGN_4;
+			u8 decode[400 * 240] ALIGN_4;
+			u8 decode_padded[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		} verify_buffer;
+#endif
 	} jls_ctx[RP_ENCODE_THREAD_COUNT];
 
 	struct rp_image_t {
@@ -173,11 +178,6 @@ static struct rp_ctx_t {
 			u8 ds_u_image[200 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 ds_v_image[200 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 ds_ds_y_image[100 * (60 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
-			u8 y_bpp;
-			u8 u_bpp;
-			u8 v_bpp;
-			u8 format;
-			u8 me_bpp;
 		} top;
 		struct {
 			s8 me_x_image[1];
@@ -189,12 +189,15 @@ static struct rp_ctx_t {
 			u8 ds_u_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 ds_v_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 ds_ds_y_image[80 * (60 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
+		} bot;
+		struct {
 			u8 y_bpp;
 			u8 u_bpp;
 			u8 v_bpp;
 			u8 format;
 			u8 me_bpp;
-		} bot;
+			Handle sem_write, sem_read;
+		} s[SCREEN_COUNT];
 	} image[RP_IMAGE_BUFFER_COUNT];
 
 #define DIV_CEIL(n, d) (((n) + ((d) - 1)) / (d))
@@ -225,10 +228,9 @@ static struct rp_ctx_t {
 	} image_me[RP_ENCODE_THREAD_COUNT];
 
 	struct rp_screen_image_t {
-	u8 image_n;
-	u8 frame_n;
-	u8 p_frame;
-	Handle sem;
+		u8 image_n;
+		u8 frame_n;
+		u8 p_frame;
 	} screen_image[SCREEN_COUNT];
 
 	struct rp_syn_t {
@@ -264,8 +266,7 @@ static struct rp_ctx_t {
 		u8 target_frame_rate;
 		u8 target_mbit_rate;
 		u8 dynamic_priority;
-		u8 top_priority;
-		u8 bot_priority;
+		u8 screen_priority[SCREEN_COUNT];
 		u8 low_latency;
 		u8 multicore_encode;
 		u8 encode_buffer_count;
@@ -301,7 +302,7 @@ static struct rp_ctx_t {
 
 			u16 frame_size_est;
 			u16 priority_size_est;
-		} top, bot;
+		} s[SCREEN_COUNT];
 		Handle mutex;
 	} dyn_prio;
 } *rp_ctx;
@@ -583,87 +584,83 @@ static void rpInitPriorityCtx(void) {
 	memset(&rp_ctx->dyn_prio, 0, sizeof(rp_ctx->dyn_prio));
 	svc_createMutex(&rp_ctx->dyn_prio.mutex, 0);
 
-	rp_ctx->dyn_prio.top.initializing =
-		rp_ctx->dyn_prio.bot.initializing = RP_DYN_PRIO_FRAME_COUNT;
+	for (int i = 0; i < SCREEN_COUNT; ++i) {
+		rp_ctx->dyn_prio.s[i].initializing = RP_DYN_PRIO_FRAME_COUNT;
 
-	rp_ctx->dyn_prio.top.priority = rp_ctx->conf.top_priority;
-	rp_ctx->dyn_prio.bot.priority = rp_ctx->conf.bot_priority;
+		rp_ctx->dyn_prio.s[i].priority = rp_ctx->conf.screen_priority[i];
+	}
 }
 
 static int rpGetPriorityScreen(int *frame_rate) {
-	if (rp_ctx->conf.top_priority == 0)
-		return 0;
-	if (rp_ctx->conf.bot_priority == 0)
-		return 1;
+	for (int i = 0; i < SCREEN_COUNT; ++i)
+		if (rp_ctx->conf.screen_priority[i] == 0)
+			return i;
 
 	struct rp_dyo_prio_t *ctx = &rp_ctx->dyn_prio;
 	int top_bot;
 	if (svc_waitSynchronization1(ctx->mutex, RP_SYN_WAIT_MAX) != 0)
 		return 0;
 
-#define TOP 0, top, bot
-#define BOT 1, bot, top
-
-#define SET_WITH_SIZE(s, c0, c1, te, ta) do { \
-	top_bot = s; \
-	ctx->c1.te -=ctx->c0.te; \
-	ctx->c0.te = ctx->c0.ta; \
+#define SET_WITH_SIZE(si, c0, c1, te, ta) do { \
+	top_bot = si; \
+	ctx->s[c1].te -=ctx->s[c0].te; \
+	ctx->s[c0].te = ctx->s[c0].ta; \
 } while (0)
-#define SET_WITH_FRAME_SIZE(s) SET_WITH_SIZE(s, frame_size_est, frame_size_acc)
-#define SET_WITH_PRIORITY_SIZE(s) SET_WITH_SIZE(s, priority_size_est, priority_size_acc)
+#define SET_WITH_FRAME_SIZE(si, c0, c1) SET_WITH_SIZE(si, c0, c1, frame_size_est, frame_size_acc)
+#define SET_WITH_PRIORITY_SIZE(si, c0, c1) SET_WITH_SIZE(si, c0, c1, priority_size_est, priority_size_acc)
 
-#define SET_WITH_SIZE_0(s, c0, c1, te, ta) do { \
-	top_bot = s; \
-	ctx->c1.te = 0; \
-	ctx->c0.te = ctx->c0.ta; \
+#define SET_WITH_SIZE_0(si, c0, c1, te, ta) do { \
+	top_bot = si; \
+	ctx->s[c1].te = 0; \
+	ctx->s[c0].te = ctx->s[c0].ta; \
 } while (0)
-#define SET_WITH_FRAME_SIZE_0(s) SET_WITH_SIZE_0(s, frame_size_est, frame_size_acc)
+#define SET_WITH_FRAME_SIZE_0(si, c0, c1) SET_WITH_SIZE_0(si, c0, c1, frame_size_est, frame_size_acc)
 
 #define SET_SIZE(_, c0, c1, te, ta) do { \
-	if (ctx->c0.te <= ctx->c1.te) { \
-		ctx->c1.te -=ctx->c0.te; \
+	if (ctx->s[c0].te <= ctx->s[c1].te) { \
+		ctx->s[c1].te -=ctx->s[c0].te; \
 	} else { \
-		ctx->c1.te = 0; \
+		ctx->s[c1].te = 0; \
 	} \
-	ctx->c0.te = ctx->c0.ta; \
+	ctx->s[c0].te = ctx->s[c0].ta; \
 } while (0)
-#define SET_FRAME_SIZE(s) SET_SIZE(s, frame_size_est, frame_size_acc)
-#define SET_PRIORITY_SIZE(s) SET_SIZE(s, priority_size_est, priority_size_acc)
+#define SET_FRAME_SIZE(si, c0, c1) SET_SIZE(si, c0, c1, frame_size_est, frame_size_acc)
+#define SET_PRIORITY_SIZE(si, c0, c1) SET_SIZE(si, c0, c1, priority_size_est, priority_size_acc)
+
+#define SET_CASE_FRAME_SIZE(s0, s1) do { \
+	if (ctx->s[s0].priority_size_est <= ctx->s[s1].priority) { \
+		SET_WITH_FRAME_SIZE(s0, s0, s1); \
+		SET_PRIORITY_SIZE(s0, s0, s1); \
+	} else { \
+		SET_WITH_FRAME_SIZE_0(s1, s1, s0); \
+		SET_PRIORITY_SIZE(s1, s1, s0); \
+	} \
+} while (0)
+
+#define SET_CASE_PRIORITY_SIZE(s0, s1) do { \
+	SET_WITH_PRIORITY_SIZE(s0, s0, s1); \
+	if (rp_ctx->conf.dynamic_priority) \
+		SET_FRAME_SIZE(s0, s0, s1); \
+} while (0)
 
 	if (rp_ctx->conf.dynamic_priority &&
-		ctx->top.frame_rate + ctx->bot.frame_rate >= rp_ctx->conf.target_frame_rate
+		ctx->s[SCREEN_TOP].frame_rate + ctx->s[SCREEN_BOT].frame_rate >= rp_ctx->conf.target_frame_rate
 	) {
-		if (ctx->top.frame_size_est <= ctx->bot.frame_size_est) {
-			if (ctx->top.priority_size_est <= ctx->bot.priority) {
-				SET_WITH_FRAME_SIZE(TOP);
-				SET_PRIORITY_SIZE(TOP);
-			} else {
-				SET_WITH_FRAME_SIZE_0(BOT);
-				SET_PRIORITY_SIZE(BOT);
-			}
+		if (ctx->s[SCREEN_TOP].frame_size_est <= ctx->s[SCREEN_BOT].frame_size_est) {
+			SET_CASE_FRAME_SIZE(SCREEN_TOP, SCREEN_BOT);
 		} else {
-			if (ctx->bot.priority_size_est <= ctx->top.priority) {
-				SET_WITH_FRAME_SIZE(BOT);
-				SET_PRIORITY_SIZE(BOT);
-			} else {
-				SET_WITH_FRAME_SIZE_0(TOP);
-				SET_PRIORITY_SIZE(TOP);
-			}
+			SET_CASE_FRAME_SIZE(SCREEN_BOT, SCREEN_TOP);
 		}
 	} else {
-		if (ctx->top.priority_size_est <= ctx->bot.priority_size_est) {
-			SET_WITH_PRIORITY_SIZE(TOP);
-			if (rp_ctx->conf.dynamic_priority)
-				SET_FRAME_SIZE(TOP);
+		if (ctx->s[SCREEN_TOP].priority_size_est <= ctx->s[SCREEN_BOT].priority_size_est) {
+			SET_CASE_PRIORITY_SIZE(SCREEN_TOP, SCREEN_BOT);
 		} else {
-			SET_WITH_PRIORITY_SIZE(BOT);
-			if (rp_ctx->conf.dynamic_priority)
-				SET_FRAME_SIZE(BOT);
+			SET_CASE_PRIORITY_SIZE(SCREEN_BOT, SCREEN_TOP);
 		}
 	}
 
-#undef TOP
-#undef BOT
+#undef SET_CASE_PRIORITY_SIZE
+#undef SET_CASE_FRAME_SIZE
 
 #undef SET_WITH_FRAME_SIZE
 #undef SET_WITH_PRIORITY_SIZE
@@ -677,22 +674,18 @@ static int rpGetPriorityScreen(int *frame_rate) {
 #undef SET_SIZE
 
 	if (frame_rate)
-		*frame_rate = ctx->top.frame_rate + ctx->bot.frame_rate;
+		*frame_rate = ctx->s[SCREEN_TOP].frame_rate + ctx->s[SCREEN_BOT].frame_rate;
 	svc_releaseMutex(ctx->mutex);
 	return top_bot;
 }
 
 static void rpSetPriorityScreen(int top_bot, u32 size) {
-	if (rp_ctx->conf.top_priority == 0 || rp_ctx->conf.bot_priority == 0)
+	if (rp_ctx->conf.screen_priority[SCREEN_TOP] == 0 || rp_ctx->conf.screen_priority[SCREEN_BOT] == 0)
 		return;
 
 	struct rp_dyo_prio_t *ctx = &rp_ctx->dyn_prio;
 	struct rp_dyo_prio_screen_t *sctx;
-	if (top_bot == 0) {
-		sctx = &rp_ctx->dyn_prio.top;
-	} else {
-		sctx = &rp_ctx->dyn_prio.bot;
-	}
+	sctx = &rp_ctx->dyn_prio.s[top_bot];
 
 	if (svc_waitSynchronization1(ctx->mutex, RP_SYN_WAIT_MAX))
 		return;
@@ -766,8 +759,8 @@ static int rp_set_params() {
 	rp_ctx->conf.me_interpolate = 0;
 #endif
 
-	rp_ctx->conf.top_priority = (rp_ctx->conf.arg2 & 0xf);
-	rp_ctx->conf.bot_priority = (rp_ctx->conf.arg2 & 0xf0) >> 4;
+	rp_ctx->conf.screen_priority[SCREEN_TOP] = (rp_ctx->conf.arg2 & 0xf);
+	rp_ctx->conf.screen_priority[SCREEN_BOT] = (rp_ctx->conf.arg2 & 0xf0) >> 4;
 	rp_ctx->conf.low_latency = (rp_ctx->conf.arg2 & 0x2000) >> 13;
 	if (RP_ENCODE_MULTITHREAD)
 		rp_ctx->conf.multicore_encode = (rp_ctx->conf.arg2 & 0x4000) >> 14;
@@ -795,16 +788,16 @@ static int rp_set_params() {
 static void rp_init_syn_params(void) {
 }
 
-static void rp_acquire_params(int thread_n) {
+static void rp_acquire_params(int thread_n UNUSED) {
 }
 
-static void rp_release_params(int thread_n) {
+static void rp_release_params(int thread_n UNUSED) {
 }
 
-static void rp_acquire_params1(int thread_n) {
+static void UNUSED rp_acquire_params1(int thread_n UNUSED) {
 }
 
-static int rp_check_params(int thread_n) {
+static int rp_check_params(int thread_n UNUSED) {
 	if (__atomic_load_n(&g_nsConfig->remotePlayUpdate, __ATOMIC_ACQUIRE)) {
 		__atomic_store_n(&g_nsConfig->remotePlayUpdate, 0, __ATOMIC_RELEASE);
 
@@ -1175,9 +1168,10 @@ static void jls_encoder_prepare_LUTs(void) {
 }
 
 extern const uint8_t psl0[];
-static u8 *jpeg_ls_encode_pad_source(int thread_n, const u8 *src_unpadded, int width, int height);
-
-static int ffmpeg_jls_decode(int thread_n, uint8_t *dst, int width, int height, int pitch, const uint8_t *src, int src_size, int bpp) {
+#if RP_ENCODE_VERIFY
+static void UNUSED jpeg_ls_encode_pad_source(u8 *dst, int dst_size, const u8 *src_unpadded, int width, int height);
+#endif
+static int UNUSED ffmpeg_jls_decode(uint8_t *dst, int width, int height, int pitch, const uint8_t *src, int src_size, int bpp) {
 	JLSState state = { 0 };
 	state.bpp = bpp;
 	ff_jpegls_reset_coding_parameters(&state, 0);
@@ -1214,9 +1208,13 @@ static int ffmpeg_jls_decode(int thread_n, uint8_t *dst, int width, int height, 
 }
 
 static int rpJLSEncodeImage(struct rp_jls_ctx_t *jls_ctx, u8 *dst, int dst_size, const u8 *src, int w, int h, int bpp) {
+	// nsDbgPrint("rpJLSEncodeImage: ctx = (%d), buffer = (%d), image = (%d), w = %d, h = %d, bpp = %d\n",
+	// 	(s32)jls_ctx, (s32)dst, (s32)src, w, h, bpp
+	// );
+
 #if RP_ENCODE_VERIFY
 	XXH32_hash_t src_hash = XXH32(src, w * (h + LEFTMARGIN + RIGHTMARGIN), 0);
-	u8 *dst2 = rp_ctx->jls_encode_verify_buffer[thread_n];
+	u8 *dst2 = jls_ctx->verify_buffer.encode;
 
 	if (rp_ctx->conf.encoder_which == 1) {
 		u8 *tmp = dst;
@@ -1303,9 +1301,9 @@ static int rpJLSEncodeImage(struct rp_jls_ctx_t *jls_ctx, u8 *dst, int dst_size,
 	} else if (memcmp(dst, dst2, ret) != 0) {
 		nsDbgPrint("Failed encode content verify\n");
 	} else {
-		u8 *decoded = rp_ctx->jls_decode_verify_buffer[thread_n];
+		u8 *decoded = jls_ctx->verify_buffer.decode;
 
-		int ret3 = ffmpeg_jls_decode(thread_n, decoded, w, h, h, dst2, ret2, bpp);
+		int ret3 = ffmpeg_jls_decode(decoded, w, h, h, dst2, ret2, bpp);
 		if (ret3 != w * h) {
 			nsDbgPrint("Failed decode size verify: %d (expected %d)\n", ret3, w * h);
 		} else {
@@ -1315,7 +1313,11 @@ static int rpJLSEncodeImage(struct rp_jls_ctx_t *jls_ctx, u8 *dst, int dst_size,
 					break;
 				}
 			}
-			decoded = jpeg_ls_encode_pad_source(thread_n, decoded, w, h);
+
+			u8 *decode_padded = jls_ctx->verify_buffer.decode_padded;
+			int decode_padded_size = sizeof(jls_ctx->verify_buffer.decode_padded);
+
+			jpeg_ls_encode_pad_source(decode_padded, decode_padded_size, decoded, w, h);
 			if (memcmp(decoded, src, w * (h + LEFTMARGIN + RIGHTMARGIN)) != 0) {
 				nsDbgPrint("Failed decode pad content verify\n");
 			}
@@ -1652,8 +1654,7 @@ static int convert_yuv_image(
 }
 
 #if RP_ENCODE_VERIFY
-static u8 *jpeg_ls_encode_pad_source(int thread_n, const u8 *src, int width, int height) {
-	u8 *dst = rp_ctx->jls_decode_verify_padded_buffer[thread_n];
+static void jpeg_ls_encode_pad_source(u8 *dst, int dst_size, const u8 *src, int width, int height) {
 	u8 *ret = dst;
 	convert_set_zero(&dst, LEFTMARGIN);
 	for (int y = 0; y < width; ++y) {
@@ -1671,10 +1672,9 @@ static u8 *jpeg_ls_encode_pad_source(int thread_n, const u8 *src, int width, int
 			width * (height + LEFTMARGIN + RIGHTMARGIN)
 		);
 	}
-	if (dst - ret > sizeof(rp_ctx->jls_decode_verify_padded_buffer[thread_n])) {
+	if (dst - ret > dst_size) {
 		nsDbgPrint("Failed pad source buffer overflow: %d\n", dst - ret);
 	}
-	return ret;
 }
 #endif
 
@@ -1724,7 +1724,7 @@ static void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const
 	u8 half_range = rp_ctx->conf.me_bpp_half_range;
 
 	AVMotionEstContext me_ctx;
-	AVMotionEstPredictor *preds = me_ctx.preds;
+	AVMotionEstPredictor *preds UNUSED = me_ctx.preds;
 
 	u8 block_size = rp_ctx->conf.me_block_size;
 	u8 block_size_log2 = rp_ctx->conf.me_block_size_log2;
@@ -1808,7 +1808,6 @@ enum {
 };
 
 static void interpolate_me(const s8 *me_x_vec[CORNER_COUNT], const s8 *me_y_vec[CORNER_COUNT], int half_range, int scale_log2, int block_size, int block_size_log2, int i, int j, s8 *x, s8 *y) {
-	int step_count = block_size;
 	int step_total = block_size * 2;
 	int step_base = 1;
 	int step = 2;
@@ -1843,7 +1842,7 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 	u8 block_size_log2 = rp_ctx->conf.me_block_size_log2 + scale_log2;
 	u8 block_size_mask = (1 << block_size_log2) - 1;
 
-	u8 block_x_n = width >> block_size_log2;
+	u8 block_x_n UNUSED = width >> block_size_log2;
 	u8 block_y_n = height >> block_size_log2;
 	u8 block_pitch = block_y_n + RIGHTMARGIN + LEFTMARGIN;
 	u8 x_off = (width & block_size_mask) >> 1;
@@ -1971,7 +1970,6 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 	height = 240;
 
 	int format = screen_ctx->format;
-	format &= 0x0f;
 	int bytes_per_pixel;
 	if (format == 0) {
 		bytes_per_pixel = 4;
@@ -2001,9 +1999,6 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 	u8 *v_image_prev;
 	u8 *ds_u_image_prev;
 	u8 *ds_v_image_prev;
-	u8 *y_bpp_prev;
-	u8 *u_bpp_prev;
-	u8 *v_bpp_prev;
 	u8 *ds_y_image_prev;
 	u8 *ds_ds_y_image_prev;
 
@@ -2015,44 +2010,41 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 	s8 *me_x_image;
 	s8 *me_y_image;
 
-#define RP_IMAGE_SET(top_bot_image) do { \
-	y_image = screen_ctx->image->top_bot_image.y_image; \
-	u_image = screen_ctx->image->top_bot_image.u_image; \
-	v_image = screen_ctx->image->top_bot_image.v_image; \
-	ds_y_image = screen_ctx->image->top_bot_image.ds_y_image; \
-	ds_u_image = screen_ctx->image->top_bot_image.ds_u_image; \
-	ds_v_image = screen_ctx->image->top_bot_image.ds_v_image; \
-	ds_ds_y_image = screen_ctx->image->top_bot_image.ds_ds_y_image; \
-	y_bpp = &screen_ctx->image->top_bot_image.y_bpp; \
-	u_bpp = &screen_ctx->image->top_bot_image.u_bpp; \
-	v_bpp = &screen_ctx->image->top_bot_image.v_bpp; \
-	me_bpp = &screen_ctx->image->top_bot_image.me_bpp; \
+#define RP_IMAGE_SET(si, sn) do { \
+	y_image = screen_ctx->image->sn.y_image; \
+	u_image = screen_ctx->image->sn.u_image; \
+	v_image = screen_ctx->image->sn.v_image; \
+	ds_y_image = screen_ctx->image->sn.ds_y_image; \
+	ds_u_image = screen_ctx->image->sn.ds_u_image; \
+	ds_v_image = screen_ctx->image->sn.ds_v_image; \
+	ds_ds_y_image = screen_ctx->image->sn.ds_ds_y_image; \
+	y_bpp = &screen_ctx->image->s[si].y_bpp; \
+	u_bpp = &screen_ctx->image->s[si].u_bpp; \
+	v_bpp = &screen_ctx->image->s[si].v_bpp; \
+	me_bpp = &screen_ctx->image->s[si].me_bpp; \
  \
-	y_image_prev = screen_ctx->image_prev->top_bot_image.y_image; \
-	u_image_prev = screen_ctx->image_prev->top_bot_image.u_image; \
-	v_image_prev = screen_ctx->image_prev->top_bot_image.v_image; \
-	ds_y_image_prev = screen_ctx->image_prev->top_bot_image.ds_y_image; \
-	ds_u_image_prev = screen_ctx->image_prev->top_bot_image.ds_u_image; \
-	ds_v_image_prev = screen_ctx->image_prev->top_bot_image.ds_v_image; \
-	ds_ds_y_image_prev = screen_ctx->image_prev->top_bot_image.ds_ds_y_image; \
-	y_bpp_prev = &screen_ctx->image_prev->top_bot_image.y_bpp; \
-	u_bpp_prev = &screen_ctx->image_prev->top_bot_image.u_bpp; \
-	v_bpp_prev = &screen_ctx->image_prev->top_bot_image.v_bpp; \
+	y_image_prev = screen_ctx->image_prev->sn.y_image; \
+	u_image_prev = screen_ctx->image_prev->sn.u_image; \
+	v_image_prev = screen_ctx->image_prev->sn.v_image; \
+	ds_y_image_prev = screen_ctx->image_prev->sn.ds_y_image; \
+	ds_u_image_prev = screen_ctx->image_prev->sn.ds_u_image; \
+	ds_v_image_prev = screen_ctx->image_prev->sn.ds_v_image; \
+	ds_ds_y_image_prev = screen_ctx->image_prev->sn.ds_ds_y_image; \
  \
-	y_image_me = image_me_ctx->top_bot_image.y_image; \
-	u_image_me = image_me_ctx->top_bot_image.u_image; \
-	v_image_me = image_me_ctx->top_bot_image.v_image; \
-	ds_u_image_me = image_me_ctx->top_bot_image.ds_u_image; \
-	ds_v_image_me = image_me_ctx->top_bot_image.ds_v_image; \
-	me_x_image = image_me_ctx->top_bot_image.me_x_image; \
-	me_y_image = image_me_ctx->top_bot_image.me_y_image; \
+	y_image_me = image_me_ctx->sn.y_image; \
+	u_image_me = image_me_ctx->sn.u_image; \
+	v_image_me = image_me_ctx->sn.v_image; \
+	ds_u_image_me = image_me_ctx->sn.ds_u_image; \
+	ds_v_image_me = image_me_ctx->sn.ds_v_image; \
+	me_x_image = image_me_ctx->sn.me_x_image; \
+	me_y_image = image_me_ctx->sn.me_y_image; \
  \
-	screen_ctx->image->top_bot_image.format = format; } while (0)
+	screen_ctx->image->s[si].format = format; } while (0)
 
 	if (screen_ctx->top_bot == 0) {
-		RP_IMAGE_SET(top);
+		RP_IMAGE_SET(SCREEN_TOP, top);
 	} else {
-		RP_IMAGE_SET(bot);
+		RP_IMAGE_SET(SCREEN_BOT, bot);
 	}
 
 #undef RP_IMAGE_SET
@@ -2083,15 +2075,10 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 		);
 	}
 
-	int ds_width = width / 2;
-	int ds_height = height / 2;
-
-	if (screen_ctx->p_frame &&
-		(*y_bpp != *y_bpp_prev || *u_bpp != *u_bpp_prev || *v_bpp != *v_bpp_prev)
-	)
-		screen_ctx->p_frame = 0;
-
 	if (screen_ctx->p_frame) {
+		int ds_width = width / 2;
+		int ds_height = height / 2;
+
 		downscale_image(
 			ds_y_image,
 			y_image,
@@ -2148,6 +2135,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	rp_acquire_params(thread_n);
 
 	struct rp_image_me_t *image_me_ctx = &rp_ctx->image_me[thread_n];
+	struct rp_screen_image_t *screen_image_ctx;
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		rp_check_params(thread_n);
 
@@ -2186,7 +2174,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 				svc_sleepThread(RP_THREAD_LOOP_FAST_WAIT);
 			} while (1);
 
-			struct rp_screen_image_t *screen_image_ctx = &rp_ctx->screen_image[top_bot];
+			screen_image_ctx = &rp_ctx->screen_image[top_bot];
 
 			u8 *image_n_prev = &screen_image_ctx->image_n;
 			u8 image_n = *image_n_prev;
@@ -2207,10 +2195,27 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			screen_ctx->image_prev = &rp_ctx->image[image_n];
 		}
 
-		int screen_buffer_n = pos;
-
-		if (rp_ctx->conf.me_method == 0)
+		if (rp_ctx->conf.me_method == 0) {
 			screen_ctx->p_frame = 0;
+		}
+
+		if (screen_ctx->p_frame &&
+			screen_ctx->format != screen_ctx->image_prev->s[screen_ctx->top_bot].format
+		) {
+			nsDbgPrint("Screen format change; key frame");
+			screen_ctx->p_frame = 0;
+		}
+
+		if (rp_ctx->conf.multicore_encode) {
+			if (screen_ctx->p_frame) {
+				int res;
+				if ((res = svc_waitSynchronization1(screen_ctx->image_prev->s[screen_ctx->top_bot].sem_read, RP_SYN_WAIT_MAX))) {
+					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+					nsDbgPrint("rpEncodeScreenAndSend %d sem read wait timeout/error (%d), %d, (%d)\n", thread_n, res, pos, (s32)screen_ctx->image_prev);
+					goto final;
+				}
+			}
+		}
 
 		ret = rpEncodeImage(screen_ctx, image_me_ctx);
 		if (ret < 0) {
@@ -2221,14 +2226,22 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 		if (rp_ctx->conf.multicore_encode) {
 			s32 count;
-			svc_releaseSemaphore(&count, screen_ctx->sem, 1);
+			if (screen_ctx->p_frame)
+				svc_releaseSemaphore(&count, screen_ctx->image_prev->s[screen_ctx->top_bot].sem_read, 1);
+
+			// nsDbgPrint("releasing sem read (%d), %d, (%d)\n", thread_n, pos, (s32)screen_ctx->image);
+			svc_releaseSemaphore(&count, screen_ctx->image->s[screen_ctx->top_bot].sem_read, 1);
+
 			if (rp_screen_transfer_release(pos) < 0) {
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				nsDbgPrint("rpEncodeImage screen release syn failed\n");
+				nsDbgPrint("rpEncodeImage (%d) screen release syn failed\n", thread_n);
 				break;
 			}
 			// nsDbgPrint("released screen transfer: %d\n", pos);
 		}
+
+#define RP_ACCESS_TOP_BOT_S(si, n) \
+	(screen_ctx->image->s[si].n) \
 
 #define RP_ACCESS_TOP_BOT_IMAGE(s, n) \
 	((s) == 0 ? \
@@ -2241,20 +2254,20 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		image_me_ctx->bot.n) \
 
 #define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b, a) while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) { \
-	if (a < 1) \
+	if (a < 1) { \
 		pos = rp_network_encode_acquire(RP_THREAD_LOOP_MED_WAIT); \
+		network_ctx = &rp_ctx->network_encode[pos]; \
+	} \
 	if (pos < 0) { \
 		continue; \
 	} \
-	struct rp_network_encode_t *network_ctx = &rp_ctx->network_encode[pos]; \
-	struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n]; \
-	int bpp = RP_ACCESS_TOP_BOT_IMAGE(screen_ctx->top_bot, b); \
+	int bpp = RP_ACCESS_TOP_BOT_S(screen_ctx->top_bot, b); \
 	ret = (screen_ctx->p_frame || a < 1) ? rpJLSEncodeImage(jls_ctx, \
 		network_ctx->buffer + (a < 1 ? 0 : ret), \
 		(a < 1 ? RP_JLS_ENCODE_IMAGE_BUFFER_SIZE : RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE), \
-		screen_ctx->p_frame ? \
+		(u8 *)(screen_ctx->p_frame ? \
 			RP_ACCESS_TOP_BOT_IMAGE_ME(screen_ctx->top_bot, n) : \
-			RP_ACCESS_TOP_BOT_IMAGE(screen_ctx->top_bot, n), \
+			RP_ACCESS_TOP_BOT_IMAGE(screen_ctx->top_bot, n)), \
 		screen_ctx->top_bot == 0 ? wt : wb, \
 		h, \
 		bpp \
@@ -2269,7 +2282,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		network_ctx->frame_n = screen_ctx->frame_n; \
 		network_ctx->size = ret; \
 		network_ctx->bpp = bpp; \
-		network_ctx->format = RP_ACCESS_TOP_BOT_IMAGE(screen_ctx->top_bot, format); \
+		network_ctx->format = RP_ACCESS_TOP_BOT_S(screen_ctx->top_bot, format); \
 		network_ctx->p_frame = screen_ctx->p_frame; \
 		network_ctx->size_1 = 0; \
 	} else { \
@@ -2295,6 +2308,9 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		int me_top_width = top_width >> block_size_log2;
 		int me_bot_width = bot_width >> block_size_log2;
 		int me_height = height >> block_size_log2;
+
+		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
+		struct rp_network_encode_t *network_ctx;
 
 		if (rp_ctx->conf.downscale_uv)
 		{
@@ -2349,6 +2365,13 @@ static void rpEncodeScreenAndSend(int thread_n) {
 #undef RP_PROCESS_IMAGE_AND_SEND_END
 #undef RP_ACCESS_TOP_BOT_IMAGE_ME
 #undef RP_ACCESS_TOP_BOT_IMAGE
+#undef RP_ACCESS_TOP_BOT_S
+
+		if (rp_ctx->conf.multicore_encode) {
+			s32 count;
+			// nsDbgPrint("releasing sem write (%d), %d, (%d)\n", thread_n, pos, (s32)screen_ctx->image);
+			svc_releaseSemaphore(&count, screen_ctx->image->s[screen_ctx->top_bot].sem_write, 1);
+		}
 	}
 final:
 	rp_release_params(thread_n);
@@ -2421,17 +2444,16 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			screen_ctx->p_frame = p_frame;
 			screen_ctx->frame_n = frame_n;
 
-			Handle image_sem = screen_image_ctx->sem;
-			screen_ctx->sem = image_sem;
-
 			screen_ctx->image = &rp_ctx->image[image_n];
 			image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
 			screen_ctx->image_prev = &rp_ctx->image[image_n];
 
-			int ret = svc_waitSynchronization1(image_sem, RP_SYN_WAIT_MAX);
-			if (ret) {
+			int res;
+			Handle sems[] = { screen_ctx->image->s[top_bot].sem_write, screen_ctx->image->s[top_bot].sem_read };
+			s32 wait_out;
+			if ((res = svc_waitSynchronizationN(&wait_out, sems, sizeof(sems) / sizeof(sems[0]), 1, RP_SYN_WAIT_MAX))) {
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				nsDbgPrint("rpScreenTransferThread sem wait timeout/error\n");
+				nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->image);
 				goto final;
 			}
 			rp_screen_encode_release(pos);
@@ -2456,11 +2478,20 @@ static int rpSendFrames(void) {
 	if (rp_ctx->conf.multicore_encode) {
 		rp_screen_queue_init();
 
-		for (int i = 0; i < SCREEN_COUNT; ++i) {
-			if (rp_ctx->screen_image[i].sem)
-				svc_closeHandle(rp_ctx->screen_image[i].sem);
-			svc_createSemaphore(&rp_ctx->screen_image[i].sem, 1, 1);
+#define RP_INIT_SEM(s, n, m) do { \
+	if (s) \
+		svc_closeHandle(s); \
+	svc_createSemaphore(&s, n, m); \
+} while (0)
+
+		for (int i = 0; i < RP_IMAGE_BUFFER_COUNT; ++i) {
+			for (int j = 0; j < SCREEN_COUNT; ++j) {
+				RP_INIT_SEM(rp_ctx->image[i].s[j].sem_write, 1, 1);
+				RP_INIT_SEM(rp_ctx->image[i].s[j].sem_read, 1, 1);
+			}
 		}
+
+#undef RP_INIT_SEM
 
 		ret = svc_createThread(
 			&rp_ctx->second_thread,
@@ -2633,4 +2664,5 @@ void rpKernelCallback(struct rp_screen_encode_t *screen_ctx) {
 			REG(IoBasePdc + 0x568) :
 			REG(IoBasePdc + 0x56c);
 	}
+	screen_ctx->format &= 0x0f;
 }
