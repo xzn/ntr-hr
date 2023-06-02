@@ -2260,7 +2260,6 @@ static void rpEncodeScreenAndSend(int thread_n) {
 					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
 						// v_image
 						RP_PROCESS_IMAGE_AND_SEND(v_image, top_width, bot_width, height, v_bpp, 0)
-
 							// me_x_image
 							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
 
