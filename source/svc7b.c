@@ -137,8 +137,7 @@ void keDoKernelHax(void) {
 	InvalidateEntireDataCache();
 }
 
-void rpKernelCallback(int top_bot);
-
+void rpKernelCallback(int screen_buffer_n, int top_bot);
 void kernelCallback(u32 msr) {
 	typedef u32(*keRefHandleType)(u32, u32);
 	
@@ -185,8 +184,9 @@ void kernelCallback(u32 msr) {
 	}
 
 	if (t == 7) {
-		int top_bot = kernelArgs[1];
-		rpKernelCallback(top_bot);
+		int screen_buffer_n = kernelArgs[1];
+		int top_bot = kernelArgs[2];
+		rpKernelCallback(screen_buffer_n, top_bot);
 	}
 }
 
@@ -229,22 +229,4 @@ void kDoKernelHax(void) {
 	kernelArgs[0] = 6;
 
 	svc_backDoor(currentBackdoorHandler);
-}
-
-// Use own variable since multithreading
-// can call from separate thread from rest of the functions here
-// obviously still cannot be called by multiple threads at the same time
-static int kRemotePlayKernelCallback_arg;
-static void kRemotePlayKernelCallback(void) {
-	rpKernelCallback(kRemotePlayKernelCallback_arg);
-}
-
-void kRemotePlayCallback(int top_bot) {
-	// kernelArgs[0] = 7;
-	// kernelArgs[1] = (u32)top_bot;
-
-	// svc_backDoor(currentBackdoorHandler);
-
-	kRemotePlayKernelCallback_arg = top_bot;
-	svc_backDoor(kRemotePlayKernelCallback);
 }

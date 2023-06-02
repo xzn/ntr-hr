@@ -53,7 +53,7 @@ static u8 rpInited = 0;
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)
 #define RP_JLS_ENCODE_IMAGE_BUFFER_SIZE ((400 * 240) + (400 * 240) / 16)
-#define RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE (RP_JLS_ENCODE_IMAGE_BUFFER_SIZE / RP_ME_MIN_BLOCK_SIZE / RP_ME_MIN_BLOCK_SIZE)
+#define RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE (RP_JLS_ENCODE_IMAGE_BUFFER_SIZE / RP_ME_MIN_BLOCK_SIZE / RP_ME_MIN_BLOCK_SIZE / 2 / 2)
 #define RP_JLS_ENCODE_BUFFER_SIZE (RP_JLS_ENCODE_IMAGE_BUFFER_SIZE + RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE)
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
 #define RP_ME_MIN_BLOCK_SIZE (4)
@@ -82,8 +82,8 @@ enum {
 #define RP_ENCODE_THREAD_COUNT (1 + RP_ENCODE_MULTITHREAD)
 // (+ 1) for screen/network transfer then (+ 1) again for start/finish at different time
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 2)
-// (+ 1) for motion estimation reference
-#define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
+// minimum 2 for motion estimation reference
+#define RP_IMAGE_BUFFER_COUNT RP_MAX(RP_ENCODE_THREAD_COUNT, 2)
 static struct {
 	ikcpcb *kcp;
 	u8 kcp_restart;
@@ -168,7 +168,7 @@ static struct {
 		u8 me_bpp;
 	} bot_image[RP_IMAGE_BUFFER_COUNT];
 
-#define DIV_CEIL(n, d) (((n) + (d - 1)) / d)
+#define DIV_CEIL(n, d) (((n) + ((d) - 1)) / (d))
 // (* 2) since motion estimation operates on images downscaled at least once
 #define ME_SIZE(w, h) DIV_CEIL(w, RP_ME_MIN_BLOCK_SIZE * 2) * (DIV_CEIL(h, RP_ME_MIN_BLOCK_SIZE * 2) + LEFTMARGIN + RIGHTMARGIN)
 #define ME_TOP_SIZE ME_SIZE(400, 240)
@@ -281,7 +281,7 @@ static struct {
 		u32 format;
 		u32 pitch;
 		u32 fbaddr;
-	} screen[2];
+	} screen[RP_ENCODE_BUFFER_COUNT];
 } *rp_ctx;
 
 static u8 rp_atomic_fetch_addb_wrap(u8 *p, u8 a, u8 factor) {
@@ -390,7 +390,8 @@ static void rp_screen_encode_release(u8 pos) {
 }
 
 static s32 rp_screen_encode_acquire(s64 timeout) {
-	return rp_syn_acq1(&rp_ctx->syn.screen.encode, timeout);
+	return rp_syn_acq(&rp_ctx->syn.screen.encode, timeout);
+	// return rp_syn_acq1(&rp_ctx->syn.screen.encode, timeout);
 }
 
 static void rp_screen_transfer_release(u8 pos) {
@@ -1071,13 +1072,13 @@ static int isInFCRAM(u32 phys) {
 }
 
 static int rpCaptureScreen(int screen_buffer_n, int top_bot) {
-	u32 bufSize = rp_ctx->screen[top_bot].pitch * (top_bot == 0 ? 400 : 320);
+	u32 bufSize = rp_ctx->screen[screen_buffer_n].pitch * (top_bot == 0 ? 400 : 320);
 	if (bufSize > RP_SCREEN_BUFFER_SIZE) {
 		nsDbgPrint("rpCaptureScreen bufSize too large: %x > %x\n", bufSize, RP_SCREEN_BUFFER_SIZE);
 		return -1;
 	}
 
-	u32 phys = rp_ctx->screen[top_bot].fbaddr;
+	u32 phys = rp_ctx->screen[screen_buffer_n].fbaddr;
 	u8 *dest = rp_ctx->screen_buffer[screen_buffer_n];
 	Handle hProcess = rp_ctx->home_handle;
 
@@ -1305,25 +1306,26 @@ void convert_yuv_hp(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8
 	int bpp
 ) {
 	u8 half_range = 1 << (bpp - 1);
+	u8 bpp_mask = (1 << bpp) - 1;
 	switch (rp_ctx->conf.color_transform_hp) {
 		case 1:
 			*y_out = g;
-			*u_out = r - g + half_range;
-			*v_out = b - g + half_range;
+			*u_out = (r - g + half_range) & bpp_mask;
+			*v_out = (b - g + half_range) & bpp_mask;
 			break;
 
 		case 2:
 			*y_out = g;
-			*u_out = r - g + half_range;
-			*v_out = b - (((u16)r + g) >> 1) - half_range;
+			*u_out = (r - g + half_range) & bpp_mask;
+			*v_out = (b - (((s16)r + g) >> 1) - half_range) & bpp_mask;
 			break;
 
 		case 3: {
 			u8 quarter_range = 1 << (bpp - 2);
-			u8 u = r - g + half_range;
-			u8 v = b - g + half_range;
+			u8 u = (r - g + half_range) & bpp_mask;
+			u8 v = (b - g + half_range) & bpp_mask;
 
-			*y_out = g + (((u16)u + v) >> 2) - quarter_range;
+			*y_out = ((s16)g + ((u + v) >> 2) - quarter_range) & bpp_mask;
 			*u_out = u;
 			*v_out = v;
 			break;
@@ -1343,24 +1345,26 @@ void convert_yuv_hp_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, 
 ) {
 	u8 half_range = 1 << (bpp - 1);
 	u8 half_g = g >> 1;
+	u8 bpp_mask = (1 << bpp) - 1;
+	u8 bpp_2_mask = (1 << (bpp + 1)) - 1;
 	switch (rp_ctx->conf.color_transform_hp) {
 		case 1:
 			*y_out = g;
-			*u_out = r - half_g + half_range;
-			*v_out = b - half_g + half_range;
+			*u_out = (r - half_g + half_range) & bpp_mask;
+			*v_out = (b - half_g + half_range) & bpp_mask;
 			break;
 
 		case 2:
 			*y_out = g;
-			*u_out = r - half_g + half_range;
-			*v_out = b - (((u16)r + half_g) >> 1) - half_range;
+			*u_out = (r - half_g + half_range) & bpp_mask;
+			*v_out = (b - (((s16)r + half_g) >> 1) - half_range) & bpp_mask;
 			break;
 
 		case 3: {
-			u8 u = r - half_g + half_range;
-			u8 v = b - half_g + half_range;
+			u8 u = (r - half_g + half_range) & bpp_mask;
+			u8 v = (b - half_g + half_range) & bpp_mask;
 
-			*y_out = g + ((u + v) >> 1) - half_range;
+			*y_out = ((s16)g + ((u + v) >> 1) - half_range) & bpp_2_mask;
 			*u_out = u;
 			*v_out = v;
 			break;
@@ -1402,8 +1406,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
 			*y_out = rshift_to_even(y, 8 + spp_2);
-			*u_out = (u8)((u8)srshift_to_even(s16, u, 8) + 128) >> spp;
-			*v_out = (u8)((u8)srshift_to_even(s16, v, 8) + 128) >> spp;
+			*u_out = rshift_to_even((u8)((u8)srshift_to_even(s16, u, 8) + 128), spp);
+			*v_out = rshift_to_even((u8)((u8)srshift_to_even(s16, v, 8) + 128), spp);
 			break;
 		}
 
@@ -1412,9 +1416,9 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			u16 y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
 			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
 			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
-			*y_out = (u8)((u8)rshift_to_even(y, 8) + 16) >> spp_2;
-			*u_out = (u8)((u8)srshift_to_even(s16, u, 8) + 128) >> spp;
-			*v_out = (u8)((u8)srshift_to_even(s16, v, 8) + 128) >> spp;
+			*y_out = rshift_to_even((u8)((u8)rshift_to_even(y, 8) + 16), spp_2);
+			*u_out = rshift_to_even((u8)((u8)srshift_to_even(s16, u, 8) + 128), spp);
+			*v_out = rshift_to_even((u8)((u8)srshift_to_even(s16, v, 8) + 128), spp);
 			break;
 		}
 
@@ -1794,6 +1798,11 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 	u8 x_off = (width & block_size_mask) >> 1;
 	u8 y_off = (height & block_size_mask) >> 1;
 
+	if (rp_ctx->conf.me_interpolate) {
+		x_off += block_size >> 1;
+		y_off += block_size >> 1;
+	}
+
 	convert_set_zero(&dst, LEFTMARGIN);
 	ref += LEFTMARGIN;
 	cur += LEFTMARGIN;
@@ -1816,14 +1825,13 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 		}
 
 #define DO_PREDICTION() do { \
-	const u8 *ref_est = ref++ + (s16)x * (height + LEFTMARGIN + RIGHTMARGIN) + y; \
-	*dst++ = (u8)((*cur++ << (8 - bpp)) - (*ref_est << (8 - bpp)) + 128) >> (8 - bpp); \
+	int c_x = av_clip(x, -i, width - i - 1); \
+	int c_y = av_clip(y, -j, height - j - 1); \
+	const u8 *ref_est = ref++ + c_x * (height + LEFTMARGIN + RIGHTMARGIN) + c_y; \
+	*dst++ = (u8)((u8)(*cur++ << (8 - bpp)) - (u8)(*ref_est << (8 - bpp)) + 128) >> (8 - bpp); \
 } while (0)
 
 		if (rp_ctx->conf.me_interpolate) {
-			x_off += block_size >> 1;
-			y_off += block_size >> 1;
-
 			int i_off = (i - x_off) & block_size_mask;
 			if (i_off == 0) {
 				if (i < width - x_off - 1) {
@@ -1879,16 +1887,16 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 
 			const s8 *me_x = me_x_col;
 			const s8 *me_y = me_y_col;
-			s8 x = (*me_x - half_range) << scale_log2;
-			s8 y = (*me_y - half_range) << scale_log2;
+			int x = ((s16)*me_x - (s16)half_range) << scale_log2;
+			int y = ((s16)*me_y - (s16)half_range) << scale_log2;
 			for (int j = 0; j < height; ++j) {
 				int j_off = (j - y_off) & block_size_mask;
 				if (j > y_off && j_off == 0 && j < height - y_off - 1) {
 					++me_x;
 					++me_y;
 
-					x = (*me_x - half_range) << scale_log2;
-					y = (*me_y - half_range) << scale_log2;
+					x = (int)((s16)*me_x - (s16)half_range) << scale_log2;
+					y = (int)((s16)*me_y - (s16)half_range) << scale_log2;
 				}
 
 				// do prediction
@@ -1911,7 +1919,7 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int thread_n, 
 	}
 	height = 240;
 
-	int format = rp_ctx->screen[top_bot].format;
+	int format = rp_ctx->screen[screen_buffer_n].format;
 	format &= 0x0f;
 	int bytes_per_pixel;
 	if (format == 0) {
@@ -1922,7 +1930,7 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int thread_n, 
 		bytes_per_pixel = 2;
 	}
 	int bytes_per_column = bytes_per_pixel * height;
-	int pitch = rp_ctx->screen[top_bot].pitch;
+	int pitch = rp_ctx->screen[screen_buffer_n].pitch;
 	int bytes_to_next_column = pitch - bytes_per_column;
 
 	int image_buffer_n_prev = (image_buffer_n + RP_IMAGE_BUFFER_COUNT - 1) % RP_IMAGE_BUFFER_COUNT;
@@ -2083,7 +2091,7 @@ static int rpEncodeImage(int screen_buffer_n, int image_buffer_n, int thread_n, 
 	return 0;
 }
 
-void rpKernelCallback(int top_bot);
+void rpKernelCallback(int screen_buffer_n, int top_bot);
 static void rpEncodeScreenAndSend(int thread_n) {
 	svc_sleepThread(250000000);
 
@@ -2096,19 +2104,22 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		int top_bot;
 
 		if (rp_ctx->conf.multicore_encode) {
+			svc_waitSynchronization1(rp_ctx->syn.screen.encode.mutex, U64_MAX);
 			pos = rp_screen_encode_acquire(25000000);
 			if (pos < 0) {
+				svc_releaseMutex(rp_ctx->syn.screen.encode.mutex);
 				continue;
 			}
 
 			top_bot = rp_ctx->screen_top_bot[pos];
-			svc_waitSynchronization1(rp_ctx->image_mutex[top_bot], U64_MAX);
+			// svc_waitSynchronization1(rp_ctx->image_mutex[top_bot], U64_MAX);
+			// svc_releaseMutex(rp_ctx->syn.screen.encode.mutex);
 			// nsDbgPrint("%s acquired screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
 		} else {
 			pos = thread_n;
 			top_bot = rpGetPriorityScreen(NULL);
 
-			rpKernelCallback(top_bot);
+			rpKernelCallback(pos, top_bot);
 
 			int capture_n = 0;
 			do {
@@ -2147,7 +2158,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		int frame_n = rp_ctx->image_frame_n[top_bot]++;
 
 		if (rp_ctx->conf.multicore_encode) {
-			svc_releaseMutex(rp_ctx->image_mutex[top_bot]);
+			// svc_releaseMutex(rp_ctx->image_mutex[top_bot]);
+			svc_releaseMutex(rp_ctx->syn.screen.encode.mutex);
 			rp_screen_transfer_release(pos);
 		}
 
@@ -2304,7 +2316,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 				svc_sleepThread(duration);
 			}
 
-			rpKernelCallback(top_bot);
+			rpKernelCallback(pos, top_bot);
 
 			ret = rpCaptureScreen(pos, top_bot);
 
@@ -2405,7 +2417,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 		}
 
 		for (int i = 0; i < SCREEN_COUNT; ++i)
-			rp_ctx->image_p_frame[i] = 0;
+			rp_ctx->image_frame_n[i] = rp_ctx->image_p_frame[i] = 0;
 
 		ret = rpSendFrames();
 
@@ -2476,29 +2488,29 @@ void remotePlayMain(void) {
 	rtEnableHook(&nwmValParamHook);
 }
 
-void rpKernelCallback(int top_bot) {
+void rpKernelCallback(int screen_buffer_n, int top_bot) {
 	// u32 ret;
 	// u32 fbP2VOffset = 0xc0000000;
 	u32 current_fb;
 
 	if (top_bot == 0) {
-		rp_ctx->screen[0].format = REG(IoBasePdc + 0x470);
-		rp_ctx->screen[0].pitch = REG(IoBasePdc + 0x490);
+		rp_ctx->screen[screen_buffer_n].format = REG(IoBasePdc + 0x470);
+		rp_ctx->screen[screen_buffer_n].pitch = REG(IoBasePdc + 0x490);
 
 		current_fb = REG(IoBasePdc + 0x478);
 		current_fb &= 1;
 
-		rp_ctx->screen[0].fbaddr = current_fb == 0 ?
+		rp_ctx->screen[screen_buffer_n].fbaddr = current_fb == 0 ?
 			REG(IoBasePdc + 0x468) :
 			REG(IoBasePdc + 0x46c);
 	} else {
-		rp_ctx->screen[1].format = REG(IoBasePdc + 0x570);
-		rp_ctx->screen[1].pitch = REG(IoBasePdc + 0x590);
+		rp_ctx->screen[screen_buffer_n].format = REG(IoBasePdc + 0x570);
+		rp_ctx->screen[screen_buffer_n].pitch = REG(IoBasePdc + 0x590);
 
 		current_fb = REG(IoBasePdc + 0x578);
 		current_fb &= 1;
 
-		rp_ctx->screen[1].fbaddr = current_fb == 0 ?
+		rp_ctx->screen[screen_buffer_n].fbaddr = current_fb == 0 ?
 			REG(IoBasePdc + 0x568) :
 			REG(IoBasePdc + 0x56c);
 	}
