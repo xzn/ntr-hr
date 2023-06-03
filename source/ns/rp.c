@@ -29,8 +29,8 @@
 
 #define RP_SVC_MS(ms) ((u64)ms * 1000 * 1000)
 
-#define RP_SYN_WAIT_MAX RP_SVC_MS (250)
-#define RP_SYN_WAIT_IDLE RP_SVC_MS (100)
+#define RP_SYN_WAIT_MAX RP_SVC_MS (2000)
+#define RP_SYN_WAIT_IDLE RP_SVC_MS (1000)
 #define RP_THREAD_LOOP_WAIT_COUNT (25)
 #define RP_THREAD_LOOP_SLOW_WAIT RP_SVC_MS(50)
 #define RP_THREAD_LOOP_MED_WAIT RP_SVC_MS(25)
@@ -2275,6 +2275,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	int ret;
 	rp_acquire_params(thread_n);
 
+	int acquire_count = 0;
 	struct rp_image_me_t *image_me_ctx = &rp_ctx->image_me[thread_n];
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		rp_check_params(thread_n);
@@ -2285,8 +2286,14 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			pos = rp_screen_encode_acquire(RP_THREAD_LOOP_MED_WAIT);
 			if (pos < 0) {
+				if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
+					nsDbgPrint("rp_screen_encode_acquire timeout\n");
+					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+					break;
+				}
 				continue;
 			}
+			acquire_count = 0;
 
 			screen_ctx = &rp_ctx->screen_encode[pos];
 			// nsDbgPrint("%s acquired screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
@@ -2423,10 +2430,16 @@ static void rpEncodeScreenAndSend(int thread_n) {
 #define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b, a) while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) { \
 	if (a < 1) { \
 		pos = rp_network_encode_acquire(RP_THREAD_LOOP_MED_WAIT); \
+		if (pos < 0) { \
+			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) { \
+				nsDbgPrint("rp_network_encode_acquire timeout\n"); \
+				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED); \
+				break; \
+			} \
+			continue; \
+		} \
+		acquire_count = 0; \
 		network_ctx = &rp_ctx->network_encode[pos]; \
-	} \
-	if (pos < 0) { \
-		continue; \
 	} \
 	int bpp = RP_ACCESS_TOP_BOT_S(b); \
 	ret = (image_ctx.p_frame || a < 1) ? rpJLSEncodeImage(jls_ctx, \
@@ -2557,14 +2570,21 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 
 	u64 last_tick = svc_getSystemTick(), curr_tick;
 
+	int acquire_count = 0;
 	rp_acquire_params(thread_n);
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		rp_check_params(thread_n);
 
 		s32 pos = rp_screen_transfer_acquire(RP_THREAD_LOOP_MED_WAIT);
 		if (pos < 0) {
+			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
+				nsDbgPrint("rp_screen_transfer_acquire timeout\n");
+				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+				break;
+			}
 			continue;
 		}
+		acquire_count = 0;
 		struct rp_screen_encode_t *screen_ctx = &rp_ctx->screen_encode[pos];
 		// nsDbgPrint("acquired screen transfer: %d\n", pos);
 
