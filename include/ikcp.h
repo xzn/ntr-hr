@@ -342,7 +342,7 @@ extern "C" {
 // create a new kcp control object, 'conv' must equal in two endpoint
 // from the same connection. 'user' will be passed to the output callback
 // output callback can be setup like this: 'kcp->output = my_udp_output'
-ikcpcb* ikcp_create(IUINT32 conv, void *user);
+ikcpcb* ikcp_create(ikcpcb *kcp, IUINT32 conv, void *user);
 
 // release kcp control object
 void ikcp_release(ikcpcb *kcp);

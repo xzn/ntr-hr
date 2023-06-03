@@ -102,7 +102,7 @@ enum {
 // (+ 1) for motion estimation reference
 #define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
 static struct rp_ctx_t {
-	ikcpcb *kcp;
+	ikcpcb kcp;
 	u8 kcp_restart;
 	LightLock kcp_mutex;
 	u8 kcp_ready;
@@ -662,24 +662,26 @@ void rpControlRecv(void) {
 		return;
 	}
 
+	int bufSize = ret;
+	if ((ret = LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
+		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+		return;
+	}
 	if (!__atomic_load_n(&rp_ctx->kcp_ready, __ATOMIC_ACQUIRE)) {
+		LightLock_Unlock(&rp_ctx->kcp_mutex);
 		svc_sleepThread(RP_THREAD_LOOP_FAST_WAIT);
 		return;
 	}
 
-	if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0)
-		return;
-	if (rp_ctx->kcp) {
-		int bufSize = ret;
-		if ((ret = ikcp_input(rp_ctx->kcp, (const char *)rpRecvBuffer, bufSize)) < 0) {
-			nsDbgPrint("ikcp_input failed: %d\n", ret);
-		}
+	if ((ret = ikcp_input(&rp_ctx->kcp, (const char *)rpRecvBuffer, bufSize)) < 0) {
+		nsDbgPrint("ikcp_input failed: %d\n", ret);
+	}
 
-		ikcp_update(rp_ctx->kcp, iclock());
-		ret = ikcp_recv(rp_ctx->kcp, (char *)rpRecvBuffer, RP_CONTROL_RECV_BUFFER_SIZE);
-		if (ret >= 0) {
-			rpControlRecvHandle(rpRecvBuffer, ret);
-		}
+	ikcp_update(&rp_ctx->kcp, iclock());
+	ret = ikcp_recv(&rp_ctx->kcp, (char *)rpRecvBuffer, RP_CONTROL_RECV_BUFFER_SIZE);
+	if (ret >= 0) {
+		rpControlRecvHandle(rpRecvBuffer, ret);
 	}
 	LightLock_Unlock(&rp_ctx->kcp_mutex);
 }
@@ -936,30 +938,34 @@ static void rpNetworkTransfer(int thread_n) {
 	int ret;
 
 	// kcp init
-	if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0)
+	if ((ret = LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
+		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 		return;
-	rp_ctx->kcp = ikcp_create(rp_ctx->conf.kcp_conv, 0);
-	if (!rp_ctx->kcp) {
+	}
+	ikcpcb *kcp = ikcp_create(&rp_ctx->kcp, rp_ctx->conf.kcp_conv, 0);
+	if (!kcp) {
 		nsDbgPrint("ikcp_create failed\n");
 
 		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 		LightLock_Unlock(&rp_ctx->kcp_mutex);
 		return;
 	} else {
-		rp_ctx->kcp->output = rp_udp_output;
-		if ((ret = ikcp_setmtu(rp_ctx->kcp, KCP_PACKET_SIZE)) < 0) {
+		rp_ctx->kcp.output = rp_udp_output;
+		if ((ret = ikcp_setmtu(&rp_ctx->kcp, KCP_PACKET_SIZE)) < 0) {
 			nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
 		}
-		ikcp_nodelay(rp_ctx->kcp, 2, 10, 2, 1);
+		ikcp_nodelay(&rp_ctx->kcp, 2, 10, 2, 1);
 		// rp_ctx->kcp->rx_minrto = 10;
-		ikcp_wndsize(rp_ctx->kcp, KCP_SND_WND_SIZE, 0);
+		ikcp_wndsize(&rp_ctx->kcp, KCP_SND_WND_SIZE, 0);
 	}
+	__atomic_store_n(&rp_ctx->kcp_ready, 1, __ATOMIC_RELEASE);
 
 	// send empty header to mark beginning
 	{
 		struct rp_send_header empty_header = { 0 };
 
-		ret = ikcp_send(rp_ctx->kcp, (const char *)&empty_header, sizeof(empty_header));
+		ret = ikcp_send(&rp_ctx->kcp, (const char *)&empty_header, sizeof(empty_header));
 
 		if (ret < 0) {
 			nsDbgPrint("ikcp_send failed: %d\n", ret);
@@ -967,7 +973,7 @@ static void rpNetworkTransfer(int thread_n) {
 		}
 	}
 
-	ikcp_update(rp_ctx->kcp, iclock());
+	ikcp_update(&rp_ctx->kcp, iclock());
 	LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 	u64 last_tick = svc_getSystemTick(), curr_tick, desired_last_tick = last_tick;
@@ -987,12 +993,12 @@ static void rpNetworkTransfer(int thread_n) {
 			break;
 		}
 
-		if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
-			nsDbgPrint("kcp mutex lock timeout\n");
+		if ((ret = LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX))) {
+			nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
 			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 			break;
 		}
-		ikcp_update(rp_ctx->kcp, iclock());
+		ikcp_update(&rp_ctx->kcp, iclock());
 		LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 		s32 pos = rp_network_transfer_acquire(RP_THREAD_LOOP_FAST_WAIT);
@@ -1030,18 +1036,18 @@ static void rpNetworkTransfer(int thread_n) {
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
 
 			// kcp send header data
-			if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
-				nsDbgPrint("kcp mutex lock timeout\n");
+			if ((ret = LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX))) {
+				nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
-			int waitsnd = ikcp_waitsnd(rp_ctx->kcp);
+			int waitsnd = ikcp_waitsnd(&rp_ctx->kcp);
 			if (waitsnd < KCP_SND_WND_SIZE) {
 				u8 *kcp_send_buffer = rp_ctx->kcp_send_buffer;
 				memcpy(kcp_send_buffer, &header, sizeof(header));
 				memcpy(kcp_send_buffer + sizeof(header), data, data_size);
 
-				ret = ikcp_send(rp_ctx->kcp, (const char *)kcp_send_buffer, data_size + sizeof(header));
+				ret = ikcp_send(&rp_ctx->kcp, (const char *)kcp_send_buffer, data_size + sizeof(header));
 
 				if (ret < 0) {
 					nsDbgPrint("ikcp_send failed: %d\n", ret);
@@ -1054,14 +1060,14 @@ static void rpNetworkTransfer(int thread_n) {
 				size_remain -= data_size;
 				data += data_size;
 
-				ikcp_update(rp_ctx->kcp, iclock());
+				ikcp_update(&rp_ctx->kcp, iclock());
 				LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 				desired_last_tick += rp_ctx->conf.min_send_interval_ticks;
 				last_tick = curr_tick;
 				break;
 			}
-			ikcp_update(rp_ctx->kcp, iclock());
+			ikcp_update(&rp_ctx->kcp, iclock());
 			LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 			svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
@@ -1096,15 +1102,15 @@ static void rpNetworkTransfer(int thread_n) {
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
 
 			// kcp send data
-			if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
-				nsDbgPrint("kcp mutex lock timeout\n");
+			if ((ret = LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX))) {
+				nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
-			int waitsnd = ikcp_waitsnd(rp_ctx->kcp);
+			int waitsnd = ikcp_waitsnd(&rp_ctx->kcp);
 			if (waitsnd < KCP_SND_WND_SIZE) {
 				// nsDbgPrint("ikcp_send %d\n", iclock());
-				ret = ikcp_send(rp_ctx->kcp, (const char *)data, data_size);
+				ret = ikcp_send(&rp_ctx->kcp, (const char *)data, data_size);
 
 				if (ret < 0) {
 					nsDbgPrint("ikcp_send failed: %d\n", ret);
@@ -1117,7 +1123,7 @@ static void rpNetworkTransfer(int thread_n) {
 				size_remain -= data_size;
 				data += data_size;
 
-				ikcp_update(rp_ctx->kcp, iclock());
+				ikcp_update(&rp_ctx->kcp, iclock());
 				LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 				desired_last_tick += rp_ctx->conf.min_send_interval_ticks;
@@ -1129,7 +1135,7 @@ static void rpNetworkTransfer(int thread_n) {
 					desired_last_tick = last_tick - rp_ctx->conf.min_send_interval_ticks * KCP_SND_WND_SIZE;
 				continue;
 			}
-			ikcp_update(rp_ctx->kcp, iclock());
+			ikcp_update(&rp_ctx->kcp, iclock());
 			LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 			svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
@@ -1139,13 +1145,13 @@ static void rpNetworkTransfer(int thread_n) {
 	}
 
 	// kcp deinit
-	if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
-		nsDbgPrint("kcp mutex lock timeout\n");
+	if ((ret = LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
 		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-		return;
 	}
-	ikcp_release(rp_ctx->kcp);
-	rp_ctx->kcp = 0;
+	ikcp_release(&rp_ctx->kcp);
+	__atomic_store_n(&rp_ctx->kcp_ready, 0, __ATOMIC_RELEASE);
+	// rp_ctx->kcp = 0;
 	LightLock_Unlock(&rp_ctx->kcp_mutex);
 }
 
@@ -1554,6 +1560,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 #define RP_RGB_SHIFT \
 	u8 spp = 8 - bpp; \
 	u8 spp_2 = 8 - bpp - (bpp_2 ? 1 : 0); \
+	u8 bpp_mask = (1 << bpp) - 1; \
+	u8 bpp_2_mask = (1 << (bpp + (bpp_2 ? 1 : 0))) - 1; \
 	if (spp) { \
 		r <<= spp; \
 		g <<= spp_2; \
@@ -1566,8 +1574,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
 			*y_out = rshift_to_even(y, 8 + spp_2);
-			*u_out = rshift_to_even((u8)((u8)srshift_to_even(s16, u, 8) + 128), spp);
-			*v_out = rshift_to_even((u8)((u8)srshift_to_even(s16, v, 8) + 128), spp);
+			*u_out = (u8)srshift_to_even(s16, u, 8 + spp) + (128 >> spp) & bpp_mask;
+			*v_out = (u8)srshift_to_even(s16, v, 8 + spp) + (128 >> spp) & bpp_mask;
 			break;
 		}
 
@@ -1576,9 +1584,9 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			u16 y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
 			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
 			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
-			*y_out = rshift_to_even((u8)((u8)rshift_to_even(y, 8) + 16), spp_2);
-			*u_out = rshift_to_even((u8)((u8)srshift_to_even(s16, u, 8) + 128), spp);
-			*v_out = rshift_to_even((u8)((u8)srshift_to_even(s16, v, 8) + 128), spp);
+			*y_out = (u8)rshift_to_even(y, 8 + spp_2) + (16 >> spp_2) & bpp_2_mask;
+			*u_out = (u8)srshift_to_even(s16, u, 8 + spp) + (128 >> spp) & bpp_mask;
+			*v_out = (u8)srshift_to_even(s16, v, 8 + spp) + (128 >> spp) & bpp_mask;
 			break;
 		}
 
@@ -1987,7 +1995,7 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 	int c_x = av_clip(x, -i, width - i - 1); \
 	int c_y = av_clip(y, -j, height - j - 1); \
 	const u8 *ref_est = ref++ + c_x * (height + LEFTMARGIN + RIGHTMARGIN) + c_y; \
-	*dst++ = (u8)((u8)(*cur++ << (8 - bpp)) - (u8)(*ref_est << (8 - bpp)) + 128) >> (8 - bpp); \
+	*dst++ = (u8)((u8)(*cur++) - (u8)(*ref_est) + (128 >> (8 - bpp))) & ((1 << bpp) - 1); \
 } while (0)
 
 		if (RP_ME_INTERPOLATE && rp_ctx->conf.me_interpolate) {
@@ -2751,7 +2759,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 	// 	goto final;
 	// }
 	LightLock_Init(&rp_ctx->kcp_mutex);
-	__atomic_store_n(&rp_ctx->kcp_ready, 1, __ATOMIC_RELEASE);
+	// __atomic_store_n(&rp_ctx->kcp_ready, 1, __ATOMIC_RELEASE);
 
 	int ret = 0;
 	while (ret >= 0) {
@@ -2761,9 +2769,9 @@ static void rpThreadStart(u32 arg UNUSED) {
 		rp_network_queue_init();
 		rpInitPriorityCtx();
 
-		if (rp_ctx->kcp) {
-			ikcp_release(rp_ctx->kcp);
-			rp_ctx->kcp = 0;
+		if (__atomic_load_n(&rp_ctx->kcp_ready, __ATOMIC_ACQUIRE)) {
+			ikcp_release(&rp_ctx->kcp);
+			__atomic_store_n(&rp_ctx->kcp_ready, 0, __ATOMIC_RELEASE);
 		}
 
 		ret = svc_createThread(
