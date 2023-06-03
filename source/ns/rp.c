@@ -104,7 +104,7 @@ enum {
 static struct rp_ctx_t {
 	ikcpcb *kcp;
 	u8 kcp_restart;
-	Handle kcp_mutex;
+	LightLock kcp_mutex;
 	u8 kcp_ready;
 
 	u8 exit_thread;
@@ -242,7 +242,8 @@ static struct rp_ctx_t {
 		struct rp_syn_comp_t {
 			struct rp_syn_comp_func_t {
 				u8 id;
-				Handle sem, mutex;
+				LightSemaphore sem;
+				LightLock mutex;
 				u8 pos_head, pos_tail;
 				s8 pos[RP_ENCODE_BUFFER_COUNT];
 			} transfer, encode;
@@ -309,11 +310,11 @@ static struct rp_ctx_t {
 			u16 frame_size_est;
 			u16 priority_size_est;
 		} s[SCREEN_COUNT];
-		Handle mutex;
+		LightLock mutex;
 	} dyn_prio;
 } *rp_ctx;
 
-static int UNUSED LightLock_LockTimeout(LightLock* lock, s64 timeout)
+static int LightLock_LockTimeout(LightLock* lock, s64 timeout)
 {
 	s32 val;
 	bool bAlreadyLocked;
@@ -339,7 +340,8 @@ static int UNUSED LightLock_LockTimeout(LightLock* lock, s64 timeout)
 		// Wait for the lock holder thread to wake us up
 		Result rc;
 		rc = syncArbitrateAddressWithTimeout(lock, ARBITRATION_WAIT_IF_LESS_THAN_TIMEOUT, 0, timeout);
-		if (R_DESCRIPTION(rc) == RD_TIMEOUT)
+		// if (R_DESCRIPTION(rc) == RD_TIMEOUT)
+		if (rc)
 		{
 			do
 			{
@@ -353,7 +355,7 @@ static int UNUSED LightLock_LockTimeout(LightLock* lock, s64 timeout)
 			} while (__strex(lock, val));
 
 			__dmb();
-			return -1;
+			return rc;
 		}
 
 		// Try to lock again
@@ -404,10 +406,11 @@ static int LightSemaphore_AcquireTimeout(LightSemaphore* semaphore, s32 count, s
 				num_threads_acq = (s16)__ldrexh((u16 *)&semaphore->num_threads_acq);
 			while (__strexh((u16 *)&semaphore->num_threads_acq, num_threads_acq - 1));
 
-			if (R_DESCRIPTION(rc) == RD_TIMEOUT)
+			// if (R_DESCRIPTION(rc) == RD_TIMEOUT)
+			if (rc)
 			{
 				__dmb();
-				return -1;
+				return rc;
 			}
 		}
 	} while (__strex(&semaphore->current_count, old_count - count));
@@ -426,12 +429,8 @@ static u8 rp_atomic_fetch_addb_wrap(u8 *p, u8 a, u8 factor) {
 }
 
 static void rp_syn_init1(struct rp_syn_comp_func_t *syn1, int init, int id) {
-	if (syn1->sem)
-		svc_closeHandle(syn1->sem);
-	svc_createSemaphore(&syn1->sem, init ? rp_ctx->conf.encode_buffer_count : 0, rp_ctx->conf.encode_buffer_count);
-	if (syn1->mutex)
-		svc_closeHandle(syn1->mutex);
-	svc_createMutex(&syn1->mutex, 0);
+	LightSemaphore_Init(&syn1->sem, init ? rp_ctx->conf.encode_buffer_count : 0, rp_ctx->conf.encode_buffer_count);
+	LightLock_Init(&syn1->mutex);
 
 	syn1->pos_head = syn1->pos_tail = 0;
 	syn1->id = id;
@@ -448,7 +447,7 @@ static void rp_syn_init(struct rp_syn_comp_t *syn, int transfer_encode, int id) 
 
 static s32 rp_syn_acq(struct rp_syn_comp_func_t *syn1, s64 timeout) {
 	Result res;
-	if ((res = svc_waitSynchronization1(syn1->sem, timeout)) != 0) {
+	if ((res = LightSemaphore_AcquireTimeout(&syn1->sem, 1, timeout)) != 0) {
 		if (R_DESCRIPTION(res) == RD_TIMEOUT)
 			return -1;
 		nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
@@ -471,13 +470,13 @@ static void rp_syn_rel(struct rp_syn_comp_func_t *syn1, s32 pos) {
 	syn1->pos_head = (pos_head + 1) % rp_ctx->conf.encode_buffer_count;
 	syn1->pos[pos_head] = pos;
 	// nsDbgPrint("rp_syn_rel id %d at %d: %d\n", syn1->id, pos_head, pos);
-	s32 count;
-	svc_releaseSemaphore(&count, syn1->sem, 1);
+	// s32 count;
+	LightSemaphore_Release(&syn1->sem, 1);
 }
 
 static s32 rp_syn_acq1(struct rp_syn_comp_func_t *syn1, s64 timeout) {
 	Result res;
-	if ((res = svc_waitSynchronization1(syn1->sem, timeout)) != 0) {
+	if ((res = LightSemaphore_AcquireTimeout(&syn1->sem, 1, timeout)) != 0) {
 		if (R_DESCRIPTION(res) == RD_TIMEOUT)
 			return -1;
 		nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
@@ -496,21 +495,21 @@ static s32 rp_syn_acq1(struct rp_syn_comp_func_t *syn1, s64 timeout) {
 
 static int rp_syn_rel1(struct rp_syn_comp_func_t *syn1, s32 pos) {
 	int res;
-	res = svc_waitSynchronization1(syn1->mutex, RP_SYN_WAIT_MAX);
+	res = LightLock_LockTimeout(&syn1->mutex, RP_SYN_WAIT_MAX);
 	if (res) {
-		if (R_DESCRIPTION(res) == RD_TIMEOUT)
-			return -1;
-		nsDbgPrint("rp_syn_rel1 wait mutex error: %d %d %d %d\n",
-			R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+		if (R_DESCRIPTION(res) != RD_TIMEOUT)
+			nsDbgPrint("rp_syn_rel1 wait mutex error: %d %d %d %d\n",
+				R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+		return -1;
 	}
 
 	u8 pos_head = syn1->pos_head;
 	syn1->pos_head = (pos_head + 1) % rp_ctx->conf.encode_buffer_count;
 	syn1->pos[pos_head] = pos;
-	svc_releaseMutex(syn1->mutex);
+	LightLock_Unlock(&syn1->mutex);
 	// nsDbgPrint("rp_syn_rel1 id %d at %d: %d\n", syn1->id, pos_head, pos);
-	s32 count;
-	svc_releaseSemaphore(&count, syn1->sem, 1);
+	// s32 count;
+	LightSemaphore_Release(&syn1->sem, 1);
 	return 0;
 }
 
@@ -669,7 +668,7 @@ void rpControlRecv(void) {
 		return;
 	}
 
-	if (svc_waitSynchronization1(rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0)
+	if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0)
 		return;
 	if (rp_ctx->kcp) {
 		int bufSize = ret;
@@ -683,15 +682,15 @@ void rpControlRecv(void) {
 			rpControlRecvHandle(rpRecvBuffer, ret);
 		}
 	}
-	svc_releaseMutex(rp_ctx->kcp_mutex);
+	LightLock_Unlock(&rp_ctx->kcp_mutex);
 }
 
 static void rpInitPriorityCtx(void) {
-	if (rp_ctx->dyn_prio.mutex) {
-		svc_closeHandle(rp_ctx->dyn_prio.mutex);
-	}
+	// if (rp_ctx->dyn_prio.mutex) {
+	// 	svc_closeHandle(rp_ctx->dyn_prio.mutex);
+	// }
 	memset(&rp_ctx->dyn_prio, 0, sizeof(rp_ctx->dyn_prio));
-	svc_createMutex(&rp_ctx->dyn_prio.mutex, 0);
+	LightLock_Init(&rp_ctx->dyn_prio.mutex);
 
 	for (int i = 0; i < SCREEN_COUNT; ++i) {
 		rp_ctx->dyn_prio.s[i].initializing = RP_DYN_PRIO_FRAME_COUNT;
@@ -707,7 +706,7 @@ static int rpGetPriorityScreen(int *frame_rate) {
 
 	struct rp_dyo_prio_t *ctx = &rp_ctx->dyn_prio;
 	int top_bot;
-	if (svc_waitSynchronization1(ctx->mutex, RP_SYN_WAIT_MAX) != 0)
+	if (LightLock_LockTimeout(&ctx->mutex, RP_SYN_WAIT_MAX) != 0)
 		return 0;
 
 #define SET_WITH_SIZE(si, c0, c1, te, ta) do { \
@@ -784,7 +783,7 @@ static int rpGetPriorityScreen(int *frame_rate) {
 
 	if (frame_rate)
 		*frame_rate = ctx->s[SCREEN_TOP].frame_rate + ctx->s[SCREEN_BOT].frame_rate;
-	svc_releaseMutex(ctx->mutex);
+	LightLock_Unlock(&ctx->mutex);
 	return top_bot;
 }
 
@@ -796,7 +795,7 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 	struct rp_dyo_prio_screen_t *sctx;
 	sctx = &rp_ctx->dyn_prio.s[top_bot];
 
-	if (svc_waitSynchronization1(ctx->mutex, RP_SYN_WAIT_MAX))
+	if (LightLock_LockTimeout(&ctx->mutex, RP_SYN_WAIT_MAX))
 		return;
 
 #define SET_SIZE(t, ta, tc) do { \
@@ -835,7 +834,7 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 
 #undef SET_SIZE
 
-	svc_releaseMutex(ctx->mutex);
+	LightLock_Unlock(&ctx->mutex);
 }
 #undef RP_DYN_PRIO_FRAME_COUNT
 
@@ -938,14 +937,14 @@ static void rpNetworkTransfer(int thread_n) {
 	int ret;
 
 	// kcp init
-	if (svc_waitSynchronization1(rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0)
+	if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0)
 		return;
 	rp_ctx->kcp = ikcp_create(rp_ctx->conf.kcp_conv, 0);
 	if (!rp_ctx->kcp) {
 		nsDbgPrint("ikcp_create failed\n");
 
 		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-		svc_releaseMutex(rp_ctx->kcp_mutex);
+		LightLock_Unlock(&rp_ctx->kcp_mutex);
 		return;
 	} else {
 		rp_ctx->kcp->output = rp_udp_output;
@@ -970,7 +969,7 @@ static void rpNetworkTransfer(int thread_n) {
 	}
 
 	ikcp_update(rp_ctx->kcp, iclock());
-	svc_releaseMutex(rp_ctx->kcp_mutex);
+	LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 	u64 last_tick = svc_getSystemTick(), curr_tick, desired_last_tick = last_tick;
 
@@ -989,12 +988,12 @@ static void rpNetworkTransfer(int thread_n) {
 			break;
 		}
 
-		if (svc_waitSynchronization1(rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
+		if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
 			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 			break;
 		}
 		ikcp_update(rp_ctx->kcp, iclock());
-		svc_releaseMutex(rp_ctx->kcp_mutex);
+		LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 		s32 pos = rp_network_transfer_acquire(RP_THREAD_LOOP_FAST_WAIT);
 		if (pos < 0) {
@@ -1031,7 +1030,7 @@ static void rpNetworkTransfer(int thread_n) {
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
 
 			// kcp send header data
-			if (svc_waitSynchronization1(rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
+			if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
@@ -1047,7 +1046,7 @@ static void rpNetworkTransfer(int thread_n) {
 					nsDbgPrint("ikcp_send failed: %d\n", ret);
 
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					svc_releaseMutex(rp_ctx->kcp_mutex);
+					LightLock_Unlock(&rp_ctx->kcp_mutex);
 					break;
 				}
 
@@ -1055,14 +1054,14 @@ static void rpNetworkTransfer(int thread_n) {
 				data += data_size;
 
 				ikcp_update(rp_ctx->kcp, iclock());
-				svc_releaseMutex(rp_ctx->kcp_mutex);
+				LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 				desired_last_tick += rp_ctx->conf.min_send_interval_ticks;
 				last_tick = curr_tick;
 				break;
 			}
 			ikcp_update(rp_ctx->kcp, iclock());
-			svc_releaseMutex(rp_ctx->kcp_mutex);
+			LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 			svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
 		}
@@ -1096,7 +1095,7 @@ static void rpNetworkTransfer(int thread_n) {
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
 
 			// kcp send data
-			if (svc_waitSynchronization1(rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
+			if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
@@ -1109,7 +1108,7 @@ static void rpNetworkTransfer(int thread_n) {
 					nsDbgPrint("ikcp_send failed: %d\n", ret);
 
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					svc_releaseMutex(rp_ctx->kcp_mutex);
+					LightLock_Unlock(&rp_ctx->kcp_mutex);
 					break;
 				}
 
@@ -1117,7 +1116,7 @@ static void rpNetworkTransfer(int thread_n) {
 				data += data_size;
 
 				ikcp_update(rp_ctx->kcp, iclock());
-				svc_releaseMutex(rp_ctx->kcp_mutex);
+				LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 				desired_last_tick += rp_ctx->conf.min_send_interval_ticks;
 				last_tick = curr_tick;
@@ -1129,7 +1128,7 @@ static void rpNetworkTransfer(int thread_n) {
 				continue;
 			}
 			ikcp_update(rp_ctx->kcp, iclock());
-			svc_releaseMutex(rp_ctx->kcp_mutex);
+			LightLock_Unlock(&rp_ctx->kcp_mutex);
 
 			svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
 		}
@@ -1138,13 +1137,13 @@ static void rpNetworkTransfer(int thread_n) {
 	}
 
 	// kcp deinit
-	if (svc_waitSynchronization1(rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
+	if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
 		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 		return;
 	}
 	ikcp_release(rp_ctx->kcp);
 	rp_ctx->kcp = 0;
-	svc_releaseMutex(rp_ctx->kcp_mutex);
+	LightLock_Unlock(&rp_ctx->kcp_mutex);
 }
 
 static void rpNetworkTransferThread(u32 arg UNUSED) {
@@ -2237,14 +2236,14 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 
 static int rpImageReadLock(struct rp_image_common_t *image_common) {
 	s32 res;
-	// if ((res = LightLock_LockTimeout(&image_common->sem_read, RP_SYN_WAIT_MAX)) < 0) {
-	// 	return -1;
+	// if ((res = LightLock_LockTimeout(&image_common->sem_read, RP_SYN_WAIT_MAX))) {
+	// 	return res;
 	// }
 	if (__atomic_fetch_add(&image_common->sem_count, 1, __ATOMIC_RELAXED) == 0) {
-		if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_write, 1, RP_SYN_WAIT_MAX)) < 0) {
+		if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_write, 1, RP_SYN_WAIT_MAX))) {
 			__atomic_sub_fetch(&image_common->sem_count, 1, __ATOMIC_RELAXED);
 			// LightLock_Unlock(&image_common->sem_read);
-			return -1;
+			return res;
 		}
 	}
 	// LightLock_Unlock(&image_common->sem_read);
@@ -2253,8 +2252,8 @@ static int rpImageReadLock(struct rp_image_common_t *image_common) {
 
 static int rpImageReadUnlock(struct rp_image_common_t *image_common) {
 	// s32 res;
-	// if ((res = LightLock_LockTimeout(&image_common->sem_read, RP_SYN_WAIT_MAX)) < 0) {
-	// 	return -1;
+	// if ((res = LightLock_LockTimeout(&image_common->sem_read, RP_SYN_WAIT_MAX))) {
+	// 	return res;
 	// }
 	if (__atomic_add_fetch(&image_common->sem_count, 1, __ATOMIC_RELAXED) == 4) { // (4) is lock/unlock for 2 readers
 		__atomic_store_n(&image_common->sem_count, 0, __ATOMIC_RELAXED);
@@ -2352,14 +2351,14 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			if (image_ctx.p_frame) {
 				// s32 res;
-				// if ((res = LightSemaphore_AcquireTimeout(&image_prev_common->sem_try, 1, RP_SYN_WAIT_MAX)) < 0) {
+				// if ((res = LightSemaphore_AcquireTimeout(&image_prev_common->sem_try, 1, RP_SYN_WAIT_MAX))) {
 				// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				// 	nsDbgPrint("%d rpEncodeScreenAndSend sem try wait timeout/error (%d) at %d (%d)\n", thread_n, res, pos, (s32)image_ctx.image);
 				// 	goto final;
 				// }
-				if (rpImageReadLock(image_prev_common) < 0) {
+				if ((ret = rpImageReadLock(image_prev_common))) {
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image_prev timeout/error\n", thread_n);
+					nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image_prev timeout/error\n", thread_n, ret);
 					break;
 				}
 				// LightSemaphore_Release(&image_prev_common->sem_try, 1);
@@ -2375,9 +2374,9 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			if (image_ctx.p_frame) {
-				if (rpImageReadUnlock(image_prev_common) < 0) {
+				if ((ret = rpImageReadUnlock(image_prev_common))) {
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image_prev timeout/error\n", thread_n);
+					nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image_prev timeout/error: %d\n", thread_n, ret);
 					break;
 				}
 			}
@@ -2387,7 +2386,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 				if (__atomic_fetch_add(&image_common->sem_count, 1, __ATOMIC_ACQ_REL) > 0)
 					LightSemaphore_Release(&image_common->sem_write, 1);
 			// LightSemaphore_Release(&image_common->sem_try, 1);
-			// if (rpImageReadLock(image_common) < 0) {
+			// if (rpImageReadLock(image_common)) {
 			// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 			// 	nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image timeout/error\n", thread_n);
 			// 	break;
@@ -2528,9 +2527,9 @@ static void rpEncodeScreenAndSend(int thread_n) {
 #undef RP_ACCESS_TOP_BOT_S
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me_method != 0) {
-			if (rpImageReadUnlock(image_common) < 0) {
+			if ((ret = rpImageReadUnlock(image_common))) {
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image timeout/error\n", thread_n);
+				nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image timeout/error: %d\n", thread_n, ret);
 				break;
 			}
 		}
@@ -2613,12 +2612,12 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			if (rp_ctx->conf.me_method != 0) {
 				int res;
 				struct rp_image_common_t *image_common = &screen_ctx->c.image->s[top_bot];
-				if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_try, 1, RP_SYN_WAIT_MAX)) < 0) {
+				if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_try, 1, RP_SYN_WAIT_MAX))) {
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 					nsDbgPrint("rpScreenTransferThread sem try wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
 					goto final;
 				}
-				if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_write, 1, RP_SYN_WAIT_MAX)) < 0) {
+				if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_write, 1, RP_SYN_WAIT_MAX))) {
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 					nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
 					goto final;
@@ -2715,11 +2714,12 @@ static void rpThreadStart(u32 arg UNUSED) {
 	rpInitDmaHome();
 	// kRemotePlayCallback();
 
-	s32 res;
-	if ((res = svc_createMutex(&rp_ctx->kcp_mutex, 0))) {
-		nsDbgPrint("rpThreadStart create mutex failed: %d\n", res);
-		goto final;
-	}
+	// s32 res;
+	// if ((res = svc_createMutex(&rp_ctx->kcp_mutex, 0))) {
+	// 	nsDbgPrint("rpThreadStart create mutex failed: %d\n", res);
+	// 	goto final;
+	// }
+	LightLock_Init(&rp_ctx->kcp_mutex);
 	__atomic_store_n(&rp_ctx->kcp_ready, 1, __ATOMIC_RELEASE);
 
 	int ret = 0;
@@ -2759,7 +2759,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 	}
 
 final:
-	svc_closeHandle(rp_ctx->kcp_mutex);
+	// svc_closeHandle(rp_ctx->kcp_mutex);
 	svc_exitThread();
 }
 
