@@ -448,10 +448,10 @@ static void rp_syn_init(struct rp_syn_comp_t *syn, int transfer_encode, int id) 
 static s32 rp_syn_acq(struct rp_syn_comp_func_t *syn1, s64 timeout) {
 	Result res;
 	if ((res = LightSemaphore_AcquireTimeout(&syn1->sem, 1, timeout)) != 0) {
-		if (R_DESCRIPTION(res) == RD_TIMEOUT)
-			return -1;
-		nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
-			R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+		if (R_DESCRIPTION(res) != RD_TIMEOUT)
+			nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
+				R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+		return -1;
 	}
 	u8 pos_tail = syn1->pos_tail;
 	syn1->pos_tail = (pos_tail + 1) % rp_ctx->conf.encode_buffer_count;
@@ -477,10 +477,10 @@ static void rp_syn_rel(struct rp_syn_comp_func_t *syn1, s32 pos) {
 static s32 rp_syn_acq1(struct rp_syn_comp_func_t *syn1, s64 timeout) {
 	Result res;
 	if ((res = LightSemaphore_AcquireTimeout(&syn1->sem, 1, timeout)) != 0) {
-		if (R_DESCRIPTION(res) == RD_TIMEOUT)
-			return -1;
-		nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
-			R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+		if (R_DESCRIPTION(res) != RD_TIMEOUT)
+			nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
+				R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+		return -1;
 	}
 	u8 pos_tail = rp_atomic_fetch_addb_wrap(&syn1->pos_tail, 1, rp_ctx->conf.encode_buffer_count);
 	// nsDbgPrint("rp_syn_acq id %d at %d\n", syn1->id, pos_tail);
@@ -495,8 +495,7 @@ static s32 rp_syn_acq1(struct rp_syn_comp_func_t *syn1, s64 timeout) {
 
 static int rp_syn_rel1(struct rp_syn_comp_func_t *syn1, s32 pos) {
 	int res;
-	res = LightLock_LockTimeout(&syn1->mutex, RP_SYN_WAIT_MAX);
-	if (res) {
+	if ((res = LightLock_LockTimeout(&syn1->mutex, RP_SYN_WAIT_MAX))) {
 		if (R_DESCRIPTION(res) != RD_TIMEOUT)
 			nsDbgPrint("rp_syn_rel1 wait mutex error: %d %d %d %d\n",
 				R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
@@ -989,6 +988,7 @@ static void rpNetworkTransfer(int thread_n) {
 		}
 
 		if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
+			nsDbgPrint("kcp mutex lock timeout\n");
 			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 			break;
 		}
@@ -1031,6 +1031,7 @@ static void rpNetworkTransfer(int thread_n) {
 
 			// kcp send header data
 			if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
+				nsDbgPrint("kcp mutex lock timeout\n");
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
@@ -1096,6 +1097,7 @@ static void rpNetworkTransfer(int thread_n) {
 
 			// kcp send data
 			if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
+				nsDbgPrint("kcp mutex lock timeout\n");
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
@@ -1138,6 +1140,7 @@ static void rpNetworkTransfer(int thread_n) {
 
 	// kcp deinit
 	if (LightLock_LockTimeout(&rp_ctx->kcp_mutex, RP_SYN_WAIT_MAX) != 0) {
+		nsDbgPrint("kcp mutex lock timeout\n");
 		__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 		return;
 	}
@@ -2367,8 +2370,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 					// 	goto final;
 					// }
 					if ((ret = rpImageReadLock(image_prev_common))) {
-						__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 						nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image_prev timeout/error\n", thread_n, ret);
+						__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 						break;
 					}
 					// LightSemaphore_Release(&image_prev_common->sem_try, 1);
@@ -2391,8 +2394,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			if (rp_ctx->conf.me_method != 0) {
 				if (image_ctx.p_frame) {
 					if ((ret = rpImageReadUnlock(image_prev_common))) {
-						__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 						nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image_prev timeout/error: %d\n", thread_n, ret);
+						__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 						break;
 					}
 				}
@@ -2408,8 +2411,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			// }
 
 			if (rp_screen_transfer_release(pos) < 0) {
-				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				nsDbgPrint("%d rpEncodeScreenAndSend screen release syn failed\n", thread_n);
+				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
 		}
@@ -2470,8 +2473,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	} \
 	if (image_ctx.p_frame ? a != 0 : a < 1) \
 		if (rp_network_transfer_release(pos) < 0) { \
-			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED); \
 			nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", thread_n); \
+			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED); \
 			break; \
 		}
 
@@ -2549,8 +2552,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me_method != 0) {
 			if ((ret = rpImageReadUnlock(image_common))) {
-				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image timeout/error: %d\n", thread_n, ret);
+				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				break;
 			}
 		}
@@ -2608,9 +2611,9 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			ret = rpCaptureScreen(screen_ctx);
 
 			if (ret < 0) {
-				nsDbgPrint("rpCaptureScreen failed\n");
 				svc_sleepThread(RP_THREAD_LOOP_IDLE_WAIT);
 				if (++capture_count > RP_THREAD_LOOP_WAIT_COUNT) {
+					nsDbgPrint("rpCaptureScreen failed\n");
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 					break;
 				}
@@ -2641,13 +2644,13 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 				int res;
 				struct rp_image_common_t *image_common = &screen_ctx->c.image->s[top_bot];
 				if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_try, 1, RP_SYN_WAIT_MAX))) {
-					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 					nsDbgPrint("rpScreenTransferThread sem try wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
+					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 					goto final;
 				}
 				if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_write, 1, RP_SYN_WAIT_MAX))) {
-					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 					nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
+					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 					goto final;
 				}
 			}
