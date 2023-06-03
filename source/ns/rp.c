@@ -2256,7 +2256,7 @@ static int rpImageReadUnlock(struct rp_image_common_t *image_common) {
 	// if ((res = LightLock_LockTimeout(&image_common->sem_read, RP_SYN_WAIT_MAX)) < 0) {
 	// 	return -1;
 	// }
-	if (__atomic_add_fetch(&image_common->sem_count, 1, __ATOMIC_RELAXED) == 4) {
+	if (__atomic_add_fetch(&image_common->sem_count, 1, __ATOMIC_RELAXED) == 4) { // (4) is lock/unlock for 2 readers
 		__atomic_store_n(&image_common->sem_count, 0, __ATOMIC_RELAXED);
 		LightSemaphore_Release(&image_common->sem_write, 1);
 		LightSemaphore_Release(&image_common->sem_try, 1);
@@ -2333,22 +2333,25 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		}
 
 		struct rp_image_ctx_t image_ctx = screen_ctx->c;
+		struct rp_image_common_t *image_common = &image_ctx.image->s[image_ctx.top_bot];
+		struct rp_image_common_t *image_prev_common = &image_ctx.image_prev->s[image_ctx.top_bot];
 
 		if (rp_ctx->conf.me_method == 0) {
 			image_ctx.p_frame = 0;
 		}
 
 		if (image_ctx.p_frame &&
-			screen_ctx->format != image_ctx.image_prev->s[image_ctx.top_bot].format
+			screen_ctx->format != image_prev_common->format
 		) {
 			nsDbgPrint("Screen format change; key frame");
 			image_ctx.p_frame = 0;
 		}
 
+		screen_ctx->c.p_frame = image_ctx.p_frame;
+
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			if (image_ctx.p_frame) {
 				// s32 res;
-				struct rp_image_common_t *image_prev_common = &image_ctx.image_prev->s[image_ctx.top_bot];
 				// if ((res = LightSemaphore_AcquireTimeout(&image_prev_common->sem_try, 1, RP_SYN_WAIT_MAX)) < 0) {
 				// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				// 	nsDbgPrint("%d rpEncodeScreenAndSend sem try wait timeout/error (%d) at %d (%d)\n", thread_n, res, pos, (s32)image_ctx.image);
@@ -2372,7 +2375,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			if (image_ctx.p_frame) {
-				if (rpImageReadUnlock(&image_ctx.image_prev->s[image_ctx.top_bot]) < 0) {
+				if (rpImageReadUnlock(image_prev_common) < 0) {
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 					nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image_prev timeout/error\n", thread_n);
 					break;
@@ -2380,10 +2383,9 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			}
 
 			// s32 count;
-			struct rp_image_common_t *image_common = &image_ctx.image->s[image_ctx.top_bot];
-			if (__atomic_fetch_add(&image_common->sem_count, 1, __ATOMIC_ACQ_REL) > 0) {
-				LightSemaphore_Release(&image_common->sem_write, 1);
-			}
+			if (rp_ctx->conf.me_method != 0)
+				if (__atomic_fetch_add(&image_common->sem_count, 1, __ATOMIC_ACQ_REL) > 0)
+					LightSemaphore_Release(&image_common->sem_write, 1);
 			// LightSemaphore_Release(&image_common->sem_try, 1);
 			// if (rpImageReadLock(image_common) < 0) {
 			// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
@@ -2398,8 +2400,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			}
 		}
 
-#define RP_ACCESS_TOP_BOT_S(si, n) \
-	(image_ctx.image->s[si].n) \
+#define RP_ACCESS_TOP_BOT_S(n) \
+	(image_common->n) \
 
 #define RP_ACCESS_TOP_BOT_IMAGE(s, n) \
 	((s) == 0 ? \
@@ -2419,7 +2421,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	if (pos < 0) { \
 		continue; \
 	} \
-	int bpp = RP_ACCESS_TOP_BOT_S(image_ctx.top_bot, b); \
+	int bpp = RP_ACCESS_TOP_BOT_S(b); \
 	ret = (image_ctx.p_frame || a < 1) ? rpJLSEncodeImage(jls_ctx, \
 		network_ctx->buffer + (a < 1 ? 0 : ret), \
 		(a < 1 ? RP_JLS_ENCODE_IMAGE_BUFFER_SIZE : RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE), \
@@ -2440,7 +2442,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		network_ctx->frame_n = image_ctx.frame_n; \
 		network_ctx->size = ret; \
 		network_ctx->bpp = bpp; \
-		network_ctx->format = RP_ACCESS_TOP_BOT_S(image_ctx.top_bot, format); \
+		network_ctx->format = RP_ACCESS_TOP_BOT_S(format); \
 		network_ctx->p_frame = image_ctx.p_frame; \
 		network_ctx->size_1 = 0; \
 	} else { \
@@ -2525,8 +2527,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 #undef RP_ACCESS_TOP_BOT_IMAGE
 #undef RP_ACCESS_TOP_BOT_S
 
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-			if (rpImageReadUnlock(&image_ctx.image->s[image_ctx.top_bot]) < 0) {
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me_method != 0) {
+			if (rpImageReadUnlock(image_common) < 0) {
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image timeout/error\n", thread_n);
 				break;
@@ -2608,17 +2610,19 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
 			screen_ctx->c.image_prev = &rp_ctx->image[image_n];
 
-			int res;
-			struct rp_image_common_t *image_common = &screen_ctx->c.image->s[top_bot];
-			if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_try, 1, RP_SYN_WAIT_MAX)) < 0) {
-				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				nsDbgPrint("rpScreenTransferThread sem try wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
-				goto final;
-			}
-			if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_write, 1, RP_SYN_WAIT_MAX)) < 0) {
-				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
-				goto final;
+			if (rp_ctx->conf.me_method != 0) {
+				int res;
+				struct rp_image_common_t *image_common = &screen_ctx->c.image->s[top_bot];
+				if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_try, 1, RP_SYN_WAIT_MAX)) < 0) {
+					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+					nsDbgPrint("rpScreenTransferThread sem try wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
+					goto final;
+				}
+				if ((res = LightSemaphore_AcquireTimeout(&image_common->sem_write, 1, RP_SYN_WAIT_MAX)) < 0) {
+					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+					nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
+					goto final;
+				}
 			}
 			rp_screen_encode_release(pos);
 			// nsDbgPrint("%s released screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
