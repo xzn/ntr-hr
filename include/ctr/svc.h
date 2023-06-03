@@ -1,7 +1,9 @@
 #ifndef SVC_H
 #define SVC_H
 
-typedef enum{
+#include "3dstypes.h"
+
+typedef enum{	
 	MEMOP_FREE = 1,
 	MEMOP_RESERVE = 2,
 	MEMOP_COMMIT = 3,
@@ -97,4 +99,26 @@ typedef enum {
 	* @param size Size of the block of the memory to map (truncated to a multiple of 0x1000 bytes).
 	*/
 	Result svcMapProcessMemoryEx(Handle process, u32 destAddr, u32 srcAddr, u32 size);
+
+typedef enum {
+	RESLIMIT_PRIORITY       = 0,        ///< Thread priority
+	RESLIMIT_COMMIT         = 1,        ///< Quantity of allocatable memory
+	RESLIMIT_THREAD         = 2,        ///< Number of threads
+	RESLIMIT_EVENT          = 3,        ///< Number of events
+	RESLIMIT_MUTEX          = 4,        ///< Number of mutexes
+	RESLIMIT_SEMAPHORE      = 5,        ///< Number of semaphores
+	RESLIMIT_TIMER          = 6,        ///< Number of timers
+	RESLIMIT_SHAREDMEMORY   = 7,        ///< Number of shared memory objects, see @ref svcCreateMemoryBlock
+	RESLIMIT_ADDRESSARBITER = 8,        ///< Number of address arbiters
+	RESLIMIT_CPUTIME        = 9,        ///< CPU time. Value expressed in percentage regular until it reaches 90.
+
+	RESLIMIT_BIT            = BIT(31),  ///< Forces enum size to be 32 bits
+} ResourceLimitType;
+
+	Result svcGetResourceLimit(Handle* resourceLimit, Handle process);
+	Result svcGetResourceLimitLimitValues(s64* values, Handle resourceLimit, ResourceLimitType* names, s32 nameCount);
+	Result svcGetResourceLimitCurrentValues(s64* values, Handle resourceLimit, ResourceLimitType* names, s32 nameCount);
+	Result svcSetProcessResourceLimits(Handle process, Handle resourceLimit);
+	Result svcCreateResourceLimit(Handle* resourceLimit);
+	Result svcSetResourceLimitValues(Handle resourceLimit, const ResourceLimitType* names, const s64* values, s32 nameCount);
 #endif

@@ -423,10 +423,50 @@ svc_arbitrateAddressNoTimeout:
 	svc 0x22
 	bx  lr
 
-	.global svc_kernelSetState
+.global svc_kernelSetState
 .type svc_kernelSetState, %function
 svc_kernelSetState:
 	svc 0x7c
 	bx lr
 
+.global svcGetResourceLimit
+.type svcGetResourceLimit, %function
+svcGetResourceLimit:
+	str r0, [sp, #-0x4]!
+	svc 0x38
+	ldr r3, [sp], #4
+	str r1, [r3]
+	bx  lr
 
+.global svcGetResourceLimitLimitValues
+.type svcGetResourceLimitLimitValues, %function
+svcGetResourceLimitLimitValues:
+	svc 0x39
+	bx  lr
+
+.global svcGetResourceLimitCurrentValues
+.type svcGetResourceLimitCurrentValues, %function
+svcGetResourceLimitCurrentValues:
+	svc 0x3A
+	bx  lr
+
+.global svcSetProcessResourceLimits
+.type svcSetProcessResourceLimits, %function
+svcSetProcessResourceLimits:
+	svc 0x77
+	bx  lr
+
+.global svcCreateResourceLimit
+.type svcCreateResourceLimit, %function
+svcCreateResourceLimit:
+	push {r0}
+	svc  0x78
+	pop  {r2}
+	str  r1, [r2]
+	bx   lr
+
+.global svcSetResourceLimitValues
+.type svcSetResourceLimitValues, %function
+svcSetResourceLimitValues:
+	svc 0x79
+	bx  lr
