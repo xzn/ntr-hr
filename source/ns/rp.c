@@ -2250,18 +2250,22 @@ static int rpImageReadLock(struct rp_image_common_t *image_common) {
 	return 0;
 }
 
-static int rpImageReadUnlock(struct rp_image_common_t *image_common) {
+static int rpImageReadUnlockCount(struct rp_image_common_t *image_common, int count) {
 	// s32 res;
 	// if ((res = LightLock_LockTimeout(&image_common->sem_read, RP_SYN_WAIT_MAX))) {
 	// 	return res;
 	// }
-	if (__atomic_add_fetch(&image_common->sem_count, 1, __ATOMIC_RELAXED) == 4) { // (4) is lock/unlock for 2 readers
+	if (__atomic_add_fetch(&image_common->sem_count, count, __ATOMIC_RELAXED) >= 4) { // (4) is lock/unlock for 2 readers
 		__atomic_store_n(&image_common->sem_count, 0, __ATOMIC_RELAXED);
 		LightSemaphore_Release(&image_common->sem_write, 1);
 		LightSemaphore_Release(&image_common->sem_try, 1);
 	}
 	// LightLock_Unlock(&image_common->sem_read);
 	return 0;
+}
+
+static int rpImageReadUnlock(struct rp_image_common_t *image_common) {
+	return rpImageReadUnlockCount(image_common, 1);
 }
 
 void rpKernelCallback(struct rp_screen_encode_t *screen_ctx);
@@ -2342,29 +2346,32 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		if (image_ctx.p_frame &&
 			screen_ctx->format != image_prev_common->format
 		) {
-			nsDbgPrint("Screen format change; key frame");
+			nsDbgPrint("Screen format change; key frame\n");
 			image_ctx.p_frame = 0;
 		}
 
-		screen_ctx->c.p_frame = image_ctx.p_frame;
-
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-			if (image_ctx.p_frame) {
-				// s32 res;
-				// if ((res = LightSemaphore_AcquireTimeout(&image_prev_common->sem_try, 1, RP_SYN_WAIT_MAX))) {
-				// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				// 	nsDbgPrint("%d rpEncodeScreenAndSend sem try wait timeout/error (%d) at %d (%d)\n", thread_n, res, pos, (s32)image_ctx.image);
-				// 	goto final;
-				// }
-				if ((ret = rpImageReadLock(image_prev_common))) {
-					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image_prev timeout/error\n", thread_n, ret);
-					break;
+			if (rp_ctx->conf.me_method != 0) {
+				if (image_ctx.p_frame) {
+					// s32 res;
+					// if ((res = LightSemaphore_AcquireTimeout(&image_prev_common->sem_try, 1, RP_SYN_WAIT_MAX))) {
+					// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+					// 	nsDbgPrint("%d rpEncodeScreenAndSend sem try wait timeout/error (%d) at %d (%d)\n", thread_n, res, pos, (s32)image_ctx.image);
+					// 	goto final;
+					// }
+					if ((ret = rpImageReadLock(image_prev_common))) {
+						__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+						nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image_prev timeout/error\n", thread_n, ret);
+						break;
+					}
+					// LightSemaphore_Release(&image_prev_common->sem_try, 1);
+				} else {
+					rpImageReadUnlockCount(image_prev_common, 2); // (2) to skip both lock/unlock
 				}
-				// LightSemaphore_Release(&image_prev_common->sem_try, 1);
 			}
 		}
 
+		screen_ctx->c.p_frame = image_ctx.p_frame;
 		ret = rpEncodeImage(screen_ctx, image_me_ctx);
 		if (ret < 0) {
 			nsDbgPrint("rpEncodeImage failed\n");
@@ -2373,18 +2380,19 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		}
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-			if (image_ctx.p_frame) {
-				if ((ret = rpImageReadUnlock(image_prev_common))) {
-					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image_prev timeout/error: %d\n", thread_n, ret);
-					break;
-				}
-			}
-
 			// s32 count;
-			if (rp_ctx->conf.me_method != 0)
+			if (rp_ctx->conf.me_method != 0) {
+				if (image_ctx.p_frame) {
+					if ((ret = rpImageReadUnlock(image_prev_common))) {
+						__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+						nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image_prev timeout/error: %d\n", thread_n, ret);
+						break;
+					}
+				}
+
 				if (__atomic_fetch_add(&image_common->sem_count, 1, __ATOMIC_ACQ_REL) > 0)
 					LightSemaphore_Release(&image_common->sem_write, 1);
+			}
 			// LightSemaphore_Release(&image_common->sem_try, 1);
 			// if (rpImageReadLock(image_common)) {
 			// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
