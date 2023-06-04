@@ -238,8 +238,9 @@ static struct rp_ctx_t {
 			u8 format;
 			u8 me_bpp;
 			rp_sem_t sem_write;
-			// rp_lock_t sem_read;
-			rp_sem_t sem_try;
+			rp_sem_t sem_read;
+// one for current encode thread; one for next frame reading motion est ref data
+#define RP_IMAGE_READER_COUNT (2)
 			u8 sem_count;
 		} s[SCREEN_COUNT];
 	} image[RP_IMAGE_BUFFER_COUNT];
@@ -263,10 +264,6 @@ static struct rp_ctx_t {
 			u8 ds_u_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 ds_v_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		} bot;
-		struct rp_image_hash_t {
-			XXH32_hash_t y_image, u_image, v_image, ds_u_image, ds_v_image;
-			XXH32_hash_t y_image_prev, u_image_prev, v_image_prev, ds_u_image_prev, ds_v_image_prev;
-		} hash;
 	} image_me[RP_ENCODE_THREAD_COUNT];
 
 	struct rp_screen_image_t {
@@ -282,7 +279,7 @@ static struct rp_ctx_t {
 				rp_sem_t sem;
 				rp_lock_t mutex;
 				u8 pos_head, pos_tail;
-				s8 pos[RP_ENCODE_BUFFER_COUNT];
+				void *pos[RP_ENCODE_BUFFER_COUNT];
 			} transfer, encode;
 		} screen, network;
 	} syn;
@@ -465,74 +462,70 @@ static u8 rp_atomic_fetch_addb_wrap(u8 *p, u8 a, u8 factor) {
 	return v;
 }
 
-static void rp_syn_init1(struct rp_syn_comp_func_t *syn1, int init, int id) {
+static void rp_syn_init1(struct rp_syn_comp_func_t *syn1, int init, int id, void *base, u32 stride) {
 	rp_sem_close(syn1->sem);
-	rp_sem_init(syn1->sem, init ? rp_ctx->conf.encode_buffer_count : 0, rp_ctx->conf.encode_buffer_count);
+	(void)rp_sem_init(syn1->sem, init ? rp_ctx->conf.encode_buffer_count : 0, rp_ctx->conf.encode_buffer_count);
 	rp_lock_close(syn1->mutex);
-	rp_lock_init(syn1->mutex);
+	(void)rp_lock_init(syn1->mutex);
 
 	syn1->pos_head = syn1->pos_tail = 0;
 	syn1->id = id;
 
-	for (int i = 0; i < RP_ENCODE_BUFFER_COUNT; ++i) {
-		syn1->pos[i] = init ? i : -1;
+	for (int i = 0; i < rp_ctx->conf.encode_buffer_count; ++i) {
+		syn1->pos[i] = init ? ((u8 *)base) + i * stride : 0;
 	}
 }
 
 static void rp_syn_init(struct rp_syn_comp_t *syn, int transfer_encode, int id) {
-	rp_syn_init1(&syn->transfer, transfer_encode == 0, id);
-	rp_syn_init1(&syn->encode, transfer_encode == 1, id);
+	rp_syn_init1(&syn->transfer, transfer_encode == 0, id, rp_ctx->screen_encode, sizeof(struct rp_screen_encode_t));
+	rp_syn_init1(&syn->encode, transfer_encode == 1, id, rp_ctx->network_encode, sizeof(struct rp_network_encode_t));
 }
 
-static s32 rp_syn_acq(struct rp_syn_comp_func_t *syn1, s64 timeout) {
+static void *rp_syn_acq(struct rp_syn_comp_func_t *syn1, s64 timeout) {
 	Result res;
 	if ((res = rp_sem_wait(syn1->sem, timeout)) != 0) {
 		if (R_DESCRIPTION(res) != RD_TIMEOUT)
 			nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
 				R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
-		return -1;
+		return 0;
 	}
 	u8 pos_tail = syn1->pos_tail;
 	syn1->pos_tail = (pos_tail + 1) % rp_ctx->conf.encode_buffer_count;
-	// nsDbgPrint("rp_syn_acq id %d at %d\n", syn1->id, pos_tail);
-	s8 pos = syn1->pos[pos_tail];
-	syn1->pos[pos_tail] = -1;
-	if (pos < 0) {
+	void *pos = syn1->pos[pos_tail];
+	syn1->pos[pos_tail] = 0;
+	if (!pos) {
 		nsDbgPrint("error rp_syn_acq id %d at pos %d\n", syn1->id, pos_tail);
 		return 0;
 	}
 	return pos;
 }
 
-static void rp_syn_rel(struct rp_syn_comp_func_t *syn1, s32 pos) {
+static void rp_syn_rel(struct rp_syn_comp_func_t *syn1, void *pos) {
 	u8 pos_head = syn1->pos_head;
 	syn1->pos_head = (pos_head + 1) % rp_ctx->conf.encode_buffer_count;
 	syn1->pos[pos_head] = pos;
-	// nsDbgPrint("rp_syn_rel id %d at %d: %d\n", syn1->id, pos_head, pos);
-	// s32 count;
 	rp_sem_rel(syn1->sem, 1);
 }
 
-static s32 rp_syn_acq1(struct rp_syn_comp_func_t *syn1, s64 timeout) {
+static void *rp_syn_acq1(struct rp_syn_comp_func_t *syn1, s64 timeout) {
 	Result res;
 	if ((res = rp_sem_wait(syn1->sem, timeout)) != 0) {
 		if (R_DESCRIPTION(res) != RD_TIMEOUT)
 			nsDbgPrint("rp_syn_acq wait sem error: %d %d %d %d\n",
 				R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
-		return -1;
+		return 0;
 	}
 	u8 pos_tail = rp_atomic_fetch_addb_wrap(&syn1->pos_tail, 1, rp_ctx->conf.encode_buffer_count);
-	// nsDbgPrint("rp_syn_acq id %d at %d\n", syn1->id, pos_tail);
-	s8 pos = syn1->pos[pos_tail];
-	syn1->pos[pos_tail] = -1;
-	if (pos < 0) {
+	void *pos = syn1->pos[pos_tail];
+	syn1->pos[pos_tail] = 0;
+	if (!pos) {
 		nsDbgPrint("error rp_syn_acq id %d at pos %d\n", syn1->id, pos_tail);
 		return 0;
 	}
 	return pos;
 }
 
-static int rp_syn_rel1(struct rp_syn_comp_func_t *syn1, s32 pos) {
+static int rp_syn_rel1(struct rp_syn_comp_func_t *syn1, void *pos) {
 	int res;
 	if ((res = rp_lock_wait(syn1->mutex, RP_SYN_WAIT_MAX))) {
 		if (R_DESCRIPTION(res) != RD_TIMEOUT)
@@ -545,8 +538,6 @@ static int rp_syn_rel1(struct rp_syn_comp_func_t *syn1, s32 pos) {
 	syn1->pos_head = (pos_head + 1) % rp_ctx->conf.encode_buffer_count;
 	syn1->pos[pos_head] = pos;
 	rp_lock_rel(syn1->mutex);
-	// nsDbgPrint("rp_syn_rel1 id %d at %d: %d\n", syn1->id, pos_head, pos);
-	// s32 count;
 	rp_sem_rel(syn1->sem, 1);
 	return 0;
 }
@@ -559,32 +550,31 @@ static void rp_network_queue_init() {
 	rp_syn_init(&rp_ctx->syn.network, 1, 1);
 }
 
-static s32 rp_screen_transfer_acquire(s64 timeout) {
+static struct rp_screen_encode_t *rp_screen_transfer_acquire(s64 timeout) {
 	return rp_syn_acq(&rp_ctx->syn.screen.transfer, timeout);
 }
 
-static void rp_screen_encode_release(u8 pos) {
+static void rp_screen_encode_release(struct rp_screen_encode_t *pos) {
 	rp_syn_rel(&rp_ctx->syn.screen.encode, pos);
 }
 
-static s32 rp_screen_encode_acquire(s64 timeout) {
-	// return rp_syn_acq(&rp_ctx->syn.screen.encode, timeout);
+static struct rp_screen_encode_t *rp_screen_encode_acquire(s64 timeout) {
 	return rp_syn_acq1(&rp_ctx->syn.screen.encode, timeout);
 }
 
-static int rp_screen_transfer_release(u8 pos) {
+static int rp_screen_transfer_release(struct rp_screen_encode_t *pos) {
 	return rp_syn_rel1(&rp_ctx->syn.screen.transfer, pos);
 }
 
-static s32 rp_network_transfer_acquire(s64 timeout) {
+static struct rp_network_encode_t *rp_network_transfer_acquire(s64 timeout) {
 	return rp_syn_acq(&rp_ctx->syn.network.transfer, timeout);
 }
 
-static void rp_network_encode_release(u8 pos) {
+static void rp_network_encode_release(struct rp_network_encode_t *pos) {
 	rp_syn_rel(&rp_ctx->syn.network.encode, pos);
 }
 
-static s32 rp_network_encode_acquire(s64 timeout) {
+static struct rp_network_encode_t *rp_network_encode_acquire(s64 timeout) {
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 		return rp_syn_acq1(&rp_ctx->syn.network.encode, timeout);
 	} else {
@@ -592,7 +582,7 @@ static s32 rp_network_encode_acquire(s64 timeout) {
 	}
 }
 
-static int rp_network_transfer_release(u8 pos) {
+static int rp_network_transfer_release(struct rp_network_encode_t *pos) {
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)	{
 		return rp_syn_rel1(&rp_ctx->syn.network.transfer, pos);
 	} else {
@@ -667,8 +657,6 @@ static IUINT32 iclock()
 }
 
 static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *user UNUSED) {
-	// nsDbgPrint("rp_udp_output %d\n", iclock());
-
 	u8 *sendBuf = rp_ctx->nwm_send_buffer;
 	u8 *dataBuf = sendBuf + NWM_HEADER_SIZE;
 
@@ -685,8 +673,6 @@ static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *use
 }
 
 static void rpControlRecvHandle(u8* buf UNUSED, int buf_size UNUSED) {
-	// __atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-	// __atomic_store_n(&rp_ctx->kcp_restart, 1, __ATOMIC_RELAXED);
 }
 
 void rpControlRecv(void) {
@@ -733,7 +719,7 @@ void rpControlRecv(void) {
 static void rpInitPriorityCtx(void) {
 	rp_lock_close(rp_ctx->dyn_prio.mutex);
 	memset(&rp_ctx->dyn_prio, 0, sizeof(rp_ctx->dyn_prio));
-	rp_lock_init(rp_ctx->dyn_prio.mutex);
+	(void)rp_lock_init(rp_ctx->dyn_prio.mutex);
 
 	for (int i = 0; i < SCREEN_COUNT; ++i) {
 		rp_ctx->dyn_prio.s[i].initializing = RP_DYN_PRIO_FRAME_COUNT;
@@ -998,7 +984,9 @@ static void rpNetworkTransfer(int thread_n) {
 			nsDbgPrint("ikcp_setmtu failed: %d\n", ret);
 		}
 		ikcp_nodelay(&rp_ctx->kcp, 2, 10, 2, 1);
-		// rp_ctx->kcp->rx_minrto = 10;
+#if 0
+		rp_ctx->kcp->rx_minrto = 10;
+#endif
 		ikcp_wndsize(&rp_ctx->kcp, KCP_SND_WND_SIZE, 0);
 	}
 	__atomic_store_n(&rp_ctx->kcp_ready, 1, __ATOMIC_RELEASE);
@@ -1043,11 +1031,10 @@ static void rpNetworkTransfer(int thread_n) {
 		ikcp_update(&rp_ctx->kcp, iclock());
 		svc_releaseMutex(rp_ctx->kcp_mutex);
 
-		s32 pos = rp_network_transfer_acquire(RP_THREAD_LOOP_FAST_WAIT);
-		if (pos < 0) {
+		struct rp_network_encode_t *network_ctx = rp_network_transfer_acquire(RP_THREAD_LOOP_FAST_WAIT);
+		if (!network_ctx) {
 			continue;
 		}
-		struct rp_network_encode_t *network_ctx = &rp_ctx->network_encode[pos];
 
 		last_tick = curr_tick;
 
@@ -1061,8 +1048,6 @@ static void rpNetworkTransfer(int thread_n) {
 			.flags = (top_bot ? RP_SEND_HEADER_TOP_BOT : 0) |
 				(network_ctx->p_frame ? RP_SEND_HEADER_P_FRAME : 0),
 		};
-		// nsDbgPrint("%s %d acquired network transfer: %d\n",
-		// 	RP_TOP_BOT_STR(header.top_bot), header.frame_n, pos);
 		u32 size_remain = header.size + header.size_1;
 		u8 *data = network_ctx->buffer;
 		rpSetPriorityScreen(top_bot, size_remain);
@@ -1130,13 +1115,11 @@ static void rpNetworkTransfer(int thread_n) {
 			desired_tick_diff = (s64)(curr_tick & ((1ULL << 48) - 1)) - (desired_last_tick & ((1ULL << 48) - 1));
 			if (desired_tick_diff < rp_ctx->conf.min_send_interval_ticks) {
 				u64 duration = (rp_ctx->conf.min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
-				// nsDbgPrint("desired sleep %dus\n", (u32)(duration / 1000));
 				svc_sleepThread(duration);
 			} else {
 				u64 min_tick = rp_ctx->conf.min_send_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
 				if (tick_diff < min_tick) {
 					u64 duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
-					// nsDbgPrint("sleep %dus\n", (u32)(duration / 1000));
 					svc_sleepThread(duration);
 				}
 			}
@@ -1151,7 +1134,6 @@ static void rpNetworkTransfer(int thread_n) {
 			}
 			int waitsnd = ikcp_waitsnd(&rp_ctx->kcp);
 			if (waitsnd < KCP_SND_WND_SIZE) {
-				// nsDbgPrint("ikcp_send %d\n", iclock());
 				ret = ikcp_send(&rp_ctx->kcp, (const char *)data, data_size);
 
 				if (ret < 0) {
@@ -1183,7 +1165,7 @@ static void rpNetworkTransfer(int thread_n) {
 			svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
 		}
 
-		rp_network_encode_release(pos);
+		rp_network_encode_release(network_ctx);
 	}
 
 	// kcp deinit
@@ -1194,7 +1176,6 @@ static void rpNetworkTransfer(int thread_n) {
 	}
 	__atomic_store_n(&rp_ctx->kcp_ready, 0, __ATOMIC_RELEASE);
 	ikcp_release(&rp_ctx->kcp);
-	// rp_ctx->kcp = 0;
 	svc_releaseMutex(rp_ctx->kcp_mutex);
 }
 
@@ -1212,7 +1193,6 @@ static void rpNetworkTransferThread(u32 arg UNUSED) {
 }
 
 static void rpInitDmaHome(void) {
-	// u32 rp_ctx->dma_config[20] = { 0 };
 	svc_openProcess(&rp_ctx->home_handle, 0xf);
 }
 
@@ -1383,10 +1363,6 @@ static int UNUSED ffmpeg_jls_decode(uint8_t *dst, int width, int height, int pit
 }
 
 static int rpJLSEncodeImage(struct rp_jls_ctx_t *jls_ctx, u8 *dst, int dst_size, const u8 *src, int w, int h, int bpp) {
-	// nsDbgPrint("rpJLSEncodeImage: ctx = (%d), buffer = (%d), image = (%d), w = %d, h = %d, bpp = %d\n",
-	// 	(s32)jls_ctx, (s32)dst, (s32)src, w, h, bpp
-	// );
-
 	XXH32_hash_t UNUSED src_hash = 0;
 	u8 *dst2 = 0;
 	if (RP_ENCODE_VERIFY && rp_ctx->conf.encode_verify) {
@@ -1450,8 +1426,6 @@ static int rpJLSEncodeImage(struct rp_jls_ctx_t *jls_ctx, u8 *dst, int dst_size,
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
 
-		// put_bits(&s, 7, 0);
-		// int size_in_bits = put_bits_count(&s);
 		flush_put_bits(&s);
 		ret = put_bytes_output(&s);
 	}
@@ -2136,9 +2110,35 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 	}
 }
 
+static int rpImageReadLock(struct rp_image_common_t *image_common) {
+	s32 res;
+	if ((res = rp_sem_wait(image_common->sem_read, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("(%d) sem read wait failed\n", (s32)image_common);
+		return res;
+	}
+	return 0;
+}
+
+static void rpImageReadUnlockCount(struct rp_image_common_t *image_common, int count) {
+	if (__atomic_add_fetch(&image_common->sem_count, count, __ATOMIC_RELAXED) >= RP_IMAGE_READER_COUNT) {
+		__atomic_store_n(&image_common->sem_count, 0, __ATOMIC_RELAXED);
+		rp_sem_rel(image_common->sem_write, 1);
+	}
+}
+
+static void rpImageReadUnlock(struct rp_image_common_t *image_common) {
+	rpImageReadUnlockCount(image_common, 1);
+}
+
+static void rpImageReadUnlockSkip(struct rp_image_common_t *image_common) {
+	rpImageReadUnlockCount(image_common, 1);
+}
+
 static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_me_t *image_me_ctx) {
+	int top_bot = screen_ctx->c.top_bot;
+
 	int width, height;
-	if (screen_ctx->c.top_bot == 0) {
+	if (top_bot == 0) {
 		width = 400;
 	} else {
 		width = 320;
@@ -2170,14 +2170,6 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 	u8 *ds_ds_y_image;
 	u8 *me_bpp;
 
-	const u8 *y_image_prev;
-	const u8 *u_image_prev;
-	const u8 *v_image_prev;
-	const u8 *ds_u_image_prev;
-	const u8 *ds_v_image_prev;
-	const u8 *ds_y_image_prev;
-	const u8 *ds_ds_y_image_prev;
-
 	u8 *y_image_me;
 	u8 *u_image_me;
 	u8 *v_image_me;
@@ -2200,14 +2192,6 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 	v_bpp = &c->image->s[si].v_bpp; \
 	me_bpp = &c->image->s[si].me_bpp; \
  \
-	y_image_prev = c->image_prev->sn.y_image; \
-	u_image_prev = c->image_prev->sn.u_image; \
-	v_image_prev = c->image_prev->sn.v_image; \
-	ds_y_image_prev = c->image_prev->sn.ds_y_image; \
-	ds_u_image_prev = c->image_prev->sn.ds_u_image; \
-	ds_v_image_prev = c->image_prev->sn.ds_v_image; \
-	ds_ds_y_image_prev = c->image_prev->sn.ds_ds_y_image; \
- \
 	y_image_me = image_me_ctx->sn.y_image; \
 	u_image_me = image_me_ctx->sn.u_image; \
 	v_image_me = image_me_ctx->sn.v_image; \
@@ -2218,13 +2202,20 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
  \
 	c->image->s[si].format = format; } while (0)
 
-	if (screen_ctx->c.top_bot == 0) {
+	if (top_bot == 0) {
 		RP_IMAGE_SET(SCREEN_TOP, top);
 	} else {
 		RP_IMAGE_SET(SCREEN_BOT, bot);
 	}
 
 #undef RP_IMAGE_SET
+
+	struct rp_image_t *image_ctx = screen_ctx->c.image;
+	struct rp_image_t *image_prev_ctx = screen_ctx->c.image_prev;
+	struct rp_image_common_t *image_common = &image_ctx->s[top_bot];
+	struct rp_image_common_t *image_prev_common = image_prev_ctx ? &image_prev_ctx->s[top_bot] : 0;
+
+	int p_frame = screen_ctx->c.p_frame;
 
 	*me_bpp = rp_ctx->conf.me_bpp;
 
@@ -2235,8 +2226,18 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 		y_bpp, u_bpp, v_bpp
 	);
 
+	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+		if (rp_screen_transfer_release(screen_ctx) < 0) {
+			nsDbgPrint("rpEncodeImage screen release syn failed\n");
+			return -1;
+		}
+	}
+
 	if (ret < 0)
 		return ret;
+
+	int ds_width = width / 2;
+	int ds_height = height / 2;
 
 	if (rp_ctx->conf.downscale_uv) {
 		downscale_image(
@@ -2252,10 +2253,7 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 		);
 	}
 
-	if (screen_ctx->c.p_frame) {
-		int ds_width = width / 2;
-		int ds_height = height / 2;
-
+	if (p_frame) {
 		downscale_image(
 			ds_y_image,
 			y_image,
@@ -2268,7 +2266,43 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 				ds_y_image,
 				ds_width, ds_height
 			);
+		}
 
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+			// lock read
+			if ((ret = rpImageReadLock(image_prev_common))) {
+				nsDbgPrint("rpEncodeImage rpImageReadLock image_prev timeout/error\n", ret);
+				return -1;
+			}
+		}
+
+		const u8 *y_image_prev;
+		const u8 *u_image_prev;
+		const u8 *v_image_prev;
+		const u8 *ds_u_image_prev;
+		const u8 *ds_v_image_prev;
+		const u8 *ds_y_image_prev;
+		const u8 *ds_ds_y_image_prev;
+
+#define RP_IMAGE_PREV_SET(si, sn) do { \
+	struct rp_image_ctx_t *c = &screen_ctx->c; \
+	y_image_prev = c->image_prev->sn.y_image; \
+	u_image_prev = c->image_prev->sn.u_image; \
+	v_image_prev = c->image_prev->sn.v_image; \
+	ds_y_image_prev = c->image_prev->sn.ds_y_image; \
+	ds_u_image_prev = c->image_prev->sn.ds_u_image; \
+	ds_v_image_prev = c->image_prev->sn.ds_v_image; \
+	ds_ds_y_image_prev = c->image_prev->sn.ds_ds_y_image; } while (0)
+
+		if (top_bot == 0) {
+			RP_IMAGE_PREV_SET(SCREEN_TOP, top);
+		} else {
+			RP_IMAGE_PREV_SET(SCREEN_BOT, bot);
+		}
+
+#undef RP_IMAGE_PREV_SET
+
+		if (rp_ctx->conf.me_downscale) {
 			int ds_ds_width = ds_width / 2;
 			int ds_ds_height = ds_height / 2;
 			motion_estimate(me_x_image, me_y_image,
@@ -2299,43 +2333,19 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 			predict_image(v_image_me, v_image_prev, v_image, me_x_image, me_y_image,
 				width, height, scale_log2, *v_bpp);
 		}
-	}
 
-	return 0;
-}
-
-static int rpImageReadLock(struct rp_image_common_t *image_common) {
-	s32 res;
-	// if ((res = rp_lock_wait(image_common->sem_read, RP_SYN_WAIT_MAX))) {
-	// 	return res;
-	// }
-	if (__atomic_fetch_add(&image_common->sem_count, 1, __ATOMIC_RELAXED) == 0) {
-		if ((res = rp_sem_wait(image_common->sem_write, RP_SYN_WAIT_MAX))) {
-			__atomic_sub_fetch(&image_common->sem_count, 1, __ATOMIC_RELAXED);
-			// rp_lock_rel(image_common->sem_read);
-			return res;
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+			// done read
+			rpImageReadUnlock(image_prev_common);
 		}
 	}
-	// rp_lock_rel(image_common->sem_read);
-	return 0;
-}
 
-static int rpImageReadUnlockCount(struct rp_image_common_t *image_common, int count) {
-	// s32 res;
-	// if ((res = rp_lock_wait(image_common->sem_read, RP_SYN_WAIT_MAX))) {
-	// 	return res;
-	// }
-	if (__atomic_add_fetch(&image_common->sem_count, count, __ATOMIC_RELAXED) >= 4) { // (4) is lock/unlock for 2 readers
-		__atomic_store_n(&image_common->sem_count, 0, __ATOMIC_RELAXED);
-		rp_sem_rel(image_common->sem_write, 1);
-		rp_sem_rel(image_common->sem_try, 1);
+	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me_method != 0) {
+		// allow read
+		rp_sem_rel(image_common->sem_read, 1);
 	}
-	// rp_lock_rel(image_common->sem_read);
-	return 0;
-}
 
-static int rpImageReadUnlock(struct rp_image_common_t *image_common) {
-	return rpImageReadUnlockCount(image_common, 1);
+	return 0;
 }
 
 void rpKernelCallback(struct rp_screen_encode_t *screen_ctx);
@@ -2352,12 +2362,10 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		rp_check_params(thread_n);
 
-		s32 pos;
-
 		struct rp_screen_encode_t *screen_ctx;
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-			pos = rp_screen_encode_acquire(RP_THREAD_LOOP_MED_WAIT);
-			if (pos < 0) {
+			screen_ctx = rp_screen_encode_acquire(RP_THREAD_LOOP_MED_WAIT);
+			if (!screen_ctx) {
 				if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
 					nsDbgPrint("rp_screen_encode_acquire timeout\n");
 					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
@@ -2366,12 +2374,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 				continue;
 			}
 			acquire_count = 0;
-
-			screen_ctx = &rp_ctx->screen_encode[pos];
-			// nsDbgPrint("%s acquired screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
 		} else {
-			pos = thread_n;
-
 			if (sleep_duration)
 				svc_sleepThread(sleep_duration);
 
@@ -2386,7 +2389,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 				sleep_duration = 0;
 			}
 
-			screen_ctx = &rp_ctx->screen_encode[pos];
+			screen_ctx = &rp_ctx->screen_encode[thread_n];
 			screen_ctx->c.top_bot = top_bot;
 			rpKernelCallback(screen_ctx);
 
@@ -2414,7 +2417,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 			u8 *p_frame_prev = &screen_image_ctx->p_frame;
 			u8 p_frame = *p_frame_prev;
-			if (!*p_frame_prev)
+			if (!*p_frame_prev && rp_ctx->conf.me_method != 0)
 				*p_frame_prev = 1;
 
 			u8 frame_n = screen_image_ctx->frame_n++;
@@ -2424,84 +2427,35 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 			screen_ctx->c.image = &rp_ctx->image[image_n];
 			image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
-			screen_ctx->c.image_prev = &rp_ctx->image[image_n];
+			screen_ctx->c.image_prev = p_frame ? &rp_ctx->image[image_n] : 0;
 		}
 
 		struct rp_image_ctx_t image_ctx = screen_ctx->c;
 		struct rp_image_common_t *image_common = &image_ctx.image->s[image_ctx.top_bot];
-		struct rp_image_common_t *image_prev_common = &image_ctx.image_prev->s[image_ctx.top_bot];
+		struct rp_image_common_t *image_prev_common = image_ctx.image_prev ? &image_ctx.image_prev->s[image_ctx.top_bot] : 0;
 
-		if (rp_ctx->conf.me_method == 0) {
-			image_ctx.p_frame = 0;
-		}
+		if (image_prev_common) {
+			if (screen_ctx->format != image_prev_common->format
+			) {
+				nsDbgPrint("Screen format change; key frame\n");
+				image_ctx.p_frame = 0;
+			}
 
-		if (image_ctx.p_frame &&
-			screen_ctx->format != image_prev_common->format
-		) {
-			nsDbgPrint("Screen format change; key frame\n");
-			image_ctx.p_frame = 0;
-		}
-
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-			if (rp_ctx->conf.me_method != 0) {
-				if (image_ctx.p_frame) {
-					// s32 res;
-					// if ((res = rp_sem_wait(image_prev_common->sem_try, 1, RP_SYN_WAIT_MAX))) {
-					// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					// 	nsDbgPrint("%d rpEncodeScreenAndSend sem try wait timeout/error (%d) at %d (%d)\n", thread_n, res, pos, (s32)image_ctx.image);
-					// 	goto final;
-					// }
-					if ((ret = rpImageReadLock(image_prev_common))) {
-						nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image_prev timeout/error\n", thread_n, ret);
-						__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-						break;
-					}
-					// rp_sem_rel(image_prev_common->sem_try, 1);
-				} else {
-					rpImageReadUnlockCount(image_prev_common, 2); // (2) to skip both lock/unlock
+			if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+				if (!image_ctx.p_frame) {
+					// done read by skipping
+					rpImageReadUnlockSkip(image_prev_common);
 				}
 			}
 		}
 
 		screen_ctx->c.p_frame = image_ctx.p_frame;
+		/// synchronization code moved into rpEncodeImage
 		ret = rpEncodeImage(screen_ctx, image_me_ctx);
 		if (ret < 0) {
 			nsDbgPrint("rpEncodeImage failed\n");
 			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 			break;
-		}
-
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-			// s32 count;
-			if (rp_ctx->conf.me_method != 0) {
-				if (image_ctx.p_frame) {
-					if ((ret = rpImageReadUnlock(image_prev_common))) {
-						nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image_prev timeout/error: %d\n", thread_n, ret);
-						__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-						break;
-					}
-				}
-
-				if (__atomic_fetch_add(&image_common->sem_count, 1, __ATOMIC_ACQ_REL) > 0)
-					rp_sem_rel(image_common->sem_write, 1);
-				// if ((ret = rpImageReadLock(image_common))) {
-				// 	nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image timeout/error\n", thread_n, ret);
-				// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				// 	break;
-				// }
-			}
-			// rp_sem_rel(image_common->sem_try, 1);
-			// if (rpImageReadLock(image_common)) {
-			// 	__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-			// 	nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadLock image timeout/error\n", thread_n);
-			// 	break;
-			// }
-
-			if (rp_screen_transfer_release(pos) < 0) {
-				nsDbgPrint("%d rpEncodeScreenAndSend screen release syn failed\n", thread_n);
-				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				break;
-			}
 		}
 
 #define RP_ACCESS_TOP_BOT_S(n) \
@@ -2519,8 +2473,8 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 #define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b, a) while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) { \
 	if (a < 1) { \
-		pos = rp_network_encode_acquire(RP_THREAD_LOOP_MED_WAIT); \
-		if (pos < 0) { \
+		network_ctx = rp_network_encode_acquire(RP_THREAD_LOOP_MED_WAIT); \
+		if (!network_ctx) { \
 			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) { \
 				nsDbgPrint("rp_network_encode_acquire timeout\n"); \
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED); \
@@ -2529,7 +2483,6 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			continue; \
 		} \
 		acquire_count = 0; \
-		network_ctx = &rp_ctx->network_encode[pos]; \
 	} \
 	int bpp = RP_ACCESS_TOP_BOT_S(b); \
 	ret = (image_ctx.p_frame || a < 1) ? rpJLSEncodeImage(jls_ctx, \
@@ -2559,7 +2512,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		network_ctx->size_1 = ret; \
 	} \
 	if (image_ctx.p_frame ? a != 0 : a < 1) \
-		if (rp_network_transfer_release(pos) < 0) { \
+		if (rp_network_transfer_release(network_ctx) < 0) { \
 			nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", thread_n); \
 			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED); \
 			break; \
@@ -2639,12 +2592,13 @@ static void rpEncodeScreenAndSend(int thread_n) {
 #undef RP_ACCESS_TOP_BOT_IMAGE
 #undef RP_ACCESS_TOP_BOT_S
 
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me_method != 0) {
-			// rp_sem_rel(image_common->sem_write, 1);
-			if ((ret = rpImageReadUnlock(image_common))) {
-				nsDbgPrint("%d rpEncodeScreenAndSend rpImageReadUnlock image timeout/error: %d\n", thread_n, ret);
-				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-				break;
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+			if (rp_ctx->conf.me_method != 0) {
+				// done read
+				rpImageReadUnlock(image_common);
+			} else {
+				// release write
+				rp_sem_rel(image_common->sem_write, 1);
 			}
 		}
 	}
@@ -2669,8 +2623,8 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		rp_check_params(thread_n);
 
-		s32 pos = rp_screen_transfer_acquire(RP_THREAD_LOOP_MED_WAIT);
-		if (pos < 0) {
+		struct rp_screen_encode_t *screen_ctx = rp_screen_transfer_acquire(RP_THREAD_LOOP_MED_WAIT);
+		if (!screen_ctx) {
 			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
 				nsDbgPrint("rp_screen_transfer_acquire timeout\n");
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
@@ -2679,8 +2633,6 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			continue;
 		}
 		acquire_count = 0;
-		struct rp_screen_encode_t *screen_ctx = &rp_ctx->screen_encode[pos];
-		// nsDbgPrint("acquired screen transfer: %d\n", pos);
 
 		int capture_count = 0;
 		while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
@@ -2723,7 +2675,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 
 			u8 *p_frame_prev = &screen_image_ctx->p_frame;
 			u8 p_frame = *p_frame_prev;
-			if (!*p_frame_prev)
+			if (!*p_frame_prev && rp_ctx->conf.me_method != 0)
 				*p_frame_prev = 1;
 
 			u8 frame_n = screen_image_ctx->frame_n++;
@@ -2733,24 +2685,16 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 
 			screen_ctx->c.image = &rp_ctx->image[image_n];
 			image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
-			screen_ctx->c.image_prev = &rp_ctx->image[image_n];
+			screen_ctx->c.image_prev = p_frame ? &rp_ctx->image[image_n] : 0;
 
-			if (rp_ctx->conf.me_method != 0) {
-				int res;
-				struct rp_image_common_t *image_common = &screen_ctx->c.image->s[top_bot];
-				if ((res = rp_sem_wait(image_common->sem_try, RP_SYN_WAIT_MAX))) {
-					nsDbgPrint("rpScreenTransferThread sem try wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
-					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					goto final;
-				}
-				if ((res = rp_sem_wait(image_common->sem_write, RP_SYN_WAIT_MAX))) {
-					nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at %d (%d)\n", res, pos, (s32)screen_ctx->c.image);
-					__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
-					goto final;
-				}
+			// lock write
+			if ((ret = rp_sem_wait(screen_ctx->c.image->s->sem_write, RP_SYN_WAIT_MAX))) {
+				nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen_ctx);
+				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
+				goto final;
 			}
-			rp_screen_encode_release(pos);
-			// nsDbgPrint("%s released screen encode: %d\n", RP_TOP_BOT_STR(top_bot), pos);
+
+			rp_screen_encode_release(screen_ctx);
 
 			last_tick = curr_tick;
 			break;
@@ -2770,18 +2714,12 @@ static void rp_svc_increase_limits(void) {
 	}
 	ResourceLimitType types[] = {RESLIMIT_MUTEX, RESLIMIT_SEMAPHORE};
 	int count = sizeof(types) / sizeof(types[0]);
-	const char *names[] = {"mutex", "sem"};
 	s64 values[] = {64, 128};
 
 	if ((res = svcSetResourceLimitValues(resLim, types, values, count))) {
 		nsDbgPrint("svcSetResourceLimitValues failed\n");
 		return;
 	}
-
-	// if ((res = svcSetProcessResourceLimits(CURRENT_PROCESS_HANDLE, resLim))) {
-	// 	nsDbgPrint("svcSetProcessResourceLimits failed\n");
-	// 	return;
-	// }
 }
 
 static void rp_svc_print_limits(void) {
@@ -2821,7 +2759,6 @@ static int rpSendFrames(void) {
 	for (int i = 0; i < SCREEN_COUNT; ++i)
 		rp_ctx->screen_image[i].frame_n = rp_ctx->screen_image[i].p_frame = 0;
 
-	// __atomic_store_n(&rp_ctx->exit_thread, 0, __ATOMIC_RELAXED);
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 		rp_screen_queue_init();
 
@@ -2837,8 +2774,7 @@ static int rpSendFrames(void) {
 		for (int i = 0; i < RP_IMAGE_BUFFER_COUNT; ++i) {
 			for (int j = 0; j < SCREEN_COUNT; ++j) {
 				RP_INIT_SEM(rp_ctx->image[i].s[j].sem_write, 1, 1);
-				// rp_lock_init(rp_ctx->image[i].s[j].sem_read);
-				RP_INIT_SEM(rp_ctx->image[i].s[j].sem_try, 1, 1);
+				RP_INIT_SEM(rp_ctx->image[i].s[j].sem_read, 0, 1);
 				rp_ctx->image[i].s[j].sem_count = 0;
 			}
 		}
@@ -2897,13 +2833,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 	jls_encoder_prepare_LUTs();
 	rp_init_syn_params();
 	rpInitDmaHome();
-	// kRemotePlayCallback();
 
-	// s32 res;
-	// if ((res = svc_createMutex(&rp_ctx->kcp_mutex, 0))) {
-	// 	nsDbgPrint("rpThreadStart create mutex failed: %d\n", res);
-	// 	goto final;
-	// }
 	svc_createMutex(&rp_ctx->kcp_mutex, 0);
 	__atomic_store_n(&kcp_recv_ready, 1, __ATOMIC_RELEASE);
 
@@ -2954,19 +2884,8 @@ final:
 }
 
 static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
-	//rtDisableHook(&nwmValParamHook);
-
-	/*
-	if (buf[31] != 6) {
-	nsDbgPrint("buflen: %d\n", buflen);
-	for (i = 0; i < buflen; i++) {
-	nsDbgPrint("%02x ", buf[i]);
-	}
-	}*/
-
 	int ret;
 	Handle hThread;
-	// int stackSize = RP_STACK_SIZE;
 
 	if (rpInited) {
 		return 0;
@@ -3009,8 +2928,6 @@ void remotePlayMain(void) {
 }
 
 void rpKernelCallback(struct rp_screen_encode_t *screen_ctx) {
-	// u32 ret;
-	// u32 fbP2VOffset = 0xc0000000;
 	u32 current_fb;
 
 	if (screen_ctx->c.top_bot == 0) {
