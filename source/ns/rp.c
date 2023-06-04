@@ -11,9 +11,9 @@
 #include "../jpeg_ls/bitio.h"
 #include "xxhash.h"
 
-// #pragma GCC diagnostic warning "-Wall"
-// #pragma GCC diagnostic warning "-Wextra"
-// #pragma GCC diagnostic warning "-Wpedantic"
+#pragma GCC diagnostic warning "-Wall"
+#pragma GCC diagnostic warning "-Wextra"
+#pragma GCC diagnostic warning "-Wpedantic"
 
 #define RP_ENCODE_VERIFY (0)
 #define RP_ME_INTERPOLATE (1)
@@ -220,9 +220,34 @@ static struct rp_ctx_t {
 	} jls_ctx[RP_ENCODE_THREAD_COUNT];
 
 	struct rp_image_t {
-		struct rp_image_top_t {
-			s8 me_x_image[1];
-			s8 me_y_image[1];
+		struct rp_image_data_t {
+			s8 *me_x_image;
+			s8 *me_y_image;
+			u8 *y_image;
+			u8 *u_image;
+			u8 *v_image;
+			u8 *ds_y_image;
+			u8 *ds_u_image;
+			u8 *ds_v_image;
+			u8 *ds_ds_y_image;
+
+			u8 y_bpp;
+			u8 u_bpp;
+			u8 v_bpp;
+			u8 me_bpp;
+		} d;
+		u8 format;
+#if RP_SYN_EX
+		rp_sem_t sem_write;
+		rp_sem_t sem_read;
+// one for current encode thread; one for next frame reading motion est ref data
+#define RP_IMAGE_READER_COUNT (2)
+		u8 sem_count;
+#endif
+	} image[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT];
+
+	struct {
+		struct {
 			u8 y_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 u_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 v_image[400 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
@@ -231,9 +256,7 @@ static struct rp_ctx_t {
 			u8 ds_v_image[200 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 ds_ds_y_image[100 * (60 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		} top;
-		struct rp_image_bot_t {
-			s8 me_x_image[1];
-			s8 me_y_image[1];
+		struct {
 			u8 y_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 u_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 v_image[320 * (240 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
@@ -242,28 +265,16 @@ static struct rp_ctx_t {
 			u8 ds_v_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 ds_ds_y_image[80 * (60 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		} bot;
-		struct rp_image_common_t {
-			u8 y_bpp;
-			u8 u_bpp;
-			u8 v_bpp;
-			u8 format;
-			u8 me_bpp;
-#if RP_SYN_EX
-			rp_sem_t sem_write;
-			rp_sem_t sem_read;
-// one for current encode thread; one for next frame reading motion est ref data
-#define RP_IMAGE_READER_COUNT (2)
-			u8 sem_count;
-#endif
-		} s[SCREEN_COUNT];
-	} image[RP_IMAGE_BUFFER_COUNT];
+	} image_buffer[RP_IMAGE_BUFFER_COUNT];
 
 #if !RP_SYN_EX
 	rp_lock_t thread_encode_mutex[SCREEN_COUNT];
 	rp_lock_t thread_network_mutex;
 #endif
 
-	struct rp_image_me_t {
+	struct rp_image_data_t image_me[SCREEN_COUNT][RP_ENCODE_THREAD_COUNT];
+
+	struct {
 		struct {
 			s8 me_x_image[ME_TOP_SIZE] ALIGN_4;
 			s8 me_y_image[ME_TOP_SIZE] ALIGN_4;
@@ -282,7 +293,7 @@ static struct rp_ctx_t {
 			u8 ds_u_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 			u8 ds_v_image[160 * (120 + LEFTMARGIN + RIGHTMARGIN)] ALIGN_4;
 		} bot;
-	} image_me[RP_ENCODE_THREAD_COUNT];
+	} image_me_buffer[RP_ENCODE_THREAD_COUNT];
 
 	struct rp_screen_image_t {
 		u8 image_n;
@@ -560,11 +571,11 @@ static int rp_syn_rel1(struct rp_syn_comp_func_t *syn1, void *pos) {
 	return 0;
 }
 
-static void rp_screen_queue_init() {
+static void rp_screen_queue_init(void) {
 	rp_syn_init(&rp_ctx->syn.screen, 0, 0);
 }
 
-static void rp_network_queue_init() {
+static void rp_network_queue_init(void) {
 	rp_syn_init(&rp_ctx->syn.network, 1, 1);
 }
 
@@ -885,7 +896,7 @@ static void rpSetPriorityScreen(int top_bot, u32 size) {
 }
 #undef RP_DYN_PRIO_FRAME_COUNT
 
-static int rp_set_params() {
+static int rp_set_params(void) {
 	u8 multicore_encode = rp_ctx->conf.multicore_encode;
 
 	rp_ctx->conf.arg0 = g_nsConfig->startupInfo[8];
@@ -2143,37 +2154,37 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 }
 
 #if RP_SYN_EX
-static int rpImageReadLock(struct rp_image_common_t *image_common) {
+static int rpImageReadLock(struct rp_image_t *image) {
 	s32 res;
-	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read lock\n", (s32)image_common);
-	if ((res = rp_sem_wait(image_common->sem_read, RP_SYN_WAIT_MAX))) {
-		nsDbgPrint("(%d) sem read wait failed\n", (s32)image_common);
+	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read lock\n", (s32)image);
+	if ((res = rp_sem_wait(image->sem_read, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("(%d) sem read wait failed\n", (s32)image);
 		return res;
 	}
-	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read lock success\n", (s32)image_common);
+	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read lock success\n", (s32)image);
 	return 0;
 }
 
-static void rpImageReadUnlockCount(struct rp_image_common_t *image_common, int count) {
-	if (__atomic_add_fetch(&image_common->sem_count, count, __ATOMIC_RELAXED) >= RP_IMAGE_READER_COUNT) {
-		RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read reset success, write unlock\n", (s32)image_common);
-		__atomic_store_n(&image_common->sem_count, 0, __ATOMIC_RELAXED);
-		rp_sem_rel(image_common->sem_write, 1);
+static void rpImageReadUnlockCount(struct rp_image_t *image, int count) {
+	if (__atomic_add_fetch(&image->sem_count, count, __ATOMIC_RELAXED) >= RP_IMAGE_READER_COUNT) {
+		RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read reset success, write unlock\n", (s32)image);
+		__atomic_store_n(&image->sem_count, 0, __ATOMIC_RELAXED);
+		rp_sem_rel(image->sem_write, 1);
 	}
 }
 
-static void rpImageReadUnlock(struct rp_image_common_t *image_common) {
-	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read done\n", (s32)image_common);
-	rpImageReadUnlockCount(image_common, 1);
+static void rpImageReadUnlock(struct rp_image_t *image) {
+	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read done\n", (s32)image);
+	rpImageReadUnlockCount(image, 1);
 }
 
-static void rpImageReadUnlockSkip(struct rp_image_common_t *image_common) {
-	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read skip\n", (s32)image_common);
-	rpImageReadUnlockCount(image_common, 1);
+static void rpImageReadUnlockSkip(struct rp_image_t *image) {
+	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read skip\n", (s32)image);
+	rpImageReadUnlockCount(image, 1);
 }
 #endif
 
-static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_me_t *image_me_ctx) {
+static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_data_t *image_me) {
 	int top_bot = screen_ctx->c.top_bot;
 	int UNUSED frame_n = screen_ctx->c.frame_n;
 
@@ -2218,42 +2229,31 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 	s8 *me_x_image;
 	s8 *me_y_image;
 
-#define RP_IMAGE_SET(si, sn) do { \
-	struct rp_image_ctx_t *c = &screen_ctx->c; \
-	y_image = c->image->sn.y_image; \
-	u_image = c->image->sn.u_image; \
-	v_image = c->image->sn.v_image; \
-	ds_y_image = c->image->sn.ds_y_image; \
-	ds_u_image = c->image->sn.ds_u_image; \
-	ds_v_image = c->image->sn.ds_v_image; \
-	ds_ds_y_image = c->image->sn.ds_ds_y_image; \
-	y_bpp = &c->image->s[si].y_bpp; \
-	u_bpp = &c->image->s[si].u_bpp; \
-	v_bpp = &c->image->s[si].v_bpp; \
-	me_bpp = &c->image->s[si].me_bpp; \
- \
-	y_image_me = image_me_ctx->sn.y_image; \
-	u_image_me = image_me_ctx->sn.u_image; \
-	v_image_me = image_me_ctx->sn.v_image; \
-	ds_u_image_me = image_me_ctx->sn.ds_u_image; \
-	ds_v_image_me = image_me_ctx->sn.ds_v_image; \
-	me_x_image = image_me_ctx->sn.me_x_image; \
-	me_y_image = image_me_ctx->sn.me_y_image; \
- \
-	c->image->s[si].format = format; } while (0)
+	struct rp_image_ctx_t *c = &screen_ctx->c;
+	y_image = c->image->d.y_image;
+	u_image = c->image->d.u_image;
+	v_image = c->image->d.v_image;
+	ds_y_image = c->image->d.ds_y_image;
+	ds_u_image = c->image->d.ds_u_image;
+	ds_v_image = c->image->d.ds_v_image;
+	ds_ds_y_image = c->image->d.ds_ds_y_image;
+	y_bpp = &c->image->d.y_bpp;
+	u_bpp = &c->image->d.u_bpp;
+	v_bpp = &c->image->d.v_bpp;
+	me_bpp = &c->image->d.me_bpp;
 
-	if (top_bot == 0) {
-		RP_IMAGE_SET(SCREEN_TOP, top);
-	} else {
-		RP_IMAGE_SET(SCREEN_BOT, bot);
-	}
+	y_image_me = image_me->y_image;
+	u_image_me = image_me->u_image;
+	v_image_me = image_me->v_image;
+	ds_u_image_me = image_me->ds_u_image;
+	ds_v_image_me = image_me->ds_v_image;
+	me_x_image = image_me->me_x_image;
+	me_y_image = image_me->me_y_image;
 
-#undef RP_IMAGE_SET
+	c->image->format = format;
 
-	struct rp_image_t *image_ctx = screen_ctx->c.image;
-	struct rp_image_t *image_prev_ctx = screen_ctx->c.image_prev;
-	struct rp_image_common_t *UNUSED image_common = &image_ctx->s[top_bot];
-	struct rp_image_common_t *UNUSED image_prev_common = image_prev_ctx ? &image_prev_ctx->s[top_bot] : 0;
+	struct rp_image_t *image = screen_ctx->c.image;
+	struct rp_image_t *image_prev = screen_ctx->c.image_prev;
 
 	int p_frame = screen_ctx->c.p_frame;
 
@@ -2275,9 +2275,8 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 
 #if RP_SYN_EX
 	RP_DBG(RP_DBG_IMAGE_INFO, "encode image yuv (%d) %s frame_n = %d, y_image = %d\n",
-		(s32)image_common, RP_TOP_BOT_STR(top_bot), frame_n,
-		XXH32(top_bot == 0 ? image_ctx->top.y_image : image_ctx->bot.y_image,
-			width * (height + LEFTMARGIN + RIGHTMARGIN), 0)
+		(s32)image, RP_TOP_BOT_STR(top_bot), frame_n,
+		XXH32(image->d.y_image, width * (height + LEFTMARGIN + RIGHTMARGIN), 0)
 	);
 #endif
 
@@ -2319,16 +2318,15 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 #if RP_SYN_EX
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			// lock read
-			if ((ret = rpImageReadLock(image_prev_common))) {
+			if ((ret = rpImageReadLock(image_prev))) {
 				nsDbgPrint("rpEncodeImage rpImageReadLock image_prev timeout/error\n", ret);
 				return -1;
 			}
 		}
 
 		RP_DBG(RP_DBG_IMAGE_INFO, "encode image yuv (%d) %s frame_n = %d, ds_y_image = %d\n",
-			(s32)image_common, RP_TOP_BOT_STR(top_bot), frame_n,
-			XXH32(top_bot == 0 ? image_ctx->top.ds_y_image : image_ctx->bot.ds_y_image,
-				ds_width * (ds_height + LEFTMARGIN + RIGHTMARGIN), 0)
+			(s32)image, RP_TOP_BOT_STR(top_bot), frame_n,
+			XXH32(image->d.ds_y_image, ds_width * (ds_height + LEFTMARGIN + RIGHTMARGIN), 0)
 		);
 #endif
 
@@ -2340,23 +2338,14 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 		const u8 *ds_y_image_prev;
 		const u8 *ds_ds_y_image_prev;
 
-#define RP_IMAGE_PREV_SET(si, sn) do { \
-	struct rp_image_ctx_t *c = &screen_ctx->c; \
-	y_image_prev = c->image_prev->sn.y_image; \
-	u_image_prev = c->image_prev->sn.u_image; \
-	v_image_prev = c->image_prev->sn.v_image; \
-	ds_y_image_prev = c->image_prev->sn.ds_y_image; \
-	ds_u_image_prev = c->image_prev->sn.ds_u_image; \
-	ds_v_image_prev = c->image_prev->sn.ds_v_image; \
-	ds_ds_y_image_prev = c->image_prev->sn.ds_ds_y_image; } while (0)
-
-		if (top_bot == 0) {
-			RP_IMAGE_PREV_SET(SCREEN_TOP, top);
-		} else {
-			RP_IMAGE_PREV_SET(SCREEN_BOT, bot);
-		}
-
-#undef RP_IMAGE_PREV_SET
+		struct rp_image_ctx_t *c = &screen_ctx->c;
+		y_image_prev = c->image_prev->d.y_image;
+		u_image_prev = c->image_prev->d.u_image;
+		v_image_prev = c->image_prev->d.v_image;
+		ds_y_image_prev = c->image_prev->d.ds_y_image;
+		ds_u_image_prev = c->image_prev->d.ds_u_image;
+		ds_v_image_prev = c->image_prev->d.ds_v_image;
+		ds_ds_y_image_prev = c->image_prev->d.ds_ds_y_image;
 
 		if (rp_ctx->conf.me_downscale) {
 			int ds_ds_width = ds_width / 2;
@@ -2395,16 +2384,14 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 
 #if RP_SYN_EX
 		RP_DBG(RP_DBG_IMAGE_INFO, "encode image prev done (%d) %s y_image = %d, ds_y_image = %d\n",
-			(s32)image_prev_common, RP_TOP_BOT_STR(top_bot),
-			XXH32(top_bot == 0 ? image_prev_ctx->top.y_image : image_prev_ctx->bot.y_image,
-				width * (height + LEFTMARGIN + RIGHTMARGIN), 0),
-			XXH32(top_bot == 0 ? image_prev_ctx->top.ds_y_image : image_prev_ctx->bot.ds_y_image,
-				ds_width * (ds_height + LEFTMARGIN + RIGHTMARGIN), 0)
+			(s32)image_prev, RP_TOP_BOT_STR(top_bot),
+			XXH32(image_prev->d.y_image, width * (height + LEFTMARGIN + RIGHTMARGIN), 0),
+			XXH32(image_prev->d.ds_y_image, ds_width * (ds_height + LEFTMARGIN + RIGHTMARGIN), 0)
 		);
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			// done read
-			rpImageReadUnlock(image_prev_common);
+			rpImageReadUnlock(image_prev);
 		}
 #endif
 	}
@@ -2412,8 +2399,8 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 #if RP_SYN_EX
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me_method != 0) {
 		// allow read
-		RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read unlock\n", (s32)image_common);
-		rp_sem_rel(image_common->sem_read, 1);
+		RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read unlock\n", (s32)image);
+		rp_sem_rel(image->sem_read, 1);
 	}
 #endif
 
@@ -2430,7 +2417,6 @@ static void rpEncodeScreenAndSend(int thread_n) {
 	u64 last_tick = svc_getSystemTick(), curr_tick;
 	u64 sleep_duration = 0;
 	int acquire_count = 0;
-	struct rp_image_me_t *image_me_ctx = &rp_ctx->image_me[thread_n];
 	while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) {
 		rp_check_params(thread_n);
 
@@ -2497,17 +2483,18 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			screen_ctx->c.p_frame = p_frame;
 			screen_ctx->c.frame_n = frame_n;
 
-			screen_ctx->c.image = &rp_ctx->image[image_n];
+			screen_ctx->c.image = &rp_ctx->image[top_bot][image_n];
 			image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
-			screen_ctx->c.image_prev = p_frame ? &rp_ctx->image[image_n] : 0;
+			screen_ctx->c.image_prev = p_frame ? &rp_ctx->image[top_bot][image_n] : 0;
 		}
 
 		struct rp_image_ctx_t image_ctx = screen_ctx->c;
-		struct rp_image_common_t *image_common = &image_ctx.image->s[image_ctx.top_bot];
-		struct rp_image_common_t *image_prev_common = image_ctx.image_prev ? &image_ctx.image_prev->s[image_ctx.top_bot] : 0;
+		struct rp_image_data_t *image_me = &rp_ctx->image_me[image_ctx.top_bot][thread_n];
+		struct rp_image_t *image = image_ctx.image;
+		struct rp_image_t *image_prev = image_ctx.image_prev;
 
-		if (image_prev_common) {
-			if (screen_ctx->format != image_prev_common->format
+		if (image_prev) {
+			if (screen_ctx->format != image_prev->format
 			) {
 				nsDbgPrint("Screen format change; key frame\n");
 				image_ctx.p_frame = 0;
@@ -2517,7 +2504,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 				if (!image_ctx.p_frame) {
 					// done read by skipping
-					rpImageReadUnlockSkip(image_prev_common);
+					rpImageReadUnlockSkip(image_prev);
 				}
 			}
 #endif
@@ -2525,27 +2512,14 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 		screen_ctx->c.p_frame = image_ctx.p_frame;
 		/// synchronization code moved into rpEncodeImage
-		ret = rpEncodeImage(screen_ctx, image_me_ctx);
+		ret = rpEncodeImage(screen_ctx, image_me);
 		if (ret < 0) {
 			nsDbgPrint("rpEncodeImage failed\n");
 			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 			break;
 		}
 
-#define RP_ACCESS_TOP_BOT_S(n) \
-	(image_common->n) \
-
-#define RP_ACCESS_TOP_BOT_IMAGE(s, n) \
-	((s) == 0 ? \
-		image_ctx.image->top.n : \
-		image_ctx.image->bot.n) \
-
-#define RP_ACCESS_TOP_BOT_IMAGE_ME(s, n) \
-	((s) == 0 ? \
-		image_me_ctx->top.n : \
-		image_me_ctx->bot.n) \
-
-#define RP_PROCESS_IMAGE_AND_SEND(n, wt, wb, h, b, a) while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) { \
+#define RP_PROCESS_IMAGE_AND_SEND(n, w, h, b, a) while (!__atomic_load_n(&rp_ctx->exit_thread, __ATOMIC_RELAXED)) { \
 	if (a < 1) { \
 		network_ctx = rp_network_encode_acquire(RP_THREAD_LOOP_MED_WAIT); \
 		if (!network_ctx) { \
@@ -2558,16 +2532,12 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		} \
 		acquire_count = 0; \
 	} \
-	int bpp = RP_ACCESS_TOP_BOT_S(b); \
+	int bpp = image->d.b; \
 	ret = (image_ctx.p_frame || a < 1) ? rpJLSEncodeImage(jls_ctx, \
 		network_ctx->buffer + (a < 1 ? 0 : ret), \
 		(a < 1 ? RP_JLS_ENCODE_IMAGE_BUFFER_SIZE : RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE), \
-		(const u8 *)(image_ctx.p_frame ? \
-			RP_ACCESS_TOP_BOT_IMAGE_ME(image_ctx.top_bot, n) : \
-			RP_ACCESS_TOP_BOT_IMAGE(image_ctx.top_bot, n)), \
-		image_ctx.top_bot == 0 ? wt : wb, \
-		h, \
-		bpp \
+		(const u8 *)(image_ctx.p_frame ? image_me->n : image->d.n), \
+		w, h, bpp \
 	) : 0; \
 	if (ret < 0) { \
 		nsDbgPrint("rpJLSEncodeImage failed\n"); \
@@ -2579,7 +2549,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		network_ctx->frame_n = image_ctx.frame_n; \
 		network_ctx->size = ret; \
 		network_ctx->bpp = bpp; \
-		network_ctx->format = RP_ACCESS_TOP_BOT_S(format); \
+		network_ctx->format = image->format; \
 		network_ctx->p_frame = image_ctx.p_frame; \
 		network_ctx->size_1 = 0; \
 	} else { \
@@ -2600,10 +2570,10 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 		int top_width = 400;
 		int bot_width = 320;
+		int width = image_ctx.top_bot == 0 ? top_width : bot_width;
 		int height = 240;
 
-		int me_top_width = top_width >> block_size_log2;
-		int me_bot_width = bot_width >> block_size_log2;
+		int me_width = width >> block_size_log2;
 		int me_height = height >> block_size_log2;
 
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
@@ -2617,30 +2587,27 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		}
 #else
 		RP_DBG(RP_DBG_IMAGE_INFO, "encode image to network (%d) %s frame_n = %d, y_image = %d\n",
-			(s32)image_common, RP_TOP_BOT_STR(image_ctx.top_bot), image_ctx.frame_n,
-			XXH32(image_ctx.p_frame ?
-				RP_ACCESS_TOP_BOT_IMAGE_ME(image_ctx.top_bot, y_image) :
-				RP_ACCESS_TOP_BOT_IMAGE(image_ctx.top_bot, y_image),
+			(s32)image, RP_TOP_BOT_STR(image_ctx.top_bot), image_ctx.frame_n,
+			XXH32(image_ctx.p_frame ? image_me->y_image : image->d.y_image,
 				(image_ctx.top_bot == 0 ? top_width : bot_width) * (height + LEFTMARGIN + RIGHTMARGIN), 0)
 		);
 #endif
 
 		if (rp_ctx->conf.downscale_uv)
 		{
-			int ds_top_width = top_width / 2;
-			int ds_bot_width = bot_width / 2;
+			int ds_width = width / 2;
 			int ds_height = height / 2;
 
 			// y_image
-			RP_PROCESS_IMAGE_AND_SEND(y_image, top_width, bot_width, height, y_bpp, -1)
+			RP_PROCESS_IMAGE_AND_SEND(y_image, width, height, y_bpp, -1)
 				// ds_u_image
-				RP_PROCESS_IMAGE_AND_SEND(ds_u_image, ds_top_width, ds_bot_width, ds_height, u_bpp, 0)
+				RP_PROCESS_IMAGE_AND_SEND(ds_u_image, ds_width, ds_height, u_bpp, 0)
 					// me_x_image
-					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
+					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_width, me_height, me_bpp, 1)
 						// ds_v_image
-						RP_PROCESS_IMAGE_AND_SEND(ds_v_image, ds_top_width, ds_bot_width, ds_height, v_bpp, 0)
+						RP_PROCESS_IMAGE_AND_SEND(ds_v_image, ds_width, ds_height, v_bpp, 0)
 							// me_x_image
-							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
+							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_width, me_height, me_bpp, 1)
 
 							RP_PROCESS_IMAGE_AND_SEND_END
 
@@ -2653,15 +2620,15 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			RP_PROCESS_IMAGE_AND_SEND_END
 		} else {
 			// y_image
-			RP_PROCESS_IMAGE_AND_SEND(y_image, top_width, bot_width, height, y_bpp, -1)
+			RP_PROCESS_IMAGE_AND_SEND(y_image, width, height, y_bpp, -1)
 				// u_image
-				RP_PROCESS_IMAGE_AND_SEND(u_image, top_width, bot_width, height, u_bpp, 0)
+				RP_PROCESS_IMAGE_AND_SEND(u_image, width, height, u_bpp, 0)
 					// me_x_image
-					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
+					RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_width, me_height, me_bpp, 1)
 						// v_image
-						RP_PROCESS_IMAGE_AND_SEND(v_image, top_width, bot_width, height, v_bpp, 0)
+						RP_PROCESS_IMAGE_AND_SEND(v_image, width, height, v_bpp, 0)
 							// me_x_image
-							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_top_width, me_bot_width, me_height, me_bpp, 1)
+							RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_width, me_height, me_bpp, 1)
 
 							RP_PROCESS_IMAGE_AND_SEND_END
 
@@ -2678,11 +2645,9 @@ static void rpEncodeScreenAndSend(int thread_n) {
 		rp_lock_rel(rp_ctx->thread_network_mutex);
 #else
 		RP_DBG(RP_DBG_IMAGE_INFO, "encode image done network (%d) %s frame_n = %d, y_image = %d\n",
-			(s32)image_common, RP_TOP_BOT_STR(image_ctx.top_bot), image_ctx.frame_n,
-			XXH32(image_ctx.p_frame ?
-				RP_ACCESS_TOP_BOT_IMAGE_ME(image_ctx.top_bot, y_image) :
-				RP_ACCESS_TOP_BOT_IMAGE(image_ctx.top_bot, y_image),
-				(image_ctx.top_bot == 0 ? top_width : bot_width) * (height + LEFTMARGIN + RIGHTMARGIN), 0)
+			(s32)image, RP_TOP_BOT_STR(image_ctx.top_bot), image_ctx.frame_n,
+			XXH32(image_ctx.p_frame ? image_me->y_image : image->d.y_image,
+				width * (height + LEFTMARGIN + RIGHTMARGIN), 0)
 		);
 #endif
 
@@ -2698,11 +2663,11 @@ static void rpEncodeScreenAndSend(int thread_n) {
 #if RP_SYN_EX
 			if (rp_ctx->conf.me_method != 0) {
 				// done read
-				rpImageReadUnlock(image_common);
+				rpImageReadUnlock(image);
 			} else {
 				// release write
-				RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write unlock\n", (s32)image_common);
-				rp_sem_rel(image_common->sem_write, 1);
+				RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write unlock\n", (s32)image);
+				rp_sem_rel(image->sem_write, 1);
 			}
 #else
 			rp_lock_rel(rp_ctx->thread_encode_mutex[image_ctx.top_bot]);
@@ -2794,22 +2759,22 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			screen_ctx->c.p_frame = p_frame;
 			screen_ctx->c.frame_n = frame_n;
 
-			screen_ctx->c.image = &rp_ctx->image[image_n];
+			screen_ctx->c.image = &rp_ctx->image[top_bot][image_n];
 			image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
-			screen_ctx->c.image_prev = p_frame ? &rp_ctx->image[image_n] : 0;
+			screen_ctx->c.image_prev = p_frame ? &rp_ctx->image[top_bot][image_n] : 0;
 
 #if RP_SYN_EX
 			// lock write
-			struct rp_image_common_t *image_common = &screen_ctx->c.image->s[top_bot];
-			RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write lock\n", (s32)image_common);
-			if ((ret = rp_sem_wait(image_common->sem_write, RP_SYN_WAIT_MAX))) {
+			struct rp_image_t *image = screen_ctx->c.image;
+			RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write lock\n", (s32)image);
+			if ((ret = rp_sem_wait(image->sem_write, RP_SYN_WAIT_MAX))) {
 				nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen_ctx);
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				goto final;
 			}
-			RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write lock success\n", (s32)image_common);
+			RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write lock success\n", (s32)image);
 
-			RP_DBG(RP_DBG_IMAGE_INFO, "screen image to encode (%d) %s frame_n = %d\n", (s32)image_common, RP_TOP_BOT_STR(top_bot), frame_n);
+			RP_DBG(RP_DBG_IMAGE_INFO, "screen image to encode (%d) %s frame_n = %d\n", (s32)image, RP_TOP_BOT_STR(top_bot), frame_n);
 #endif
 
 			rp_screen_encode_release(screen_ctx);
@@ -2890,11 +2855,11 @@ static int rpSendFrames(void) {
 } while (0)
 
 #if RP_SYN_EX
-		for (int i = 0; i < RP_IMAGE_BUFFER_COUNT; ++i) {
-			for (int j = 0; j < SCREEN_COUNT; ++j) {
-				RP_INIT_SEM(rp_ctx->image[i].s[j].sem_write, 1, 1);
-				RP_INIT_SEM(rp_ctx->image[i].s[j].sem_read, 0, 1);
-				rp_ctx->image[i].s[j].sem_count = 0;
+		for (int i = 0; i < SCREEN_COUNT; ++i) {
+			for (int j = 0; j < RP_IMAGE_BUFFER_COUNT; ++j) {
+				RP_INIT_SEM(rp_ctx->image[i][j].sem_write, 1, 1);
+				RP_INIT_SEM(rp_ctx->image[i][j].sem_read, 0, 1);
+				rp_ctx->image[i][j].sem_count = 0;
 			}
 		}
 #else
@@ -2951,6 +2916,48 @@ static int rpSendFrames(void) {
 	return ret;
 }
 
+static void rp_init_image_buffers(void) {
+	for (int i = 0; i < RP_IMAGE_BUFFER_COUNT; ++i) {
+
+#define SET_IMAGE_BUFFER(sv, sn, in) do { rp_ctx->image[sv][i].d.in = rp_ctx->image_buffer[i].sn.in; } while (0)
+
+#define SET_IMAGE_BUFFER_SCREEN(sv, sn) do { \
+	SET_IMAGE_BUFFER(sv, sn, y_image); \
+	SET_IMAGE_BUFFER(sv, sn, u_image); \
+	SET_IMAGE_BUFFER(sv, sn, v_image); \
+	SET_IMAGE_BUFFER(sv, sn, ds_y_image); \
+	SET_IMAGE_BUFFER(sv, sn, ds_u_image); \
+	SET_IMAGE_BUFFER(sv, sn, ds_v_image); \
+	SET_IMAGE_BUFFER(sv, sn, ds_ds_y_image); \
+} while (0)
+
+		SET_IMAGE_BUFFER_SCREEN(SCREEN_TOP, top);
+		SET_IMAGE_BUFFER_SCREEN(SCREEN_BOT, bot);
+	}
+
+	for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
+#define SET_IMAGE_ME_BUFFER(sv, sn, in) do { rp_ctx->image_me[sv][i].in = rp_ctx->image_me_buffer[i].sn.in; } while (0)
+
+#define SET_IMAGE_ME_BUFFER_SCREEN(sv, sn) do { \
+	SET_IMAGE_ME_BUFFER(sv, sn, me_x_image); \
+	SET_IMAGE_ME_BUFFER(sv, sn, me_y_image); \
+	SET_IMAGE_ME_BUFFER(sv, sn, y_image); \
+	SET_IMAGE_ME_BUFFER(sv, sn, u_image); \
+	SET_IMAGE_ME_BUFFER(sv, sn, v_image); \
+	SET_IMAGE_ME_BUFFER(sv, sn, ds_u_image); \
+	SET_IMAGE_ME_BUFFER(sv, sn, ds_v_image); \
+} while (0)
+
+		SET_IMAGE_ME_BUFFER_SCREEN(SCREEN_TOP, top);
+		SET_IMAGE_ME_BUFFER_SCREEN(SCREEN_BOT, bot);
+	}
+}
+
+#undef SET_IMAGE_BUFFER
+#undef SET_IMAGE_BUFFER_SCREEN
+#undef SET_IMAGE_ME_BUFFER
+#undef SET_IMAGE_ME_BUFFER_SCREEN
+
 Result __sync_init(void);
 static void rpThreadStart(u32 arg UNUSED) {
 	if (RP_SYN_METHOD == 0) {
@@ -2958,6 +2965,7 @@ static void rpThreadStart(u32 arg UNUSED) {
 	} else {
 		__sync_init();
 	}
+	rp_init_image_buffers();
 	jls_encoder_prepare_LUTs();
 	rp_init_syn_params();
 	rpInitDmaHome();
