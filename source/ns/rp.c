@@ -16,15 +16,16 @@
 // #pragma GCC diagnostic warning "-Wpedantic"
 
 #define RP_ENCODE_VERIFY (0)
-#define RP_ME_INTERPOLATE (0)
+#define RP_ME_INTERPOLATE (1)
 #define RP_ENCODE_MULTITHREAD (1)
 // (0) svc (1) syn
 #define RP_SYN_METHOD (1)
 
 #define RP_DBG_IMAGE_SYN (0)
+#define RP_DBG_IMAGE_INFO (0)
 
 #define RP_KCP_SET_MINRTO (0)
-#define RP_SYN_EX (0)
+#define RP_SYN_EX (1)
 
 // extern IUINT32 IKCP_OVERHEAD;
 #define IKCP_OVERHEAD (24)
@@ -1888,8 +1889,6 @@ static void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const
 		height = temp;
 	}
 
-	u8 half_range = rp_ctx->conf.me_bpp_half_range;
-
 	AVMotionEstContext me_ctx;
 	AVMotionEstPredictor *preds UNUSED = me_ctx.preds;
 
@@ -1957,8 +1956,8 @@ static void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const
 					break;
 			}
 
-			*me_x_image++ = mv[0] - x + half_range;
-			*me_y_image++ = mv[1] - y + half_range;
+			*me_x_image++ = mv[0] - x;
+			*me_y_image++ = mv[1] - y;
 		}
 
 		convert_set_last((u8 **)&me_x_image, RIGHTMARGIN);
@@ -1974,7 +1973,7 @@ enum {
 	CORNER_COUNT,
 };
 
-static void interpolate_me(const s8 *me_x_vec[CORNER_COUNT], const s8 *me_y_vec[CORNER_COUNT], int half_range, int scale_log2, int block_size, int block_size_log2, int i, int j, s8 *x, s8 *y) {
+static void interpolate_me(const s8 *me_x_vec[CORNER_COUNT], const s8 *me_y_vec[CORNER_COUNT], int scale_log2, int block_size, int block_size_log2, int i, int j, s8 *x, s8 *y) {
 	int step_total = block_size * 2;
 	int step_base = 1;
 	int step = 2;
@@ -1988,23 +1987,39 @@ static void interpolate_me(const s8 *me_x_vec[CORNER_COUNT], const s8 *me_y_vec[
 	int rshift_scale = (block_size_log2 + 1) * 2 + 2;
 
 	int x_unscaled =
-		((int)*me_x_vec[CORNER_TOP_LEFT] - half_range) * x_left * y_top +
-		((int)*me_x_vec[CORNER_BOT_LEFT] - half_range) * x_left * y_bot +
-		((int)*me_x_vec[CORNER_BOT_RIGHT] - half_range) * x_right * y_bot +
-		((int)*me_x_vec[CORNER_TOP_RIGHT] - half_range) * x_right * y_top;
+		((int)*me_x_vec[CORNER_TOP_LEFT]) * x_left * y_top +
+		((int)*me_x_vec[CORNER_BOT_LEFT]) * x_left * y_bot +
+		((int)*me_x_vec[CORNER_BOT_RIGHT]) * x_right * y_bot +
+		((int)*me_x_vec[CORNER_TOP_RIGHT]) * x_right * y_top;
 	*x = srshift_to_even(int, x_unscaled, rshift_scale) << scale_log2;
 
 	int y_unscaled =
-		((int)*me_y_vec[CORNER_TOP_LEFT] - half_range) * x_left * y_top +
-		((int)*me_y_vec[CORNER_BOT_LEFT] - half_range) * x_left * y_bot +
-		((int)*me_y_vec[CORNER_BOT_RIGHT] - half_range) * x_right * y_bot +
-		((int)*me_y_vec[CORNER_TOP_RIGHT] - half_range) * x_right * y_top;
+		((int)*me_y_vec[CORNER_TOP_LEFT]) * x_left * y_top +
+		((int)*me_y_vec[CORNER_BOT_LEFT]) * x_left * y_bot +
+		((int)*me_y_vec[CORNER_BOT_RIGHT]) * x_right * y_bot +
+		((int)*me_y_vec[CORNER_TOP_RIGHT]) * x_right * y_top;
 	*y = srshift_to_even(int, y_unscaled, rshift_scale) << scale_log2;
 }
 
-static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2, int bpp) {
+static void me_add_half_range(u8 *me, int width, int height, int scale_log2) {
 	u8 half_range = rp_ctx->conf.me_bpp_half_range;
+	u8 block_size_log2 = rp_ctx->conf.me_block_size_log2 + scale_log2;
+	u8 block_x_n = width >> block_size_log2;
+	u8 block_y_n = height >> block_size_log2;
 
+	me += LEFTMARGIN;
+	for (int i = 0; i < block_x_n; ++i) {
+		if (i)
+			convert_set_prev_first(block_y_n + RIGHTMARGIN, &me, LEFTMARGIN);
+		for (int j = 0; j < block_y_n; ++j) {
+			*me = *me + half_range;
+			++me;
+		}
+		convert_set_last(&me, RIGHTMARGIN);
+	}
+}
+
+static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2, int bpp) {
 	u8 block_size = rp_ctx->conf.me_block_size << scale_log2;
 	u8 block_size_log2 = rp_ctx->conf.me_block_size_log2 + scale_log2;
 	u8 block_size_mask = (1 << block_size_log2) - 1;
@@ -2090,7 +2105,7 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 					}
 				}
 				s8 x, y;
-				interpolate_me(me_x_vec, me_y_vec, half_range, scale_log2, block_size, block_size_log2, i_off, j_off, &x, &y);
+				interpolate_me(me_x_vec, me_y_vec, scale_log2, block_size, block_size_log2, i_off, j_off, &x, &y);
 
 				// do prediction
 				DO_PREDICTION();
@@ -2104,16 +2119,16 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 
 			const s8 *me_x = me_x_col;
 			const s8 *me_y = me_y_col;
-			int x = ((s16)*me_x - (s16)half_range) << scale_log2;
-			int y = ((s16)*me_y - (s16)half_range) << scale_log2;
+			int x = ((s16)*me_x) << scale_log2;
+			int y = ((s16)*me_y) << scale_log2;
 			for (int j = 0; j < height; ++j) {
 				int j_off = (j - y_off) & block_size_mask;
 				if (j > y_off && j_off == 0 && j < height - y_off - 1) {
 					++me_x;
 					++me_y;
 
-					x = (int)((s16)*me_x - (s16)half_range) << scale_log2;
-					y = (int)((s16)*me_y - (s16)half_range) << scale_log2;
+					x = (int)((s16)*me_x) << scale_log2;
+					y = (int)((s16)*me_y) << scale_log2;
 				}
 
 				// do prediction
@@ -2160,6 +2175,7 @@ static void rpImageReadUnlockSkip(struct rp_image_common_t *image_common) {
 
 static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_me_t *image_me_ctx) {
 	int top_bot = screen_ctx->c.top_bot;
+	int UNUSED frame_n = screen_ctx->c.frame_n;
 
 	int width, height;
 	if (top_bot == 0) {
@@ -2236,8 +2252,8 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 
 	struct rp_image_t *image_ctx = screen_ctx->c.image;
 	struct rp_image_t *image_prev_ctx = screen_ctx->c.image_prev;
-	struct rp_image_common_t *image_common = &image_ctx->s[top_bot];
-	struct rp_image_common_t *image_prev_common = image_prev_ctx ? &image_prev_ctx->s[top_bot] : 0;
+	struct rp_image_common_t *UNUSED image_common = &image_ctx->s[top_bot];
+	struct rp_image_common_t *UNUSED image_prev_common = image_prev_ctx ? &image_prev_ctx->s[top_bot] : 0;
 
 	int p_frame = screen_ctx->c.p_frame;
 
@@ -2256,6 +2272,14 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 			return -1;
 		}
 	}
+
+#if RP_SYN_EX
+	RP_DBG(RP_DBG_IMAGE_INFO, "encode image yuv (%d) %s frame_n = %d, y_image = %d\n",
+		(s32)image_common, RP_TOP_BOT_STR(top_bot), frame_n,
+		XXH32(top_bot == 0 ? image_ctx->top.y_image : image_ctx->bot.y_image,
+			width * (height + LEFTMARGIN + RIGHTMARGIN), 0)
+	);
+#endif
 
 	if (ret < 0)
 		return ret;
@@ -2300,6 +2324,12 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 				return -1;
 			}
 		}
+
+		RP_DBG(RP_DBG_IMAGE_INFO, "encode image yuv (%d) %s frame_n = %d, ds_y_image = %d\n",
+			(s32)image_common, RP_TOP_BOT_STR(top_bot), frame_n,
+			XXH32(top_bot == 0 ? image_ctx->top.ds_y_image : image_ctx->bot.ds_y_image,
+				ds_width * (ds_height + LEFTMARGIN + RIGHTMARGIN), 0)
+		);
 #endif
 
 		const u8 *y_image_prev;
@@ -2360,7 +2390,18 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 				width, height, scale_log2, *v_bpp);
 		}
 
+		me_add_half_range((u8 *)me_x_image, width, height, scale_log2);
+		me_add_half_range((u8 *)me_y_image, width, height, scale_log2);
+
 #if RP_SYN_EX
+		RP_DBG(RP_DBG_IMAGE_INFO, "encode image prev done (%d) %s y_image = %d, ds_y_image = %d\n",
+			(s32)image_prev_common, RP_TOP_BOT_STR(top_bot),
+			XXH32(top_bot == 0 ? image_prev_ctx->top.y_image : image_prev_ctx->bot.y_image,
+				width * (height + LEFTMARGIN + RIGHTMARGIN), 0),
+			XXH32(top_bot == 0 ? image_prev_ctx->top.ds_y_image : image_prev_ctx->bot.ds_y_image,
+				ds_width * (ds_height + LEFTMARGIN + RIGHTMARGIN), 0)
+		);
+
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			// done read
 			rpImageReadUnlock(image_prev_common);
@@ -2574,6 +2615,14 @@ static void rpEncodeScreenAndSend(int thread_n) {
 			__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED); \
 			goto final;
 		}
+#else
+		RP_DBG(RP_DBG_IMAGE_INFO, "encode image to network (%d) %s frame_n = %d, y_image = %d\n",
+			(s32)image_common, RP_TOP_BOT_STR(image_ctx.top_bot), image_ctx.frame_n,
+			XXH32(image_ctx.p_frame ?
+				RP_ACCESS_TOP_BOT_IMAGE_ME(image_ctx.top_bot, y_image) :
+				RP_ACCESS_TOP_BOT_IMAGE(image_ctx.top_bot, y_image),
+				(image_ctx.top_bot == 0 ? top_width : bot_width) * (height + LEFTMARGIN + RIGHTMARGIN), 0)
+		);
 #endif
 
 		if (rp_ctx->conf.downscale_uv)
@@ -2627,6 +2676,14 @@ static void rpEncodeScreenAndSend(int thread_n) {
 
 #if !RP_SYN_EX
 		rp_lock_rel(rp_ctx->thread_network_mutex);
+#else
+		RP_DBG(RP_DBG_IMAGE_INFO, "encode image done network (%d) %s frame_n = %d, y_image = %d\n",
+			(s32)image_common, RP_TOP_BOT_STR(image_ctx.top_bot), image_ctx.frame_n,
+			XXH32(image_ctx.p_frame ?
+				RP_ACCESS_TOP_BOT_IMAGE_ME(image_ctx.top_bot, y_image) :
+				RP_ACCESS_TOP_BOT_IMAGE(image_ctx.top_bot, y_image),
+				(image_ctx.top_bot == 0 ? top_width : bot_width) * (height + LEFTMARGIN + RIGHTMARGIN), 0)
+		);
 #endif
 
 #undef RP_PROCESS_IMAGE_HASH_CHECK
@@ -2743,7 +2800,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 
 #if RP_SYN_EX
 			// lock write
-			struct rp_image_common_t *image_common = &screen_ctx->c.image->s[screen_ctx->c.top_bot];
+			struct rp_image_common_t *image_common = &screen_ctx->c.image->s[top_bot];
 			RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write lock\n", (s32)image_common);
 			if ((ret = rp_sem_wait(image_common->sem_write, RP_SYN_WAIT_MAX))) {
 				nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen_ctx);
@@ -2751,6 +2808,8 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 				goto final;
 			}
 			RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write lock success\n", (s32)image_common);
+
+			RP_DBG(RP_DBG_IMAGE_INFO, "screen image to encode (%d) %s frame_n = %d\n", (s32)image_common, RP_TOP_BOT_STR(top_bot), frame_n);
 #endif
 
 			rp_screen_encode_release(screen_ctx);
@@ -2759,7 +2818,7 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			break;
 		}
 	}
-final:
+final: UNUSED
 	rp_release_params(thread_n);
 	svc_exitThread();
 }
