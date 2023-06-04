@@ -21,6 +21,8 @@
 // (0) svc (1) syn
 #define RP_SYN_METHOD (1)
 
+#define RP_DBG_IMAGE_SYN (0)
+
 // extern IUINT32 IKCP_OVERHEAD;
 #define IKCP_OVERHEAD (24)
 
@@ -83,7 +85,8 @@ static u8 rpInited = 0;
 #define ME_TOP_SIZE ME_SIZE(400, 240)
 #define ME_BOT_SIZE ME_SIZE(320, 240)
 
-#define RP_ASSERT(c, ...) do { if (!(c)) { nsDbgPrint(__VA_ARGS__); } } while (0) \
+#define RP_ASSERT(c, ...) do { if (!(c)) { nsDbgPrint(__VA_ARGS__); } } while (0)
+#define RP_DBG(c, ...) RP_ASSERT(!(c), __VA_ARGS__)
 
 // attribute aligned
 #define ALIGN_4 __attribute__ ((aligned (4)))
@@ -2112,25 +2115,30 @@ static void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_
 
 static int rpImageReadLock(struct rp_image_common_t *image_common) {
 	s32 res;
+	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read lock\n", (s32)image_common);
 	if ((res = rp_sem_wait(image_common->sem_read, RP_SYN_WAIT_MAX))) {
 		nsDbgPrint("(%d) sem read wait failed\n", (s32)image_common);
 		return res;
 	}
+	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read lock success\n", (s32)image_common);
 	return 0;
 }
 
 static void rpImageReadUnlockCount(struct rp_image_common_t *image_common, int count) {
 	if (__atomic_add_fetch(&image_common->sem_count, count, __ATOMIC_RELAXED) >= RP_IMAGE_READER_COUNT) {
+		RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read reset success, write unlock\n", (s32)image_common);
 		__atomic_store_n(&image_common->sem_count, 0, __ATOMIC_RELAXED);
 		rp_sem_rel(image_common->sem_write, 1);
 	}
 }
 
 static void rpImageReadUnlock(struct rp_image_common_t *image_common) {
+	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read done\n", (s32)image_common);
 	rpImageReadUnlockCount(image_common, 1);
 }
 
 static void rpImageReadUnlockSkip(struct rp_image_common_t *image_common) {
+	RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read skip\n", (s32)image_common);
 	rpImageReadUnlockCount(image_common, 1);
 }
 
@@ -2342,6 +2350,7 @@ static int rpEncodeImage(struct rp_screen_encode_t *screen_ctx, struct rp_image_
 
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me_method != 0) {
 		// allow read
+		RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) read unlock\n", (s32)image_common);
 		rp_sem_rel(image_common->sem_read, 1);
 	}
 
@@ -2598,6 +2607,7 @@ static void rpEncodeScreenAndSend(int thread_n) {
 				rpImageReadUnlock(image_common);
 			} else {
 				// release write
+				RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write unlock\n", (s32)image_common);
 				rp_sem_rel(image_common->sem_write, 1);
 			}
 		}
@@ -2688,11 +2698,14 @@ static void rpScreenTransferThread(u32 arg UNUSED) {
 			screen_ctx->c.image_prev = p_frame ? &rp_ctx->image[image_n] : 0;
 
 			// lock write
-			if ((ret = rp_sem_wait(screen_ctx->c.image->s->sem_write, RP_SYN_WAIT_MAX))) {
+			struct rp_image_common_t *image_common = &screen_ctx->c.image->s[screen_ctx->c.top_bot];
+			RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write lock\n", (s32)image_common);
+			if ((ret = rp_sem_wait(image_common->sem_write, RP_SYN_WAIT_MAX))) {
 				nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen_ctx);
 				__atomic_store_n(&rp_ctx->exit_thread, 1, __ATOMIC_RELAXED);
 				goto final;
 			}
+			RP_DBG(RP_DBG_IMAGE_SYN, "image (%d) write lock success\n", (s32)image_common);
 
 			rp_screen_encode_release(screen_ctx);
 
