@@ -77,10 +77,14 @@ struct rp_image_ctx_t {
 		s8 me_x_image[ME_SIZE_MAX] ALIGN_4;
 		s8 me_y_image[ME_SIZE_MAX] ALIGN_4;
 		u8 y_image[SCREEN_SIZE_MAX] ALIGN_4;
-		u8 u_image[SCREEN_SIZE_MAX] ALIGN_4;
-		u8 v_image[SCREEN_SIZE_MAX] ALIGN_4;
-		u8 ds_u_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
-		u8 ds_v_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
+		union {
+			u8 u_image[SCREEN_SIZE_MAX] ALIGN_4;
+			u8 ds_u_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
+		};
+		union {
+			u8 v_image[SCREEN_SIZE_MAX] ALIGN_4;
+			u8 ds_v_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
+		};
 	} image_me_buffer[RP_ENCODE_THREAD_COUNT];
 
 	struct rp_screen_image_t {
