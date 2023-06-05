@@ -18,8 +18,7 @@ struct rp_ctx_t {
 	Handle network_thread;
 
 #if !RP_SYN_EX
-	rp_lock_t thread_encode_mutex[SCREEN_MAX];
-	rp_lock_t thread_network_mutex;
+	rp_lock_t network_mutex;
 #endif
 
 	struct rp_dma_ctx_t dma_ctx;

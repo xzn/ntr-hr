@@ -166,6 +166,10 @@ static void rpScreenEncodeReadyImage(
 	screen->image_prev = first_frame ? 0 : rp_const_image(&images[top_bot][image_n]);
 
 	screen_image->first_frame = 0;
+
+#if RP_SYN_EX_VERIFY
+	screen->image->verify.top_bot = top_bot;
+#endif
 }
 
 int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_encode_ctx_t *ctx,
@@ -251,7 +255,6 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			);
 		}
 
-#if RP_SYN_EX
 		if (multicore && me->method != 0) {
 			// lock read
 			if ((ret = rpImageReadLock(image_prev))) {
@@ -259,7 +262,6 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 				return -1;
 			}
 		}
-#endif
 
 #define MOTION_EST(n, w, h) do { \
 	motion_estimate(image_me->me_x_image, image_me->me_y_image, \
@@ -310,19 +312,15 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		me_add_half_range((u8 *)image_me->me_y_image, width, height, scale_log2,
 			me->bpp_half_range, me->block_size_log2);
 
-#if RP_SYN_EX
 		if (multicore && me->method != 0) {
 			// done read
 			rpImageReadUnlock(image_prev);
 		}
-#endif
 	} else {
-#if RP_SYN_EX
 		if (multicore && me->method != 0 && !c->first_frame) {
 			// done read by skipping
 			rpImageReadSkip(image_prev);
 		}
-#endif
 	}
 	return 0;
 }

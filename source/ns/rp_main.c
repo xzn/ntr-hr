@@ -41,14 +41,10 @@ static void rpScreenTransferThread(u32 arg) {
 			break;
 		}
 
-#if RP_SYN_EX
 		// lock write
 		struct rp_image_t *image = screen->image;
 		if ((ret = rpImageWriteLock(rp_const_image(image))))
 			nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen);
-#else
-		rp_lock_wait(rp_ctx->thread_encode_mutex[screen->c.top_bot], RP_SYN_WAIT_MAX);
-#endif
 
 		rp_screen_encode_release(&rp_ctx->syn.screen.encode, screen);
 	}
@@ -138,15 +134,6 @@ do { while (!*exit_thread) { \
 
 	struct rp_network_encode_t *network = 0;
 
-#if !RP_SYN_EX
-	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-		if ((ret = rp_lock_wait(rp_ctx->thread_network_mutex, RP_SYN_WAIT_MAX))) {
-			nsDbgPrint("%d thread_network_mutex wait timeout/error: %d\n", thread_n, ret); \
-			break;
-		}
-	}
-#endif
-
 	int ds_width = DS_DIM(width, 1);
 	int ds_height = DS_DIM(height, 1);
 
@@ -226,12 +213,18 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_const_image_t *image = rp_const_image(image_curr);
 		image_curr = 0;
 
-#if RP_SYN_EX
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me.method != 0) {
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			// allow read
-			rpImageWriteToRead(image);
-		}
+			if (rp_ctx->conf.me.method != 0)
+				rpImageWriteToRead(image);
+#if !RP_SYN_EX
+			if ((ret = rp_lock_wait(rp_ctx->network_mutex, RP_SYN_WAIT_MAX))) {
+				nsDbgPrint("%d network_mutex wait timeout/error: %d\n", thread_n, ret); \
+				break;
+			}
 #endif
+		}
+
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
 		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : &image->d;
 
@@ -241,17 +234,15 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			break;
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-#if RP_SYN_EX
 			if (rp_ctx->conf.me.method != 0) {
 				// done read
-				rpImageReadUnlock(image);
+				rpImageReadUnlockFromWrite(image);
 			} else {
 				// release write
 				rpImageWriteUnlock(image);
 			}
-#else
-			rp_lock_rel(rp_ctx->thread_network_mutex);
-			rp_lock_rel(rp_ctx->thread_encode_mutex[c.top_bot]);
+#if !RP_SYN_EX
+			rp_lock_rel(rp_ctx->network_mutex);
 #endif
 		}
 	};
@@ -279,13 +270,8 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 		}
 
 #if !RP_SYN_EX
-		rp_lock_close(rp_ctx->thread_network_mutex);
-		(void)rp_lock_init(rp_ctx->thread_network_mutex);
-
-		for (int j = 0; j < SCREEN_MAX; ++j) {
-			rp_lock_close(rp_ctx->thread_encode_mutex[j]);
-			(void)rp_lock_init(rp_ctx->thread_encode_mutex[j]);
-		}
+		rp_lock_close(rp_ctx->network_mutex);
+		(void)rp_lock_init(rp_ctx->network_mutex);
 #endif
 
 		ret = svc_createThread(

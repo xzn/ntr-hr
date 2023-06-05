@@ -19,9 +19,10 @@
 #define RP_ENCODE_MULTITHREAD (1)
 // (0) svc (1) syn
 #define RP_SYN_METHOD (1)
-
 #define RP_KCP_SET_MINRTO (0)
 #define RP_SYN_EX (1)
+#define RP_SYN_EX_VERIFY (0)
+#define RP_SYN_EX_VERIFY_WHICH (0)
 
 #define RP_SVC_MS(ms) ((u64)ms * 1000 * 1000)
 

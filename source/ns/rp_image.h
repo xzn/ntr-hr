@@ -6,10 +6,10 @@
 #define RP_IMAGE_DATA_T_DEFINE(n) \
 	struct n { \
 		CONST_OPT s8 *me_x_image; \
-		CONST_OPT s8 *me_y_image;\
-		CONST_OPT u8 *y_image;\
-		CONST_OPT u8 *u_image;\
-		CONST_OPT u8 *v_image;\
+		CONST_OPT s8 *me_y_image; \
+		CONST_OPT u8 *y_image; \
+		CONST_OPT u8 *u_image; \
+		CONST_OPT u8 *v_image; \
 		CONST_OPT u8 *ds_y_image; \
 		CONST_OPT u8 *ds_u_image; \
 		CONST_OPT u8 *ds_v_image; \
@@ -31,6 +31,23 @@
 // one for current encode thread; one for next frame reading motion est ref data
 #define RP_IMAGE_READER_COUNT (2)
 
+#if RP_SYN_EX_VERIFY
+	struct rp_image_verify_t {
+		XXH32_hash_t me_x_image;
+		XXH32_hash_t me_y_image;
+		XXH32_hash_t y_image;
+		XXH32_hash_t u_image;
+		XXH32_hash_t v_image;
+		XXH32_hash_t ds_y_image;
+		XXH32_hash_t ds_u_image;
+		XXH32_hash_t ds_v_image;
+		XXH32_hash_t ds_ds_y_image;
+		int top_bot;
+	};
+#else
+	struct rp_image_verify_t {};
+#endif
+
 #if RP_SYN_EX
 #define RP_IMAGE_T_DEFINE(n, dn) \
 	struct n { \
@@ -38,11 +55,15 @@
 		rp_sem_t sem_write; \
 		rp_sem_t sem_read; \
 		u8 sem_count; \
+		struct rp_image_verify_t verify; \
 	}
 #else
 #define RP_IMAGE_T_DEFINE(n, dn) \
 	struct n { \
 		struct dn d; \
+		rp_sem_t sem_write; \
+		rp_sem_t sem_read; \
+		struct rp_image_verify_t verify; \
 	}
 #endif
 
@@ -99,7 +120,6 @@ struct rp_image_ctx_t {
 void rp_init_image_buffers(struct rp_image_ctx_t *ctx);
 int rp_init_images(struct rp_image_ctx_t *ctx, int multicore);
 
-#if RP_SYN_EX
 int rpImageReadLock(struct rp_const_image_t *image);
 void rpImageReadUnlockCount(struct rp_const_image_t *image, int count);
 void rpImageReadUnlock(struct rp_const_image_t *image);
@@ -107,6 +127,6 @@ void rpImageReadSkip(struct rp_const_image_t *image);
 int rpImageWriteLock(struct rp_const_image_t *image);
 void rpImageWriteUnlock(struct rp_const_image_t *image);
 void rpImageWriteToRead(struct rp_const_image_t *image);
-#endif
+void rpImageReadUnlockFromWrite(struct rp_const_image_t *image);
 
 #endif
