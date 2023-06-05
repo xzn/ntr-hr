@@ -146,11 +146,17 @@ static void rpScreenEncodeReadyImage(
 	u8 image_n = screen_image->image_n;
 	screen_image->image_n = (image_n + 1) % RP_IMAGE_BUFFER_COUNT;
 
+	u8 frame_n = screen_image->frame_n++;
+	u8 first_frame = screen_image->first_frame;
+
 	u8 p_frame = screen_image->p_frame;
 	if (no_p_frame) {
 		p_frame = screen_image->p_frame = 0;
 	} else if (!p_frame) {
 		screen_image->p_frame = 1;
+	} else if (first_frame) {
+		nsDbgPrint("initialization error, p_frame should be 0 when first_frame is 1 (this should be harmless...)\n");
+		p_frame = 0;
 	} else if (screen->c.format != screen_image->format) {
 		nsDbgPrint("format change, key frame\n");
 		p_frame = 0;
@@ -158,13 +164,14 @@ static void rpScreenEncodeReadyImage(
 
 	screen_image->format = screen->c.format;
 
-	u8 frame_n = screen_image->frame_n++;
-
+	screen->c.first_frame = first_frame;
 	screen->c.p_frame = p_frame;
 	screen->c.frame_n = frame_n;
 	screen->c.image = &images[top_bot][image_n];
 	image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
-	screen->c.image_prev = p_frame ? rp_const_image(&images[top_bot][image_n]) : 0;
+	screen->c.image_prev = first_frame ? 0 : rp_const_image(&images[top_bot][image_n]);
+
+	screen_image->first_frame = 0;
 }
 
 int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_encode_ctx_t *ctx,
@@ -220,7 +227,7 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_
 	struct rp_image_data_t *im = &image->d;
 
 	struct rp_const_image_t *image_prev = c->image_prev;
-	struct rp_const_image_data_t *im_prev = &image_prev->d;
+	struct rp_const_image_data_t *im_prev = c->first_frame ? 0 : &image_prev->d;
 
 	int ds_width = DS_DIM(width, 1);
 	int ds_height = DS_DIM(height, 1);
@@ -332,7 +339,7 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_
 #endif
 	} else {
 #if RP_SYN_EX
-		if (multicore) {
+		if (multicore && !c->first_frame) {
 			// done read by skipping
 			rpImageReadSkip(image_prev);
 		}

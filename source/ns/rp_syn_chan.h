@@ -12,6 +12,7 @@ struct rp_screen_encode_t {
         u8 format;
         u8 top_bot;
         u8 p_frame;
+        u8 first_frame;
         u8 frame_n;
         struct rp_image_t *image;
         struct rp_const_image_t *image_prev;

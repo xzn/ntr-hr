@@ -37,9 +37,10 @@ void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
 }
 
 int rp_init_images(struct rp_image_ctx_t *ctx, int multicore) {
-	
-	for (int i = 0; i < SCREEN_MAX; ++i)
+	for (int i = 0; i < SCREEN_MAX; ++i) {
 		ctx->screen_image[i].frame_n = ctx->screen_image[i].p_frame = 0;
+		ctx->screen_image[i].first_frame = 1;
+	}
 
 #define RP_INIT_SEM(s, n, m) do { \
 	rp_sem_close(s); \

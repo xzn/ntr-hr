@@ -43,7 +43,6 @@
 #define RP_IMAGE_T_DEFINE(n, dn) \
 	struct n { \
 		struct dn d; \
-		u8 format; \
 	}
 #endif
 
@@ -88,6 +87,7 @@ struct rp_image_ctx_t {
 		u8 image_n;
 		u8 frame_n;
 		u8 p_frame;
+		u8 first_frame;
 		u8 format;
 	} screen_image[SCREEN_MAX];
 };
