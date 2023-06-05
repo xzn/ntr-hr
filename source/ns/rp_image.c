@@ -129,7 +129,7 @@ void rpImageReadSkip(struct rp_const_image_t *image) {
 	rpImageReadUnlockCount(image, 1);
 }
 
-int rpImageWriteLock(struct rp_const_image_t *image) {
+int rpImageWriteLock(struct rp_image_t *image) {
 	int ret;
 	if ((ret = rp_sem_wait(image->sem_write, RP_SYN_WAIT_MAX))) {
 		return ret;
@@ -138,16 +138,17 @@ int rpImageWriteLock(struct rp_const_image_t *image) {
 	return 0;
 }
 
-void rpImageWriteUnlock(struct rp_const_image_t *image) {
+void rpImageWriteUnlock(struct rp_image_t *image) {
 	rp_sem_rel(image->sem_write, 1);
 }
 
 #if RP_SYN_EX
-void rpImageWriteToRead(struct rp_const_image_t *image) {
+struct rp_const_image_t *rpImageWriteToRead(struct rp_image_t *image) {
 	rp_sem_rel(image->sem_read, 1);
 #if RP_SYN_EX_VERIFY && RP_SYN_EX_VERIFY_WHICH
 	rpImageVerifyBegin(image);
 #endif
+	return rp_const_image(image);
 }
 
 void rpImageReadUnlockFromWrite(struct rp_const_image_t *image) {
@@ -157,10 +158,11 @@ void rpImageReadUnlockFromWrite(struct rp_const_image_t *image) {
 	rpImageReadUnlockCount(image, 1);
 }
 #else
-void rpImageWriteToRead(struct rp_const_image_t *image UNUSED) {
+struct rp_const_image_t *rpImageWriteToRead(struct rp_image_t *image UNUSED) {
 #if RP_SYN_EX_VERIFY && RP_SYN_EX_VERIFY_WHICH
 	rpImageVerifyBegin(image);
 #endif
+	return rp_const_image(image);
 }
 
 void rpImageReadUnlockFromWrite(struct rp_const_image_t *image) {

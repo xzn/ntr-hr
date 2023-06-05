@@ -43,7 +43,7 @@ static void rpScreenTransferThread(u32 arg) {
 
 		// lock write
 		struct rp_image_t *image = screen->image;
-		if ((ret = rpImageWriteLock(rp_const_image(image))))
+		if ((ret = rpImageWriteLock(image)))
 			nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen);
 
 		rp_screen_encode_release(&rp_ctx->syn.screen.encode, screen);
@@ -210,13 +210,14 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			break;
 		}
 		image_prev = 0;
-		struct rp_const_image_t *image = rp_const_image(image_curr);
-		image_curr = 0;
+		struct rp_const_image_t *image = 0;
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			// allow read
-			if (rp_ctx->conf.me.method != 0)
-				rpImageWriteToRead(image);
+			if (rp_ctx->conf.me.method != 0) {
+				image = rpImageWriteToRead(image_curr);
+				image_curr = 0;
+			}
 #if !RP_SYN_EX
 			if ((ret = rp_lock_wait(rp_ctx->network_mutex, RP_SYN_WAIT_MAX))) {
 				nsDbgPrint("%d network_mutex wait timeout/error: %d\n", thread_n, ret); \
@@ -226,7 +227,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		}
 
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
-		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : &image->d;
+		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : rp_ctx->conf.me.method != 0 ? &image->d : &rp_const_image(image_curr)->d;
 
 		ret = rpJLSEncodeScreenAndSend(&c, im, &rp_ctx->jls_param, jls_ctx, &rp_ctx->syn.network, rp_ctx->conf.downscale_uv, rp_ctx->conf.encoder_which, rp_ctx->conf.encode_verify,
 			&rp_ctx->conf.me, &rp_ctx->exit_thread, (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && RP_SYN_EX), thread_n);
@@ -239,7 +240,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 				rpImageReadUnlockFromWrite(image);
 			} else {
 				// release write
-				rpImageWriteUnlock(image);
+				rpImageWriteUnlock(image_curr);
 			}
 #if !RP_SYN_EX
 			rp_lock_rel(rp_ctx->network_mutex);

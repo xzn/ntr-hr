@@ -114,9 +114,9 @@ int rpImageReadLock(struct rp_const_image_t *image);
 void rpImageReadUnlockCount(struct rp_const_image_t *image, int count);
 void rpImageReadUnlock(struct rp_const_image_t *image);
 void rpImageReadSkip(struct rp_const_image_t *image);
-int rpImageWriteLock(struct rp_const_image_t *image);
-void rpImageWriteUnlock(struct rp_const_image_t *image);
-void rpImageWriteToRead(struct rp_const_image_t *image);
+int rpImageWriteLock(struct rp_image_t *image);
+void rpImageWriteUnlock(struct rp_image_t *image);
+struct rp_const_image_t *rpImageWriteToRead(struct rp_image_t *image);
 void rpImageReadUnlockFromWrite(struct rp_const_image_t *image);
 
 #endif
