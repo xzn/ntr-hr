@@ -153,7 +153,6 @@ do { while (!*exit_thread) { \
 
 #undef RP_PROCESS_DS_IMAGE_AND_SEND
 #undef RP_PROCESS_IMAGE_AND_SEND
-#undef RP_PROCESS_SYN_MULTICORE
 
 	return 0;
 }
