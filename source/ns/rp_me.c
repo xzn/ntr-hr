@@ -145,6 +145,9 @@ void me_add_half_range(u8 *me, int width, int height, u8 scale_log2, u8 half_ran
 void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2, int bpp,
     u8 block_size, u8 block_size_log2, int interpolate
 ) {
+	block_size <<= scale_log2;
+	block_size_log2 += scale_log2;
+
 	u8 block_size_mask = (1 << block_size_log2) - 1;
 
 	u8 block_x_n UNUSED = width >> block_size_log2;
