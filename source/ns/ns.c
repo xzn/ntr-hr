@@ -1034,7 +1034,7 @@ void nsMainLoop(void) {
 			continue; \
 	} \
 	if (rpProcess && pi[1].revents & (POLLIN|POLLHUP)) { \
-		rpControlRecv(); \
+		rpControlRecv(rp_net_ctx); \
 	} \
 	if (!rpProcess || pi[0].revents & (POLLIN|POLLHUP))
 
@@ -1050,7 +1050,7 @@ void nsMainLoop(void) {
 	} \
  \
 	if (rpProcess && FD_ISSET(rp_recv_sock, &rset)) { \
-		rpControlRecv(); \
+		rpControlRecv(rp_net_ctx); \
 	} \
  \
 	if (!rpProcess || FD_ISSET(s, &rset))

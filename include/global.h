@@ -1,3 +1,6 @@
+#ifndef NTR_GLOBAL_H
+#define NTR_GLOBAL_H
+
 #define IS_PLUGIN 0
 
 #define NTR_CFW_VERSION "NTR 3.6"
@@ -27,3 +30,5 @@
 #include "sharedfunc.h"
 #include "ns/ns.h"
 #include "sys/socket.h"
+
+#endif

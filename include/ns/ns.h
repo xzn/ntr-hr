@@ -130,7 +130,9 @@ extern NS_CONFIG *g_nsConfig;
 
 #define RP_PORT (8000)
 extern int rp_recv_sock;
-void rpControlRecv(void);
+struct rp_net_ctx_t;
+extern struct rp_net_ctx_t *rp_net_ctx;
+void rpControlRecv(struct rp_net_ctx_t *);
 
 void rtInitLock(RT_LOCK *lock) ;
 void rtAcquireLock(RT_LOCK *lock) ;

@@ -56,8 +56,8 @@ obj/%.o: source/dsp/%.c
 obj/%.o: source/ns/%.c
 	$(CC_CMD)
 
-obj/rp.o: source/ns/rp.c
-	$(CC_CMD) -Isource/ffmpeg
+obj/rp%o: source/ns/rp%c
+	$(CC_CMD) -Isource/ffmpeg -Wall -Wextra
 
 obj/%.o: source/%.c
 	$(CC_CMD)

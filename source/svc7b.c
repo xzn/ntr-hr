@@ -137,7 +137,8 @@ void keDoKernelHax(void) {
 	InvalidateEntireDataCache();
 }
 
-void rpKernelCallback(int screen_buffer_n, int top_bot);
+struct rp_screen_encode_t;
+void rpKernelCallback(struct rp_screen_encode_t *screen);
 void kernelCallback(u32 msr) {
 	typedef u32(*keRefHandleType)(u32, u32);
 	
@@ -184,9 +185,8 @@ void kernelCallback(u32 msr) {
 	}
 
 	if (t == 7) {
-		int screen_buffer_n = kernelArgs[1];
-		int top_bot = kernelArgs[2];
-		rpKernelCallback(screen_buffer_n, top_bot);
+		struct rp_screen_encode_t *screen = (struct rp_screen_encode_t *)kernelArgs[1];
+		rpKernelCallback(screen);
 	}
 }
 
