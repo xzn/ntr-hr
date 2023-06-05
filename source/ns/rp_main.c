@@ -43,7 +43,7 @@ static void rpScreenTransferThread(u32 arg) {
 
 #if RP_SYN_EX
 		// lock write
-		struct rp_image_t *image = screen->c.image;
+		struct rp_image_t *image = screen->image;
 		if ((ret = rpImageWriteLock(rp_const_image(image))))
 			nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen);
 #else
@@ -70,6 +70,105 @@ static void rpNetworkTransferThread(u32 arg) {
 		svc_sleepThread(RP_THREAD_LOOP_SLOW_WAIT);
 	}
 	svc_exitThread();
+}
+
+static int rpJLSEncodeScreenAndSend(struct rp_screen_ctx_t *c, struct rp_const_image_data_t *im, struct rp_jls_params_t *jls_param, struct rp_jls_ctx_t *jls_ctx,
+	struct rp_syn_comp_t *network_queue, u8 downscale_uv, u8 encoder_which, u8 encode_verify, struct rp_conf_me_t *me, volatile u8 *exit_thread, u8 multicore, u8 thread_n
+) {
+#define RP_PROCESS_DS_IMAGE_AND_SEND(n, ds_n, w, h, ds_w, ds_h, b, a) \
+do { while (!*exit_thread) { \
+	int begin_p = a & (RP_PROCESS_ALWAYS | RP_PROCESS_BEGIN_P); \
+	int end_p = a & (RP_PROCESS_ALWAYS | RP_PROCESS_END_P); \
+	if (begin_p) { \
+		network = rp_network_encode_acquire(&network_queue->encode, RP_THREAD_LOOP_MED_WAIT, multicore); \
+		if (!network) { \
+			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) { \
+				nsDbgPrint("rp_network_encode_acquire timeout\n"); \
+				return -1; \
+			} \
+			continue; \
+		} \
+		acquire_count = 0; \
+	} \
+	int bpp = im->b; \
+	ret = (c->p_frame || begin_p) ? rpJLSEncodeImage(jls_param, jls_ctx, \
+		network->buffer + (begin_p ? 0 : ret), \
+		(begin_p ? RP_JLS_ENCODE_IMAGE_BUFFER_SIZE : RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE), \
+		(const u8 *)(downscale_uv ? im->ds_n : im->n), \
+		downscale_uv ? ds_w : w, \
+		downscale_uv ? ds_h : h, \
+		bpp, \
+		encoder_which, \
+		encode_verify \
+	) : 0; \
+	if (ret < 0) { \
+		nsDbgPrint("rpJLSEncodeImage failed\n"); \
+		return -1; \
+	} \
+	if (begin_p) { \
+		network->top_bot = c->top_bot; \
+		network->frame_n = c->frame_n; \
+		network->size = ret; \
+		network->bpp = bpp; \
+		network->format = c->format; \
+		network->p_frame = c->p_frame; \
+		network->size_1 = 0; \
+	} else { \
+		network->size_1 = ret; \
+	} \
+	if (c->p_frame ? end_p : begin_p) { \
+		if (rp_network_transfer_release(&network_queue->transfer, network, multicore) < 0) { \
+			nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", thread_n); \
+			return -1; \
+		} \
+	} \
+	break; \
+} } while (0)
+#define RP_PROCESS_IMAGE_AND_SEND(n, w, h, b, a) RP_PROCESS_DS_IMAGE_AND_SEND(n, n, w, h, w, h, b, a)
+
+	int scale_log2_offset = me->downscale == 0 ? 0 : 1;
+	int scale_log2 = 1 + scale_log2_offset;
+	u8 block_size_log2 = me->block_size_log2 + scale_log2;
+
+	int width = SCREEN_WIDTH(c->top_bot);
+	int height = SCREEN_HEIGHT;
+
+	int me_width = width >> block_size_log2;
+	int me_height = height >> block_size_log2;
+
+	struct rp_network_encode_t *network = 0;
+
+#if !RP_SYN_EX
+	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+		if ((ret = rp_lock_wait(rp_ctx->thread_network_mutex, RP_SYN_WAIT_MAX))) {
+			nsDbgPrint("%d thread_network_mutex wait timeout/error: %d\n", thread_n, ret); \
+			break;
+		}
+	}
+#endif
+
+	int ds_width = DS_DIM(width, 1);
+	int ds_height = DS_DIM(height, 1);
+
+	enum {
+		RP_PROCESS_ALWAYS = BIT(0),
+		RP_PROCESS_BEGIN_P = BIT(1),
+		RP_PROCESS_END_P = BIT(2),
+	};
+
+	int acquire_count = 0, ret = 0;
+
+	RP_PROCESS_IMAGE_AND_SEND(y_image, width, height, y_bpp, RP_PROCESS_ALWAYS);
+	RP_PROCESS_DS_IMAGE_AND_SEND(u_image, ds_u_image, width, height, ds_width, ds_height, u_bpp, RP_PROCESS_BEGIN_P);
+	RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_width, me_height, me_bpp, RP_PROCESS_END_P);
+	RP_PROCESS_DS_IMAGE_AND_SEND(v_image, ds_v_image, width, height, ds_width, ds_height, v_bpp, RP_PROCESS_BEGIN_P);
+	RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_width, me_height, me_bpp, RP_PROCESS_END_P);
+
+#undef RP_PROCESS_DS_IMAGE_AND_SEND
+#undef RP_PROCESS_IMAGE_AND_SEND
+#undef RP_PROCESS_SYN_MULTICORE
+
+	return 0;
 }
 
 static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
@@ -107,6 +206,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			break;
 		}
 
+		struct rp_image_t *image_curr = screen->image;
+		struct rp_const_image_t *image_prev = screen->image_prev;
 		struct rp_screen_ctx_t c = screen->c;
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			if (rp_screen_transfer_release(&rp_ctx->syn.screen.transfer, screen) < 0) {
@@ -116,115 +217,28 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		}
 		screen = 0;
 
-		ret = rpDownscaleMEImage(&c, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode);
+		ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode);
 		if (ret < 0) {
 			nsDbgPrint("rpDownscaleMEImage failed\n");
 			break;
 		}
+		image_prev = 0;
+		struct rp_const_image_t *image = rp_const_image(image_curr);
+		image_curr = 0;
 
-		struct rp_const_image_t *image = rp_const_image(c.image);
 #if RP_SYN_EX
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me.method != 0) {
 			// allow read
 			rpImageWriteToRead(image);
 		}
 #endif
-
-#define RP_PROCESS_SYN_MULTICORE (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && RP_SYN_EX)
-
-#define RP_PROCESS_DS_IMAGE_AND_SEND(n, ds_n, w, h, ds_w, ds_h, b, a) \
-do { while (!rp_ctx->exit_thread) { \
-	int begin_p = a & (RP_PROCESS_ALWAYS | RP_PROCESS_BEGIN_P); \
-	int end_p = a & (RP_PROCESS_ALWAYS | RP_PROCESS_END_P); \
-	if (begin_p) { \
-		network = rp_network_encode_acquire(&rp_ctx->syn.network.encode, RP_THREAD_LOOP_MED_WAIT, RP_PROCESS_SYN_MULTICORE); \
-		if (!network) { \
-			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) { \
-				nsDbgPrint("rp_network_encode_acquire timeout\n"); \
-				goto final; \
-			} \
-			continue; \
-		} \
-		acquire_count = 0; \
-	} \
-	int bpp = im->b; \
-	ret = (c.p_frame || begin_p) ? rpJLSEncodeImage(&rp_ctx->jls_param, jls_ctx, \
-		network->buffer + (begin_p ? 0 : ret), \
-		(begin_p ? RP_JLS_ENCODE_IMAGE_BUFFER_SIZE : RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE), \
-		(const u8 *)(rp_ctx->conf.downscale_uv ? im->ds_n : im->n), \
-		rp_ctx->conf.downscale_uv ? ds_w : w, \
-		rp_ctx->conf.downscale_uv ? ds_h : h, \
-		bpp, \
-		rp_ctx->conf.encoder_which, \
-		rp_ctx->conf.encode_verify \
-	) : 0; \
-	if (ret < 0) { \
-		nsDbgPrint("rpJLSEncodeImage failed\n"); \
-		goto final; \
-	} \
-	if (begin_p) { \
-		network->top_bot = c.top_bot; \
-		network->frame_n = c.frame_n; \
-		network->size = ret; \
-		network->bpp = bpp; \
-		network->format = c.format; \
-		network->p_frame = c.p_frame; \
-		network->size_1 = 0; \
-	} else { \
-		network->size_1 = ret; \
-	} \
-	if (c.p_frame ? end_p : begin_p) { \
-		if (rp_network_transfer_release(&rp_ctx->syn.network.transfer, network, RP_PROCESS_SYN_MULTICORE) < 0) { \
-			nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", thread_n); \
-			goto final; \
-		} \
-	} \
-	break; \
-} } while (0)
-
-#define RP_PROCESS_IMAGE_AND_SEND(n, w, h, b, a) RP_PROCESS_DS_IMAGE_AND_SEND(n, n, w, h, w, h, b, a)
-
-		int scale_log2_offset = rp_ctx->conf.me.downscale == 0 ? 0 : 1;
-		int scale_log2 = 1 + scale_log2_offset;
-		u8 block_size_log2 = rp_ctx->conf.me.block_size_log2 + scale_log2;
-
-		int width = SCREEN_WIDTH(c.top_bot);
-		int height = SCREEN_HEIGHT;
-
-		int me_width = width >> block_size_log2;
-		int me_height = height >> block_size_log2;
-
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
-		struct rp_network_encode_t *network = 0;
-
 		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : &image->d;
 
-#if !RP_SYN_EX
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-			if ((ret = rp_lock_wait(rp_ctx->thread_network_mutex, RP_SYN_WAIT_MAX))) {
-				nsDbgPrint("%d thread_network_mutex wait timeout/error: %d\n", thread_n, ret); \
-				break;
-			}
-		}
-#endif
-
-		int ds_width = DS_DIM(width, 1);
-		int ds_height = DS_DIM(height, 1);
-
-		enum {
-			RP_PROCESS_ALWAYS = BIT(0),
-			RP_PROCESS_BEGIN_P = BIT(1),
-			RP_PROCESS_END_P = BIT(2),
-		};
-
-		RP_PROCESS_IMAGE_AND_SEND(y_image, width, height, y_bpp, RP_PROCESS_ALWAYS);
-		RP_PROCESS_DS_IMAGE_AND_SEND(u_image, ds_u_image, width, height, ds_width, ds_height, u_bpp, RP_PROCESS_BEGIN_P);
-		RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_width, me_height, me_bpp, RP_PROCESS_END_P);
-		RP_PROCESS_DS_IMAGE_AND_SEND(v_image, ds_v_image, width, height, ds_width, ds_height, v_bpp, RP_PROCESS_BEGIN_P);
-		RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_width, me_height, me_bpp, RP_PROCESS_END_P);
-
-#undef RP_PROCESS_DS_IMAGE_AND_SEND
-#undef RP_PROCESS_IMAGE_AND_SEND
+		ret = rpJLSEncodeScreenAndSend(&c, im, &rp_ctx->jls_param, jls_ctx, &rp_ctx->syn.network, rp_ctx->conf.downscale_uv, rp_ctx->conf.encoder_which, rp_ctx->conf.encode_verify,
+			&rp_ctx->conf.me, &rp_ctx->exit_thread, (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && RP_SYN_EX), thread_n);
+		if (ret)
+			break;
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 #if RP_SYN_EX
@@ -241,7 +255,6 @@ do { while (!rp_ctx->exit_thread) { \
 #endif
 		}
 	};
-final:
 	rp_ctx->exit_thread = 1;
 }
 

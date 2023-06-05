@@ -18,15 +18,12 @@ int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma)
 	u8 *dest = screen->buffer;
 	Handle hProcess = dma->home_handle;
 
-	Handle *hdma = &screen->hdma;
-	if (*hdma)
-		svc_closeHandle(*hdma);
-	*hdma = 0;
+	Handle hdma;
 
 	int ret;
 	if (isInVRAM(phys)) {
 		rpCloseGameHandle(dma);
-		ret = svc_startInterProcessDma(hdma, CURRENT_PROCESS_HANDLE,
+		ret = svc_startInterProcessDma(&hdma, CURRENT_PROCESS_HANDLE,
 			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)dma->dma_config);
 		if (ret != 0)
 			return ret;
@@ -34,7 +31,7 @@ int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma)
 	else if (isInFCRAM(phys)) {
 		hProcess = rpGetGameHandle(dma);
 		if (hProcess) {
-			ret = svc_startInterProcessDma(hdma, CURRENT_PROCESS_HANDLE,
+			ret = svc_startInterProcessDma(&hdma, CURRENT_PROCESS_HANDLE,
 				dest, hProcess, (const void *)(dma->game_fcram_base + (phys - 0x20000000)), bufSize, (u32 *)dma->dma_config);
 			if (ret != 0)
 				return ret;
@@ -49,7 +46,7 @@ int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma)
 	u32 state, i;
 	for (i = 0; i < RP_THREAD_LOOP_WAIT_COUNT; i++ ) {
 		state = 0;
-		svc_getDmaState(&state, *hdma);
+		svc_getDmaState(&state, hdma);
 		if (state == 4)
 			break;
 		svc_sleepThread(RP_THREAD_LOOP_ULTRA_FAST_WAIT);
@@ -57,6 +54,7 @@ int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma)
 	if (i >= RP_THREAD_LOOP_WAIT_COUNT) {
 		nsDbgPrint("rpCaptureScreen time out %08x", state, 0);
 	}
+	svc_closeHandle(hdma);
 	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)dest, bufSize);
 	return 0;
 }
@@ -167,9 +165,9 @@ static void rpScreenEncodeReadyImage(
 	screen->c.first_frame = first_frame;
 	screen->c.p_frame = p_frame;
 	screen->c.frame_n = frame_n;
-	screen->c.image = &images[top_bot][image_n];
+	screen->image = &images[top_bot][image_n];
 	image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
-	screen->c.image_prev = first_frame ? 0 : rp_const_image(&images[top_bot][image_n]);
+	screen->image_prev = first_frame ? 0 : rp_const_image(&images[top_bot][image_n]);
 
 	screen_image->first_frame = 0;
 }
@@ -196,9 +194,9 @@ int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_t
 
 	int width, height;
 	width = SCREEN_WIDTH(top_bot);
-	height = SCREEN_HEIGHT;;
+	height = SCREEN_HEIGHT;
 
-	struct rp_image_t *image = c.image;
+	struct rp_image_t *image = screen->image;
 	struct rp_image_data_t *im = &image->d;
 
 	return convert_yuv_image(
@@ -210,7 +208,7 @@ int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_t
 	);
 }
 
-int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore UNUSED) {
+int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, struct rp_const_image_t *image_prev, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore UNUSED) {
 	int UNUSED ret;
 
 	image_me->me_bpp = me->bpp;
@@ -223,10 +221,6 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_
 	width = SCREEN_WIDTH(top_bot);
 	height = SCREEN_HEIGHT;;
 
-	struct rp_image_t *image = c->image;
-	struct rp_image_data_t *im = &image->d;
-
-	struct rp_const_image_t *image_prev = c->image_prev;
 	struct rp_const_image_data_t *im_prev = c->first_frame ? 0 : &image_prev->d;
 
 	int ds_width = DS_DIM(width, 1);
@@ -262,7 +256,7 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_
 		}
 
 #if RP_SYN_EX
-		if (multicore) {
+		if (multicore && me->method != 0) {
 			// lock read
 			if ((ret = rpImageReadLock(image_prev))) {
 				nsDbgPrint("rpEncodeImage rpImageReadLock image_prev timeout/error\n", ret);
@@ -321,14 +315,14 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_
 			me->bpp_half_range, me->block_size_log2);
 
 #if RP_SYN_EX
-		if (multicore) {
+		if (multicore && me->method != 0) {
 			// done read
 			rpImageReadUnlock(image_prev);
 		}
 #endif
 	} else {
 #if RP_SYN_EX
-		if (multicore && !c->first_frame) {
+		if (multicore && me->method != 0 && !c->first_frame) {
 			// done read by skipping
 			rpImageReadSkip(image_prev);
 		}

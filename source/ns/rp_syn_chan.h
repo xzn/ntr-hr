@@ -6,16 +6,15 @@
 struct rp_screen_encode_t {
     u32 pitch;
     u32 fbaddr;
-    Handle hdma;
     u8 buffer[RP_SCREEN_BUFFER_SIZE] ALIGN_4;
+    struct rp_image_t *image;
+    struct rp_const_image_t *image_prev;
     struct rp_screen_ctx_t {
         u8 format;
         u8 top_bot;
         u8 p_frame;
         u8 first_frame;
         u8 frame_n;
-        struct rp_image_t *image;
-        struct rp_const_image_t *image_prev;
     } c;
 };
 
