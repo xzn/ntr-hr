@@ -16,7 +16,7 @@ void rpCloseGameHandle(struct rp_dma_ctx_t *ctx) {
 Handle rpGetGameHandle(struct rp_dma_ctx_t *ctx) {
 	int i;
 	Handle hProcess;
-	if (ctx->game_handle) {
+	if (ctx->game_handle == 0) {
 		for (i = 0x28; i < 0x38; i++) {
 			int ret = svc_openProcess(&hProcess, i);
 			if (ret == 0) {

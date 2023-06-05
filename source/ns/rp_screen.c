@@ -28,17 +28,13 @@ int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma)
 		if (ret != 0)
 			return ret;
 	}
-	else if (isInFCRAM(phys)) {
-		hProcess = rpGetGameHandle(dma);
-		if (hProcess) {
-			ret = svc_startInterProcessDma(&hdma, CURRENT_PROCESS_HANDLE,
-				dest, hProcess, (const void *)(dma->game_fcram_base + (phys - 0x20000000)), bufSize, (u32 *)dma->dma_config);
-			if (ret != 0)
-				return ret;
-		} else {
-			return 0;
-		}
+	else if (isInFCRAM(phys) && (hProcess = rpGetGameHandle(dma))) {
+		ret = svc_startInterProcessDma(&hdma, CURRENT_PROCESS_HANDLE,
+			dest, hProcess, (const void *)(dma->game_fcram_base + (phys - 0x20000000)), bufSize, (u32 *)dma->dma_config);
+		if (ret != 0)
+			return ret;
 	} else {
+		nsDbgPrint("No output avaiilable for capture\n");
 		svc_sleepThread(RP_THREAD_LOOP_IDLE_WAIT);
 		return 0;
 	}
