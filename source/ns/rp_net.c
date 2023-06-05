@@ -189,6 +189,69 @@ void rpControlRecv(struct rp_net_ctx_t *ctx) {
 	rpKCPUnlock(ctx);
 }
 
+struct rp_net_state_t {
+	u64 last_tick, desired_last_tick, min_send_interval_ticks;
+	volatile u8 *exit_thread;
+};
+
+static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, const u8 *buf, int size) {
+	u64 curr_tick, tick_diff;
+	s64 desired_tick_diff;
+
+	int ret;
+	while (!*state->exit_thread) {
+		if ((tick_diff = (curr_tick = svc_getSystemTick()) - state->last_tick) > KCP_TIMEOUT_TICKS) {
+			nsDbgPrint("kcp timeout send data\n");
+			return -1;
+		}
+
+		desired_tick_diff = (s64)(curr_tick & ((1ULL << 48) - 1)) - (state->desired_last_tick & ((1ULL << 48) - 1));
+		if (desired_tick_diff < (s64)state->min_send_interval_ticks) {
+			u64 duration = (state->min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
+			svc_sleepThread(duration);
+		} else {
+			u64 min_tick = state->min_send_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+			if (tick_diff < min_tick) {
+				u64 duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
+				svc_sleepThread(duration);
+			}
+		}
+
+		if ((ret = rpKCPLock(ctx))) {
+			nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
+			return -1;
+		}
+		int waitsnd = ikcp_waitsnd(ctx->kcp);
+		if (waitsnd < KCP_SND_WND_SIZE) {
+			ret = ikcp_send(ctx->kcp, (const char *)buf, size);
+
+			if (ret < 0) {
+				nsDbgPrint("ikcp_send failed: %d\n", ret);
+				rpKCPUnlock(ctx);
+				return -1;
+			}
+
+			ikcp_update(ctx->kcp, iclock());
+			rpKCPUnlock(ctx);
+
+			state->desired_last_tick += state->min_send_interval_ticks;
+			state->last_tick = curr_tick;
+
+			if (state->last_tick - state->desired_last_tick < (1ULL << 48) &&
+				state->last_tick - state->desired_last_tick > state->min_send_interval_ticks * KCP_SND_WND_SIZE
+			)
+				state->desired_last_tick = state->last_tick - state->min_send_interval_ticks * KCP_SND_WND_SIZE;
+
+			return 0;
+		}
+		ikcp_update(ctx->kcp, iclock());
+		rpKCPUnlock(ctx);
+
+		svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
+	}
+	return 0;
+}
+
 int rpNetworkTransfer(
 	struct rp_net_ctx_t *ctx, int thread_n UNUSED, ikcpcb *kcp, int conv, volatile u8 *exit_thread,
 	struct rp_syn_comp_t *network_queue, u8 *kcp_send_buf, u64 min_send_interval_ticks, struct rp_dyn_prio_t* dyn_prio
@@ -217,10 +280,16 @@ int rpNetworkTransfer(
 	ikcp_update(ctx->kcp, iclock());
 	rpKCPUnlock(ctx);
 
-	u64 last_tick = svc_getSystemTick(), curr_tick, desired_last_tick = last_tick;
+	u64 curr_tick = svc_getSystemTick();
+	struct rp_net_state_t state = {
+		.last_tick = curr_tick,
+		.desired_last_tick = curr_tick,
+		.exit_thread = exit_thread,
+		.min_send_interval_ticks = min_send_interval_ticks
+	};
 
 	while (!*exit_thread) {
-		if ((curr_tick = svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
+		if ((curr_tick = svc_getSystemTick()) - state.last_tick > KCP_TIMEOUT_TICKS) {
 			nsDbgPrint("kcp timeout transfer acquire\n");
 			break;
 		}
@@ -237,7 +306,7 @@ int rpNetworkTransfer(
 			continue;
 		}
 
-		last_tick = curr_tick;
+		state.last_tick = curr_tick;
 
 		int top_bot = network->top_bot;
 		struct rp_send_header header = {
@@ -254,107 +323,27 @@ int rpNetworkTransfer(
 		rpSetPriorityScreen(dyn_prio, top_bot, size_remain);
 
 		// kcp send header data
-		while (!*exit_thread) {
-			if ((curr_tick = svc_getSystemTick()) - last_tick > KCP_TIMEOUT_TICKS) {
-				nsDbgPrint("kcp timeout send header\n");
-				goto final;
-			}
-			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
+		u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
+		memcpy(kcp_send_buf, &header, sizeof(header));
+		memcpy(kcp_send_buf + sizeof(header), data, data_size);
 
-			if ((ret = rpKCPLock(ctx))) {
-				nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
-				goto final;
-			}
-			int waitsnd = ikcp_waitsnd(ctx->kcp);
-			if (waitsnd < KCP_SND_WND_SIZE) {
-				memcpy(kcp_send_buf, &header, sizeof(header));
-				memcpy(kcp_send_buf + sizeof(header), data, data_size);
-
-				ret = ikcp_send(ctx->kcp, (const char *)kcp_send_buf, data_size + sizeof(header));
-
-				if (ret < 0) {
-					nsDbgPrint("ikcp_send failed: %d\n", ret);
-					rpKCPUnlock(ctx);
-					goto final;
-				}
-
-				size_remain -= data_size;
-				data += data_size;
-
-				ikcp_update(ctx->kcp, iclock());
-				rpKCPUnlock(ctx);
-
-				desired_last_tick += min_send_interval_ticks;
-				last_tick = curr_tick;
-				break;
-			}
-			ikcp_update(ctx->kcp, iclock());
-			rpKCPUnlock(ctx);
-
-			svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
-		}
-
-		u64 tick_diff;
-		s64 desired_tick_diff;
+		if ((ret = rpKCPSend(ctx, &state, kcp_send_buf, data_size + sizeof(header))))
+			return ret;
+		size_remain -= data_size;
+		data += data_size;
 
 		// kcp send data
 		while (!*exit_thread && size_remain) {
-			if ((tick_diff = (curr_tick = svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
-				nsDbgPrint("kcp timeout send data\n");
-				goto final;
-			}
-			desired_tick_diff = (s64)(curr_tick & ((1ULL << 48) - 1)) - (desired_last_tick & ((1ULL << 48) - 1));
-			if (desired_tick_diff < (s64)min_send_interval_ticks) {
-				u64 duration = (min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
-				svc_sleepThread(duration);
-			} else {
-				u64 min_tick = min_send_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
-				if (tick_diff < min_tick) {
-					u64 duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
-					svc_sleepThread(duration);
-				}
-			}
-
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
 
-			if ((ret = rpKCPLock(ctx))) {
-				nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
-				goto final;
-			}
-			int waitsnd = ikcp_waitsnd(ctx->kcp);
-			if (waitsnd < KCP_SND_WND_SIZE) {
-				ret = ikcp_send(ctx->kcp, (const char *)data, data_size);
-
-				if (ret < 0) {
-					nsDbgPrint("ikcp_send failed: %d\n", ret);
-					rpKCPUnlock(ctx);
-					goto final;
-				}
-
-				size_remain -= data_size;
-				data += data_size;
-
-				ikcp_update(ctx->kcp, iclock());
-				rpKCPUnlock(ctx);
-
-				desired_last_tick += min_send_interval_ticks;
-				last_tick = curr_tick;
-
-				if (last_tick - desired_last_tick < (1ULL << 48) &&
-					last_tick - desired_last_tick > min_send_interval_ticks * KCP_SND_WND_SIZE
-				)
-					desired_last_tick = last_tick - min_send_interval_ticks * KCP_SND_WND_SIZE;
-				continue;
-			}
-			ikcp_update(ctx->kcp, iclock());
-			rpKCPUnlock(ctx);
-
-			svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
+			if ((ret = rpKCPSend(ctx, &state, data, data_size)))
+				return ret;
+			size_remain -= data_size;
+			data += data_size;
 		}
 
 		rp_network_encode_release(&network_queue->encode, network);
 	}
-final:
 	*exit_thread = 1;
 
 	// kcp deinit
