@@ -271,55 +271,44 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_
 		}
 #endif
 
+#define MOTION_EST(n, w, h) do { \
+	motion_estimate(image_me->me_x_image, image_me->me_y_image, \
+		im_prev->n + LEFTMARGIN, im->n + LEFTMARGIN, \
+		w, h, h + LEFTMARGIN + RIGHTMARGIN, \
+		me->block_size, me->block_size_log2, \
+		me->search_param, me->method \
+	); \
+} while (0)
+
 		if (me->downscale) {
 			int ds_ds_width = DS_DIM(width, 2);
 			int ds_ds_height = DS_DIM(height, 2);
-			motion_estimate(image_me->me_x_image, image_me->me_y_image,
-				im_prev->ds_ds_y_image + LEFTMARGIN, im->ds_ds_y_image + LEFTMARGIN,
-				ds_ds_width, ds_ds_height, ds_ds_height + LEFTMARGIN + RIGHTMARGIN,
-				me->block_size, me->block_size_log2,
-				me->search_param, me->method
-			);
+
+			MOTION_EST(ds_ds_y_image, ds_ds_width, ds_ds_height);
 		} else {
-			motion_estimate(image_me->me_x_image, image_me->me_y_image,
-				im_prev->ds_y_image + LEFTMARGIN, im->ds_y_image + LEFTMARGIN,
-				ds_width, ds_height, ds_height + LEFTMARGIN + RIGHTMARGIN,
-				me->block_size, me->block_size_log2,
-				me->search_param, me->method
-			);
+			MOTION_EST(ds_y_image, ds_width, ds_height);
 		}
 
 		int scale_log2_offset = me->downscale == 0 ? 0 : 1;
 		int scale_log2 = 1 + scale_log2_offset;
 		int ds_scale_log2 = 0 + scale_log2_offset;
-		predict_image(image_me->y_image, im_prev->y_image, im->y_image,
-			image_me->me_x_image, image_me->me_y_image,
-			width, height, scale_log2, im->y_bpp,
-			me->block_size, me->block_size_log2,
-			RP_ME_INTERPOLATE && me->interpolate);
+
+#define PREDICT_IM(n, w, h, s) do { \
+	predict_image(image_me->n, im_prev->n, im->n, \
+		image_me->me_x_image, image_me->me_y_image, \
+		w, h, s, im->y_bpp, \
+		me->block_size, me->block_size_log2, \
+		RP_ME_INTERPOLATE && me->interpolate); \
+} while (0)
+
+		PREDICT_IM(y_image, width, height, scale_log2);
 
 		if (downscale_uv) {
-			predict_image(image_me->ds_u_image, im_prev->ds_u_image, im->ds_u_image,
-				image_me->me_x_image, image_me->me_y_image,
-				ds_width, ds_height, ds_scale_log2, im->u_bpp,
-				me->block_size, me->block_size_log2,
-				RP_ME_INTERPOLATE && me->interpolate);
-			predict_image(image_me->ds_v_image, im_prev->ds_v_image, im->ds_v_image,
-				image_me->me_x_image, image_me->me_y_image,
-				ds_width, ds_height, ds_scale_log2, im->v_bpp,
-				me->block_size, me->block_size_log2,
-				RP_ME_INTERPOLATE && me->interpolate);
+			PREDICT_IM(ds_u_image, ds_width, ds_height, ds_scale_log2);
+			PREDICT_IM(ds_v_image, ds_width, ds_height, ds_scale_log2);
 		} else {
-			predict_image(image_me->u_image, im_prev->u_image, im->u_image,
-				image_me->me_x_image, image_me->me_y_image,
-				width, height, scale_log2, im->u_bpp,
-				me->block_size, me->block_size_log2,
-				RP_ME_INTERPOLATE && me->interpolate);
-			predict_image(image_me->v_image, im_prev->v_image, im->v_image,
-				image_me->me_x_image, image_me->me_y_image,
-				width, height, scale_log2, im->v_bpp,
-				me->block_size, me->block_size_log2,
-				RP_ME_INTERPOLATE && me->interpolate);
+			PREDICT_IM(u_image, width, height, scale_log2);
+			PREDICT_IM(v_image, width, height, scale_log2);
 		}
 
 		image_me->y_bpp = im->y_bpp;
