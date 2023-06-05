@@ -56,9 +56,7 @@ int rp_init_images(struct rp_image_ctx_t *ctx, int multicore) {
 			for (int j = 0; j < RP_IMAGE_BUFFER_COUNT; ++j) {
 				RP_INIT_SEM(ctx->image[i][j].sem_write, 1, 1);
 				RP_INIT_SEM(ctx->image[i][j].sem_read, 0, 1);
-#if RP_SYN_EX
 				ctx->image[i][j].sem_count = 0;
-#endif
 			}
 		}
 	}
@@ -114,7 +112,6 @@ int rpImageReadLock(struct rp_const_image_t *image) {
 }
 
 void rpImageReadUnlockCount(struct rp_const_image_t *image, int count UNUSED) {
-#if RP_SYN_EX
 	if (__atomic_add_fetch(&image->sem_count, count, __ATOMIC_RELAXED) >= RP_IMAGE_READER_COUNT) {
 #if RP_SYN_EX_VERIFY
 		rpImageVerifyEnd(image);
@@ -122,9 +119,6 @@ void rpImageReadUnlockCount(struct rp_const_image_t *image, int count UNUSED) {
 		__atomic_store_n(&image->sem_count, 0, __ATOMIC_RELAXED);
 		rp_sem_rel(image->sem_write, 1);
 	}
-#else
-	rp_sem_rel(image->sem_write, 1);
-#endif
 }
 
 void rpImageReadUnlock(struct rp_const_image_t *image) {
@@ -168,5 +162,6 @@ void rpImageWriteToRead(struct rp_const_image_t *image UNUSED) {
 
 void rpImageReadUnlockFromWrite(struct rp_const_image_t *image) {
 	rp_sem_rel(image->sem_read, 1);
+	rpImageReadUnlockCount(image, 1);
 }
 #endif

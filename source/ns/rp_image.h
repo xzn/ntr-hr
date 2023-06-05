@@ -48,7 +48,6 @@
 	struct rp_image_verify_t {};
 #endif
 
-#if RP_SYN_EX
 #define RP_IMAGE_T_DEFINE(n, dn) \
 	struct n { \
 		struct dn d; \
@@ -57,15 +56,6 @@
 		u8 sem_count; \
 		struct rp_image_verify_t verify; \
 	}
-#else
-#define RP_IMAGE_T_DEFINE(n, dn) \
-	struct n { \
-		struct dn d; \
-		rp_sem_t sem_write; \
-		rp_sem_t sem_read; \
-		struct rp_image_verify_t verify; \
-	}
-#endif
 
 	RP_IMAGE_T_DEFINE(rp_image_t, rp_image_data_t);
 	RP_IMAGE_T_DEFINE(rp_const_image_t, rp_const_image_data_t);
