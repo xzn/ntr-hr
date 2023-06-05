@@ -110,7 +110,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_screen_ctx_t c = screen->c;
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			if (rp_screen_transfer_release(&rp_ctx->syn.screen.transfer, screen) < 0) {
-				nsDbgPrint("rpEncodeImage screen release syn failed\n");
+				nsDbgPrint("rpEncodeScreenAndSend screen release syn failed\n");
 				break;
 			}
 		}
