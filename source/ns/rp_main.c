@@ -37,7 +37,7 @@ static void rpScreenTransferThread(u32 arg) {
 		}
 		acquire_count = 0;
 
-		if (!rpScreenEncodeSetupMain(screen, &screen_encode_ctx, rp_ctx)) {
+		if (rpScreenEncodeSetupMain(screen, &screen_encode_ctx, rp_ctx)) {
 			break;
 		}
 
@@ -96,7 +96,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			acquire_count = 0;
 		} else {
 			screen = &rp_ctx->screen_encode[thread_n];
-			if (!rpScreenEncodeSetupMain(screen, &screen_encode_ctx, rp_ctx)) {
+			if (rpScreenEncodeSetupMain(screen, &screen_encode_ctx, rp_ctx)) {
 				break;
 			}
 		}
@@ -200,9 +200,11 @@ do { while (!rp_ctx->exit_thread) { \
 		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : &image->d;
 
 #if !RP_SYN_EX
-		if ((ret = rp_lock_wait(rp_ctx->thread_network_mutex, RP_SYN_WAIT_MAX))) {
-			nsDbgPrint("%d thread_network_mutex wait timeout/error: %d\n", thread_n, ret); \
-			break;
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+			if ((ret = rp_lock_wait(rp_ctx->thread_network_mutex, RP_SYN_WAIT_MAX))) {
+				nsDbgPrint("%d thread_network_mutex wait timeout/error: %d\n", thread_n, ret); \
+				break;
+			}
 		}
 #endif
 
@@ -221,10 +223,6 @@ do { while (!rp_ctx->exit_thread) { \
 		RP_PROCESS_DS_IMAGE_AND_SEND(v_image, ds_v_image, width, height, ds_width, ds_height, v_bpp, RP_PROCESS_BEGIN_P);
 		RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_width, me_height, me_bpp, RP_PROCESS_END_P);
 
-#if !RP_SYN_EX
-		rp_lock_rel(rp_ctx->thread_network_mutex);
-#endif
-
 #undef RP_PROCESS_DS_IMAGE_AND_SEND
 #undef RP_PROCESS_IMAGE_AND_SEND
 
@@ -238,6 +236,7 @@ do { while (!rp_ctx->exit_thread) { \
 				rpImageWriteUnlock(image);
 			}
 #else
+			rp_lock_rel(rp_ctx->thread_network_mutex);
 			rp_lock_rel(rp_ctx->thread_encode_mutex[c.top_bot]);
 #endif
 		}

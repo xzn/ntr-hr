@@ -35,7 +35,6 @@ typedef LightSemaphore rp_sem_t;
 #define rp_sem_close(n) ((void)0)
 #endif
 
-
 struct rp_syn_comp_t {
 	struct rp_syn_comp_func_t {
 		u8 id;

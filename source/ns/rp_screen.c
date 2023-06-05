@@ -315,6 +315,10 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_
 				RP_ME_INTERPOLATE && me->interpolate);
 		}
 
+		image_me->y_bpp = im->y_bpp;
+		image_me->u_bpp = im->u_bpp;
+		image_me->v_bpp = im->v_bpp;
+
 		me_add_half_range((u8 *)image_me->me_x_image, width, height, scale_log2,
 			me->bpp_half_range, me->block_size_log2);
 		me_add_half_range((u8 *)image_me->me_y_image, width, height, scale_log2,
