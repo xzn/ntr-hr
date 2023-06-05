@@ -293,22 +293,22 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *image_
 		int scale_log2 = 1 + scale_log2_offset;
 		int ds_scale_log2 = 0 + scale_log2_offset;
 
-#define PREDICT_IM(n, w, h, s) do { \
+#define PREDICT_IM(n, w, h, s, b) do { \
 	predict_image(image_me->n, im_prev->n, im->n, \
 		image_me->me_x_image, image_me->me_y_image, \
-		w, h, s, im->y_bpp, \
+		w, h, s, im->b, \
 		me->block_size, me->block_size_log2, \
 		RP_ME_INTERPOLATE && me->interpolate); \
 } while (0)
 
-		PREDICT_IM(y_image, width, height, scale_log2);
+		PREDICT_IM(y_image, width, height, scale_log2, y_bpp);
 
 		if (downscale_uv) {
-			PREDICT_IM(ds_u_image, ds_width, ds_height, ds_scale_log2);
-			PREDICT_IM(ds_v_image, ds_width, ds_height, ds_scale_log2);
+			PREDICT_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp);
+			PREDICT_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp);
 		} else {
-			PREDICT_IM(u_image, width, height, scale_log2);
-			PREDICT_IM(v_image, width, height, scale_log2);
+			PREDICT_IM(u_image, width, height, scale_log2, u_bpp);
+			PREDICT_IM(v_image, width, height, scale_log2, v_bpp);
 		}
 
 		image_me->y_bpp = im->y_bpp;
