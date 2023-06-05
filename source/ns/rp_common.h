@@ -23,6 +23,7 @@
 #define RP_SYN_EX (1)
 #define RP_SYN_EX_VERIFY (0)
 #define RP_SYN_EX_VERIFY_WHICH (0)
+#define RP_SYN_NET (0)
 
 #define RP_SVC_MS(ms) ((u64)ms * 1000 * 1000)
 

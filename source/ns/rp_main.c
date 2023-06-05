@@ -217,9 +217,14 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 				image = rpImageWriteToRead(image_curr);
 				image_curr = 0;
 			}
-#if !RP_SYN_EX
+#if RP_SYN_NET == 1
 			if ((ret = rp_lock_wait(rp_ctx->network_mutex, RP_SYN_WAIT_MAX))) {
 				nsDbgPrint("%d network_mutex wait timeout/error: %d\n", thread_n, ret); \
+				break;
+			}
+#elif RP_SYN_NET == 2
+			if ((ret = rp_sem_wait(rp_ctx->network_sem[thread_n], RP_SYN_WAIT_MAX))) {
+				nsDbgPrint("%d network_sem wait timeout/error: %d\n", thread_n, ret); \
 				break;
 			}
 #endif
@@ -229,7 +234,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : rp_ctx->conf.me.method != 0 ? &image->d : &rp_const_image(image_curr)->d;
 
 		ret = rpJLSEncodeScreenAndSend(&c, im, &rp_ctx->jls_param, jls_ctx, &rp_ctx->syn.network, rp_ctx->conf.downscale_uv, rp_ctx->conf.encoder_which, rp_ctx->conf.encode_verify,
-			&rp_ctx->conf.me, &rp_ctx->exit_thread, (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && RP_SYN_EX), thread_n);
+			&rp_ctx->conf.me, &rp_ctx->exit_thread, (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !RP_SYN_NET), thread_n);
 		if (ret)
 			break;
 
@@ -241,8 +246,10 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 				// release write
 				rpImageWriteUnlock(image_curr);
 			}
-#if !RP_SYN_EX
+#if RP_SYN_NET == 1
 			rp_lock_rel(rp_ctx->network_mutex);
+#elif RP_SYN_NET == 2
+			rp_sem_rel(rp_ctx->network_sem[(thread_n + 1) % RP_ENCODE_THREAD_COUNT], 1);
 #endif
 		}
 	};
@@ -269,9 +276,14 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 			return ret;
 		}
 
-#if !RP_SYN_EX
+#if RP_SYN_NET == 1
 		rp_lock_close(rp_ctx->network_mutex);
 		(void)rp_lock_init(rp_ctx->network_mutex);
+#elif RP_SYN_NET == 2
+		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
+			rp_sem_close(rp_ctx->network_sem[i]);
+			(void)rp_sem_init(rp_ctx->network_sem[i], i == 0 ? 1 : 0, 1);
+		}
 #endif
 
 		ret = svc_createThread(
