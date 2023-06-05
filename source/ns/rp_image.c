@@ -113,15 +113,15 @@ int rpImageReadLock(struct rp_const_image_t *image) {
 
 void rpImageReadUnlockCount(struct rp_const_image_t *image, int count UNUSED) {
 	if (__atomic_add_fetch(&image->sem_count, count, __ATOMIC_RELAXED) >= RP_IMAGE_READER_COUNT) {
-#if RP_SYN_EX_VERIFY
-		rpImageVerifyEnd(image);
-#endif
 		__atomic_store_n(&image->sem_count, 0, __ATOMIC_RELAXED);
 		rp_sem_rel(image->sem_write, 1);
 	}
 }
 
 void rpImageReadUnlock(struct rp_const_image_t *image) {
+#if RP_SYN_EX_VERIFY && !RP_SYN_EX_VERIFY_WHICH
+	rpImageVerifyEnd(image);
+#endif
 	rpImageReadUnlockCount(image, 1);
 }
 
@@ -151,6 +151,9 @@ void rpImageWriteToRead(struct rp_const_image_t *image) {
 }
 
 void rpImageReadUnlockFromWrite(struct rp_const_image_t *image) {
+#if RP_SYN_EX_VERIFY && RP_SYN_EX_VERIFY_WHICH
+	rpImageVerifyEnd(image);
+#endif
 	rpImageReadUnlockCount(image, 1);
 }
 #else
@@ -161,6 +164,9 @@ void rpImageWriteToRead(struct rp_const_image_t *image UNUSED) {
 }
 
 void rpImageReadUnlockFromWrite(struct rp_const_image_t *image) {
+#if RP_SYN_EX_VERIFY && RP_SYN_EX_VERIFY_WHICH
+	rpImageVerifyEnd(image);
+#endif
 	rp_sem_rel(image->sem_read, 1);
 	rpImageReadUnlockCount(image, 1);
 }
