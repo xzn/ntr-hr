@@ -27,7 +27,6 @@ struct rp_ctx_t {
 	u8 dma_config[24];
 
 	u8 nwm_send_buffer[NWM_PACKET_SIZE] ALIGN_4;
-	u8 kcp_send_buffer[KCP_PACKET_SIZE] ALIGN_4;
 	u8 thread_stack[RP_STACK_SIZE] ALIGN_4;
 	u8 second_thread_stack[RP_STACK_SIZE] ALIGN_4;
 	u8 network_transfer_thread_stack[RP_MISC_STACK_SIZE] ALIGN_4;

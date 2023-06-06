@@ -2,6 +2,7 @@
 #include "rp_syn_chan.h"
 #include "rp_dyn_prio.h"
 #include "rp_syn.h"
+#include "rp_conf.h"
 
 static uint16_t ip_checksum(void* vdata, size_t length) {
 	// Cast the data pointer to one that can be indexed.
@@ -90,12 +91,12 @@ static void rpKCPUnlock(struct rp_net_ctx_t *ctx) {
 	svc_releaseMutex(ctx->kcp_mutex);
 }
 
-static int rpKCPReady(struct rp_net_ctx_t *ctx, ikcpcb *kcp, int conv, void *user) {
+static int rpKCPReady(struct rp_net_ctx_t *ctx, ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, void *user) {
 	int res;
 	if ((res = rpKCPLock(ctx)))
 		return res;
 
-	kcp = ikcp_create(kcp, conv, user);
+	kcp = ikcp_create(kcp, kcp_conf->conv, user);
 	if (!kcp) {
 		nsDbgPrint("ikcp_create failed\n");
 		rpKCPUnlock(ctx);
@@ -107,11 +108,10 @@ static int rpKCPReady(struct rp_net_ctx_t *ctx, ikcpcb *kcp, int conv, void *use
 			rpKCPUnlock(ctx);
 			return -1;
 		}
-		ikcp_nodelay(kcp, 2, 10, 2, 1);
-#if RP_KCP_SET_MINRTO
-		kcp->rx_minrto = 10;
-#endif
-		ikcp_wndsize(kcp, KCP_SND_WND_SIZE, 0);
+		ikcp_nodelay(kcp, kcp_conf->nodelay, 10, kcp_conf->fastresend, kcp_conf->nocwnd);
+		kcp->rx_minrto = kcp_conf->minrto;
+		ikcp_wndsize(kcp, kcp_conf->snd_wnd_size, 0);
+		kcp->stream = 1;
 	}
 
 	ctx->kcp = kcp;
@@ -222,7 +222,7 @@ static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, con
 			return -1;
 		}
 		int waitsnd = ikcp_waitsnd(ctx->kcp);
-		if (waitsnd < KCP_SND_WND_SIZE) {
+		if (waitsnd < (int)ctx->kcp->snd_wnd) {
 			ret = ikcp_send(ctx->kcp, (const char *)buf, size);
 
 			if (ret < 0) {
@@ -238,9 +238,9 @@ static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, con
 			state->last_tick = curr_tick;
 
 			if (state->last_tick - state->desired_last_tick < (1ULL << 48) &&
-				state->last_tick - state->desired_last_tick > state->min_send_interval_ticks * KCP_SND_WND_SIZE
+				state->last_tick - state->desired_last_tick > state->min_send_interval_ticks * ctx->kcp->snd_wnd
 			)
-				state->desired_last_tick = state->last_tick - state->min_send_interval_ticks * KCP_SND_WND_SIZE;
+				state->desired_last_tick = state->last_tick - state->min_send_interval_ticks * ctx->kcp->snd_wnd;
 
 			return 0;
 		}
@@ -253,29 +253,14 @@ static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, con
 }
 
 int rpNetworkTransfer(
-	struct rp_net_ctx_t *ctx, int thread_n UNUSED, ikcpcb *kcp, int conv, volatile u8 *exit_thread,
-	struct rp_syn_comp_t *network_queue, u8 *kcp_send_buf, u64 min_send_interval_ticks, struct rp_dyn_prio_t* dyn_prio
+	struct rp_net_ctx_t *ctx, int thread_n UNUSED, ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, volatile u8 *exit_thread,
+	struct rp_syn_comp_t *network_queue, u64 min_send_interval_ticks
 ) {
 	int ret;
 
 	// kcp init
-	if ((ret = rpKCPReady(ctx, kcp, conv, ctx)))
+	if ((ret = rpKCPReady(ctx, kcp, kcp_conf, ctx)))
 		return ret;
-
-	// send empty header to mark beginning
-	if ((ret = rpKCPLock(ctx)))
-		return ret;
-	{
-		struct rp_send_header empty_header = { 0 };
-
-		ret = ikcp_send(ctx->kcp, (const char *)&empty_header, sizeof(empty_header));
-
-		if (ret < 0) {
-			nsDbgPrint("ikcp_send failed: %d\n", ret);
-			return ret;
-			rpKCPUnlock(ctx);
-		}
-	}
 
 	ikcp_update(ctx->kcp, iclock());
 	rpKCPUnlock(ctx);
@@ -308,29 +293,8 @@ int rpNetworkTransfer(
 
 		state.last_tick = curr_tick;
 
-		int top_bot = network->top_bot;
-		struct rp_send_header header = {
-			.size = network->size,
-			.size_1 = network->size_1,
-			.frame_n = network->frame_n,
-			.bpp = network->bpp,
-			.format = network->format,
-			.flags = (top_bot ? RP_SEND_HEADER_TOP_BOT : 0) |
-				(network->p_frame ? RP_SEND_HEADER_P_FRAME : 0),
-		};
-		u32 size_remain = header.size + header.size_1;
+		u32 size_remain = network->size;
 		u8 *data = network->buffer;
-		rpSetPriorityScreen(dyn_prio, top_bot, size_remain);
-
-		// kcp send header data
-		u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE - sizeof(header));
-		memcpy(kcp_send_buf, &header, sizeof(header));
-		memcpy(kcp_send_buf + sizeof(header), data, data_size);
-
-		if ((ret = rpKCPSend(ctx, &state, kcp_send_buf, data_size + sizeof(header))))
-			return ret;
-		size_remain -= data_size;
-		data += data_size;
 
 		// kcp send data
 		while (!*exit_thread && size_remain) {

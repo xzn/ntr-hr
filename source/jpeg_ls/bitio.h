@@ -62,12 +62,7 @@
 
 struct bito_ctx {
 
-/* BYTE I/O variables */
-#define BUFSIZE ((16*1024)-4) /* Size of input BYTE buffer */
-int fp;                /* index into byte  buffer */
-uint8_t negbuff[BUFSIZE+4];        /* the buffer */
-#define buff(bctx) (bctx->negbuff+4)
-
+uint8_t *buf, *buf_end;
 
 /* BIT I/O variables */
 uint32_t reg;         /* BIT buffer for input/output */
@@ -75,32 +70,30 @@ int bits;          /* number of bits free in bit buffer (on output) */
                           /* (number of bits free)-8 in bit buffer (on input)*/
 #define BITBUFSIZE (8*sizeof(reg))
 
+void *user;
+void (*flush)(struct bito_ctx *);
+
 };
 
-#define myputc(bctx, c, fil) ((bctx->fp >= BUFSIZE) ? (flushbuff(bctx, fil), buff(bctx)[bctx->fp++] = c) :\
-                                                        (buff(bctx)[bctx->fp++] = c))
-
-static inline void mywrite(const void *buffer, size_t size, struct jls_byteo_ctx *out) {
-    if (out->ptr + size > out->end) {
-        size = out->end - out->ptr;
-    }
-    memcpy(out->ptr, buffer, size);
-    out->ptr += size;
-}
-
+#define myputc(bctx, c) ((bctx->buf >= bctx->buf_end) ? (flushbuff(bctx), *bctx->buf++ = c) :\
+                                                        (*bctx->buf++ = c))
 
 #define assert(...)
+
+static inline void flushbuff(struct bito_ctx *bctx) {
+	/* mywrite must work correctly, even if fp is equal to 0 */
+    bctx->flush(bctx);
+}
 
 
 #define put_zeros(ctx,bctx,n)                                          \
 {                                                             \
         bctx->bits -= n;                                            \
         while (bctx->bits <= 24) {                                  \
-                if (bctx->fp >= BUFSIZE) {                          \
-                        mywrite(buff(bctx), bctx->fp, &ctx->out);       \
-                        bctx->fp = 0;                               \
+                if (bctx->buf >= bctx->buf_end) {                          \
+                        flushbuff(bctx);       \
                 }                                             \
-                buff(bctx)[bctx->fp++] = bctx->reg >> 24;                 \
+                *bctx->buf++ = bctx->reg >> 24;                 \
                 bctx->reg <<= 8;                                    \
                 bctx->bits += 8;                                    \
         }                                                     \
@@ -139,12 +132,11 @@ static inline void mywrite(const void *buffer, size_t size, struct jls_byteo_ctx
         bctx->bits -= n;                                              \
         bctx->reg |= x << bctx->bits;                                       \
         while (bctx->bits <= 24) {                                   	\
-			register unsigned int outbyte;		\
-            if (bctx->fp >= BUFSIZE) {                       		\
-				mywrite(buff(bctx), bctx->fp, &ctx->out);       \
-				bctx->fp = 0;                         \
+			uint8_t outbyte;		\
+            if (bctx->buf >= bctx->buf_end) {                       		\
+				flushbuff(bctx);       \
 			}                                       \
-            outbyte = (buff(bctx)[bctx->fp++] = (bctx->reg >> 24) );		\
+            outbyte = (*bctx->buf++ = (bctx->reg >> 24) );		\
 			if ( ESCAPE && outbyte == 0xff ) {		\
 				bctx->bits += 7;			\
 				bctx->reg <<= 7;			\

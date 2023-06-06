@@ -1,5 +1,7 @@
 #include "rp_jls.h"
 #include "rp_color_aux.h"
+#include "rp_syn_chan.h"
+#include "rp_syn.h"
 
 void jls_encoder_prepare_LUTs(struct rp_jls_params_t *ctx) {
 	prepare_classmap(ctx->enc_luts.classmap);
@@ -79,23 +81,92 @@ int ffmpeg_jls_decode(uint8_t *dst, int width, int height, int pitch, const uint
 	return width * height;
 }
 
-int rpJLSEncodeImage(struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx, u8 *dst, int dst_size, const u8 *src, int w, int h, int bpp, int encoder_which, int encode_verify) {
-	XXH32_hash_t UNUSED src_hash = 0;
-	u8 *dst2 = 0;
-	if (RP_ENCODE_VERIFY && encode_verify) {
-#if RP_ENCODE_VERIFY
-		src_hash = XXH32(src, w * (h + LEFTMARGIN + RIGHTMARGIN), 0);
-		dst2 = jls_ctx->verify_buffer.encode;
+struct rp_jls_send_ctx_t {
+	struct rp_syn_comp_t *network_queue;
+	volatile u8 *exit_thread;
+	u8 multicore;
+	u8 thread_n;
+	struct rp_network_encode_t *network;
+	u8 *buffer_end;
+	u32 send_size_total;
+};
 
-		if (encoder_which == 1) {
-			u8 *tmp = dst;
-			dst = dst2;
-			dst2 = tmp;
+static int rpJLSSendBegin(struct rp_jls_send_ctx_t *ctx) {
+	int acquire_count = 0;
+	while (!*ctx->exit_thread) {
+		ctx->network =
+			rp_network_encode_acquire(&ctx->network_queue->encode, RP_THREAD_LOOP_MED_WAIT, ctx->multicore);
+		if (!ctx->network) {
+			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
+				nsDbgPrint("rp_network_encode_acquire timeout\n");
+				return -1;
+			}
+			continue;
 		}
-#endif
-	} else {
-		dst2 = dst;
+		return 0;
 	}
+	return -1;
+}
+
+static int rpJLSSendEnd(struct rp_jls_send_ctx_t *ctx) {
+	ctx->send_size_total += ctx->network->size = ctx->buffer_end - ctx->network->buffer;
+	if (rp_network_transfer_release(&ctx->network_queue->transfer, ctx->network, ctx->multicore) < 0) {
+		nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", ctx->thread_n);
+		return -1;
+	}
+	ctx->network = 0;
+	ctx->buffer_end = 0;
+	return 0;
+}
+
+static int rpJLSSendEncodedCallback(struct rp_jls_send_ctx_t *ctx) {
+	int ret;
+	if ((ret = rpJLSSendEnd(ctx)))
+		return ret;
+	if ((ret = rpJLSSendBegin(ctx)))
+		return ret;
+	return 0;
+}
+
+static void rpJLSSendEncodedCallback_0(struct PutBitContext *ctx) {
+	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
+	sctx->buffer_end = ctx->buf_ptr;
+	if (rpJLSSendEncodedCallback(sctx) == 0) {
+		sctx->buffer_end = ctx->buf_ptr = ctx->buf = sctx->network->buffer;
+		ctx->buf_end = sctx->network->buffer + sizeof(sctx->network->buffer);
+	}
+}
+
+static void rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
+	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
+	sctx->buffer_end = (u8 *)ctx->buf;
+	if (rpJLSSendEncodedCallback(sctx) == 0) {
+		sctx->buffer_end = ctx->buf = sctx->network->buffer;
+		ctx->buf_end = sctx->network->buffer + sizeof(sctx->network->buffer);
+	}
+}
+
+int rpJLSEncodeImage(struct rp_send_data_header *send_header, struct rp_syn_comp_t *network_queue,
+	int network_sync, volatile u8 *exit_thread,
+	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
+	const u8 *src, int w, int h, int bpp,
+	u8 encoder_which, u8 encode_verify UNUSED, u8 thread_n
+) {
+	int ret;
+	struct rp_jls_send_ctx_t send_ctx = {
+		.network_queue = network_queue,
+		.multicore = network_sync,
+		.thread_n = thread_n,
+		.exit_thread = exit_thread
+	};
+	ret = rpJLSSendBegin(&send_ctx);
+	if (ret < 0)
+		return ret;
+
+	int send_header_size = sizeof(struct rp_send_data_header);
+	memcpy(send_ctx.network->buffer, send_header, send_header_size);
+	send_ctx.buffer_end = send_ctx.network->buffer + send_header_size;
+	int buffer_size = sizeof(send_ctx.network->buffer) - send_header_size;
 
 	struct jls_enc_params *enc_params;
 	switch (bpp) {
@@ -119,8 +190,7 @@ int rpJLSEncodeImage(struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ct
 			return -1;
 	}
 
-	int ret = 0, ret2 = 0;
-	if ((RP_ENCODE_VERIFY && encode_verify) || encoder_which == 0) {
+	if (encoder_which == 0) {
 		JLSState state = { 0 };
 		state.bpp = bpp;
 
@@ -128,7 +198,9 @@ int rpJLSEncodeImage(struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ct
 		ff_jpegls_init_state(&state);
 
 		PutBitContext s;
-		init_put_bits(&s, dst, dst_size);
+		init_put_bits(&s, send_ctx.buffer_end, buffer_size);
+		s.flush = rpJLSSendEncodedCallback_0;
+		s.user = &send_ctx;
 
 		const u8 *last = psl0 + LEFTMARGIN;
 		const u8 *in = src + LEFTMARGIN;
@@ -144,72 +216,22 @@ int rpJLSEncodeImage(struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ct
 		}
 
 		flush_put_bits(&s);
-		ret = put_bytes_output(&s);
-	}
-	if ((RP_ENCODE_VERIFY && encode_verify) || encoder_which == 1) {
+		send_ctx.buffer_end = s.buf_ptr;
+	} else {
 		struct jls_enc_ctx *ctx = &jls_ctx->enc;
 		struct bito_ctx *bctx = &jls_ctx->bito;
-		ret2 = jpeg_ls_encode(
-			enc_params, ctx, bctx, (char *)dst2, dst_size, src,
+		bctx->flush = rpJLSSendEncodedCallback_1;
+		bctx->user = &send_ctx;
+		jpeg_ls_encode(
+			enc_params, ctx, bctx, (char *)send_ctx.buffer_end, buffer_size, src,
 			w, h, h + LEFTMARGIN + RIGHTMARGIN,
 			params->enc_luts.classmap
 		);
-	}
-	if (RP_ENCODE_VERIFY && encode_verify) {
-#if RP_ENCODE_VERIFY
-		nsDbgPrint("rpJLSEncodeImage: w = %d, h = %d, bpp = %d\n", w, h, bpp);
-		if (src_hash != XXH32(src, w * (h + LEFTMARGIN + RIGHTMARGIN), 0))
-			nsDbgPrint("rpJLSEncodeImage src buffer corrupt during encode, race condition?\n");
-		if (ret != ret2) {
-			nsDbgPrint("Failed encode size verify: %d, %d\n", ret, ret2);
-		} else if (memcmp(dst, dst2, ret) != 0) {
-			nsDbgPrint("Failed encode content verify\n");
-		} else {
-			u8 *decoded = jls_ctx->verify_buffer.decode;
-
-			int ret3 = ffmpeg_jls_decode(decoded, w, h, h, dst2, ret2, bpp);
-			if (ret3 != w * h) {
-				nsDbgPrint("Failed decode size verify: %d (expected %d)\n", ret3, w * h);
-			} else {
-				for (int i = 0; i < w; ++i) {
-					if (memcmp(decoded + i * h, src + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN), h) != 0) {
-						nsDbgPrint("Failed decode content verify at col %d\n", i);
-						break;
-					}
-				}
-
-				u8 *decode_padded = jls_ctx->verify_buffer.decode_padded;
-				int decode_padded_size = sizeof(jls_ctx->verify_buffer.decode_padded);
-
-				jpeg_ls_encode_pad_source(decode_padded, decode_padded_size, decoded, w, h);
-				if (memcmp(decoded, src, w * (h + LEFTMARGIN + RIGHTMARGIN)) != 0) {
-					nsDbgPrint("Failed decode pad content verify\n");
-				}
-				for (int i = 0; i < w; ++i) {
-					if (memcmp(
-							decoded + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN),
-							src + LEFTMARGIN + i * (h + LEFTMARGIN + RIGHTMARGIN),
-							h
-						) != 0
-					) {
-						nsDbgPrint("Failed decode pad content verify at col %d\n", i);
-						break;
-					}
-				}
-			}
-		}
-#endif
-	} else if (encoder_which == 1) {
-		ret = ret2;
+		send_ctx.buffer_end = (u8 *)bctx->buf;
 	}
 
-	if (ret >= dst_size) {
-		nsDbgPrint("Possible buffer overrun in rpJLSEncodeImage\n");
-		return -1;
-	}
-	if (RP_ENCODE_VERIFY && encode_verify) {
-		return encoder_which == 0 ? ret : ret2;
-	} else {
+	ret = rpJLSSendEnd(&send_ctx);
+	if (ret)
 		return ret;
-	}
+	return send_ctx.send_size_total;
 }

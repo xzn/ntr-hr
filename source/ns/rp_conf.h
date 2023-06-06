@@ -6,7 +6,14 @@
 struct rp_conf_t {
     u8 updated;
 
-    u32 kcp_conv;
+    struct rp_conf_kcp_t {
+        u32 conv;
+        u8 fastresend;
+        u8 nocwnd;
+        u8 snd_wnd_size;
+        u8 minrto;
+        u8 nodelay;
+    } kcp;
 
     u8 yuv_option;
     u8 color_transform_hp;
@@ -25,7 +32,8 @@ struct rp_conf_t {
         u8 interpolate;
     } me;
 
-    u8 target_frame_rate;
+    u8 min_dp_frame_rate;
+    u8 max_frame_rate;
     u8 target_mbit_rate;
     u8 dynamic_priority;
     u8 screen_priority[SCREEN_MAX];
@@ -35,13 +43,10 @@ struct rp_conf_t {
 
     u32 min_send_interval_ticks;
     u32 max_capture_interval_ticks;
-
-    int arg0;
-    int arg1;
-    int arg2;
+    u32 min_capture_interval_ticks;
 };
 
 int rp_set_params(struct rp_conf_t *conf);
-int rp_check_params(struct rp_conf_t *conf, u8 *exit_thread);
+int rp_check_params(struct rp_conf_t *conf, volatile u8 *exit_thread);
 
 #endif

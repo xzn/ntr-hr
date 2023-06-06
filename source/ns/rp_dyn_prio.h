@@ -4,7 +4,6 @@
 #include "rp_syn.h"
 
 #define RP_DYN_PRIO_FRAME_COUNT 2
-#define RP_IMAGE_CHANNEL_COUNT 3
 struct rp_dyn_prio_t {
     struct rp_dyo_prio_screen_t {
         u16 frame_size_acc;
@@ -15,7 +14,6 @@ struct rp_dyn_prio_t {
 
         u8 frame_size_chn;
         u8 priority_size_chn;
-        u8 chn_index;
 
         u8 frame_index;
 

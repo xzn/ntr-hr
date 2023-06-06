@@ -51,7 +51,15 @@ typedef struct PutBitContext {
     BitBuf bit_buf;
     int bit_left;
     uint8_t *buf, *buf_ptr, *buf_end;
+    void *user;
+    void (*flush)(struct PutBitContext *);
 } PutBitContext;
+
+static inline void assert_or_flush_buffer(PutBitContext *s, int assert_cond)
+{
+    if (!assert_cond)
+        s->flush(s);
+}
 
 /**
  * Initialize the PutBitContext s.
@@ -147,7 +155,7 @@ static inline void flush_put_bits(PutBitContext *s)
         s->bit_buf <<= s->bit_left;
 #endif
     while (s->bit_left < BUF_BITS) {
-        av_assert0(s->buf_ptr < s->buf_end);
+        assert_or_flush_buffer(s, s->buf_ptr < s->buf_end);
 #ifdef BITSTREAM_WRITER_LE
         *s->buf_ptr++ = s->bit_buf;
         s->bit_buf  >>= 8;
@@ -164,7 +172,7 @@ static inline void flush_put_bits(PutBitContext *s)
 static inline void flush_put_bits_le(PutBitContext *s)
 {
     while (s->bit_left < BUF_BITS) {
-        av_assert0(s->buf_ptr < s->buf_end);
+        assert_or_flush_buffer(s, s->buf_ptr < s->buf_end);
         *s->buf_ptr++ = s->bit_buf;
         s->bit_buf  >>= 8;
         s->bit_left  += 8;
@@ -206,13 +214,11 @@ static inline void put_bits_no_assert(PutBitContext *s, int n, BitBuf value)
 #ifdef BITSTREAM_WRITER_LE
     bit_buf |= value << (BUF_BITS - bit_left);
     if (n >= bit_left) {
-        if (s->buf_end - s->buf_ptr >= sizeof(BitBuf)) {
-            AV_WLBUF(s->buf_ptr, bit_buf);
-            s->buf_ptr += sizeof(BitBuf);
-        } else {
-            av_log(NULL, AV_LOG_ERROR, "Internal error, put_bits buffer too small\n");
-            av_assert2(0);
-        }
+        assert_or_flush_buffer(s, s->buf_end - s->buf_ptr >= (int)sizeof(BitBuf));
+
+        AV_WLBUF(s->buf_ptr, bit_buf);
+        s->buf_ptr += sizeof(BitBuf);
+
         bit_buf     = value >> bit_left;
         bit_left   += BUF_BITS;
     }
@@ -224,13 +230,11 @@ static inline void put_bits_no_assert(PutBitContext *s, int n, BitBuf value)
     } else {
         bit_buf   <<= bit_left;
         bit_buf    |= value >> (n - bit_left);
-        if (s->buf_end - s->buf_ptr >= (int)sizeof(BitBuf)) {
-            AV_WBBUF(s->buf_ptr, bit_buf);
-            s->buf_ptr += sizeof(BitBuf);
-        } else {
-            av_log(NULL, AV_LOG_ERROR, "Internal error, put_bits buffer too small\n");
-            av_assert2(0);
-        }
+        assert_or_flush_buffer(s, s->buf_end - s->buf_ptr >= (int)sizeof(BitBuf));
+
+        AV_WBBUF(s->buf_ptr, bit_buf);
+        s->buf_ptr += sizeof(BitBuf);
+
         bit_left   += BUF_BITS - n;
         bit_buf     = value;
     }
@@ -262,13 +266,11 @@ static inline void put_bits_le(PutBitContext *s, int n, BitBuf value)
 
     bit_buf |= value << (BUF_BITS - bit_left);
     if (n >= bit_left) {
-        if (s->buf_end - s->buf_ptr >= (int)sizeof(BitBuf)) {
-            AV_WLBUF(s->buf_ptr, bit_buf);
-            s->buf_ptr += sizeof(BitBuf);
-        } else {
-            av_log(NULL, AV_LOG_ERROR, "Internal error, put_bits buffer too small\n");
-            av_assert2(0);
-        }
+        assert_or_flush_buffer(s, s->buf_end - s->buf_ptr >= (int)sizeof(BitBuf));
+
+        AV_WLBUF(s->buf_ptr, bit_buf);
+        s->buf_ptr += sizeof(BitBuf);
+
         bit_buf     = value >> bit_left;
         bit_left   += BUF_BITS;
     }
@@ -303,24 +305,18 @@ static void av_unused put_bits32(PutBitContext *s, uint32_t value)
 
 #ifdef BITSTREAM_WRITER_LE
     bit_buf |= (BitBuf)value << (BUF_BITS - bit_left);
-    if (s->buf_end - s->buf_ptr >= sizeof(BitBuf)) {
-        AV_WLBUF(s->buf_ptr, bit_buf);
-        s->buf_ptr += sizeof(BitBuf);
-    } else {
-        av_log(NULL, AV_LOG_ERROR, "Internal error, put_bits buffer too small\n");
-        av_assert2(0);
-    }
+    assert_or_flush_buffer(s, s->buf_end - s->buf_ptr >= (int)sizeof(BitBuf));
+    AV_WLBUF(s->buf_ptr, bit_buf);
+    s->buf_ptr += sizeof(BitBuf);
+
     bit_buf     = (uint64_t)value >> bit_left;
 #else
     bit_buf     = (uint64_t)bit_buf << bit_left;
     bit_buf    |= (BitBuf)value >> (BUF_BITS - bit_left);
-    if (s->buf_end - s->buf_ptr >= (int)sizeof(BitBuf)) {
-        AV_WBBUF(s->buf_ptr, bit_buf);
-        s->buf_ptr += sizeof(BitBuf);
-    } else {
-        av_log(NULL, AV_LOG_ERROR, "Internal error, put_bits buffer too small\n");
-        av_assert2(0);
-    }
+    assert_or_flush_buffer(s, s->buf_end - s->buf_ptr >= (int)sizeof(BitBuf));
+    AV_WBBUF(s->buf_ptr, bit_buf);
+    s->buf_ptr += sizeof(BitBuf);
+
     bit_buf     = value;
 #endif
 

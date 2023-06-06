@@ -160,11 +160,6 @@ const uint16_t (*vLUT)[3];
 
 };
 
-struct jls_byteo_ctx {
-     char	*ptr;
-     char *end;
-};
-
 struct jls_enc_ctx {
 
 #define DEF_NEAR	0
@@ -261,8 +256,6 @@ int	RESET;
 
 /****** Global variables prototypes */
 
-struct jls_byteo_ctx out;
-
 #define bpp16 FALSE
 #define lossy FALSE
 
@@ -301,7 +294,7 @@ void lossless_doscanline(const struct jls_enc_params *params, struct jls_enc_ctx
      const pixel *psl, const pixel *sl, int no, const int16_t classmap[]);
 
 /* bitio.c */
-void bitoflush(struct bito_ctx *, struct jls_byteo_ctx *);
+void bitoflush(struct bito_ctx *);
 void bitoinit(struct bito_ctx *);
 
 /*  melcode.c */

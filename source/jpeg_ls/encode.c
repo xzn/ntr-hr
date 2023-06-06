@@ -1,4 +1,5 @@
 #include "global.h"
+#include "bitio.h"
 
 #include <stdint.h>
 
@@ -39,8 +40,8 @@ const uint8_t psl0[240 + LEFTMARGIN + RIGHTMARGIN] = { 0 };
 int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
     char *dst, int dst_size, const pixel *src, int w, int h, int pitch, const int16_t classmap[]
 ) {
-    ctx->out.ptr = dst;
-    ctx->out.end = dst + dst_size;
+    bctx->buf = dst;
+    bctx->buf_end = dst + dst_size;
 
     init_stats(ctx, params->alpha);
 
@@ -57,7 +58,7 @@ int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx,
         sl += pitch;
     }
 
-    bitoflush(bctx, &ctx->out);
+    bitoflush(bctx);
 
-    return ctx->out.ptr - dst;
+    return bctx->buf_end - bctx->buf;
 }

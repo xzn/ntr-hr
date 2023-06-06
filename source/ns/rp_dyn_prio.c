@@ -123,32 +123,27 @@ void rpSetPriorityScreen(struct rp_dyn_prio_t* ctx, int top_bot, u32 size) {
 	sctx->tc = 0; \
 } while (0)
 
-	u8 chn_index = ++sctx->chn_index;
-	sctx->chn_index %= RP_IMAGE_CHANNEL_COUNT;
 	if (ctx->dyn) {
 		sctx->frame_size_chn += av_ceil_log2(size);
-		if (chn_index == RP_IMAGE_CHANNEL_COUNT) {
-			SET_SIZE(frame_size, frame_size_acc, frame_size_chn);
+		SET_SIZE(frame_size, frame_size_acc, frame_size_chn);
 
-			u32 tick = svc_getSystemTick();
-			u32 tick_delta = tick - sctx->tick[sctx->frame_index];
-			sctx->tick[sctx->frame_index] = tick;
+		u32 tick = svc_getSystemTick();
+		u32 tick_delta = tick - sctx->tick[sctx->frame_index];
+		sctx->tick[sctx->frame_index] = tick;
 
-			if (sctx->initializing) {
-				--sctx->initializing;
-				sctx->frame_rate = 0;
-			} else {
-				sctx->frame_rate = (u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / tick_delta;
-			}
+		if (sctx->initializing) {
+			--sctx->initializing;
+			sctx->frame_rate = 0;
+		} else {
+			sctx->frame_rate = (u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / tick_delta;
 		}
 	}
-	sctx->priority_size_chn += sctx->priority;
-	if (chn_index == RP_IMAGE_CHANNEL_COUNT) {
-		SET_SIZE(priority_size, priority_size_acc, priority_size_chn);
 
-		++sctx->frame_index;
-		sctx->frame_index %= RP_DYN_PRIO_FRAME_COUNT;
-	}
+	sctx->priority_size_chn += sctx->priority;
+	SET_SIZE(priority_size, priority_size_acc, priority_size_chn);
+
+	++sctx->frame_index;
+	sctx->frame_index %= RP_DYN_PRIO_FRAME_COUNT;
 
 #undef SET_SIZE
 

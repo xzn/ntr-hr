@@ -14,12 +14,10 @@
 #include "../jpeg_ls/bitio.h"
 #include "xxhash.h"
 
-#define RP_ENCODE_VERIFY (0)
 #define RP_ME_INTERPOLATE (1)
 #define RP_ENCODE_MULTITHREAD (1)
 // (0) svc (1) syn
 #define RP_SYN_METHOD (1)
-#define RP_KCP_SET_MINRTO (0)
 #define RP_SYN_EX (1)
 #define RP_SYN_EX_VERIFY (0)
 #define RP_SYN_EX_VERIFY_WHICH (0)
@@ -41,7 +39,6 @@
 
 #define KCP_TIMEOUT_TICKS (2000 * SYSTICK_PER_MS)
 #define RP_PACKET_SIZE (KCP_PACKET_SIZE - IKCP_OVERHEAD)
-#define KCP_SND_WND_SIZE 96
 
 #define RP_DEST_PORT (8001)
 #define RP_SCREEN_BUFFER_SIZE (SCREEN_WIDTH_MAX * SCREEN_HEIGHT * 4)
@@ -55,9 +52,13 @@
 #define NWM_HEADER_SIZE (0x2a + 8)
 #define NWM_PACKET_SIZE (KCP_PACKET_SIZE + NWM_HEADER_SIZE)
 
+#define RP_KCP_MAGIC 0x87654321
+
 #define RP_BANDWIDTH_CONTROL_RATIO_NUM 2
 #define RP_BANDWIDTH_CONTROL_RATIO_DENUM 3
 
+#define RP_KCP_MIN_MINRTO (10)
+#define RP_KCP_MIN_SNDWNDSIZE (32)
 #define RP_ME_MIN_BLOCK_SIZE (4)
 #define RP_ME_MIN_SEARCH_PARAM (8)
 
@@ -90,10 +91,6 @@
 #define SCREEN_DS_SIZE_MAX(ds) SCREEN_CHOOSE_MAX(SCREEN_PADDED_DS_SIZE, ds)
 #define ME_SIZE_MAX PADDED_SIZE(ME_WIDTH_MAX, ME_HEIGHT)
 
-#define RP_JLS_ENCODE_SIZE_WITH_OVERHEAD(s) (s * 65 / 64)
-#define RP_JLS_ENCODE_IMAGE_BUFFER_SIZE RP_JLS_ENCODE_SIZE_WITH_OVERHEAD(SCREEN_SIZE_MAX)
-#define RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE RP_JLS_ENCODE_SIZE_WITH_OVERHEAD(ME_SIZE_MAX)
-#define RP_JLS_ENCODE_BUFFER_SIZE (RP_JLS_ENCODE_IMAGE_BUFFER_SIZE + RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE)
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
 
 #define PADDED_HEIGHT(h) ((h) + LEFTMARGIN + RIGHTMARGIN)
@@ -108,7 +105,7 @@
 #define SYSTICK_PER_SEC (268123480)
 
 // attribute aligned
-#define ALIGN_4 __attribute__ ((aligned (4)))
+#define ALIGN_4 ALIGN(4)
 // assume aligned
 #define ASSUME_ALIGN_4(a) (a = __builtin_assume_aligned (a, 4))
 #define UNUSED __attribute__((unused))
@@ -123,6 +120,8 @@
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 2)
 // (+ 1) for motion estimation reference
 #define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
+#define RP_IMAGE_FRAME_N_BITS (3)
+#define RP_IMAGE_FRAME_N_RANGE (1 << RP_IMAGE_FRAME_N_BITS)
 
 typedef u32 (*NWMSendPacket_t)(u8 *, u32);
 extern NWMSendPacket_t nwmSendPacket;

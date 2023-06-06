@@ -19,14 +19,8 @@ struct rp_screen_encode_t {
 };
 
 struct rp_network_encode_t {
-    u8 buffer[RP_JLS_ENCODE_BUFFER_SIZE] ALIGN_4;
-    u8 top_bot;
-    u8 frame_n;
-    u8 bpp;
-    u8 format;
+    u8 buffer[RP_PACKET_SIZE] ALIGN_4;
     u32 size;
-    u32 size_1;
-    u8 p_frame;
 };
 
 struct rp_syn_comp_t;

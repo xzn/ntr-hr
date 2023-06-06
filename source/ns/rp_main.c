@@ -1,7 +1,6 @@
 #include "rp_ctx.h"
 #include "rp_net.h"
 #include "rp_conf.h"
-#include "rp_syn_chan.h"
 #include "rp_dyn_prio.h"
 #include "rp_dma.h"
 #include "rp_res.h"
@@ -61,67 +60,56 @@ static void rpNetworkTransferThread(u32 arg) {
 	while (!rp_ctx->exit_thread) {
 		rp_check_params(&rp_ctx->conf, &rp_ctx->exit_thread);
 		rpNetworkTransfer(
-			&rp_ctx->net_ctx, thread_n, &rp_ctx->kcp, rp_ctx->conf.kcp_conv, &rp_ctx->exit_thread,
-			&rp_ctx->syn.network, rp_ctx->kcp_send_buffer, rp_ctx->conf.min_send_interval_ticks, &rp_ctx->dyn_prio);
+			&rp_ctx->net_ctx, thread_n, &rp_ctx->kcp, &rp_ctx->conf.kcp, &rp_ctx->exit_thread,
+			&rp_ctx->syn.network, rp_ctx->conf.min_send_interval_ticks);
 		svc_sleepThread(RP_THREAD_LOOP_SLOW_WAIT);
 	}
 	svc_exitThread();
 }
 
-static int rpJLSEncodeScreenAndSend(struct rp_screen_ctx_t *c, struct rp_const_image_data_t *im, struct rp_jls_params_t *jls_param, struct rp_jls_ctx_t *jls_ctx,
-	struct rp_syn_comp_t *network_queue, u8 downscale_uv, u8 encoder_which, u8 encode_verify, struct rp_conf_me_t *me, volatile u8 *exit_thread, u8 multicore, u8 thread_n
-) {
-#define RP_PROCESS_DS_IMAGE_AND_SEND(n, ds_n, w, h, ds_w, ds_h, b, a) \
-do { while (!*exit_thread) { \
-	int begin_p = a & (RP_PROCESS_ALWAYS | RP_PROCESS_BEGIN_P); \
-	int end_p = a & (RP_PROCESS_ALWAYS | RP_PROCESS_END_P); \
-	if (begin_p) { \
-		network = rp_network_encode_acquire(&network_queue->encode, RP_THREAD_LOOP_MED_WAIT, multicore); \
-		if (!network) { \
-			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) { \
-				nsDbgPrint("rp_network_encode_acquire timeout\n"); \
-				return -1; \
-			} \
-			continue; \
-		} \
-		acquire_count = 0; \
-	} \
-	int bpp = im->b; \
-	ret = (c->p_frame || begin_p) ? rpJLSEncodeImage(jls_param, jls_ctx, \
-		network->buffer + (begin_p ? 0 : ret), \
-		(begin_p ? RP_JLS_ENCODE_IMAGE_BUFFER_SIZE : RP_JLS_ENCODE_IMAGE_ME_BUFFER_SIZE), \
-		(const u8 *)(downscale_uv ? im->ds_n : im->n), \
-		downscale_uv ? ds_w : w, \
-		downscale_uv ? ds_h : h, \
-		bpp, \
-		encoder_which, \
-		encode_verify \
-	) : 0; \
-	if (ret < 0) { \
-		nsDbgPrint("rpJLSEncodeImage failed\n"); \
-		return -1; \
-	} \
-	if (begin_p) { \
-		network->top_bot = c->top_bot; \
-		network->frame_n = c->frame_n; \
-		network->size = ret; \
-		network->bpp = bpp; \
-		network->format = c->format; \
-		network->p_frame = c->p_frame; \
-		network->size_1 = 0; \
-	} else { \
-		network->size_1 = ret; \
-	} \
-	if (c->p_frame ? end_p : begin_p) { \
-		if (rp_network_transfer_release(&network_queue->transfer, network, multicore) < 0) { \
-			nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", thread_n); \
-			return -1; \
-		} \
-	} \
-	break; \
-} } while (0)
-#define RP_PROCESS_IMAGE_AND_SEND(n, w, h, b, a) RP_PROCESS_DS_IMAGE_AND_SEND(n, n, w, h, w, h, b, a)
+struct rp_encode_and_send_screen_ctx_t {
+	struct rp_send_data_header *send_header;
+	struct rp_jls_params_t *jls_param;
+	struct rp_jls_ctx_t *jls_ctx;
+	struct rp_syn_comp_t *network_queue;
+	u8 downscale_uv;
+	u8 encoder_which;
+	u8 encode_verify;
+	volatile u8 *exit_thread;
+	u8 multicore;
+	u8 thread_n;
+};
 
+static int rpJLSEncodeDownscaledPlaneAndSend(struct rp_encode_and_send_screen_ctx_t *ctx, const u8 *n, const u8 *ds_n,
+	int w, int h, int ds_w, int ds_h, int bpp
+) {
+	ctx->send_header->bpp = bpp;
+	return rpJLSEncodeImage(ctx->send_header, ctx->network_queue, ctx->multicore, ctx->exit_thread,
+		ctx->jls_param, ctx->jls_ctx,
+		(const u8 *)(ctx->downscale_uv ? ds_n : n),
+		ctx->downscale_uv ? ds_w : w,
+		ctx->downscale_uv ? ds_h : h,
+		bpp,
+		ctx->encoder_which,
+		ctx->encode_verify,
+		ctx->thread_n
+	);
+}
+
+static int rpJLSEncodePlaneAndSend(struct rp_encode_and_send_screen_ctx_t *ctx, const u8 *n,
+	int w, int h, int bpp) {
+	return rpJLSEncodeDownscaledPlaneAndSend(ctx, n, n, w, h, w, h, bpp);
+}
+
+static void rpUpdateSendHeader(struct rp_send_data_header *send_header, u8 plane_type, u8 plane_comp) {
+	send_header->data_end = 0;
+	send_header->plane_type = plane_type;
+	send_header->plane_comp = plane_comp;
+}
+
+static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
+	struct rp_const_image_data_t *im, struct rp_screen_ctx_t *c, struct rp_conf_me_t *me
+) {
 	int scale_log2_offset = me->downscale == 0 ? 0 : 1;
 	int scale_log2 = 1 + scale_log2_offset;
 	u8 block_size_log2 = me->block_size_log2 + scale_log2;
@@ -132,29 +120,32 @@ do { while (!*exit_thread) { \
 	int me_width = width >> block_size_log2;
 	int me_height = height >> block_size_log2;
 
-	struct rp_network_encode_t *network = 0;
-
 	int ds_width = DS_DIM(width, 1);
 	int ds_height = DS_DIM(height, 1);
 
-	enum {
-		RP_PROCESS_ALWAYS = BIT(0),
-		RP_PROCESS_BEGIN_P = BIT(1),
-		RP_PROCESS_END_P = BIT(2),
-	};
+	int ret, size = 0;
 
-	int acquire_count = 0, ret = 0;
+	rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_X);
+	ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_x_image, me_width, me_height, im->me_bpp);
+	if (ret < 0) { return ret; } size += ret;
 
-	RP_PROCESS_IMAGE_AND_SEND(y_image, width, height, y_bpp, RP_PROCESS_ALWAYS);
-	RP_PROCESS_DS_IMAGE_AND_SEND(u_image, ds_u_image, width, height, ds_width, ds_height, u_bpp, RP_PROCESS_BEGIN_P);
-	RP_PROCESS_IMAGE_AND_SEND(me_x_image, me_width, me_height, me_bpp, RP_PROCESS_END_P);
-	RP_PROCESS_DS_IMAGE_AND_SEND(v_image, ds_v_image, width, height, ds_width, ds_height, v_bpp, RP_PROCESS_BEGIN_P);
-	RP_PROCESS_IMAGE_AND_SEND(me_y_image, me_width, me_height, me_bpp, RP_PROCESS_END_P);
+	rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_Y);
+	ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_y_image, me_width, me_height, im->me_bpp);
+	if (ret < 0) { return ret; } size += ret;
 
-#undef RP_PROCESS_DS_IMAGE_AND_SEND
-#undef RP_PROCESS_IMAGE_AND_SEND
+	rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_Y);
+	ret = rpJLSEncodePlaneAndSend(ctx, im->y_image, width, height, im->y_bpp);
+	if (ret < 0) { return ret; } size += ret;
 
-	return 0;
+	rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_U);
+	ret = rpJLSEncodeDownscaledPlaneAndSend(ctx, im->u_image, im->ds_u_image, width, height, ds_width, ds_height, im->u_bpp);
+	if (ret < 0) { return ret; } size += ret;
+
+	rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_V);
+	ret = rpJLSEncodeDownscaledPlaneAndSend(ctx, im->v_image, im->ds_v_image, width, height, ds_width, ds_height, im->v_bpp);
+	if (ret < 0) { return ret; } size += ret;
+
+	return size;
 }
 
 static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
@@ -233,10 +224,28 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
 		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : rp_ctx->conf.me.method != 0 ? &image->d : &rp_const_image(image_curr)->d;
 
-		ret = rpJLSEncodeScreenAndSend(&c, im, &rp_ctx->jls_param, jls_ctx, &rp_ctx->syn.network, rp_ctx->conf.downscale_uv, rp_ctx->conf.encoder_which, rp_ctx->conf.encode_verify,
-			&rp_ctx->conf.me, &rp_ctx->exit_thread, (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !RP_SYN_NET), thread_n);
+		struct rp_send_data_header send_header = {
+			.type_data = RP_SEND_HEADER_TYPE_DATA,
+			.top_bot = c.top_bot,
+			.frame_n = c.frame_n,
+			.p_frame = c.p_frame,
+		};
+		struct rp_encode_and_send_screen_ctx_t encode_send_ctx = {
+			.send_header = &send_header,
+			.jls_param = &rp_ctx->jls_param,
+			.jls_ctx = jls_ctx,
+			.network_queue = &rp_ctx->syn.network,
+			.downscale_uv = rp_ctx->conf.downscale_uv,
+			.encoder_which = rp_ctx->conf.encoder_which,
+			.encode_verify = rp_ctx->conf.encode_verify,
+			.exit_thread = &rp_ctx->exit_thread,
+			.multicore = (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !RP_SYN_NET),
+			.thread_n = thread_n
+		};
+		ret = rpJLSEncodeScreenAndSend(&encode_send_ctx, im, &c, &rp_ctx->conf.me);
 		if (ret)
 			break;
+		rpSetPriorityScreen(&rp_ctx->dyn_prio, c.top_bot, ret); \
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			if (rp_ctx->conf.me.method != 0) {
@@ -361,7 +370,7 @@ void rpThreadStart(u32 arg) {
 			nsDbgPrint("rp_network_queue_init failed %d\n", ret);
 			break;
 		}
-		if ((ret = rpInitPriorityCtx(&rp_ctx->dyn_prio, rp_ctx->conf.screen_priority, rp_ctx->conf.dynamic_priority, rp_ctx->conf.target_frame_rate))) {
+		if ((ret = rpInitPriorityCtx(&rp_ctx->dyn_prio, rp_ctx->conf.screen_priority, rp_ctx->conf.dynamic_priority, rp_ctx->conf.min_dp_frame_rate))) {
 			nsDbgPrint("rpInitPriorityCtx failed %d\n", ret);
 			break;
 		}

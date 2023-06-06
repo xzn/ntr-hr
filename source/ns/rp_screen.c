@@ -140,7 +140,9 @@ static void rpScreenEncodeReadyImage(
 	u8 image_n = screen_image->image_n;
 	screen_image->image_n = (image_n + 1) % RP_IMAGE_BUFFER_COUNT;
 
-	u8 frame_n = screen_image->frame_n++;
+	u8 frame_n = screen_image->frame_n;
+	screen_image->frame_n = (frame_n + 1) % RP_IMAGE_FRAME_N_RANGE;
+
 	u8 first_frame = screen_image->first_frame;
 
 	u8 p_frame = screen_image->p_frame;
