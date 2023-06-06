@@ -19,8 +19,6 @@
 // (0) svc (1) syn
 #define RP_SYN_METHOD (1)
 #define RP_SYN_EX (1)
-#define RP_SYN_EX_VERIFY (0)
-#define RP_SYN_EX_VERIFY_WHICH (0)
 #define RP_SYN_NET (0)
 
 #define RP_SVC_MS(ms) ((u64)ms * 1000 * 1000)
@@ -42,7 +40,7 @@
 
 #define RP_DEST_PORT (8001)
 #define RP_SCREEN_BUFFER_SIZE (SCREEN_WIDTH_MAX * SCREEN_HEIGHT * 4)
-#define RP_UMM_HEAP_SIZE (256 * 1024)
+#define RP_UMM_HEAP_SIZE (192 * 1024)
 #define RP_STACK_SIZE (0x8000)
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (2000)

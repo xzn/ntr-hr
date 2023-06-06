@@ -9,10 +9,12 @@ void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
 	SET_IMAGE_BUFFER(sv, sn, y_image); \
 	SET_IMAGE_BUFFER(sv, sn, u_image); \
 	SET_IMAGE_BUFFER(sv, sn, v_image); \
-	SET_IMAGE_BUFFER(sv, sn, ds_y_image); \
+	SET_IMAGE_BUFFER(sv, sn, ds_y_image_ds_uv); \
+	SET_IMAGE_BUFFER(sv, sn, ds_y_image_full_uv); \
 	SET_IMAGE_BUFFER(sv, sn, ds_u_image); \
 	SET_IMAGE_BUFFER(sv, sn, ds_v_image); \
-	SET_IMAGE_BUFFER(sv, sn, ds_ds_y_image); \
+	SET_IMAGE_BUFFER(sv, sn, ds_ds_y_image_ds_uv); \
+	SET_IMAGE_BUFFER(sv, sn, ds_ds_y_image_full_uv); \
 } while (0)
 
 		SET_IMAGE_BUFFER_SCREEN(SCREEN_TOP, top);
@@ -63,51 +65,12 @@ int rp_init_images(struct rp_image_ctx_t *ctx, int multicore) {
 	return 0;
 }
 
-#if RP_SYN_EX_VERIFY
-static void rpImageVerifyBegin(struct rp_const_image_t *image) {
-#define S(n, l) do { \
-	if (image->d.n) \
-		image->verify.n = XXH32(image->d.n, l, 0); \
-} while (0)
-
-	int s = image->verify.top_bot;
-	S(y_image, SCREEN_PADDED_SIZE(s));
-	S(u_image, SCREEN_PADDED_SIZE(s));
-	S(v_image, SCREEN_PADDED_SIZE(s));
-	S(ds_y_image, SCREEN_PADDED_DS_SIZE(s, 1));
-	S(ds_u_image, SCREEN_PADDED_DS_SIZE(s, 1));
-	S(ds_v_image, SCREEN_PADDED_DS_SIZE(s, 1));
-	S(ds_ds_y_image, SCREEN_PADDED_DS_SIZE(s, 2));
-#undef S
-}
-
-static void rpImageVerifyEnd(struct rp_const_image_t *image) {
-#define C(n, l) do { \
-	if (image->d.n && image->verify.n != XXH32(image->d.n, l, 0)) \
-		nsDbgPrint(#n " hash check failed for image (%d)\n", (s32)image); \
-} while (0)
-
-	int s = image->verify.top_bot;
-	C(y_image, SCREEN_PADDED_SIZE(s));
-	C(u_image, SCREEN_PADDED_SIZE(s));
-	C(v_image, SCREEN_PADDED_SIZE(s));
-	C(ds_y_image, SCREEN_PADDED_DS_SIZE(s, 1));
-	C(ds_u_image, SCREEN_PADDED_DS_SIZE(s, 1));
-	C(ds_v_image, SCREEN_PADDED_DS_SIZE(s, 1));
-	C(ds_ds_y_image, SCREEN_PADDED_DS_SIZE(s, 2));
-#undef C
-}
-#endif
-
 int rpImageReadLock(struct rp_const_image_t *image) {
 	s32 res;
 	if ((res = rp_sem_wait(image->sem_read, RP_SYN_WAIT_MAX))) {
 		nsDbgPrint("(%d) sem read wait failed\n", (s32)image);
 		return res;
 	}
-#if RP_SYN_EX_VERIFY && !RP_SYN_EX_VERIFY_WHICH
-	rpImageVerifyBegin(image);
-#endif
 	return 0;
 }
 
@@ -119,9 +82,6 @@ void rpImageReadUnlockCount(struct rp_const_image_t *image, int count UNUSED) {
 }
 
 void rpImageReadUnlock(struct rp_const_image_t *image) {
-#if RP_SYN_EX_VERIFY && !RP_SYN_EX_VERIFY_WHICH
-	rpImageVerifyEnd(image);
-#endif
 	rpImageReadUnlockCount(image, 1);
 }
 
@@ -145,30 +105,18 @@ void rpImageWriteUnlock(struct rp_image_t *image) {
 #if RP_SYN_EX
 struct rp_const_image_t *rpImageWriteToRead(struct rp_image_t *image) {
 	rp_sem_rel(image->sem_read, 1);
-#if RP_SYN_EX_VERIFY && RP_SYN_EX_VERIFY_WHICH
-	rpImageVerifyBegin(image);
-#endif
 	return rp_const_image(image);
 }
 
 void rpImageReadUnlockFromWrite(struct rp_const_image_t *image) {
-#if RP_SYN_EX_VERIFY && RP_SYN_EX_VERIFY_WHICH
-	rpImageVerifyEnd(image);
-#endif
 	rpImageReadUnlockCount(image, 1);
 }
 #else
 struct rp_const_image_t *rpImageWriteToRead(struct rp_image_t *image UNUSED) {
-#if RP_SYN_EX_VERIFY && RP_SYN_EX_VERIFY_WHICH
-	rpImageVerifyBegin(image);
-#endif
 	return rp_const_image(image);
 }
 
 void rpImageReadUnlockFromWrite(struct rp_const_image_t *image) {
-#if RP_SYN_EX_VERIFY && RP_SYN_EX_VERIFY_WHICH
-	rpImageVerifyEnd(image);
-#endif
 	rp_sem_rel(image->sem_read, 1);
 	rpImageReadUnlockCount(image, 1);
 }

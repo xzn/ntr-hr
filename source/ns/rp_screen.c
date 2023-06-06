@@ -168,10 +168,6 @@ static void rpScreenEncodeReadyImage(
 	screen->image_prev = first_frame ? 0 : rp_const_image(&images[top_bot][image_n]);
 
 	screen_image->first_frame = 0;
-
-#if RP_SYN_EX_VERIFY
-	screen->image->verify.top_bot = top_bot;
-#endif
 }
 
 int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_encode_ctx_t *ctx,
@@ -240,6 +236,12 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			im->v_image,
 			width, height
 		);
+
+		im->ds_y_image = im->ds_y_image_ds_uv;
+		im->ds_ds_y_image = im->ds_ds_y_image_ds_uv;
+	} else {
+		im->ds_y_image = im->ds_y_image_full_uv;
+		im->ds_ds_y_image = im->ds_ds_y_image_full_uv;
 	}
 
 	if (p_frame) {
@@ -324,5 +326,8 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			rpImageReadSkip(image_prev);
 		}
 	}
+	im->ds_y_image = 0;
+	im->ds_ds_y_image = 0;
+
 	return 0;
 }

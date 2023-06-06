@@ -10,9 +10,13 @@
 		CONST_OPT u8 *y_image; \
 		CONST_OPT u8 *u_image; \
 		CONST_OPT u8 *v_image; \
+		CONST_OPT u8 *ds_y_image_ds_uv; \
+		CONST_OPT u8 *ds_y_image_full_uv; \
 		CONST_OPT u8 *ds_y_image; \
 		CONST_OPT u8 *ds_u_image; \
 		CONST_OPT u8 *ds_v_image; \
+		CONST_OPT u8 *ds_ds_y_image_ds_uv; \
+		CONST_OPT u8 *ds_ds_y_image_full_uv; \
 		CONST_OPT u8 *ds_ds_y_image; \
 		u8 y_bpp; \
 		u8 u_bpp; \
@@ -31,30 +35,12 @@
 // one for current encode thread; one for next frame reading motion est ref data
 #define RP_IMAGE_READER_COUNT (2)
 
-#if RP_SYN_EX_VERIFY
-	struct rp_image_verify_t {
-		XXH32_hash_t me_x_image;
-		XXH32_hash_t me_y_image;
-		XXH32_hash_t y_image;
-		XXH32_hash_t u_image;
-		XXH32_hash_t v_image;
-		XXH32_hash_t ds_y_image;
-		XXH32_hash_t ds_u_image;
-		XXH32_hash_t ds_v_image;
-		XXH32_hash_t ds_ds_y_image;
-		int top_bot;
-	};
-#else
-	struct rp_image_verify_t {};
-#endif
-
 #define RP_IMAGE_T_DEFINE(n, dn) \
 	struct n { \
 		struct dn d; \
 		rp_sem_t sem_write; \
 		rp_sem_t sem_read; \
 		u8 sem_count; \
-		struct rp_image_verify_t verify; \
 	}
 
 	RP_IMAGE_T_DEFINE(rp_image_t, rp_image_data_t);
@@ -69,12 +55,20 @@ struct rp_image_ctx_t {
 #define RP_IMAGE_BUFFER_DEFINE(sv) \
 	struct { \
 		u8 y_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
-		u8 u_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
+		union { \
+			u8 u_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
+			struct { \
+				u8 ds_v_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+				u8 ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+				u8 ds_ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
+			}; \
+		}; \
 		u8 v_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
-		u8 ds_y_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-		u8 ds_u_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-		u8 ds_v_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-		u8 ds_ds_y_image[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
+		union { \
+			u8 ds_u_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+			u8 ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+		}; \
+		u8 ds_ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
 	} \
 
 	struct {
@@ -88,6 +82,7 @@ struct rp_image_ctx_t {
 		s8 me_x_image[ME_SIZE_MAX] ALIGN_4;
 		s8 me_y_image[ME_SIZE_MAX] ALIGN_4;
 		u8 y_image[SCREEN_SIZE_MAX] ALIGN_4;
+		// either non-ds or ds
 		union {
 			u8 u_image[SCREEN_SIZE_MAX] ALIGN_4;
 			u8 ds_u_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
