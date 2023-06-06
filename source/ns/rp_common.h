@@ -59,6 +59,7 @@
 #define RP_KCP_MIN_SNDWNDSIZE (32)
 #define RP_ME_MIN_BLOCK_SIZE (4)
 #define RP_ME_MIN_SEARCH_PARAM (8)
+#define RP_MIN_TARGET_FRAME_RATE (30)
 
 #define RP_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define RP_MIN(a, b) ((a) > (b) ? (b) : (a))

@@ -22,6 +22,8 @@ struct rp_conf_t {
     u8 encode_verify;
 
     struct rp_conf_me_t {
+        u8 enabled;
+        u8 select; // detect scene change
         u8 method;
         u8 block_size;
         u8 block_size_log2;
@@ -39,6 +41,8 @@ struct rp_conf_t {
     u8 screen_priority[SCREEN_MAX];
     u8 low_latency;
     u8 multicore_encode;
+    u8 multicore_network;
+    u8 multicore_screen;
     u8 encode_buffer_count;
 
     u32 min_send_interval_ticks;

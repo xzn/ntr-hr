@@ -39,7 +39,7 @@ struct rp_send_info_header {
     u32 downscale_uv : 1;
     u32 yuv_option : 2;
     u32 color_transform_hp : 2;
-    u32 me_enabled : 1;
+    u32 me_enabled : 2;
     u32 me_downscale : 1;
     u32 me_search_param : 5;
     u32 me_block_size : 2;

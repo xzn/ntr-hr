@@ -3,6 +3,7 @@
 
 #include "rp_common.h"
 
+void diff_image(u8 *dst, const u8 *ref, const u8 *cur, int width, int height, int bpp);
 void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2, int bpp,
 	u8 block_size, u8 block_size_log2, int interpolate
 );

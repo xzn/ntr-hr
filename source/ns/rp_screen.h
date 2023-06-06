@@ -13,12 +13,13 @@ struct rp_screen_encode_ctx_t {
 	int sleep_duration;
 	u64 last_tick;
     u32 max_capture_interval_ticks;
+    u32 min_capture_interval_ticks;
     struct rp_dyn_prio_t *dyn_prio;
 };
 
 struct rp_screen_image_t;
 struct rp_image_t;
-void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 max_capture_interval_ticks);
+void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 max_capture_interval_ticks, u32 min_capture_interval_ticks);
 int rpScreenEncodeSetup(
     struct rp_screen_encode_t *screen, struct rp_screen_encode_ctx_t *ctx,
     struct rp_screen_image_t screen_images[SCREEN_MAX], struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],

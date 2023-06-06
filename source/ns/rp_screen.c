@@ -82,11 +82,12 @@ void rpKernelCallback(struct rp_screen_encode_t *screen) {
 	screen->c.format &= 0x0f;
 }
 
-void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 max_capture_interval_ticks) {
+void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 max_capture_interval_ticks, u32 min_capture_interval_ticks) {
 	ctx->sleep_duration = 0;
 	ctx->last_tick = svc_getSystemTick();
 	ctx->dyn_prio = dyn_prio;
     ctx->max_capture_interval_ticks = max_capture_interval_ticks;
+	ctx->min_capture_interval_ticks = min_capture_interval_ticks;
 }
 
 static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_encode_ctx_t *ctx) {
@@ -98,7 +99,7 @@ static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_encode_ctx_t *
 	int frame_rate = 1;
 	int top_bot = rpGetPriorityScreen(ctx->dyn_prio, &frame_rate);
 	u64 desired_tick_diff = (u64)SYSTICK_PER_SEC * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM / frame_rate;
-	desired_tick_diff = RP_MIN(desired_tick_diff, ctx->max_capture_interval_ticks);
+	desired_tick_diff = RP_MAX(RP_MIN(desired_tick_diff, ctx->max_capture_interval_ticks), ctx->min_capture_interval_ticks);
 	if (tick_diff < desired_tick_diff) {
 		ctx->sleep_duration = (desired_tick_diff - tick_diff) * 1000 / SYSTICK_PER_US;
 	} else {
@@ -259,13 +260,15 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			);
 		}
 
-		if (multicore && me->method != 0) {
+		if (multicore && me->enabled != 0) {
 			// lock read
 			if ((ret = rpImageReadLock(image_prev))) {
 				nsDbgPrint("rpEncodeImage rpImageReadLock image_prev timeout/error\n", ret);
 				return -1;
 			}
 		}
+
+		if (me->enabled == 1) {
 
 #define MOTION_EST(n, w, h) do { \
 	motion_estimate(image_me->me_x_image, image_me->me_y_image, \
@@ -276,18 +279,18 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 	); \
 } while (0)
 
-		if (me->downscale) {
-			int ds_ds_width = DS_DIM(width, 2);
-			int ds_ds_height = DS_DIM(height, 2);
+			if (me->downscale) {
+				int ds_ds_width = DS_DIM(width, 2);
+				int ds_ds_height = DS_DIM(height, 2);
 
-			MOTION_EST(ds_ds_y_image, ds_ds_width, ds_ds_height);
-		} else {
-			MOTION_EST(ds_y_image, ds_width, ds_height);
-		}
+				MOTION_EST(ds_ds_y_image, ds_ds_width, ds_ds_height);
+			} else {
+				MOTION_EST(ds_y_image, ds_width, ds_height);
+			}
 
-		int scale_log2_offset = me->downscale == 0 ? 0 : 1;
-		int scale_log2 = 1 + scale_log2_offset;
-		int ds_scale_log2 = 0 + scale_log2_offset;
+			int scale_log2_offset = me->downscale == 0 ? 0 : 1;
+			int scale_log2 = 1 + scale_log2_offset;
+			int ds_scale_log2 = 0 + scale_log2_offset;
 
 #define PREDICT_IM(n, w, h, s, b) do { \
 	predict_image(image_me->n, im_prev->n, im->n, \
@@ -297,31 +300,48 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		RP_ME_INTERPOLATE && me->interpolate); \
 } while (0)
 
-		PREDICT_IM(y_image, width, height, scale_log2, y_bpp);
+			PREDICT_IM(y_image, width, height, scale_log2, y_bpp);
 
-		if (downscale_uv) {
-			PREDICT_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp);
-			PREDICT_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp);
+			if (downscale_uv) {
+				PREDICT_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp);
+				PREDICT_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp);
+			} else {
+				PREDICT_IM(u_image, width, height, scale_log2, u_bpp);
+				PREDICT_IM(v_image, width, height, scale_log2, v_bpp);
+			}
+
+			me_add_half_range((u8 *)image_me->me_x_image, width, height, scale_log2,
+				me->bpp_half_range, me->block_size_log2);
+			me_add_half_range((u8 *)image_me->me_y_image, width, height, scale_log2,
+				me->bpp_half_range, me->block_size_log2);
 		} else {
-			PREDICT_IM(u_image, width, height, scale_log2, u_bpp);
-			PREDICT_IM(v_image, width, height, scale_log2, v_bpp);
+
+#define DIFF_IM(n, w, h, b) do { \
+	diff_image(image_me->n, im_prev->n, im->n, w, h, im->b); \
+} while (0)
+
+			DIFF_IM(y_image, width, height, y_bpp);
+
+			if (downscale_uv) {
+				DIFF_IM(ds_u_image, ds_width, ds_height, u_bpp);
+				DIFF_IM(ds_v_image, ds_width, ds_height, v_bpp);
+			} else {
+				DIFF_IM(u_image, width, height, u_bpp);
+				DIFF_IM(v_image, width, height, v_bpp);
+			}
+
 		}
 
 		image_me->y_bpp = im->y_bpp;
 		image_me->u_bpp = im->u_bpp;
 		image_me->v_bpp = im->v_bpp;
 
-		me_add_half_range((u8 *)image_me->me_x_image, width, height, scale_log2,
-			me->bpp_half_range, me->block_size_log2);
-		me_add_half_range((u8 *)image_me->me_y_image, width, height, scale_log2,
-			me->bpp_half_range, me->block_size_log2);
-
-		if (multicore && me->method != 0) {
+		if (multicore && me->enabled != 0) {
 			// done read
 			rpImageReadUnlock(image_prev);
 		}
 	} else {
-		if (multicore && me->method != 0 && !c->first_frame) {
+		if (multicore && me->enabled != 0 && !c->first_frame) {
 			// done read by skipping
 			rpImageReadSkip(image_prev);
 		}

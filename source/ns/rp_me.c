@@ -48,35 +48,33 @@ void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const u8 *cu
 
 			switch (me_method) {
 				default:
+#if 0
 					ff_me_search_esa(&me_ctx, x, y, mv);
+#endif
 					break;
 
-				case 1:
+				case 0:
 					ff_me_search_tss(&me_ctx, x, y, mv);
 					break;
 
-				case 2:
+				case 1:
 					ff_me_search_tdls(&me_ctx, x, y, mv);
 					break;
 
-				case 3:
+				case 2:
 					ff_me_search_ntss(&me_ctx, x, y, mv);
 					break;
 
-				case 4:
+				case 3:
 					ff_me_search_fss(&me_ctx, x, y, mv);
 					break;
 
-				case 5:
+				case 4:
 					ff_me_search_ds(&me_ctx, x, y, mv);
 					break;
 
-				case 6:
+				case 5:
 					ff_me_search_hexbs(&me_ctx, x, y, mv);
-					break;
-
-				case 7:
-					// Diff Only
 					break;
 			}
 
@@ -139,6 +137,28 @@ void me_add_half_range(u8 *me, int width, int height, u8 scale_log2, u8 half_ran
 			++me;
 		}
 		convert_set_last(&me);
+	}
+}
+
+void diff_image(u8 *dst, const u8 *ref, const u8 *cur, int width, int height, int bpp) {
+	convert_set_zero(&dst);
+	ref += LEFTMARGIN;
+	cur += LEFTMARGIN;
+
+	for (int i = 0; i < width; ++i) {
+		if (i > 0) {
+			convert_set_prev_first(&dst, height);
+			ref += LEFTMARGIN;
+			cur += LEFTMARGIN;
+		}
+
+		for (int j = 0; j < height; ++j) {
+			*dst++ = (u8)((u8)(*cur++) - (u8)(*ref++) + (128 >> (8 - bpp))) & ((1 << bpp) - 1);
+		}
+
+		convert_set_last(&dst);
+		ref += RIGHTMARGIN;
+		cur += RIGHTMARGIN;
 	}
 }
 

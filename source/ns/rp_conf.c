@@ -5,6 +5,10 @@ union UNUSED rp_conf_arg0_t {
 	struct {
 		u32 kcp_nocwnd : 1;
 		u32 kcp_fastresend : 2;
+		u32 me_enabled : 2;
+		u32 me_select : 1;
+		u32 multicore_network : 1;
+		u32 multicore_screen : 1;
 	};
 };
 
@@ -67,6 +71,8 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->downscale_uv = arg1.downscale_uv;
 	conf->encoder_which = arg1.encoder_which;
 
+	conf->me.enabled = arg0.me_enabled;
+	conf->me.select = arg0.me_select;
 	conf->me.method = arg1.me_method;
 	conf->me.block_size = RP_ME_MIN_BLOCK_SIZE << arg1.me_block_size;
 	conf->me.block_size_log2 = av_ceil_log2(conf->me.block_size);
@@ -88,6 +94,8 @@ int rp_set_params(struct rp_conf_t *conf) {
 		conf->multicore_encode = arg2.multicore_encode;
 	else
 		conf->multicore_encode = 0;
+	conf->multicore_network = arg0.multicore_network;
+	conf->multicore_screen = arg0.multicore_screen;
 	conf->dynamic_priority = arg2.dynamic_priority;
 	conf->min_dp_frame_rate = arg2.min_dp_frame_rate;
 	conf->target_mbit_rate = arg2.target_mbit_rate;
@@ -100,7 +108,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 		((u16)conf->target_mbit_rate + 1) / 1024 / 1024;
 
 	conf->max_capture_interval_ticks = 
-		(u64)SYSTICK_PER_SEC / (u16)RP_MAX(conf->min_dp_frame_rate, 1);
+		(u64)SYSTICK_PER_SEC / (u16)RP_MAX(conf->min_dp_frame_rate, RP_MIN_TARGET_FRAME_RATE);
 
 	conf->min_capture_interval_ticks = conf->max_frame_rate ? 
 		(u64)SYSTICK_PER_SEC / (u16)conf->max_frame_rate : 0;

@@ -9,7 +9,7 @@
 
 static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_screen_encode_ctx_t *ctx, struct rp_ctx_t *rp_ctx) {
 	return rpScreenEncodeSetup(screen, ctx, rp_ctx->image_ctx.screen_image,
-		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.method == 0
+		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled == 0
 	);
 }
 
@@ -20,7 +20,7 @@ static void rpScreenTransferThread(u32 arg) {
 	int UNUSED thread_n = RP_SCREEN_TRANSFER_THREAD_ID;
 
 	struct rp_screen_encode_ctx_t screen_encode_ctx;
-	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.max_capture_interval_ticks);
+	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.max_capture_interval_ticks, rp_ctx->conf.min_capture_interval_ticks);
 
 	int acquire_count = 0;
 	while (!rp_ctx->exit_thread) {
@@ -125,13 +125,15 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 
 	int ret, size = 0;
 
-	rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_X);
-	ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_x_image, me_width, me_height, im->me_bpp);
-	if (ret < 0) { return ret; } size += ret;
+	if (me->enabled == 1) {
+		rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_X);
+		ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_x_image, me_width, me_height, im->me_bpp);
+		if (ret < 0) { return ret; } size += ret;
 
-	rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_Y);
-	ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_y_image, me_width, me_height, im->me_bpp);
-	if (ret < 0) { return ret; } size += ret;
+		rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_Y);
+		ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_y_image, me_width, me_height, im->me_bpp);
+		if (ret < 0) { return ret; } size += ret;
+	}
 
 	rpUpdateSendHeader(ctx->send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_Y);
 	ret = rpJLSEncodePlaneAndSend(ctx, im->y_image, width, height, im->y_bpp);
@@ -153,7 +155,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 
 	int ret;
 	struct rp_screen_encode_ctx_t screen_encode_ctx;
-	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.max_capture_interval_ticks);
+	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.max_capture_interval_ticks, rp_ctx->conf.min_capture_interval_ticks);
 	struct rp_image_data_t *image_me = &rp_ctx->image_ctx.image_me[thread_n];
 
 	int acquire_count = 0;
@@ -204,7 +206,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 			// allow read
-			if (rp_ctx->conf.me.method != 0) {
+			if (rp_ctx->conf.me.enabled != 0) {
 				image = rpImageWriteToRead(image_curr);
 				image_curr = 0;
 			}
@@ -222,7 +224,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		}
 
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
-		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : rp_ctx->conf.me.method != 0 ? &image->d : &rp_const_image(image_curr)->d;
+		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : rp_ctx->conf.me.enabled != 0 ? &image->d : &rp_const_image(image_curr)->d;
 
 		struct rp_send_data_header send_header = {
 			.type_data = RP_SEND_HEADER_TYPE_DATA,
@@ -248,7 +250,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		rpSetPriorityScreen(&rp_ctx->dyn_prio, c.top_bot, ret); \
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-			if (rp_ctx->conf.me.method != 0) {
+			if (rp_ctx->conf.me.enabled != 0) {
 				// done read
 				rpImageReadUnlockFromWrite(image);
 			} else {
