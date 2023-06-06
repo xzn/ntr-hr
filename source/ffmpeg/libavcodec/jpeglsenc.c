@@ -32,12 +32,13 @@
 /**
  * Encode error from regular symbol
  */
-static inline void ls_encode_regular(JLSState *state, PutBitContext *pb, int Q,
+static inline int ls_encode_regular(JLSState *state, PutBitContext *pb, int Q,
                                      int err)
 {
     int k;
     int val;
     int map;
+    int ret;
 
     for (k = 0; (state->N[Q] << k) < state->A[Q]; k++)
         ;
@@ -52,21 +53,25 @@ static inline void ls_encode_regular(JLSState *state, PutBitContext *pb, int Q,
     } else
         val = 2 * err + map;
 
-    set_ur_golomb_jpegls(pb, val, k, state->limit, state->qbpp);
+    if ((ret = set_ur_golomb_jpegls(pb, val, k, state->limit, state->qbpp)))
+        return ret;
 
     ff_jpegls_update_state_regular(state, Q, err);
+
+    return 0;
 }
 
 /**
  * Encode error from run termination
  */
-static inline void ls_encode_runterm(JLSState *state, PutBitContext *pb,
+static inline int ls_encode_runterm(JLSState *state, PutBitContext *pb,
                                      int RItype, int err, int limit_add)
 {
     int k;
     int val, map;
     int Q = 365 + RItype;
     int temp;
+    int ret;
 
     temp = state->A[Q];
     if (RItype)
@@ -81,46 +86,51 @@ static inline void ls_encode_runterm(JLSState *state, PutBitContext *pb,
         val = -(2 * err) - 1 - RItype + map;
     else
         val = 2 * err - RItype - map;
-    set_ur_golomb_jpegls(pb, val, k, state->limit - limit_add - 1, state->qbpp);
+    if ((ret = set_ur_golomb_jpegls(pb, val, k, state->limit - limit_add - 1, state->qbpp)))
+        return ret;
 
     if (err < 0)
         state->B[Q]++;
     state->A[Q] += (val + 1 - RItype) >> 1;
 
     ff_jpegls_downscale_state(state, Q);
+
+    return 0;
 }
 
 /**
  * Encode run value as specified by JPEG-LS standard
  */
-static inline void ls_encode_run(JLSState *state, PutBitContext *pb, int run,
+static inline int ls_encode_run(JLSState *state, PutBitContext *pb, int run,
                                  int trail)
 {
     while (run >= (1 << ff_log2_run[state->run_index])) {
-        put_bits(pb, 1, 1);
+        put_bits_checked(pb, 1, 1);
         run -= 1 << ff_log2_run[state->run_index];
         if (state->run_index < 31)
             state->run_index++;
     }
     /* if hit EOL, encode another full run, else encode aborted run */
     if (!trail && run) {
-        put_bits(pb, 1, 1);
+        put_bits_checked(pb, 1, 1);
     } else if (trail) {
-        put_bits(pb, 1, 0);
+        put_bits_checked(pb, 1, 0);
         if (ff_log2_run[state->run_index])
-            put_bits(pb, ff_log2_run[state->run_index], run);
+            put_bits_checked(pb, ff_log2_run[state->run_index], run);
     }
+    return 0;
 }
 
 /**
  * Encode one line of image
  */
-void ls_encode_line(JLSState *state, PutBitContext *pb,
+int ls_encode_line(JLSState *state, PutBitContext *pb,
                     const uint8_t *last, const uint8_t *in, int w, const uint16_t (*vLUT)[3], const int16_t classmap[])
 {
     int x = 0;
     int Ra = in[-1], Rb = last[0], Rc = last[-1], Rd = last[1];
     int cont;
+    int ret;
 
     while (1) {
         int err, pred, sign;
@@ -140,9 +150,10 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
                 run++;
                 x++;
             }
-            ls_encode_run(state, pb, run, x < w);
+            if ((ret = ls_encode_run(state, pb, run, x < w)))
+                return ret;
             if (x >= w)
-                return;
+                return 0;
             Rb     = last[x];
             RItype = Ra - Rb == 0;
             pred   = RItype ? Ra : Rb;
@@ -158,8 +169,9 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
             if (err >= state->range + 1 >> 1)
                 err -= state->range;
 
-            ls_encode_runterm(state, pb, RItype, err,
-                              ff_log2_run[state->run_index]);
+            if ((ret = ls_encode_runterm(state, pb, RItype, err,
+                                         ff_log2_run[state->run_index])))
+                return ret;
 
             if (state->run_index > 0)
                 state->run_index--;
@@ -188,7 +200,8 @@ void ls_encode_line(JLSState *state, PutBitContext *pb,
 
             Ra = in[x];
 
-            ls_encode_regular(state, pb, cont, err);
+            if ((ret = ls_encode_regular(state, pb, cont, err)))
+                return ret;
 
             x++;
             if (x >= w)

@@ -111,7 +111,7 @@ static inline void set_ur_golomb(PutBitContext *pb, int i, int k, int limit,
 /**
  * write unsigned golomb rice code (jpegls).
  */
-static inline void set_ur_golomb_jpegls(PutBitContext *pb, int i, int k,
+static inline int set_ur_golomb_jpegls(PutBitContext *pb, int i, int k,
                                         int limit, int esc_len)
 {
     int e;
@@ -121,20 +121,22 @@ static inline void set_ur_golomb_jpegls(PutBitContext *pb, int i, int k,
     e = (i >> k) + 1;
     if (e < limit) {
         while (e > 31) {
-            put_bits(pb, 31, 0);
+            put_bits_checked(pb, 31, 0);
             e -= 31;
         }
-        put_bits(pb, e, 1);
+        put_bits_checked(pb, e, 1);
         if (k)
-            put_sbits(pb, k, i);
+            put_bits_checked(pb, k, i);
     } else {
         while (limit > 31) {
-            put_bits(pb, 31, 0);
+            put_bits_checked(pb, 31, 0);
             limit -= 31;
         }
-        put_bits(pb, limit, 1);
-        put_bits(pb, esc_len, i - 1);
+        put_bits_checked(pb, limit, 1);
+        put_bits_checked(pb, esc_len, i - 1);
     }
+
+    return 0;
 }
 
 /**

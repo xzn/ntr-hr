@@ -59,13 +59,13 @@
  ****************************************************************************/
 
 /* Flushes the bit output buffer and the byte output buffer */
-void bitoflush(struct bito_ctx *bctx) {
-	register unsigned int outbyte;
+int bitoflush(struct bito_ctx *bctx) {
+	unsigned int outbyte;
     
     while (bctx->bits < 32) {
 		outbyte = bctx->reg >> 24;
         myputc(bctx, outbyte);
-		if ( outbyte == 0xff ) {
+		if ( ESCAPE && outbyte == 0xff ) {
 			bctx->bits += 7;
 			bctx->reg <<= 7;
 			bctx->reg &= ~(1<<(8*sizeof(bctx->reg)-1)); /* stuff a 0 at MSB */
@@ -74,8 +74,6 @@ void bitoflush(struct bito_ctx *bctx) {
 		    bctx->reg <<= 8;
 		}
 	}
-	flushbuff(bctx);
-	bitoinit(bctx);
 }
 
 

@@ -60,9 +60,16 @@
 
 static int eor_limit;
 
+#define CHECK_RET(e) \
+{ \
+	int ret_val; \
+	if ((ret_val = (e))) \
+		return ret_val; \
+}
+
 
 /* Do Golomb statistics and ENCODING for LOSS-LESS images */
-static inline void lossless_regular_mode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int Q, int SIGN, int Px, pixel Ix)
+static inline int lossless_regular_mode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int Q, int SIGN, int Px, pixel Ix)
 {
 	int At, Nt, Bt, absErrval, Errval, MErrval;
 	int	unary;
@@ -157,13 +164,15 @@ static inline void lossless_regular_mode(const struct jls_enc_params *params, st
 	    put_zeros(ctx,bctx,params->limit);
 	    putbits(ctx,bctx,(1<<params->qbpp) + MErrval - 1, params->qbpp+1);
 	}
+
+	return 0;
 }
 
 
 
 
 /* Do end of run encoding for LOSSLESS images */
-static inline void lossless_end_of_run(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, pixel Ra, pixel Rb, pixel Ix, int RItype)
+static inline int lossless_end_of_run(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx, pixel Ra, pixel Rb, pixel Ix, int RItype)
 {
 	int Errval,
 		MErrval,
@@ -235,6 +244,8 @@ static inline void lossless_end_of_run(const struct jls_enc_params *params, stru
 		put_zeros(ctx,bctx,eor_limit);
 		putbits(ctx,bctx,(1<<params->qbpp) + MErrval-1, params->qbpp+1);
 	}
+
+	return 0;
 }
 
 
@@ -244,7 +255,7 @@ static inline void lossless_end_of_run(const struct jls_enc_params *params, stru
 
 /* For line and plane interleaved mode in LOSS-LESS mode */
 
-void lossless_doscanline( const struct jls_enc_params *params,
+int lossless_doscanline( const struct jls_enc_params *params,
 			  struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
 			  const pixel *psl,            /* previous scanline */
 			  const pixel *sl,             /* current scanline */
@@ -305,8 +316,8 @@ void lossless_doscanline( const struct jls_enc_params *params,
 
 					if (++i > no) {
 						/* Run-length coding when reach end of line (A.7.1.2) */
-						process_run(ctx, bctx,RUNcnt, EOLINE);
-						return;	 /* end of line */
+						CHECK_RET(process_run(ctx, bctx,RUNcnt, EOLINE));
+						return 0;	 /* end of line */
 					}
 
 					Ix = sl[i];
@@ -325,11 +336,11 @@ void lossless_doscanline( const struct jls_enc_params *params,
 				a non-matching symbol */
 
 			/* Run-length coding when end of line not reached (A.7.1.2) */
-			process_run(ctx, bctx,RUNcnt,NOEOLINE);
+			CHECK_RET(process_run(ctx, bctx,RUNcnt,NOEOLINE));
 
 
 			/* This is the END_OF_RUN state */
-			lossless_end_of_run(params, ctx, bctx, Ra, Rb, Ix, (Ra==Rb));
+			CHECK_RET(lossless_end_of_run(params, ctx, bctx, Ra, Rb, Ix, (Ra==Rb)));
 
 		}
 		else {
@@ -349,7 +360,7 @@ void lossless_doscanline( const struct jls_enc_params *params,
 				SIGN=+1;
 
 			/* output a rice code */
-			lossless_regular_mode(params, ctx, bctx, cont, SIGN, Px, Ix);
+			CHECK_RET(lossless_regular_mode(params, ctx, bctx, cont, SIGN, Px, Ix));
 		}
 
 		/* context for next pixel: */
@@ -357,5 +368,7 @@ void lossless_doscanline( const struct jls_enc_params *params,
 		Rc = Rb;
 		Rb = Rd;
 	} while (++i <= no);
+
+	return 0;
 }
 

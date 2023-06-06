@@ -82,13 +82,15 @@ int ffmpeg_jls_decode(uint8_t *dst, int width, int height, int pitch, const uint
 }
 
 struct rp_jls_send_ctx_t {
+	struct rp_send_data_header *send_header;
 	struct rp_syn_comp_t *network_queue;
 	volatile u8 *exit_thread;
 	u8 multicore;
 	u8 thread_n;
 	struct rp_network_encode_t *network;
+	u8 *buffer_begin;
 	u8 *buffer_end;
-	u32 send_size_total;
+	int send_size_total;
 };
 
 static int rpJLSSendBegin(struct rp_jls_send_ctx_t *ctx) {
@@ -99,22 +101,33 @@ static int rpJLSSendBegin(struct rp_jls_send_ctx_t *ctx) {
 		if (!ctx->network) {
 			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
 				nsDbgPrint("rp_network_encode_acquire timeout\n");
+				*ctx->exit_thread = 1;
+				ctx->send_size_total = -1;
 				return -1;
 			}
 			continue;
 		}
+		memcpy(ctx->network->buffer, ctx->send_header, sizeof(struct rp_send_data_header));
+		ctx->buffer_begin = ctx->network->buffer + sizeof(struct rp_send_data_header);
+		ctx->buffer_end = ctx->network->buffer + sizeof(ctx->network->buffer);
 		return 0;
 	}
 	return -1;
 }
 
 static int rpJLSSendEnd(struct rp_jls_send_ctx_t *ctx) {
-	ctx->send_size_total += ctx->network->size = ctx->buffer_end - ctx->network->buffer;
-	if (rp_network_transfer_release(&ctx->network_queue->transfer, ctx->network, ctx->multicore) < 0) {
-		nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", ctx->thread_n);
+	if (*ctx->exit_thread)
 		return -1;
+	ctx->send_size_total += ctx->network->size = ctx->buffer_begin - ctx->network->buffer;
+	int ret;
+	if ((ret = rp_network_transfer_release(&ctx->network_queue->transfer, ctx->network, ctx->multicore))) {
+		nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", ctx->thread_n);
+		*ctx->exit_thread = 1;
+		ctx->send_size_total = -1;
+		return ret;
 	}
 	ctx->network = 0;
+	ctx->buffer_begin = 0;
 	ctx->buffer_end = 0;
 	return 0;
 }
@@ -128,22 +141,26 @@ static int rpJLSSendEncodedCallback(struct rp_jls_send_ctx_t *ctx) {
 	return 0;
 }
 
-static void rpJLSSendEncodedCallback_0(struct PutBitContext *ctx) {
+static int rpJLSSendEncodedCallback_0(struct PutBitContext *ctx) {
 	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
-	sctx->buffer_end = ctx->buf_ptr;
-	if (rpJLSSendEncodedCallback(sctx) == 0) {
-		sctx->buffer_end = ctx->buf_ptr = ctx->buf = sctx->network->buffer;
-		ctx->buf_end = sctx->network->buffer + sizeof(sctx->network->buffer);
-	}
+	sctx->buffer_begin = ctx->buf_ptr;
+	int ret;
+	if ((ret = rpJLSSendEncodedCallback(sctx)))
+		return ret;
+	ctx->buf_ptr = ctx->buf = sctx->buffer_begin;
+	ctx->buf_end = sctx->buffer_end;
+	return 0;
 }
 
-static void rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
+static int rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
 	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
-	sctx->buffer_end = (u8 *)ctx->buf;
-	if (rpJLSSendEncodedCallback(sctx) == 0) {
-		sctx->buffer_end = ctx->buf = sctx->network->buffer;
-		ctx->buf_end = sctx->network->buffer + sizeof(sctx->network->buffer);
-	}
+	sctx->buffer_begin = (u8 *)ctx->buf;
+	int ret;
+	if ((ret = rpJLSSendEncodedCallback(sctx)))
+		return ret;
+	ctx->buf = sctx->buffer_begin;
+	ctx->buf_end = sctx->buffer_end;
+	return 0;
 }
 
 int rpJLSEncodeImage(struct rp_send_data_header *send_header, struct rp_syn_comp_t *network_queue,
@@ -157,16 +174,12 @@ int rpJLSEncodeImage(struct rp_send_data_header *send_header, struct rp_syn_comp
 		.network_queue = network_queue,
 		.multicore = network_sync,
 		.thread_n = thread_n,
-		.exit_thread = exit_thread
+		.exit_thread = exit_thread,
+		.send_header = send_header,
 	};
 	ret = rpJLSSendBegin(&send_ctx);
 	if (ret < 0)
 		return ret;
-
-	int send_header_size = sizeof(struct rp_send_data_header);
-	memcpy(send_ctx.network->buffer, send_header, send_header_size);
-	send_ctx.buffer_end = send_ctx.network->buffer + send_header_size;
-	int buffer_size = sizeof(send_ctx.network->buffer) - send_header_size;
 
 	struct jls_enc_params *enc_params;
 	switch (bpp) {
@@ -198,7 +211,7 @@ int rpJLSEncodeImage(struct rp_send_data_header *send_header, struct rp_syn_comp
 		ff_jpegls_init_state(&state);
 
 		PutBitContext s;
-		init_put_bits(&s, send_ctx.buffer_end, buffer_size);
+		init_put_bits(&s, send_ctx.buffer_begin, send_ctx.buffer_end);
 		s.flush = rpJLSSendEncodedCallback_0;
 		s.user = &send_ctx;
 
@@ -206,30 +219,36 @@ int rpJLSEncodeImage(struct rp_send_data_header *send_header, struct rp_syn_comp
 		const u8 *in = src + LEFTMARGIN;
 
 		for (int i = 0; i < w; ++i) {
-			ls_encode_line(
+			ret = ls_encode_line(
 				&state, &s, last, in, h,
 				enc_params->vLUT,
 				params->enc_luts.classmap
 			);
+			if (ret)
+				return ret;
 			last = in;
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
 
 		flush_put_bits(&s);
-		send_ctx.buffer_end = s.buf_ptr;
+		send_ctx.buffer_begin = s.buf_ptr;
 	} else {
 		struct jls_enc_ctx *ctx = &jls_ctx->enc;
 		struct bito_ctx *bctx = &jls_ctx->bito;
 		bctx->flush = rpJLSSendEncodedCallback_1;
 		bctx->user = &send_ctx;
-		jpeg_ls_encode(
-			enc_params, ctx, bctx, (char *)send_ctx.buffer_end, buffer_size, src,
-			w, h, h + LEFTMARGIN + RIGHTMARGIN,
+		ret = jpeg_ls_encode(
+			enc_params, ctx, bctx,
+			(char *)send_ctx.buffer_begin, (char *)send_ctx.buffer_end,
+			src, w, h, h + LEFTMARGIN + RIGHTMARGIN,
 			params->enc_luts.classmap
 		);
-		send_ctx.buffer_end = (u8 *)bctx->buf;
+		if (ret)
+			return ret;
+		send_ctx.buffer_begin = (u8 *)bctx->buf;
 	}
 
+	send_ctx.send_header->data_end = 1;
 	ret = rpJLSSendEnd(&send_ctx);
 	if (ret)
 		return ret;

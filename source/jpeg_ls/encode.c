@@ -38,10 +38,10 @@ void jpeg_ls_init(struct jls_enc_params *ctx, int bpp, const uint16_t (*vLUT)[3]
 
 const uint8_t psl0[240 + LEFTMARGIN + RIGHTMARGIN] = { 0 };
 int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx, struct bito_ctx *bctx,
-    char *dst, int dst_size, const pixel *src, int w, int h, int pitch, const int16_t classmap[]
+    char *dst, char *dst_end, const pixel *src, int w, int h, int pitch, const int16_t classmap[]
 ) {
     bctx->buf = dst;
-    bctx->buf_end = dst + dst_size;
+    bctx->buf_end = dst_end;
 
     init_stats(ctx, params->alpha);
 
@@ -52,13 +52,18 @@ int jpeg_ls_encode(const struct jls_enc_params *params, struct jls_enc_ctx *ctx,
     const pixel *psl = psl0 + LEFTMARGIN - 1;
     const pixel *sl = src + LEFTMARGIN - 1;
 
+    int ret;
     for (int i = 0; i < w; ++i) {
-        lossless_doscanline(params, ctx, bctx, psl, sl, h, classmap);
+        ret = lossless_doscanline(params, ctx, bctx, psl, sl, h, classmap);
+        if (ret)
+            return ret;
         psl = sl;
         sl += pitch;
     }
 
-    bitoflush(bctx);
+    ret = bitoflush(bctx);
+    if (ret)
+        return ret;
 
     return bctx->buf_end - bctx->buf;
 }

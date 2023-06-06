@@ -78,7 +78,7 @@ void init_process_run(struct jls_enc_ctx *ctx, int maxrun)    /* maxrun is ignor
 
 
 
-void process_run(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int runlen, int eoline)
+int process_run(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int runlen, int eoline)
 {
 	int hits = 0;
 	int color = 0;
@@ -106,7 +106,7 @@ void process_run(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int runlen, int
 		   a max length run */
 		if ( runlen )
 			PUT_ONES(ctx,bctx,1);
-		return;
+		return 0;
 	}
 
 	/* now send the length of the remainder, encoded as a 0 followed
@@ -119,7 +119,7 @@ void process_run(struct jls_enc_ctx *ctx, struct bito_ctx *bctx, int runlen, int
 		ctx->melclen[color] = J[--ctx->melcstate[color]];
 		ctx->melcorder[color] = (1L<<ctx->melclen[color]);
 	}
-	return;
+	return 0;
 }
 
 

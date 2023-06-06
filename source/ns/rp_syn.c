@@ -192,7 +192,7 @@ int rp_syn_rel1(struct rp_syn_comp_func_t *syn1, void *pos) {
 		if (R_DESCRIPTION(res) != RD_TIMEOUT)
 			nsDbgPrint("rp_syn_rel1 wait mutex error: %d %d %d %d\n",
 				R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
-		return -1;
+		return res;
 	}
 
 	u8 pos_head = syn1->pos_head;
