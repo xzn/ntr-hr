@@ -20,7 +20,7 @@ static void rpScreenTransferThread(u32 arg) {
 	int UNUSED thread_n = RP_SCREEN_TRANSFER_THREAD_ID;
 
 	struct rp_screen_encode_ctx_t screen_encode_ctx;
-	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.max_capture_interval_ticks, rp_ctx->conf.min_capture_interval_ticks);
+	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks);
 
 	int acquire_count = 0;
 	while (!rp_ctx->exit_thread) {
@@ -155,7 +155,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 
 	int ret;
 	struct rp_screen_encode_ctx_t screen_encode_ctx;
-	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.max_capture_interval_ticks, rp_ctx->conf.min_capture_interval_ticks);
+	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks);
 	struct rp_image_data_t *image_me = &rp_ctx->image_ctx.image_me[thread_n];
 
 	int acquire_count = 0;

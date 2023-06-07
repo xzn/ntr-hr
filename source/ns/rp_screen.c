@@ -82,30 +82,39 @@ void rpKernelCallback(struct rp_screen_encode_t *screen) {
 	screen->c.format &= 0x0f;
 }
 
-void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 max_capture_interval_ticks, u32 min_capture_interval_ticks) {
-	ctx->sleep_duration = 0;
-	ctx->last_tick = svc_getSystemTick();
+void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks) {
+	u64 curr_tick = svc_getSystemTick();
+	ctx->last_tick = curr_tick;
+	ctx->desired_last_tick = curr_tick + min_capture_interval_ticks;
 	ctx->dyn_prio = dyn_prio;
-    ctx->max_capture_interval_ticks = max_capture_interval_ticks;
 	ctx->min_capture_interval_ticks = min_capture_interval_ticks;
 }
 
 static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_encode_ctx_t *ctx) {
-	if (ctx->sleep_duration)
-		svc_sleepThread(ctx->sleep_duration);
-
-	// limit frame rate
 	u64 curr_tick, tick_diff = (curr_tick = svc_getSystemTick()) - ctx->last_tick;
+	s64 desired_tick_diff = (s64)curr_tick - (s64)ctx->desired_last_tick;
+
+	if (desired_tick_diff < (s64)ctx->min_capture_interval_ticks) {
+		u64 duration = ((s64)ctx->min_capture_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
+		svc_sleepThread(duration);
+	} else {
+		u64 min_tick = ctx->min_capture_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+		if (tick_diff < min_tick) {
+			u64 duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
+			svc_sleepThread(duration);
+		}
+	}
+
+	ctx->desired_last_tick += ctx->min_capture_interval_ticks;
+	ctx->last_tick = curr_tick;
+
 	int frame_rate = 1;
 	int top_bot = rpGetPriorityScreen(ctx->dyn_prio, &frame_rate);
-	u64 desired_tick_diff = (u64)SYSTICK_PER_SEC * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM / frame_rate;
-	desired_tick_diff = RP_MAX(RP_MIN(desired_tick_diff, ctx->max_capture_interval_ticks), ctx->min_capture_interval_ticks);
-	if (tick_diff < desired_tick_diff) {
-		ctx->sleep_duration = (desired_tick_diff - tick_diff) * 1000 / SYSTICK_PER_US;
-	} else {
-		ctx->sleep_duration = 0;
-	}
-	ctx->last_tick = curr_tick;
+
+	u64 desired_last_tick_step = ctx->min_capture_interval_ticks * frame_rate *
+		RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+	if ((s64)ctx->last_tick - (s64)ctx->desired_last_tick > (s64)desired_last_tick_step)
+		ctx->desired_last_tick = ctx->last_tick - desired_last_tick_step;
 
 	return top_bot;
 }

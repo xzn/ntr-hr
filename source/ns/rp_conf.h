@@ -48,7 +48,6 @@ struct rp_conf_t {
     u8 encode_buffer_count;
 
     u32 min_send_interval_ticks;
-    u32 max_capture_interval_ticks;
     u32 min_capture_interval_ticks;
 };
 

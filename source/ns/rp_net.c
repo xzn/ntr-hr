@@ -205,9 +205,9 @@ static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, con
 			return -1;
 		}
 
-		desired_tick_diff = (s64)(curr_tick & ((1ULL << 48) - 1)) - (state->desired_last_tick & ((1ULL << 48) - 1));
+		desired_tick_diff = (s64)curr_tick - (s64)state->desired_last_tick;
 		if (desired_tick_diff < (s64)state->min_send_interval_ticks) {
-			u64 duration = (state->min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
+			u64 duration = ((s64)state->min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
 			svc_sleepThread(duration);
 		} else {
 			u64 min_tick = state->min_send_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
@@ -237,10 +237,10 @@ static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, con
 			state->desired_last_tick += state->min_send_interval_ticks;
 			state->last_tick = curr_tick;
 
-			if (state->last_tick - state->desired_last_tick < (1ULL << 48) &&
-				state->last_tick - state->desired_last_tick > state->min_send_interval_ticks * ctx->kcp->snd_wnd
-			)
-				state->desired_last_tick = state->last_tick - state->min_send_interval_ticks * ctx->kcp->snd_wnd;
+			u64 desired_last_tick_step = state->min_send_interval_ticks * ctx->kcp->snd_wnd *
+				RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+			if ((s64)state->last_tick - (s64)state->desired_last_tick > (s64)desired_last_tick_step)
+				state->desired_last_tick = state->last_tick - desired_last_tick_step;
 
 			return 0;
 		}
@@ -268,7 +268,7 @@ int rpNetworkTransfer(
 	u64 curr_tick = svc_getSystemTick();
 	struct rp_net_state_t state = {
 		.last_tick = curr_tick,
-		.desired_last_tick = curr_tick,
+		.desired_last_tick = curr_tick + min_send_interval_ticks,
 		.exit_thread = exit_thread,
 		.min_send_interval_ticks = min_send_interval_ticks
 	};
@@ -290,8 +290,6 @@ int rpNetworkTransfer(
 		if (!network) {
 			continue;
 		}
-
-		state.last_tick = curr_tick;
 
 		u32 size_remain = network->size;
 		u8 *data = network->buffer;

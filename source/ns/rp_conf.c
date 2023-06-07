@@ -110,9 +110,6 @@ int rp_set_params(struct rp_conf_t *conf) {
 		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8 /
 		((u16)conf->target_mbit_rate + 1) / 1024 / 1024;
 
-	conf->max_capture_interval_ticks = 
-		(u64)SYSTICK_PER_SEC / (u16)RP_MAX(conf->min_dp_frame_rate, RP_MIN_TARGET_FRAME_RATE);
-
 	conf->min_capture_interval_ticks = conf->max_frame_rate ? 
 		(u64)SYSTICK_PER_SEC / (u16)conf->max_frame_rate : 0;
 
