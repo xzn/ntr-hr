@@ -179,25 +179,110 @@ void me_add_half_range(u8 *me, int width, int height, u8 scale_log2, u8 half_ran
 	}
 }
 
-void diff_image(u8 *dst, const u8 *ref, const u8 *cur, int width, int height, int bpp) {
+void diff_image(s8 *me_x_image, u8 *dst, const u8 *ref, const u8 *cur,
+u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
+	int width, int height, int pitch, int bpp, u8 block_size, u8 block_size_log2
+) {
 	convert_set_zero(&dst);
 	ref += LEFTMARGIN;
 	cur += LEFTMARGIN;
 
-	for (int i = 0; i < width; ++i) {
-		if (i > 0) {
-			convert_set_prev_first(&dst, height);
-			ref += LEFTMARGIN;
-			cur += LEFTMARGIN;
+#define DO_DIFF() do { \
+	*dst++ = (u8)((u8)(*cur++) - (u8)(*ref++) + (128 >> (8 - bpp))) & ((1 << bpp) - 1); \
+} while (0)
+
+	if (select) {
+		u8 block_size_mask = (1 << block_size_log2) - 1;
+		u8 block_x_n = width >> block_size_log2;
+		u8 block_y_n = height >> block_size_log2;
+		u8 block_pitch = PADDED_HEIGHT(block_y_n);
+		u8 x_off = (width & block_size_mask) >> 1;
+		u8 y_off = (height & block_size_mask) >> 1;
+
+		select_threshold = ((u32)select_threshold * bpp) >> RP_IMAGE_ME_SELECT_BITS;
+
+		me_x_image += LEFTMARGIN;
+
+		const s8 *me_x_col = me_x_image;
+
+		for (int block_y = 0, y = y_off; block_y < block_y_n; ++block_y, y += block_size) {
+			if (block_y > 0) {
+				convert_set_prev_first((u8 **)&me_x_image, block_y_n);
+			}
+
+			for (int block_x = 0, x = x_off; block_x < block_x_n; ++block_x, x += block_size) {
+				u32 sad;
+				ff_scene_sad_c(ref + y * pitch + x, pitch, cur + y * pitch + x, pitch, block_size, block_size, &sad);
+				u16 sad_prev = *mafd_prev++;
+				*mafd++ = sad >>= mafd_shift;
+				s32 diff = FFABS((s32)sad_prev - (s32)sad);
+				if (RP_MIN(diff, (s32)sad) >= select_threshold) {
+					*me_x_image++ = 1;
+				} else {
+					*me_x_image++ = 0;
+				}
+			}
+
+			convert_set_last((u8 **)&me_x_image);
 		}
 
-		for (int j = 0; j < height; ++j) {
-			*dst++ = (u8)((u8)(*cur++) - (u8)(*ref++) + (128 >> (8 - bpp))) & ((1 << bpp) - 1);
-		}
+		for (int i = 0; i < width; ++i) {
+			if (i > 0) {
+				convert_set_prev_first(&dst, height);
+				ref += LEFTMARGIN;
+				cur += LEFTMARGIN;
+			}
 
-		convert_set_last(&dst);
-		ref += RIGHTMARGIN;
-		cur += RIGHTMARGIN;
+			int i_off = (i - x_off) & block_size_mask;
+			if (i > x_off && i_off == 0 && i < width - x_off - 1) {
+				me_x_col += block_pitch;
+			}
+
+			const s8 *me_x = me_x_col;
+
+			int scene_change = 0;
+
+			if (select)
+				scene_change = *me_x == 1;
+
+			for (int j = 0; j < height; ++j) {
+				int j_off = (j - y_off) & block_size_mask;
+				if (j > y_off && j_off == 0 && j < height - y_off - 1) {
+					++me_x;
+
+					if (select)
+						scene_change = *me_x == 1;
+				}
+
+				if (scene_change) {
+					ref++;
+					*dst++ = *cur++;
+				} else {
+					// do diff
+					DO_DIFF();
+				}
+			}
+
+			convert_set_last(&dst);
+			ref += RIGHTMARGIN;
+			cur += RIGHTMARGIN;
+		}
+	} else {
+		for (int i = 0; i < width; ++i) {
+			if (i > 0) {
+				convert_set_prev_first(&dst, height);
+				ref += LEFTMARGIN;
+				cur += LEFTMARGIN;
+			}
+
+			for (int j = 0; j < height; ++j) {
+				DO_DIFF();
+			}
+
+			convert_set_last(&dst);
+			ref += RIGHTMARGIN;
+			cur += RIGHTMARGIN;
+		}
 	}
 }
 
@@ -309,11 +394,10 @@ void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, 
 			const s8 *me_y = me_y_col;
 
 			int scene_change = 0;
+			int x = 0, y = 0;
 
 			if (select)
 				scene_change = *me_x == -(s8)half_range && *me_y == -(s8)half_range;
-
-			int x = 0, y = 0;
 
 			if (!scene_change) {
 				x = (int)*me_x << scale_log2;

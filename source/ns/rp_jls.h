@@ -63,6 +63,9 @@ _Static_assert(sizeof(struct rp_send_data_header) == sizeof(u32));
 struct rp_syn_comp_t;
 struct rp_network_encode_t;
 struct rp_net_state_t;
+// if multicore_network is set, network_queue is used,
+// otherwise network and net_state are set by the caller and are used instead
+// network_sync is when there are more than one thread accessing the network_queue
 struct rp_jls_send_ctx_t {
 	struct rp_send_data_header *send_header;
 	struct rp_syn_comp_t *network_queue;

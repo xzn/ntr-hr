@@ -21,8 +21,6 @@ static void rpScreenTransferThread(u32 arg) {
 
 	int acquire_count = 0;
 	while (!rp_ctx->exit_thread) {
-		rp_check_params(&rp_ctx->conf, &rp_ctx->exit_thread);
-
 		struct rp_screen_encode_t *screen = rp_screen_transfer_acquire(&rp_ctx->syn.screen.transfer, RP_THREAD_LOOP_MED_WAIT);
 		if (!screen) {
 			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
@@ -55,7 +53,6 @@ static void rpNetworkTransferThread(u32 arg) {
 	const int thread_n = RP_NETWORK_TRANSFER_THREAD_ID;
 
 	while (!rp_ctx->exit_thread) {
-		rp_check_params(&rp_ctx->conf, &rp_ctx->exit_thread);
 		rpNetworkTransfer(&rp_ctx->net_state, thread_n, &rp_ctx->kcp, &rp_ctx->conf.kcp, &rp_ctx->syn.network);
 		svc_sleepThread(RP_THREAD_LOOP_SLOW_WAIT);
 	}
@@ -115,11 +112,13 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 
 	struct rp_send_data_header *send_header = ctx->jls_send_ctx->send_header;
 
-	if (me->enabled == 1) {
+	if (me->enabled == 1 || (me->enabled > 1 && me->select)) {
 		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_X);
 		ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_x_image, me_width, me_height, im->me_bpp);
 		if (ret < 0) { return ret; } size += ret;
+	}
 
+	if (me->enabled == 1) {
 		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_Y);
 		ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_y_image, me_width, me_height, im->me_bpp);
 		if (ret < 0) { return ret; } size += ret;
@@ -148,10 +147,11 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 	struct rp_image_data_t *image_me = &rp_ctx->image_ctx.image_me[thread_n];
 
 	int acquire_count = 0;
-	struct rp_network_encode_t *network = 0;
 
 	while (!rp_ctx->exit_thread) {
-		rp_check_params(&rp_ctx->conf, &rp_ctx->exit_thread);
+		if (thread_n == RP_MAIN_ENCODE_THREAD_ID)
+			rp_check_params(&rp_ctx->conf, &g_nsConfig->remotePlayUpdate, &rp_ctx->exit_thread);
+
 		struct rp_screen_encode_t *screen;
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.multicore_screen) {
 			screen = rp_screen_encode_acquire(&rp_ctx->syn.screen.encode, RP_THREAD_LOOP_MED_WAIT);
@@ -169,9 +169,6 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 				break;
 			}
 		}
-
-		if (!rp_ctx->conf.multicore_network)
-			network = &rp_ctx->network_encode[thread_n];
 
 		ret = rpEncodeImage(screen, rp_ctx->conf.yuv_option, rp_ctx->conf.color_transform_hp);
 		if (ret < 0) {
@@ -228,13 +225,13 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		};
 		struct rp_jls_send_ctx_t jls_send_ctx = {
 			.send_header = &send_header,
-			.network_queue = &rp_ctx->syn.network,
+			.network_queue = rp_ctx->conf.multicore_network ? &rp_ctx->syn.network : 0,
 			.exit_thread = &rp_ctx->exit_thread,
 			.network_sync = (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !RP_SYN_NET),
 			.thread_n = thread_n,
 			.multicore_network = rp_ctx->conf.multicore_network,
-			.network = network,
-			.net_state = network ? &rp_ctx->net_state : 0,
+			.network = !rp_ctx->conf.multicore_network ? &rp_ctx->network_encode[thread_n] : 0,
+			.net_state = !rp_ctx->conf.multicore_network ? &rp_ctx->net_state : 0,
 		};
 		struct rp_encode_and_send_screen_ctx_t encode_send_ctx = {
 			.jls_send_ctx = &jls_send_ctx,

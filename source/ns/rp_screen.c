@@ -342,7 +342,11 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		} else {
 
 #define DIFF_IM(n, w, h, b) do { \
-	diff_image(image_me->n, im_prev->n, im->n, w, h, im->b); \
+	diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, \
+		me->select, me->select_threshold, \
+		me->downscale ? im->mafd_ds_image : im->mafd_image, \
+		me->downscale ? im_prev->mafd_ds_image : im_prev->mafd_image, me->mafd_shift, \
+		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, me->block_size, me->block_size_log2); \
 } while (0)
 
 			DIFF_IM(y_image, width, height, y_bpp);

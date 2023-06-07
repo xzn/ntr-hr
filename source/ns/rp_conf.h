@@ -52,6 +52,6 @@ struct rp_conf_t {
 };
 
 int rp_set_params(struct rp_conf_t *conf);
-int rp_check_params(struct rp_conf_t *conf, volatile u8 *exit_thread);
+int rp_check_params(struct rp_conf_t *conf, volatile u32 *updated, volatile u8 *exit_thread);
 
 #endif

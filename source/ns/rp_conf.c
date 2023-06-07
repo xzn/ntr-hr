@@ -77,7 +77,8 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->me.block_size = RP_ME_MIN_BLOCK_SIZE << arg1.me_block_size;
 	conf->me.block_size_log2 = av_ceil_log2(conf->me.block_size);
 	conf->me.search_param = arg1.me_search_param + RP_ME_MIN_SEARCH_PARAM;
-	conf->me.bpp = av_ceil_log2(conf->me.search_param * 2 + 1);
+	conf->me.bpp = conf->me.method > 1 && conf->me.select ? 1 :
+		conf->me.method == 1 ? av_ceil_log2(conf->me.search_param * 2 + 1) : 0;
 	conf->me.bpp_half_range = (1 << conf->me.bpp) >> 1;
 	conf->me.mafd_shift = RP_MAX(0, (int)conf->me.block_size_log2 * 2 - 8);
 	conf->me.select_threshold =
@@ -110,7 +111,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 		(u64)SYSTICK_PER_SEC * NWM_PACKET_SIZE * 8 /
 		((u16)conf->target_mbit_rate + 1) / 1024 / 1024;
 
-	conf->min_capture_interval_ticks = conf->max_frame_rate ? 
+	conf->min_capture_interval_ticks = conf->max_frame_rate ?
 		(u64)SYSTICK_PER_SEC / (u16)conf->max_frame_rate : 0;
 
 	int ret = 0;
@@ -120,9 +121,9 @@ int rp_set_params(struct rp_conf_t *conf) {
 	return ret;
 }
 
-int rp_check_params(struct rp_conf_t *conf, volatile u8 *exit_thread) {
-	if (__atomic_load_n(&g_nsConfig->remotePlayUpdate, __ATOMIC_ACQUIRE)) {
-		__atomic_store_n(&g_nsConfig->remotePlayUpdate, 0, __ATOMIC_RELEASE);
+int rp_check_params(struct rp_conf_t *conf, volatile u32 *updated, volatile u8 *exit_thread) {
+	if (*updated) {
+		*updated = 0;
 		conf->updated = 1;
 		*exit_thread = 1;
 	}
