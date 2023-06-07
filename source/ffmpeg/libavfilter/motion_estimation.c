@@ -57,12 +57,12 @@ void ff_me_init_context(AVMotionEstContext *me_ctx, int mb_size, int search_para
     me_ctx->y_max = y_max;
 }
 
-uint64_t ff_me_cmp_sad(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int x_mv, int y_mv)
+uint32_t ff_me_cmp_sad(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int x_mv, int y_mv)
 {
     const int linesize = me_ctx->linesize;
     const uint8_t *data_ref = me_ctx->data_ref;
     const uint8_t *data_cur = me_ctx->data_cur;
-    uint64_t sad = 0;
+    uint32_t sad = 0;
     int i, j;
 
     data_ref += y_mv * linesize;
@@ -75,14 +75,14 @@ uint64_t ff_me_cmp_sad(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int x_mv,
     return sad;
 }
 
-uint64_t ff_me_search_esa(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_esa(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
 
     if (!(cost_min = me_ctx->get_cost(me_ctx, x_mb, y_mb, x_mb, y_mb)))
         return cost_min;
@@ -94,14 +94,14 @@ uint64_t ff_me_search_esa(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *m
     return cost_min;
 }
 
-uint64_t ff_me_search_tss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_tss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
     int step = ROUNDED_DIV(me_ctx->search_param, 2);
     int i;
 
@@ -125,14 +125,14 @@ uint64_t ff_me_search_tss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *m
     return cost_min;
 }
 
-uint64_t ff_me_search_tdls(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_tdls(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
     int step = ROUNDED_DIV(me_ctx->search_param, 2);
     int i;
 
@@ -157,14 +157,14 @@ uint64_t ff_me_search_tdls(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *
     return cost_min;
 }
 
-uint64_t ff_me_search_ntss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_ntss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
     int step = ROUNDED_DIV(me_ctx->search_param, 2);
     int first_step = 1;
     int i;
@@ -210,14 +210,14 @@ uint64_t ff_me_search_ntss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *
     return cost_min;
 }
 
-uint64_t ff_me_search_fss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_fss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
     int step = 2;
     int i;
 
@@ -242,14 +242,14 @@ uint64_t ff_me_search_fss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *m
     return cost_min;
 }
 
-uint64_t ff_me_search_ds(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_ds(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
     int i;
     av_unused int dir_x, dir_y;
 
@@ -297,14 +297,14 @@ uint64_t ff_me_search_ds(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv
     return cost_min;
 }
 
-uint64_t ff_me_search_hexbs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_hexbs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
     int i;
 
     if (!(cost_min = me_ctx->get_cost(me_ctx, x_mb, y_mb, x_mb, y_mb)))
@@ -330,19 +330,19 @@ uint64_t ff_me_search_hexbs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int 
    set 1: me->preds[0] has: (0, 0), left, top, top-right, collocated block in prev frame
    set 2: me->preds[1] has: accelerator mv, top, left, right, bottom adj mb of prev frame
 */
-uint64_t ff_me_search_epzs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_epzs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
     int i;
 
     AVMotionEstPredictor *preds = me_ctx->preds;
 
-    cost_min = UINT64_MAX;
+    cost_min = UINT32_MAX;
 
     COST_P_MV(x_mb + me_ctx->pred_x, y_mb + me_ctx->pred_y);
 
@@ -371,20 +371,20 @@ uint64_t ff_me_search_epzs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *
    replace top two with left
    repeated can be skipped, if no predictors are used, set me_ctx->pred to (0,0)
 */
-uint64_t ff_me_search_umh(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
+uint32_t ff_me_search_umh(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv)
 {
     int x, y;
     int x_min = FFMAX(me_ctx->x_min, x_mb - me_ctx->search_param);
     int y_min = FFMAX(me_ctx->y_min, y_mb - me_ctx->search_param);
     int x_max = FFMIN(x_mb + me_ctx->search_param, me_ctx->x_max);
     int y_max = FFMIN(y_mb + me_ctx->search_param, me_ctx->y_max);
-    uint64_t cost, cost_min;
+    uint32_t cost, cost_min;
     int d, i;
     int end_x, end_y;
 
     AVMotionEstPredictor *pred = &me_ctx->preds[0];
 
-    cost_min = UINT64_MAX;
+    cost_min = UINT32_MAX;
 
     COST_P_MV(x_mb + me_ctx->pred_x, y_mb + me_ctx->pred_y);
 

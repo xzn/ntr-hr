@@ -18,6 +18,10 @@
 		CONST_OPT u8 *ds_ds_y_image_ds_uv; \
 		CONST_OPT u8 *ds_ds_y_image_full_uv; \
 		CONST_OPT u8 *ds_ds_y_image; \
+		CONST_OPT u16 *mafd_image; \
+		CONST_OPT u16 *mafd_ds_image_ds_uv; \
+		CONST_OPT u16 *mafd_ds_image_full_uv; \
+		CONST_OPT u16 *mafd_ds_image; \
 		u8 y_bpp; \
 		u8 u_bpp; \
 		u8 v_bpp; \
@@ -67,8 +71,13 @@ struct rp_image_ctx_t {
 		union { \
 			u8 ds_u_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
 			u8 ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+			u16 mafd_ds_image_full_uv[ME_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
 		}; \
-		u8 ds_ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
+		union { \
+			u8 ds_ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
+			u16 mafd_image[ME_PADDED_SIZE(sv)] ALIGN_4; \
+			u16 mafd_ds_image_ds_uv[ME_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+		}; \
 	} \
 
 	struct {

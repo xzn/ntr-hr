@@ -80,7 +80,7 @@ void rpNetworkInit(struct rp_net_ctx_t *ctx, u8 *nwm_send_buf, u8 *ctrl_recv_buf
 	ctx->nwm_send_buf = nwm_send_buf;
 	ctx->ctrl_recv_buf = ctrl_recv_buf;
 	svc_createMutex(&ctx->kcp_mutex, 0);
-	ctx->kcp_inited = 1;
+	__atomic_store_n(&ctx->kcp_inited, 1, __ATOMIC_RELEASE);
 }
 
 static int rpKCPLock(struct rp_net_ctx_t *ctx) {
@@ -171,7 +171,7 @@ void rpControlRecv(struct rp_net_ctx_t *ctx) {
 		nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
 		return;
 	}
-	if (!__atomic_load_n(&ctx->kcp_ready, __ATOMIC_ACQUIRE)) {
+	if (!ctx->kcp_ready) {
 		rpKCPUnlock(ctx);
 		svc_sleepThread(RP_THREAD_LOOP_FAST_WAIT);
 		return;
@@ -183,10 +183,10 @@ void rpControlRecv(struct rp_net_ctx_t *ctx) {
 
 	ikcp_update(ctx->kcp, iclock());
 	ret = ikcp_recv(ctx->kcp, (char *)ctx->ctrl_recv_buf, RP_CONTROL_RECV_BUFFER_SIZE);
+	rpKCPUnlock(ctx);
 	if (ret >= 0) {
 		rpControlRecvHandle(ctx->ctrl_recv_buf, ret);
 	}
-	rpKCPUnlock(ctx);
 }
 
 struct rp_net_state_t {

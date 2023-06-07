@@ -1,8 +1,37 @@
 #include "rp_me.h"
 #include "rp_color_aux.h"
 
-void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const u8 *cur, int width, int height, int pitch,
-    u8 block_size, u8 block_size_log2, u8 search_param, u8 me_method
+static u32 sad_const(const u8 *src, int stride, int width, int height, u8 bpp) {
+	u32 sad = 0;
+	int x, y;
+
+	for (x = 0; x < width; x++) {
+		for (y = 0; y < height; y++)
+			sad += FFABS(src[x] - (1 << (bpp - 1)));
+		src += stride;
+	}
+	return sad;
+}
+
+void mafd_image(u16 *mafd, u8 mafd_shift, const u8 *cur, int width, int height, int pitch, u8 block_size, u8 block_size_log2, u8 bpp) {
+	u8 block_size_mask = (1 << block_size_log2) - 1;
+	u8 block_x_n = width >> block_size_log2;
+	u8 block_y_n = height >> block_size_log2;
+	u8 x_off = (width & block_size_mask) >> 1;
+	u8 y_off = (height & block_size_mask) >> 1;
+
+	for (int block_x = 0, x = x_off; block_x < block_x_n; ++block_x, x += block_size) {
+		for (int block_y = 0, y = y_off; block_y < block_y_n; ++block_y, y += block_size) {
+			u16 sad = sad_const(cur + x * pitch + y, pitch, block_size, block_size, bpp) >> mafd_shift;
+			*mafd++ = sad;
+		}
+	}
+}
+
+void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const u8 *cur,
+	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
+	int width, int height, int pitch, u8 bpp,
+	u8 block_size, u8 block_size_log2, u8 search_param, u8 me_method, u8 half_range
 ) {
 	// ffmpeg is row-major, 3DS is column-major; so switch x and y
 	{
@@ -34,16 +63,26 @@ void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const u8 *cu
 	me_ctx.data_ref = ref;
 	me_ctx.data_cur = cur;
 
-	convert_set_zero((u8 **)&me_x_image);
-	convert_set_zero((u8 **)&me_y_image);
+	select_threshold = ((u32)select_threshold * bpp) >> RP_IMAGE_ME_SELECT_BITS;
 
 	for (int block_y = 0, y = y_off; block_y < block_y_n; ++block_y, y += block_size) {
-		if (block_y > 0) {
-			convert_set_prev_first((u8 **)&me_x_image, block_x_n);
-			convert_set_prev_first((u8 **)&me_y_image, block_x_n);
-		}
+		me_x_image += LEFTMARGIN;
+		me_y_image += LEFTMARGIN;
 
 		for (int block_x = 0, x = x_off; block_x < block_x_n; ++block_x, x += block_size) {
+			if (select) {
+				u32 sad;
+				ff_scene_sad_c(ref + y * pitch + x, pitch, cur + y * pitch + x, pitch, block_size, block_size, &sad);
+				u16 sad_prev = *mafd_prev++;
+				*mafd++ = sad >>= mafd_shift;
+				s32 diff = FFABS((s32)sad_prev - (s32)sad);
+				if (RP_MIN(diff, (s32)sad) >= select_threshold) {
+					*me_x_image++ = -(s8)half_range;
+					*me_y_image++ = -(s8)half_range;
+					continue;
+				}
+			}
+
 			int mv[2] = {x, y};
 
 			switch (me_method) {
@@ -82,8 +121,8 @@ void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const u8 *cu
 			*me_y_image++ = mv[1] - y;
 		}
 
-		convert_set_last((u8 **)&me_x_image);
-		convert_set_last((u8 **)&me_y_image);
+		me_x_image += RIGHTMARGIN;
+		me_y_image += RIGHTMARGIN;
 	}
 }
 
@@ -163,7 +202,7 @@ void diff_image(u8 *dst, const u8 *ref, const u8 *cur, int width, int height, in
 }
 
 void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image, int width, int height, int scale_log2, int bpp,
-    u8 block_size, u8 block_size_log2, int interpolate
+	u8 block_size, u8 block_size_log2, int interpolate, u8 select, u8 half_range
 ) {
 	block_size <<= scale_log2;
 	block_size_log2 += scale_log2;
@@ -175,6 +214,9 @@ void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, 
 	u8 block_pitch = PADDED_HEIGHT(block_y_n);
 	u8 x_off = (width & block_size_mask) >> 1;
 	u8 y_off = (height & block_size_mask) >> 1;
+
+	if (select)
+		interpolate = 0;
 
 	if (interpolate) {
 		x_off += block_size >> 1;
@@ -265,20 +307,41 @@ void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, 
 
 			const s8 *me_x = me_x_col;
 			const s8 *me_y = me_y_col;
-			int x = ((s16)*me_x) << scale_log2;
-			int y = ((s16)*me_y) << scale_log2;
+
+			int scene_change = 0;
+
+			if (select)
+				scene_change = *me_x == -(s8)half_range && *me_y == -(s8)half_range;
+
+			int x = 0, y = 0;
+
+			if (!scene_change) {
+				x = (int)*me_x << scale_log2;
+				y = (int)*me_y << scale_log2;
+			}
+
 			for (int j = 0; j < height; ++j) {
 				int j_off = (j - y_off) & block_size_mask;
 				if (j > y_off && j_off == 0 && j < height - y_off - 1) {
 					++me_x;
 					++me_y;
 
-					x = (int)((s16)*me_x) << scale_log2;
-					y = (int)((s16)*me_y) << scale_log2;
+					if (select)
+						scene_change = *me_x == -(s8)half_range && *me_y == -(s8)half_range;
+
+					if (!scene_change) {
+						x = (int)*me_x << scale_log2;
+						y = (int)*me_y << scale_log2;
+					}
 				}
 
-				// do prediction
-				DO_PREDICTION();
+				if (scene_change) {
+					ref++;
+					*dst++ = *cur++;
+				} else {
+					// do prediction
+					DO_PREDICTION();
+				}
 			}
 		}
 

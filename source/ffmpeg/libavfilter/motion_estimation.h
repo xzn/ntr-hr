@@ -57,31 +57,31 @@ typedef struct AVMotionEstContext {
     int pred_y;     ///< median predictor y
     AVMotionEstPredictor preds[2];
 
-    uint64_t (*get_cost)(struct AVMotionEstContext *me_ctx, int x_mb, int y_mb,
+    uint32_t (*get_cost)(struct AVMotionEstContext *me_ctx, int x_mb, int y_mb,
                          int mv_x, int mv_y);
 } AVMotionEstContext;
 
 void ff_me_init_context(AVMotionEstContext *me_ctx, int mb_size, int search_param,
                         int width, int height, int x_min, int x_max, int y_min, int y_max);
 
-uint64_t ff_me_cmp_sad(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int x_mv, int y_mv);
+uint32_t ff_me_cmp_sad(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int x_mv, int y_mv);
 
-uint64_t ff_me_search_esa(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_esa(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
-uint64_t ff_me_search_tss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_tss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
-uint64_t ff_me_search_tdls(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_tdls(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
-uint64_t ff_me_search_ntss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_ntss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
-uint64_t ff_me_search_fss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_fss(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
-uint64_t ff_me_search_ds(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_ds(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
-uint64_t ff_me_search_hexbs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_hexbs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
-uint64_t ff_me_search_epzs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_epzs(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
-uint64_t ff_me_search_umh(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
+uint32_t ff_me_search_umh(AVMotionEstContext *me_ctx, int x_mb, int y_mb, int *mv);
 
 #endif /* AVFILTER_MOTION_ESTIMATION_H */

@@ -15,6 +15,9 @@ void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
 	SET_IMAGE_BUFFER(sv, sn, ds_v_image); \
 	SET_IMAGE_BUFFER(sv, sn, ds_ds_y_image_ds_uv); \
 	SET_IMAGE_BUFFER(sv, sn, ds_ds_y_image_full_uv); \
+	SET_IMAGE_BUFFER(sv, sn, mafd_image); \
+	SET_IMAGE_BUFFER(sv, sn, mafd_ds_image_ds_uv); \
+	SET_IMAGE_BUFFER(sv, sn, mafd_ds_image_full_uv); \
 } while (0)
 
 		SET_IMAGE_BUFFER_SCREEN(SCREEN_TOP, top);

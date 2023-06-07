@@ -24,6 +24,8 @@ struct rp_conf_t {
     struct rp_conf_me_t {
         u8 enabled;
         u8 select; // detect scene change
+        u16 select_threshold;
+        u8 mafd_shift;
         u8 method;
         u8 block_size;
         u8 block_size_log2;

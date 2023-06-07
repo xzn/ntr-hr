@@ -10,6 +10,7 @@
 #include "libavcodec/jpegls.h"
 #include "libavcodec/get_bits.h"
 #include "libavfilter/motion_estimation.h"
+#include "libavfilter/scene_sad.h"
 #include "../jpeg_ls/global.h"
 #include "../jpeg_ls/bitio.h"
 #include "xxhash.h"
@@ -57,7 +58,8 @@
 
 #define RP_KCP_MIN_MINRTO (10)
 #define RP_KCP_MIN_SNDWNDSIZE (32)
-#define RP_ME_MIN_BLOCK_SIZE (4)
+#define RP_ME_MIN_BLOCK_SIZE_LOG2 (2)
+#define RP_ME_MIN_BLOCK_SIZE (1 << RP_ME_MIN_BLOCK_SIZE_LOG2)
 #define RP_ME_MIN_SEARCH_PARAM (8)
 #define RP_MIN_TARGET_FRAME_RATE (30)
 
@@ -78,17 +80,18 @@
 #define SCREEN_DS_WIDTH(s, ds) DS_DIM(SCREEN_WIDTH(s), ds)
 #define SCREEN_DS_HEIGHT(ds) DS_DIM(SCREEN_HEIGHT, ds)
 
-// (* 2) since motion estimation operates on images downscaled at least once
-#define ME_WIDTH(s) (SCREEN_WIDTH(s) / RP_ME_MIN_BLOCK_SIZE / 2)
-#define ME_HEIGHT (SCREEN_HEIGHT / RP_ME_MIN_BLOCK_SIZE / 2)
-#define ME_WIDTH_MAX SCREEN_CHOOSE_MAX(ME_WIDTH)
+// (+ 1) since motion estimation operates on images downscaled at least once
+#define ME_DS_WIDTH(s, ds) SCREEN_DS_WIDTH(s, 1 + RP_ME_MIN_BLOCK_SIZE + ds)
+#define ME_DS_HEIGHT(ds) SCREEN_DS_HEIGHT(1 + RP_ME_MIN_BLOCK_SIZE + ds)
 
 #define SCREEN_PADDED_SIZE(s) PADDED_SIZE(SCREEN_WIDTH(s), SCREEN_HEIGHT)
 #define SCREEN_PADDED_DS_SIZE(s, ds) PADDED_SIZE(SCREEN_DS_WIDTH(s, ds), SCREEN_DS_HEIGHT(ds))
 
 #define SCREEN_SIZE_MAX SCREEN_CHOOSE_MAX(SCREEN_PADDED_SIZE)
 #define SCREEN_DS_SIZE_MAX(ds) SCREEN_CHOOSE_MAX(SCREEN_PADDED_DS_SIZE, ds)
-#define ME_SIZE_MAX PADDED_SIZE(ME_WIDTH_MAX, ME_HEIGHT)
+#define ME_PADDED_DS_SIZE(s, ds) PADDED_SIZE(ME_DS_WIDTH(s, ds), ME_DS_HEIGHT(ds))
+#define ME_PADDED_SIZE(s) ME_PADDED_DS_SIZE(s, 0)
+#define ME_SIZE_MAX SCREEN_CHOOSE_MAX(ME_PADDED_SIZE)
 
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
 
@@ -119,6 +122,7 @@
 #define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 2)
 // (+ 1) for motion estimation reference
 #define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
+#define RP_IMAGE_ME_SELECT_BITS (6)
 #define RP_IMAGE_FRAME_N_BITS (3)
 #define RP_IMAGE_FRAME_N_RANGE (1 << RP_IMAGE_FRAME_N_BITS)
 

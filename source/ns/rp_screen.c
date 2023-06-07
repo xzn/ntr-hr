@@ -240,10 +240,15 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 
 		im->ds_y_image = im->ds_y_image_ds_uv;
 		im->ds_ds_y_image = im->ds_ds_y_image_ds_uv;
+		im->mafd_ds_image = im->mafd_ds_image_ds_uv;
 	} else {
 		im->ds_y_image = im->ds_y_image_full_uv;
 		im->ds_ds_y_image = im->ds_ds_y_image_full_uv;
+		im->mafd_ds_image = im->mafd_ds_image_full_uv;
 	}
+
+	int ds_ds_width = DS_DIM(width, 2);
+	int ds_ds_height = DS_DIM(height, 2);
 
 	if (p_frame) {
 		downscale_image(
@@ -270,22 +275,20 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 
 		if (me->enabled == 1) {
 
-#define MOTION_EST(n, w, h) do { \
+#define MOTION_EST(n, m, w, h, b) do { \
 	motion_estimate(image_me->me_x_image, image_me->me_y_image, \
 		im_prev->n + LEFTMARGIN, im->n + LEFTMARGIN, \
-		w, h, h + LEFTMARGIN + RIGHTMARGIN, \
+		me->select, me->select_threshold, im->m, im_prev->m, me->mafd_shift, \
+		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, \
 		me->block_size, me->block_size_log2, \
-		me->search_param, me->method \
+		me->search_param, me->method, me->bpp_half_range \
 	); \
 } while (0)
 
 			if (me->downscale) {
-				int ds_ds_width = DS_DIM(width, 2);
-				int ds_ds_height = DS_DIM(height, 2);
-
-				MOTION_EST(ds_ds_y_image, ds_ds_width, ds_ds_height);
+				MOTION_EST(ds_ds_y_image, mafd_ds_image, ds_ds_width, ds_ds_height, y_bpp);
 			} else {
-				MOTION_EST(ds_y_image, ds_width, ds_height);
+				MOTION_EST(ds_y_image, mafd_image, ds_width, ds_height, y_bpp);
 			}
 
 			int scale_log2_offset = me->downscale == 0 ? 0 : 1;
@@ -297,7 +300,8 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		image_me->me_x_image, image_me->me_y_image, \
 		w, h, s, im->b, \
 		me->block_size, me->block_size_log2, \
-		RP_ME_INTERPOLATE && me->interpolate); \
+		RP_ME_INTERPOLATE && me->interpolate, \
+		me->select, me->bpp_half_range); \
 } while (0)
 
 			PREDICT_IM(y_image, width, height, scale_log2, y_bpp);
@@ -341,13 +345,28 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			rpImageReadUnlock(image_prev);
 		}
 	} else {
-		if (multicore && me->enabled != 0 && !c->first_frame) {
-			// done read by skipping
-			rpImageReadSkip(image_prev);
+		if (multicore && me->enabled != 0) {
+			if (!c->first_frame) {
+				// done read by skipping
+				rpImageReadSkip(image_prev);
+			}
+
+#define MAFD_IMAGE(m, n, w, h, b) do { \
+	mafd_image(im->m, me->mafd_shift, im->n + LEFTMARGIN, w, h, h + LEFTMARGIN + RIGHTMARGIN, me->block_size, me->block_size_log2, im->b); \
+} while (0)
+
+			if (me->select) {
+				if (me->downscale) {
+					MAFD_IMAGE(mafd_ds_image, ds_ds_y_image, ds_ds_width, ds_ds_height, y_bpp);
+				} else {
+					MAFD_IMAGE(mafd_image, ds_y_image, ds_width, ds_height, y_bpp);
+				}
+			}
 		}
 	}
 	im->ds_y_image = 0;
 	im->ds_ds_y_image = 0;
+	im->mafd_ds_image = 0;
 
 	return 0;
 }

@@ -6,7 +6,7 @@ union UNUSED rp_conf_arg0_t {
 		u32 kcp_nocwnd : 1;
 		u32 kcp_fastresend : 2;
 		u32 me_enabled : 2;
-		u32 me_select : 1;
+		u32 me_select : RP_IMAGE_ME_SELECT_BITS;
 		u32 multicore_network : 1;
 		u32 multicore_screen : 1;
 	};
@@ -79,6 +79,9 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->me.search_param = arg1.me_search_param + RP_ME_MIN_SEARCH_PARAM;
 	conf->me.bpp = av_ceil_log2(conf->me.search_param * 2 + 1);
 	conf->me.bpp_half_range = (1 << conf->me.bpp) >> 1;
+	conf->me.mafd_shift = RP_MAX(0, (int)conf->me.block_size_log2 * 2 - 8);
+	conf->me.select_threshold =
+		((u32)conf->me.block_size * (u32)conf->me.block_size * (u32)conf->me.select) >> conf->me.mafd_shift;
 	conf->me.downscale = arg1.me_downscale;
 #if RP_ME_INTERPOLATE
 	conf->me.interpolate = arg1.me_interpolate;
