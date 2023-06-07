@@ -8,6 +8,7 @@
 #include "rp_conf.h"
 #include "rp_syn_chan.h"
 #include "rp_dyn_prio.h"
+#include "rp_screen.h"
 
 struct rp_ctx_t {
 	ikcpcb kcp;
@@ -51,6 +52,8 @@ struct rp_ctx_t {
 	struct rp_dyn_prio_t dyn_prio;
 
 	struct rp_net_ctx_t net_ctx;
+
+	struct rp_screen_encode_ctx_t screen_ctx;
 };
 
 #endif

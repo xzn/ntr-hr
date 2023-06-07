@@ -82,7 +82,13 @@ void rpKernelCallback(struct rp_screen_encode_t *screen) {
 	screen->c.format &= 0x0f;
 }
 
-void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks) {
+void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks, u8 sync) {
+	rp_lock_close(ctx->mutex);
+	if (sync)
+		(void)rp_lock_init(ctx->mutex);
+	else
+		ctx->mutex = 0;
+	ctx->sync = sync;
 	u64 curr_tick = svc_getSystemTick();
 	ctx->last_tick = curr_tick;
 	ctx->desired_last_tick = curr_tick + min_capture_interval_ticks;
@@ -187,7 +193,11 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_enco
 ) {
 	int ret;
 
+	if (ctx->sync && (ret = rp_lock_wait(ctx->mutex, RP_SYN_WAIT_MAX)))
+		return ret;
 	screen->c.top_bot = rpScreenEncodeGetScreenLimitFrameRate(ctx);
+	if (ctx->sync)
+		rp_lock_rel(ctx->mutex);
 
 	if ((ret = rpScreenEncodeCaptureScreen(screen, dma)) != 0)
 		return ret;

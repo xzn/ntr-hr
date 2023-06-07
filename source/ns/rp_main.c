@@ -19,9 +19,6 @@ static void rpScreenTransferThread(u32 arg) {
 	int UNUSED ret;
 	int UNUSED thread_n = RP_SCREEN_TRANSFER_THREAD_ID;
 
-	struct rp_screen_encode_ctx_t screen_encode_ctx;
-	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks);
-
 	int acquire_count = 0;
 	while (!rp_ctx->exit_thread) {
 		rp_check_params(&rp_ctx->conf, &rp_ctx->exit_thread);
@@ -36,7 +33,7 @@ static void rpScreenTransferThread(u32 arg) {
 		}
 		acquire_count = 0;
 
-		if (rpScreenEncodeSetupMain(screen, &screen_encode_ctx, rp_ctx)) {
+		if (rpScreenEncodeSetupMain(screen, &rp_ctx->screen_ctx, rp_ctx)) {
 			break;
 		}
 
@@ -154,15 +151,14 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 	svc_sleepThread(RP_THREAD_ENCODE_BEGIN_WAIT);
 
 	int ret;
-	struct rp_screen_encode_ctx_t screen_encode_ctx;
-	rpScreenEncodeInit(&screen_encode_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks);
+
 	struct rp_image_data_t *image_me = &rp_ctx->image_ctx.image_me[thread_n];
 
 	int acquire_count = 0;
 	while (!rp_ctx->exit_thread) {
 		rp_check_params(&rp_ctx->conf, &rp_ctx->exit_thread);
 		struct rp_screen_encode_t *screen;
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.multicore_screen) {
 			screen = rp_screen_encode_acquire(&rp_ctx->syn.screen.encode, RP_THREAD_LOOP_MED_WAIT);
 			if (!screen) {
 				if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
@@ -174,7 +170,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			acquire_count = 0;
 		} else {
 			screen = &rp_ctx->screen_encode[thread_n];
-			if (rpScreenEncodeSetupMain(screen, &screen_encode_ctx, rp_ctx)) {
+			if (rpScreenEncodeSetupMain(screen, &rp_ctx->screen_ctx, rp_ctx)) {
 				break;
 			}
 		}
@@ -281,6 +277,8 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)))
 		return ret;
 
+	int screen_ctx_sync = 0;
+
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 		if ((ret = rp_screen_queue_init(&rp_ctx->syn.screen, rp_ctx->screen_encode, rp_ctx->conf.encode_buffer_count))) {
 			nsDbgPrint("rp_screen_queue_init failed %d\n", ret);
@@ -308,32 +306,41 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 			nsDbgPrint("Create rpSecondThreadStart Thread Failed: %08x\n", ret);
 			return -1;
 		}
-		ret = svc_createThread(
-			&rp_ctx->screen_thread,
-			rpScreenTransferThread,
-			(u32)rp_ctx,
-			(u32 *)&rp_ctx->screen_transfer_thread_stack[RP_MISC_STACK_SIZE - 40],
-			0x8,
-			2);
-		if (ret != 0) {
-			nsDbgPrint("Create rpScreenTransferThread Thread Failed: %08x\n", ret);
 
-			rp_ctx->exit_thread = 1;
-			svc_waitSynchronization1(rp_ctx->second_thread, U64_MAX);
-			svc_closeHandle(rp_ctx->second_thread);
-			return -1;
+		if (rp_ctx->conf.multicore_screen) {
+			ret = svc_createThread(
+				&rp_ctx->screen_thread,
+				rpScreenTransferThread,
+				(u32)rp_ctx,
+				(u32 *)&rp_ctx->screen_transfer_thread_stack[RP_MISC_STACK_SIZE - 40],
+				0x8,
+				2);
+			if (ret != 0) {
+				nsDbgPrint("Create rpScreenTransferThread Thread Failed: %08x\n", ret);
+
+				rp_ctx->exit_thread = 1;
+				svc_waitSynchronization1(rp_ctx->second_thread, U64_MAX);
+				svc_closeHandle(rp_ctx->second_thread);
+				return -1;
+			}
+		} else {
+			// Without dedicated screen thread, both encode thread will compete for access, thus needing sync
+			screen_ctx_sync = 1;
 		}
 	}
 
+	rpScreenEncodeInit(&rp_ctx->screen_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks, screen_ctx_sync);
 	rp_svc_print_limits();
 
 	rpEncodeScreenAndSend(rp_ctx, thread_n);
 
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+		if (rp_ctx->conf.multicore_screen) {
+			svc_waitSynchronization1(rp_ctx->screen_thread, U64_MAX);
+			svc_closeHandle(rp_ctx->screen_thread);
+		}
 		svc_waitSynchronization1(rp_ctx->second_thread, U64_MAX);
-		svc_waitSynchronization1(rp_ctx->screen_thread, U64_MAX);
 		svc_closeHandle(rp_ctx->second_thread);
-		svc_closeHandle(rp_ctx->screen_thread);
 	}
 
 	return ret;
