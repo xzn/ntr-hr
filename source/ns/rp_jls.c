@@ -18,6 +18,7 @@ void jls_encoder_prepare_LUTs(struct rp_jls_params_t *ctx) {
 	RP_JLS_INIT_LUT(6, RP_ENCODE_PARAMS_BPP6, vLUT_bpp6);
 	RP_JLS_INIT_LUT(5, RP_ENCODE_PARAMS_BPP5, vLUT_bpp5);
 	RP_JLS_INIT_LUT(4, RP_ENCODE_PARAMS_BPP4, vLUT_bpp4);
+	RP_JLS_INIT_LUT(1, RP_ENCODE_PARAMS_BPP1, vLUT_bpp1);
 
 #undef RP_JLS_INIT_LUT
 }
@@ -201,6 +202,9 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 
 		case 4:
 			enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP4]; break;
+
+		case 1:
+			enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP1]; break;
 
 		default:
 			nsDbgPrint("Unsupported bpp in rpJLSEncodeImage: %d\n", bpp);

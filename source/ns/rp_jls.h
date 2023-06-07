@@ -9,6 +9,7 @@ enum {
 	RP_ENCODE_PARAMS_BPP6,
 	RP_ENCODE_PARAMS_BPP5,
 	RP_ENCODE_PARAMS_BPP4,
+	RP_ENCODE_PARAMS_BPP1,
 	RP_ENCODE_PARAMS_COUNT
 };
 
@@ -19,6 +20,7 @@ struct rp_jls_params_t {
 		uint16_t vLUT_bpp6[2 * (1 << 6)][3];
 		uint16_t vLUT_bpp5[2 * (1 << 5)][3];
 		uint16_t vLUT_bpp4[2 * (1 << 4)][3];
+		uint16_t vLUT_bpp1[2 * (1 << 1)][3];
 		int16_t classmap[9 * 9 * 9];
 	} enc_luts;
 	struct jls_enc_params enc_params[RP_ENCODE_PARAMS_COUNT];

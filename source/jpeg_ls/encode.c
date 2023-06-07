@@ -23,13 +23,13 @@ void jpeg_ls_init(struct jls_enc_params *ctx, int bpp, const uint16_t (*vLUT)[3]
     /* compute bits per sample for unencoded prediction errors */
     ctx->qbpp = bpp;
 
-    if ( bpp < 2 ) bpp = 2;
+    if ( ctx->bpp < 2 ) ctx->bpp = 2;
 
     /* limit for unary part of Golomb code */
-    if ( bpp < 8 )
-        ctx->limit = 2*(bpp + 8) - ctx->qbpp -1;
+    if ( ctx->bpp < 8 )
+        ctx->limit = 2*(ctx->bpp + 8) - ctx->qbpp -1;
     else
-        ctx->limit = 4*bpp - ctx->qbpp - 1;
+        ctx->limit = 4*ctx->bpp - ctx->qbpp - 1;
 
     set_thresholds(ALPHA(ctx), &ctx->T1, &ctx->T2, &ctx->T3);
 
