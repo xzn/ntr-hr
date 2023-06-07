@@ -53,7 +53,9 @@ struct rp_ctx_t {
 
 	struct rp_net_ctx_t net_ctx;
 
-	struct rp_screen_encode_ctx_t screen_ctx;
+	struct rp_net_state_t net_state;
+
+	struct rp_screen_state_t screen_ctx;
 };
 
 #endif

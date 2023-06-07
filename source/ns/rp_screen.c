@@ -82,7 +82,7 @@ void rpKernelCallback(struct rp_screen_encode_t *screen) {
 	screen->c.format &= 0x0f;
 }
 
-void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks, u8 sync) {
+void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks, u8 sync) {
 	rp_lock_close(ctx->mutex);
 	if (sync)
 		(void)rp_lock_init(ctx->mutex);
@@ -96,7 +96,7 @@ void rpScreenEncodeInit(struct rp_screen_encode_ctx_t *ctx, struct rp_dyn_prio_t
 	ctx->min_capture_interval_ticks = min_capture_interval_ticks;
 }
 
-static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_encode_ctx_t *ctx) {
+static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_state_t *ctx) {
 	u64 curr_tick, tick_diff = (curr_tick = svc_getSystemTick()) - ctx->last_tick;
 	s64 desired_tick_diff = (s64)curr_tick - (s64)ctx->desired_last_tick;
 
@@ -186,15 +186,17 @@ static void rpScreenEncodeReadyImage(
 	screen_image->first_frame = 0;
 }
 
-int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_encode_ctx_t *ctx,
+int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx,
     struct rp_screen_image_t screen_images[SCREEN_MAX],
     struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
     struct rp_dma_ctx_t *dma, int no_p_frame
 ) {
 	int ret;
 
-	if (ctx->sync && (ret = rp_lock_wait(ctx->mutex, RP_SYN_WAIT_MAX)))
+	if (ctx->sync && (ret = rp_lock_wait(ctx->mutex, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("rpScreenEncodeSetup mutex wait failed: %d", ret);
 		return ret;
+	}
 	screen->c.top_bot = rpScreenEncodeGetScreenLimitFrameRate(ctx);
 	if (ctx->sync)
 		rp_lock_rel(ctx->mutex);

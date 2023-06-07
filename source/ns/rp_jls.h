@@ -60,6 +60,23 @@ struct rp_send_data_header {
 _Static_assert(sizeof(struct rp_send_info_header) == sizeof(u32));
 _Static_assert(sizeof(struct rp_send_data_header) == sizeof(u32));
 
+struct rp_syn_comp_t;
+struct rp_network_encode_t;
+struct rp_net_state_t;
+struct rp_jls_send_ctx_t {
+	struct rp_send_data_header *send_header;
+	struct rp_syn_comp_t *network_queue;
+	volatile u8 *exit_thread;
+	u8 multicore_network;
+	u8 network_sync;
+	u8 thread_n;
+	struct rp_network_encode_t *network;
+	struct rp_net_state_t *net_state;
+	u8 *buffer_begin;
+	u8 *buffer_end;
+	int send_size_total;
+};
+
 enum rp_plane_type_t {
 	RP_PLANE_TYPE_COLOR,
 	RP_PLANE_TYPE_ME,
@@ -74,12 +91,10 @@ enum rp_plane_comp_t {
 	RP_PLANE_COMP_ME_Y,
 };
 
-struct rp_syn_comp_t;
 void jls_encoder_prepare_LUTs(struct rp_jls_params_t *params);
 int ffmpeg_jls_decode(uint8_t *dst, int width, int height, int pitch, const uint8_t *src, int src_size, int bpp);
-int rpJLSEncodeImage(struct rp_send_data_header *send_header, struct rp_syn_comp_t *network_queue,
-	int network_sync, volatile u8 *exit_thread,
+int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
-	const u8 *src, int w, int h, int bpp, u8 encoder_which, u8 encode_verify, u8 thread_n);
+	const u8 *src, int w, int h, int bpp, u8 encoder_which);
 
 #endif

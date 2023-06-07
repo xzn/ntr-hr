@@ -189,33 +189,49 @@ void rpControlRecv(struct rp_net_ctx_t *ctx) {
 	}
 }
 
-struct rp_net_state_t {
-	u64 last_tick, desired_last_tick, min_send_interval_ticks;
-	volatile u8 *exit_thread;
-};
-
-static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, const u8 *buf, int size) {
+int rpKCPSend(struct rp_net_state_t *state, const u8 *buf, int size) {
 	u64 curr_tick, tick_diff;
 	s64 desired_tick_diff;
-
 	int ret;
-	while (!*state->exit_thread) {
-		if ((tick_diff = (curr_tick = svc_getSystemTick()) - state->last_tick) > KCP_TIMEOUT_TICKS) {
+
+	struct rp_net_ctx_t *ctx = state->net_ctx;
+	u64 last_tick = state->last_tick; // ARM 32-bit int access are supposedly atomic, so no lock here
+	volatile u8 *exit_thread = state->exit_thread;
+
+	while (!*exit_thread) {
+		if ((tick_diff = (curr_tick = svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
 			nsDbgPrint("kcp timeout send data\n");
 			return -1;
 		}
 
+		if (state->sync && (ret = rp_lock_wait(state->mutex, RP_SYN_WAIT_MAX))) {
+			nsDbgPrint("rpKCPSend mutex wait failed: %d", ret);
+			return ret;
+		}
+
+		u64 duration = 0;
 		desired_tick_diff = (s64)curr_tick - (s64)state->desired_last_tick;
 		if (desired_tick_diff < (s64)state->min_send_interval_ticks) {
-			u64 duration = ((s64)state->min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
-			svc_sleepThread(duration);
+			duration = ((s64)state->min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
 		} else {
 			u64 min_tick = state->min_send_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
-			if (tick_diff < min_tick) {
-				u64 duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
-				svc_sleepThread(duration);
-			}
+			if (tick_diff < min_tick)
+				duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
 		}
+
+		state->desired_last_tick += state->min_send_interval_ticks;
+		last_tick = state->last_tick = curr_tick;
+
+		u64 desired_last_tick_step = state->min_send_interval_ticks * ctx->kcp->snd_wnd *
+			RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+		if ((s64)state->last_tick - (s64)state->desired_last_tick > (s64)desired_last_tick_step)
+			state->desired_last_tick = state->last_tick - desired_last_tick_step;
+
+		if (state->sync)
+			rp_lock_rel(state->mutex);
+
+		if (duration)
+			svc_sleepThread(duration);
 
 		if ((ret = rpKCPLock(ctx))) {
 			nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
@@ -234,14 +250,6 @@ static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, con
 			ikcp_update(ctx->kcp, iclock());
 			rpKCPUnlock(ctx);
 
-			state->desired_last_tick += state->min_send_interval_ticks;
-			state->last_tick = curr_tick;
-
-			u64 desired_last_tick_step = state->min_send_interval_ticks * ctx->kcp->snd_wnd *
-				RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
-			if ((s64)state->last_tick - (s64)state->desired_last_tick > (s64)desired_last_tick_step)
-				state->desired_last_tick = state->last_tick - desired_last_tick_step;
-
 			return 0;
 		}
 		ikcp_update(ctx->kcp, iclock());
@@ -252,11 +260,27 @@ static int rpKCPSend(struct rp_net_ctx_t *ctx, struct rp_net_state_t *state, con
 	return 0;
 }
 
+void rpNetworkStateInit(struct rp_net_state_t *state, struct rp_net_ctx_t *ctx, volatile u8 *exit_thread, u64 min_send_interval_ticks, u8 sync) {
+	rp_lock_close(state->mutex);
+	if (sync)
+		(void)rp_lock_init(state->mutex);
+	else
+		state->mutex = 0;
+	state->exit_thread = exit_thread;
+	state->min_send_interval_ticks = min_send_interval_ticks;
+	u64 curr_tick = svc_getSystemTick();
+	state->last_tick = curr_tick;
+	state->desired_last_tick = curr_tick + min_send_interval_ticks;
+	state->net_ctx = ctx;
+}
+
 int rpNetworkTransfer(
-	struct rp_net_ctx_t *ctx, int thread_n UNUSED, ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, volatile u8 *exit_thread,
-	struct rp_syn_comp_t *network_queue, u64 min_send_interval_ticks
+	struct rp_net_state_t *state, int thread_n UNUSED,
+	ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, struct rp_syn_comp_t *network_queue
 ) {
 	int ret;
+
+	struct rp_net_ctx_t *ctx = state->net_ctx;
 
 	// kcp init
 	if ((ret = rpKCPReady(ctx, kcp, kcp_conf, ctx)))
@@ -266,15 +290,11 @@ int rpNetworkTransfer(
 	rpKCPUnlock(ctx);
 
 	u64 curr_tick = svc_getSystemTick();
-	struct rp_net_state_t state = {
-		.last_tick = curr_tick,
-		.desired_last_tick = curr_tick + min_send_interval_ticks,
-		.exit_thread = exit_thread,
-		.min_send_interval_ticks = min_send_interval_ticks
-	};
+
+	 volatile u8 *exit_thread = state->exit_thread;
 
 	while (!*exit_thread) {
-		if ((curr_tick = svc_getSystemTick()) - state.last_tick > KCP_TIMEOUT_TICKS) {
+		if ((curr_tick = svc_getSystemTick()) - state->last_tick > KCP_TIMEOUT_TICKS) {
 			nsDbgPrint("kcp timeout transfer acquire\n");
 			break;
 		}
@@ -298,7 +318,7 @@ int rpNetworkTransfer(
 		while (!*exit_thread && size_remain) {
 			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
 
-			if ((ret = rpKCPSend(ctx, &state, data, data_size)))
+			if ((ret = rpKCPSend(state, data, data_size)))
 				return ret;
 			size_remain -= data_size;
 			data += data_size;
