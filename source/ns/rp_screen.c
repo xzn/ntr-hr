@@ -148,7 +148,7 @@ static int rpScreenEncodeCaptureScreen(struct rp_screen_encode_t *screen, struct
 static void rpScreenEncodeReadyImage(
     struct rp_screen_encode_t *screen, struct rp_screen_image_t screen_images[SCREEN_MAX],
     struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
-    int no_p_frame
+    int me_enabled
 ) {
 	int top_bot = screen->c.top_bot;
 	struct rp_screen_image_t *screen_image = &screen_images[top_bot];
@@ -162,7 +162,7 @@ static void rpScreenEncodeReadyImage(
 	u8 first_frame = screen_image->first_frame;
 
 	u8 p_frame = screen_image->p_frame;
-	if (no_p_frame) {
+	if (!me_enabled) {
 		p_frame = screen_image->p_frame = 0;
 	} else if (!p_frame) {
 		screen_image->p_frame = 1;
@@ -189,7 +189,7 @@ static void rpScreenEncodeReadyImage(
 int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx,
     struct rp_screen_image_t screen_images[SCREEN_MAX],
     struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
-    struct rp_dma_ctx_t *dma, int no_p_frame
+    struct rp_dma_ctx_t *dma, int me_enabled
 ) {
 	int ret;
 
@@ -204,7 +204,7 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 	if ((ret = rpScreenEncodeCaptureScreen(screen, dma)) != 0)
 		return ret;
 
-	rpScreenEncodeReadyImage(screen, screen_images, images, no_p_frame);
+	rpScreenEncodeReadyImage(screen, screen_images, images, me_enabled);
 	return 0;
 }
 

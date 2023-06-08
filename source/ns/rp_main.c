@@ -9,7 +9,7 @@
 
 static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx, struct rp_ctx_t *rp_ctx) {
 	return rpScreenEncodeSetup(screen, ctx, rp_ctx->image_ctx.screen_image,
-		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled == 0
+		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled
 	);
 }
 

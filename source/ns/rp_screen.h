@@ -25,7 +25,7 @@ void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn
 int rpScreenEncodeSetup(
 	struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx,
 	struct rp_screen_image_t screen_images[SCREEN_MAX], struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
-	struct rp_dma_ctx_t *dma, int no_p_frame);
+	struct rp_dma_ctx_t *dma, int me_enabled);
 
 struct rp_conf_me_t;
 struct rp_screen_ctx_t;

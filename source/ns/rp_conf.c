@@ -5,7 +5,6 @@ union UNUSED rp_conf_arg0_t {
 	struct {
 		u32 kcp_nocwnd : 1;
 		u32 kcp_fastresend : 2;
-		u32 me_enabled : 2;
 		u32 me_select : RP_IMAGE_ME_SELECT_BITS;
 		u32 multicore_network : 1;
 		u32 multicore_screen : 1;
@@ -71,14 +70,14 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->downscale_uv = arg1.downscale_uv;
 	conf->encoder_which = arg1.encoder_which;
 
-	conf->me.enabled = arg0.me_enabled;
 	conf->me.select = arg0.me_select;
 	conf->me.method = arg1.me_method;
+	conf->me.enabled = conf->me.method > 1 ? 1 : conf->me.method == 0 ? -1 : 0;
 	conf->me.block_size = RP_ME_MIN_BLOCK_SIZE << arg1.me_block_size;
 	conf->me.block_size_log2 = av_ceil_log2(conf->me.block_size);
 	conf->me.search_param = arg1.me_search_param + RP_ME_MIN_SEARCH_PARAM;
-	conf->me.bpp = conf->me.method > 1 && conf->me.select ? 1 :
-		conf->me.method == 1 ? av_ceil_log2(conf->me.search_param * 2 + 1) : 0;
+	conf->me.bpp = conf->me.enabled > 1 && conf->me.select ? 1 :
+		conf->me.enabled == 1 ? av_ceil_log2(conf->me.search_param * 2 + 1) : 0;
 	conf->me.bpp_half_range = (1 << conf->me.bpp) >> 1;
 	conf->me.mafd_shift = RP_MAX(0, (int)conf->me.block_size_log2 * 2 - 8);
 	conf->me.select_threshold =

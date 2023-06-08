@@ -92,27 +92,27 @@ void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const u8 *cu
 #endif
 					break;
 
-				case 0:
+				case AV_ME_METHOD_TSS:
 					ff_me_search_tss(&me_ctx, x, y, mv);
 					break;
 
-				case 1:
+				case AV_ME_METHOD_TDLS:
 					ff_me_search_tdls(&me_ctx, x, y, mv);
 					break;
 
-				case 2:
+				case AV_ME_METHOD_NTSS:
 					ff_me_search_ntss(&me_ctx, x, y, mv);
 					break;
 
-				case 3:
+				case AV_ME_METHOD_FSS:
 					ff_me_search_fss(&me_ctx, x, y, mv);
 					break;
 
-				case 4:
+				case AV_ME_METHOD_DS:
 					ff_me_search_ds(&me_ctx, x, y, mv);
 					break;
 
-				case 5:
+				case AV_ME_METHOD_HEXBS:
 					ff_me_search_hexbs(&me_ctx, x, y, mv);
 					break;
 			}
