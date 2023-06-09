@@ -13,7 +13,7 @@ static u32 sad_const(const u8 *src, int stride, int width, int height, u8 bpp) {
 	return sad;
 }
 
-void mafd_image(u16 *mafd, u8 mafd_shift, const u8 *cur, int width, int height, int pitch, u8 block_size, u8 block_size_log2, u8 bpp) {
+void calc_mafd_image(u16 *mafd, u8 mafd_shift, const u8 *cur, int width, int height, int pitch, u8 block_size, u8 block_size_log2, u8 bpp) {
 	u8 block_size_mask = (1 << block_size_log2) - 1;
 	u8 block_x_n = width >> block_size_log2;
 	u8 block_y_n = height >> block_size_log2;

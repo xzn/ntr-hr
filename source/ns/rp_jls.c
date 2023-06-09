@@ -23,66 +23,6 @@ void jls_encoder_prepare_LUTs(struct rp_jls_params_t *ctx) {
 #undef RP_JLS_INIT_LUT
 }
 
-void jpeg_ls_encode_pad_source(u8 *dst, int dst_size, const u8 *src, int width, int height) {
-	u8 *ret = dst;
-	convert_set_zero(&dst);
-	for (int y = 0; y < width; ++y) {
-		if (y) {
-			convert_set_prev_first(&dst, height);
-		}
-		for (int x = 0; x < height; ++x) {
-			*dst++ = *src++;
-		}
-		convert_set_last(&dst);
-	}
-	if (dst - ret != PADDED_SIZE(width, height)) {
-		nsDbgPrint("Failed pad source size: %d (expected %d)\n",
-			dst - ret,
-			PADDED_SIZE(width, height)
-		);
-	}
-	if (dst - ret > dst_size) {
-		nsDbgPrint("Failed pad source buffer overflow: %d\n", dst - ret);
-	}
-}
-
-extern const uint8_t psl0[];
-int ffmpeg_jls_decode(uint8_t *dst, int width, int height, int pitch, const uint8_t *src, int src_size, int bpp) {
-	JLSState state = { 0 };
-	state.bpp = bpp;
-	ff_jpegls_reset_coding_parameters(&state, 0);
-	ff_jpegls_init_state(&state);
-
-	int ret, t;
-
-	GetBitContext s;
-	ret = init_get_bits8(&s, src, src_size);
-	if (ret < 0) {
-		return ret;
-	}
-
-	const uint8_t *last;
-	uint8_t *cur;
-	last = psl0;
-	cur = dst;
-
-	int i;
-	t = 0;
-	for (i = 0; i < width; ++i) {
-		ret = ls_decode_line(&state, &s, last, cur, t, height);
-		if (ret < 0)
-		{
-			nsDbgPrint("Failed decode at col %d\n", i);
-			return ret;
-		}
-		t = last[0];
-		last = cur;
-		cur += pitch;
-	}
-
-	return width * height;
-}
-
 static void rpJLSSendClear(struct rp_jls_send_ctx_t *ctx) {
 	ctx->buffer_begin = ctx->buffer_end = (u8 *)(ctx->send_size_total = 0);
 }
@@ -129,15 +69,19 @@ static int rpJLSSendEnd(struct rp_jls_send_ctx_t *ctx, u8 fini) {
 	ctx->send_size_total += ctx->network->size = ctx->buffer_begin - ctx->network->buffer;
 	if (ctx->multicore_network) {
 		if ((ret = rp_network_transfer_release(&ctx->network_queue->transfer, ctx->network, ctx->network_sync))) {
-			nsDbgPrint("%d rpEncodeScreenAndSend network release syn failed\n", ctx->thread_n);
+			nsDbgPrint("%d rp_network_transfer_release syn failed\n", ctx->thread_n);
 			*ctx->exit_thread = 1;
 			ctx->send_size_total = -1;
 			return ret;
 		}
 		ctx->network = 0;
 	} else {
-		if ((ret = rpKCPSend(ctx->net_state, ctx->network->buffer, ctx->network->size)))
+		if ((ret = rpKCPSend(ctx->net_state, ctx->network->buffer, ctx->network->size))) {
+			nsDbgPrint("%d rpKCPSend failed\n", ctx->thread_n);
+			*ctx->exit_thread = 1;
+			ctx->send_size_total = -1;
 			return ret;
+		}
 	}
 	ctx->buffer_begin = 0;
 	ctx->buffer_end = 0;
@@ -175,6 +119,7 @@ static int rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
 	return 0;
 }
 
+extern const uint8_t psl0[];
 int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
 	const u8 *src, int w, int h, int bpp, u8 encoder_which

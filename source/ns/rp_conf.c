@@ -72,7 +72,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 
 	conf->me.select = arg0.me_select;
 	conf->me.method = arg1.me_method;
-	conf->me.enabled = conf->me.method > 1 ? 1 : conf->me.method == 0 ? -1 : 0;
+	conf->me.enabled = conf->me.method > 1 ? 1 : conf->me.method == 1 ? -1 : 0;
 	conf->me.block_size = RP_ME_MIN_BLOCK_SIZE << arg1.me_block_size;
 	conf->me.block_size_log2 = av_ceil_log2(conf->me.block_size);
 	conf->me.search_param = arg1.me_search_param + RP_ME_MIN_SEARCH_PARAM;

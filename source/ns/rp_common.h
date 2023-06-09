@@ -20,7 +20,6 @@
 // (0) svc (1) syn
 #define RP_SYN_METHOD (1)
 #define RP_SYN_EX (1)
-#define RP_SYN_NET (0)
 
 #define RP_SVC_MS(ms) ((u64)ms * 1000 * 1000)
 

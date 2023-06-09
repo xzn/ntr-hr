@@ -97,7 +97,6 @@ enum rp_plane_comp_t {
 };
 
 void jls_encoder_prepare_LUTs(struct rp_jls_params_t *params);
-int ffmpeg_jls_decode(uint8_t *dst, int width, int height, int pitch, const uint8_t *src, int src_size, int bpp);
 int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
 	const u8 *src, int w, int h, int bpp, u8 encoder_which);

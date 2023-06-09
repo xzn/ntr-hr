@@ -20,7 +20,7 @@ Handle rpGetGameHandle(struct rp_dma_ctx_t *ctx) {
 		for (i = 0x28; i < 0x38; i++) {
 			int ret = svc_openProcess(&hProcess, i);
 			if (ret == 0) {
-				nsDbgPrint("game process: %x\n", i);
+				nsDbgPrint("Game process opened for screen capture: %d\n", i);
 				ctx->game_handle = hProcess;
 				break;
 			}

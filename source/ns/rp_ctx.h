@@ -18,11 +18,7 @@ struct rp_ctx_t {
 	Handle screen_thread;
 	Handle network_thread;
 
-#if RP_SYN_NET == 1
-	rp_lock_t network_mutex;
-#elif RP_SYN_NET == 2
-	rp_sem_t network_sem[RP_ENCODE_THREAD_COUNT];
-#endif
+	rp_sem_t network_init;
 
 	struct rp_dma_ctx_t dma_ctx;
 	u8 dma_config[24];

@@ -377,7 +377,7 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			}
 
 #define MAFD_IMAGE(m, n, w, h, b) do { \
-	mafd_image(im->m, me->mafd_shift, im->n + LEFTMARGIN, w, h, h + LEFTMARGIN + RIGHTMARGIN, me->block_size, me->block_size_log2, im->b); \
+	calc_mafd_image(im->m, me->mafd_shift, im->n + LEFTMARGIN, w, h, h + LEFTMARGIN + RIGHTMARGIN, me->block_size, me->block_size_log2, im->b); \
 } while (0)
 
 			if (me->select) {

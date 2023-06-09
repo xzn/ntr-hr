@@ -42,7 +42,7 @@ static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
 
 			ret = svc_createThread(&hThread, rpThreadStart, (u32)rp_ctx, (u32 *)&rp_ctx->thread_stack[RP_STACK_SIZE - 40], 0x10, 2);
 			if (ret != 0) {
-				nsDbgPrint("Create RemotePlay thread failed: %08x\n", ret);
+				nsDbgPrint("Create RemotePlay thread failed: %d\n", ret);
 			}
 		}
 	}

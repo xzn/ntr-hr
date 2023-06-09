@@ -16,7 +16,7 @@ void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const u8 *cu
 	int width, int height, int pitch, u8 bpp,
 	u8 block_size, u8 block_size_log2, u8 search_param, u8 me_method, u8 half_range
 );
-void mafd_image(u16 *mafd, u8 mafd_shift, const u8 *cur, int width, int height, int pitch,
+void calc_mafd_image(u16 *mafd, u8 mafd_shift, const u8 *cur, int width, int height, int pitch,
 	u8 block_size, u8 block_size_log2, u8 bpp);
 
 #endif
