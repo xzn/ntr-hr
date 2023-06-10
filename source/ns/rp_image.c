@@ -42,7 +42,13 @@ void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
 }
 
 int rp_init_images(struct rp_image_ctx_t *ctx, int multicore) {
+	int ret;
 	for (int i = 0; i < SCREEN_MAX; ++i) {
+		rp_lock_close(ctx->screen_image[i].mutex);
+		if ((ret = rp_lock_init(ctx->screen_image[i].mutex))) {
+			nsDbgPrint("rp_init_images screen_image mutex create failed: %d\n", ret);
+			return -1;
+		}
 		ctx->screen_image[i].frame_n = ctx->screen_image[i].p_frame = 0;
 		ctx->screen_image[i].first_frame = 1;
 	}
@@ -51,7 +57,7 @@ int rp_init_images(struct rp_image_ctx_t *ctx, int multicore) {
 	rp_sem_close(s); \
 	int res; \
 	if ((res = rp_sem_init(s, n, m))) { \
-		nsDbgPrint("rpSendFrames create sem failed: %d\n", res); \
+		nsDbgPrint("rp_init_images create sem failed: %d\n", res); \
 		return -1; \
 	} \
 } while (0)

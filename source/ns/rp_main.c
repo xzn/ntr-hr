@@ -7,16 +7,15 @@
 #include "rp_main.h"
 #include "rp_screen.h"
 
-static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx, struct rp_ctx_t *rp_ctx) {
+static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx, struct rp_ctx_t *rp_ctx, int lock_write) {
 	return rpScreenEncodeSetup(screen, ctx, rp_ctx->image_ctx.screen_image,
-		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled
+		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled, lock_write
 	);
 }
 
 static void rpScreenTransferThread(u32 arg) {
 	struct rp_ctx_t *rp_ctx = (struct rp_ctx_t *)arg;
 
-	int ret;
 	int UNUSED thread_n = RP_SCREEN_TRANSFER_THREAD_ID;
 
 	int acquire_count = 0;
@@ -31,14 +30,7 @@ static void rpScreenTransferThread(u32 arg) {
 		}
 		acquire_count = 0;
 
-		if (rpScreenEncodeSetupMain(screen, &rp_ctx->screen_ctx, rp_ctx)) {
-			break;
-		}
-
-		// lock write
-		struct rp_image_t *image = screen->image;
-		if ((ret = rpImageWriteLock(image))) {
-			nsDbgPrint("rpScreenTransferThread sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen);
+		if (rpScreenEncodeSetupMain(screen, &rp_ctx->screen_ctx, rp_ctx, 1)) {
 			break;
 		}
 
@@ -210,7 +202,9 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			acquire_count = 0;
 		} else {
 			screen = &rp_ctx->screen_encode[thread_n];
-			if (rpScreenEncodeSetupMain(screen, &rp_ctx->screen_ctx, rp_ctx)) {
+			if (rpScreenEncodeSetupMain(screen, &rp_ctx->screen_ctx, rp_ctx,
+				RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)
+			) {
 				break;
 			}
 		}

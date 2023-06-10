@@ -1,9 +1,10 @@
 #ifndef RP_DMA_H
 #define RP_DMA_H
 
-#include "rp_common.h"
+#include "rp_syn.h"
 
 struct rp_dma_ctx_t {
+	rp_lock_t mutex;
 	Handle home_handle, game_handle;
 	u32 game_fcram_base;
 	const u8 *dma_config;
