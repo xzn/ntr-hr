@@ -224,7 +224,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_image_t *image_curr = screen->image;
 		struct rp_const_image_t *image_prev = screen->image_prev;
 		struct rp_screen_ctx_t c = screen->c;
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.multicore_screen) {
 			if (rp_screen_transfer_release(&rp_ctx->syn.screen.transfer, screen) != 0) {
 				nsDbgPrint("rpEncodeScreenAndSend screen release syn failed\n");
 				break;
@@ -243,11 +243,13 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.me.enabled != 0) {
 			// allow read
 			image = rpImageWriteToRead(image_curr);
-			image_curr = 0;
+		} else {
+			image = rp_const_image(image_curr);
 		}
+		image_curr = 0;
 
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
-		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : image ? &image->d : &rp_const_image(image_curr)->d;
+		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : &image->d;
 
 		struct rp_send_data_header send_header = {
 			.type_data = RP_SEND_HEADER_TYPE_DATA,
@@ -285,7 +287,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 				rpImageReadUnlockFromWrite(image);
 			} else {
 				// release write
-				rpImageWriteUnlock(image_curr);
+				rpImageWriteUnlock(image);
 			}
 		}
 	};

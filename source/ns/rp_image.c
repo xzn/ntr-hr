@@ -101,7 +101,7 @@ int rpImageWriteLock(struct rp_image_t *image) {
 	return 0;
 }
 
-void rpImageWriteUnlock(struct rp_image_t *image) {
+void rpImageWriteUnlock(struct rp_const_image_t *image) {
 	rp_sem_rel(image->sem_write, 1);
 }
 
