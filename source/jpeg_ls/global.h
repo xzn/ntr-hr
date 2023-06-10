@@ -277,6 +277,8 @@ int melcstate[MAX_COMPONENTS],        /* index to the state array */
 
 unsigned long melcorder[MAX_COMPONENTS];  /* 2^ melclen */
 
+
+int eor_limit;
 };
 
 /* for look-up-tables */

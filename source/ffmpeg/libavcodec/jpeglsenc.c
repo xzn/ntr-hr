@@ -212,4 +212,5 @@ int ls_encode_line(JLSState *state, PutBitContext *pb,
             Rd = last[x + 1];
         }
     }
+    return 0;
 }

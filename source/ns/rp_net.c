@@ -91,7 +91,7 @@ static void rpKCPUnlock(struct rp_net_ctx_t *ctx) {
 	svc_releaseMutex(ctx->kcp_mutex);
 }
 
-static int rpKCPReady(struct rp_net_ctx_t *ctx, ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, void *user) {
+int rpKCPReady(struct rp_net_ctx_t *ctx, ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, void *user) {
 	int res;
 	if ((res = rpKCPLock(ctx)))
 		return res;
@@ -190,45 +190,44 @@ void rpControlRecv(struct rp_net_ctx_t *ctx) {
 }
 
 int rpKCPSend(struct rp_net_state_t *state, const u8 *buf, int size) {
-	u64 curr_tick, tick_diff;
-	s64 desired_tick_diff;
 	int ret;
 
+	if (state->sync && (ret = rp_lock_wait(state->mutex, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("rpKCPSend mutex wait failed: %d", ret);
+		return -1;
+	}
+
+	u64 duration = 0;
+	u64 curr_tick = svc_getSystemTick(), tick_diff = curr_tick - state->last_tick;
+	s64 desired_tick_diff = (s64)curr_tick - (s64)state->desired_last_tick;
+	if (desired_tick_diff < (s64)state->min_send_interval_ticks) {
+		duration = ((s64)state->min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
+	} else {
+		u64 min_tick = state->min_send_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+		if (tick_diff < min_tick)
+			duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
+	}
+
+	state->desired_last_tick += state->min_send_interval_ticks;
+	u64 last_tick = state->last_tick = curr_tick;
+
 	struct rp_net_ctx_t *ctx = state->net_ctx;
-	u64 last_tick = state->last_tick; // ARM 32-bit int access are supposedly atomic, so no lock here
+
+	u64 desired_last_tick_step = state->min_send_interval_ticks * ctx->kcp->snd_wnd *
+		RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+	if ((s64)state->last_tick - (s64)state->desired_last_tick > (s64)desired_last_tick_step)
+		state->desired_last_tick = state->last_tick - desired_last_tick_step;
+
 	volatile u8 *exit_thread = state->exit_thread;
+
+	if (state->sync)
+		rp_lock_rel(state->mutex);
 
 	while (!*exit_thread) {
 		if ((tick_diff = (curr_tick = svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
 			nsDbgPrint("kcp timeout send data\n");
 			return -1;
 		}
-
-		if (state->sync && (ret = rp_lock_wait(state->mutex, RP_SYN_WAIT_MAX))) {
-			nsDbgPrint("rpKCPSend mutex wait failed: %d", ret);
-			return ret;
-		}
-
-		u64 duration = 0;
-		desired_tick_diff = (s64)curr_tick - (s64)state->desired_last_tick;
-		if (desired_tick_diff < (s64)state->min_send_interval_ticks) {
-			duration = ((s64)state->min_send_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
-		} else {
-			u64 min_tick = state->min_send_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
-			if (tick_diff < min_tick)
-				duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
-		}
-
-		state->desired_last_tick += state->min_send_interval_ticks;
-		last_tick = state->last_tick = curr_tick;
-
-		u64 desired_last_tick_step = state->min_send_interval_ticks * ctx->kcp->snd_wnd *
-			RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
-		if ((s64)state->last_tick - (s64)state->desired_last_tick > (s64)desired_last_tick_step)
-			state->desired_last_tick = state->last_tick - desired_last_tick_step;
-
-		if (state->sync)
-			rp_lock_rel(state->mutex);
 
 		if (duration)
 			svc_sleepThread(duration);

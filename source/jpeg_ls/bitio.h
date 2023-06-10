@@ -88,7 +88,6 @@ struct bito_ctx {
 #define assert(...)
 
 static inline int flushbuff(struct bito_ctx *bctx) {
-	/* mywrite must work correctly, even if fp is equal to 0 */
 	return bctx->flush(bctx);
 }
 

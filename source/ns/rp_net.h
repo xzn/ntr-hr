@@ -24,6 +24,7 @@ struct rp_syn_comp_t;
 struct rp_dyn_prio_t;
 struct rp_conf_kcp_t;
 void rpNetworkInit(struct rp_net_ctx_t *ctx, u8 *nwm_send_buf, u8 *ctrl_recv_buf);
+int rpKCPReady(struct rp_net_ctx_t *ctx, ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, void *user);
 int rpKCPClear(struct rp_net_ctx_t *ctx);
 int rpKCPSend(struct rp_net_state_t *state, const u8 *buf, int size);
 void rpNetworkStateInit(struct rp_net_state_t *state, struct rp_net_ctx_t *ctx, volatile u8 *exit_thread, u64 min_send_interval_ticks, u8 sync);

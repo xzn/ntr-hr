@@ -177,8 +177,10 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 				enc_params->vLUT,
 				params->enc_luts.classmap
 			);
-			if (ret)
-				return ret;
+			if (ret) {
+				nsDbgPrint("ls_encode_line failed: %d\n", ret);
+				return -1;
+			}
 			last = in;
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
@@ -196,8 +198,10 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			src, w, h, h + LEFTMARGIN + RIGHTMARGIN,
 			params->enc_luts.classmap
 		);
-		if (ret)
-			return ret;
+		if (ret) {
+			nsDbgPrint("jpeg_ls_encode failed: %d\n", ret);
+			return -1;
+		}
 		send_ctx->buffer_begin = (u8 *)bctx->buf;
 	}
 
@@ -205,6 +209,6 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	send_ctx->send_header->data_size = send_ctx->buffer_begin - send_ctx->network->buffer - sizeof(struct rp_send_data_header);
 	ret = rpJLSSendEnd(send_ctx, 1);
 	if (ret)
-		return ret;
+		return -1;
 	return send_ctx->send_size_total;
 }

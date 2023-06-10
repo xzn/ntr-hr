@@ -58,8 +58,6 @@
 #include "bitio.h"
 
 
-static int eor_limit;
-
 #define CHECK_RET(e) \
 { \
 	int ret_val; \
@@ -234,14 +232,14 @@ static inline int lossless_end_of_run(const struct jls_enc_params *params, struc
 	ctx->N[Q]++; /* for next pixel */
 
 	/* Do the actual Golomb encoding: */
-	eor_limit = params->limit - ctx->limit_reduce;
+	ctx->eor_limit = params->limit - ctx->limit_reduce;
 	unary = MErrval >> k;
-	if ( unary < eor_limit ) {
+	if ( unary < ctx->eor_limit ) {
 		put_zeros(ctx,bctx,unary);
 		putbits(ctx,bctx,(1 << k) + (MErrval & ((1 << k) - 1)), k + 1);
 	}
 	else {
-		put_zeros(ctx,bctx,eor_limit);
+		put_zeros(ctx,bctx,ctx->eor_limit);
 		putbits(ctx,bctx,(1<<params->qbpp) + MErrval-1, params->qbpp+1);
 	}
 

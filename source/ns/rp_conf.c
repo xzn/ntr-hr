@@ -109,63 +109,64 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->min_capture_interval_ticks = conf->max_frame_rate ?
 		(u64)SYSTICK_PER_SEC / (u16)conf->max_frame_rate : 0;
 
-	nsDbgPrint(
-		"yuv option: %d\n"
-		"color transform hp: %d\n"
-		"downscale uv: %d\n"
-		"encoder which: %d\n"
-		"me method: %d\n"
-		"me select: %d\n"
-		"me enabled: %d\n"
-		"me block size: %d\n"
-		"me block size log2: %d\n"
-		"me search param: %d\n"
-		"me search param bpp: %d\n"
-		"me search param bpp half range: %d\n"
-		"me mafd shift: %d\n"
-		"me select threshold: %d\n"
-		"me downscale: %d\n"
-		"me interpolate: %d\n"
-		"top screen priority: %d\n"
-		"bot screen priority: %d\n"
-		"multicore encode: %d\n"
-		"multicore network: %d\n"
-		"multicore screen: %d\n"
-		"dynamic priority: %d\n"
-		"min dp frame rate: %d\n"
-		"max frame rate: %d\n"
-		"target mbit rate: %d\n"
-		"encode buffer count: %d\n"
-		"min send interval ticks: %d\n"
-		"min capture interval ticks: %d\n",
-		conf->yuv_option,
-		conf->color_transform_hp,
-		conf->downscale_uv,
-		conf->encoder_which,
-		conf->me.select,
-		conf->me.method,
-		conf->me.enabled,
-		conf->me.block_size,
-		conf->me.block_size_log2,
-		conf->me.search_param,
-		conf->me.bpp,
-		conf->me.bpp_half_range,
-		conf->me.mafd_shift,
-		conf->me.select_threshold,
-		conf->me.downscale,
-		conf->me.interpolate,
-		conf->screen_priority[SCREEN_TOP],
-		conf->screen_priority[SCREEN_BOT],
-		conf->multicore_encode,
-		conf->multicore_network,
-		conf->multicore_screen,
-		conf->dynamic_priority,
-		conf->min_dp_frame_rate,
-		conf->max_frame_rate,
-		conf->target_mbit_rate,
-		conf->encode_buffer_count,
-		conf->min_send_interval_ticks,
-		conf->min_capture_interval_ticks
+	if (0)
+		nsDbgPrint(
+			"yuv option: %d\n"
+			"color transform hp: %d\n"
+			"downscale uv: %d\n"
+			"encoder which: %d\n"
+			"me method: %d\n"
+			"me select: %d\n"
+			"me enabled: %d\n"
+			"me block size: %d\n"
+			"me block size log2: %d\n"
+			"me search param: %d\n"
+			"me search param bpp: %d\n"
+			"me search param bpp half range: %d\n"
+			"me mafd shift: %d\n"
+			"me select threshold: %d\n"
+			"me downscale: %d\n"
+			"me interpolate: %d\n"
+			"top screen priority: %d\n"
+			"bot screen priority: %d\n"
+			"multicore encode: %d\n"
+			"multicore network: %d\n"
+			"multicore screen: %d\n"
+			"dynamic priority: %d\n"
+			"min dp frame rate: %d\n"
+			"max frame rate: %d\n"
+			"target mbit rate: %d\n"
+			"encode buffer count: %d\n"
+			"min send interval ticks: %d\n"
+			"min capture interval ticks: %d\n",
+			(u32)conf->yuv_option,
+			(u32)conf->color_transform_hp,
+			(u32)conf->downscale_uv,
+			(u32)conf->encoder_which,
+			(u32)conf->me.select,
+			(u32)conf->me.method,
+			(u32)conf->me.enabled,
+			(u32)conf->me.block_size,
+			(u32)conf->me.block_size_log2,
+			(u32)conf->me.search_param,
+			(u32)conf->me.bpp,
+			(u32)conf->me.bpp_half_range,
+			(u32)conf->me.mafd_shift,
+			(u32)conf->me.select_threshold,
+			(u32)conf->me.downscale,
+			(u32)conf->me.interpolate,
+			(u32)conf->screen_priority[SCREEN_TOP],
+			(u32)conf->screen_priority[SCREEN_BOT],
+			(u32)conf->multicore_encode,
+			(u32)conf->multicore_network,
+			(u32)conf->multicore_screen,
+			(u32)conf->dynamic_priority,
+			(u32)conf->min_dp_frame_rate,
+			(u32)conf->max_frame_rate,
+			(u32)conf->target_mbit_rate,
+			(u32)conf->encode_buffer_count,
+			(u32)conf->min_send_interval_ticks,
+			(u32)conf->min_capture_interval_ticks
 		);
 
 	return 0;

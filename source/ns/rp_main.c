@@ -115,16 +115,18 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 
 	struct rp_send_data_header *send_header = ctx->jls_send_ctx->send_header;
 
-	if (me->enabled == 1 || (me->enabled > 1 && me->select)) {
-		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_X);
-		ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_x_image, me_width, me_height, im->me_bpp);
-		if (ret < 0) { return ret; } size += ret;
-	}
+	if (c->p_frame) {
+		if (me->enabled == 1 || (me->enabled > 1 && me->select)) {
+			rpUpdateSendHeader(send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_X);
+			ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_x_image, me_width, me_height, im->me_bpp);
+			if (ret < 0) { return ret; } size += ret;
+		}
 
-	if (me->enabled == 1) {
-		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_Y);
-		ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_y_image, me_width, me_height, im->me_bpp);
-		if (ret < 0) { return ret; } size += ret;
+		if (me->enabled == 1) {
+			rpUpdateSendHeader(send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_Y);
+			ret = rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->me_y_image, me_width, me_height, im->me_bpp);
+			if (ret < 0) { return ret; } size += ret;
+		}
 	}
 
 	rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_Y);
@@ -147,43 +149,43 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 
 	int ret;
 
-	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-		if (thread_n == RP_MAIN_ENCODE_THREAD_ID) {
-			struct rp_send_info_header send_info_header = {
-				.type_conf = RP_SEND_HEADER_TYPE_CONF,
-				.downscale_uv = rp_ctx->conf.downscale_uv,
-				.yuv_option = rp_ctx->conf.yuv_option,
-				.color_transform_hp = rp_ctx->conf.color_transform_hp,
-				.me_enabled = rp_ctx->conf.me.enabled,
-				.me_downscale = rp_ctx->conf.me.downscale,
-				.me_search_param = rp_ctx->conf.me.search_param - RP_ME_MIN_SEARCH_PARAM,
-				.me_block_size = rp_ctx->conf.me.block_size_log2 - RP_ME_MIN_BLOCK_SIZE_LOG2,
-				.me_interpolate = rp_ctx->conf.me.interpolate,
-			};
+	if (thread_n == RP_MAIN_ENCODE_THREAD_ID) {
+		struct rp_send_info_header send_info_header = {
+			.type_conf = RP_SEND_HEADER_TYPE_CONF,
+			.downscale_uv = rp_ctx->conf.downscale_uv,
+			.yuv_option = rp_ctx->conf.yuv_option,
+			.color_transform_hp = rp_ctx->conf.color_transform_hp,
+			.me_enabled = rp_ctx->conf.me.enabled,
+			.me_downscale = rp_ctx->conf.me.downscale,
+			.me_search_param = rp_ctx->conf.me.search_param - RP_ME_MIN_SEARCH_PARAM,
+			.me_block_size = rp_ctx->conf.me.block_size_log2 - RP_ME_MIN_BLOCK_SIZE_LOG2,
+			.me_interpolate = rp_ctx->conf.me.interpolate,
+		};
 
-			if (rp_ctx->conf.multicore_network) {
-				struct rp_network_encode_t *network =
-					rp_network_encode_acquire(&rp_ctx->syn.network.encode, RP_SYN_WAIT_MAX, 0);
-				if (!network) {
-					nsDbgPrint("rp_network_encode_acquire for info timeout\n");
-					goto end;
-				}
-				memcpy(network->buffer, &send_info_header, sizeof(struct rp_send_info_header));
-				network->size = sizeof(struct rp_send_info_header);
-				rp_network_transfer_release(&rp_ctx->syn.network.transfer, network, 0);
-			} else {
-				struct rp_network_encode_t *network = &rp_ctx->network_encode[thread_n];
-				memcpy(network->buffer, &send_info_header, sizeof(struct rp_send_info_header));
-				network->size = sizeof(struct rp_send_info_header);
-				rpKCPSend(&rp_ctx->net_state, network->buffer, network->size);
-			}
-
-			rp_sem_rel(rp_ctx->network_init, 1);
-		} else {
-			if ((ret = rp_sem_wait(rp_ctx->network_init, RP_SYN_WAIT_MAX))) {
-				nsDbgPrint("%d network_init sem wait failed: %d\n", thread_n, ret);
+		if (rp_ctx->conf.multicore_network) {
+			struct rp_network_encode_t *network =
+				rp_network_encode_acquire(&rp_ctx->syn.network.encode, RP_SYN_WAIT_MAX, 0);
+			if (!network) {
+				nsDbgPrint("rp_network_encode_acquire for info timeout\n");
 				goto end;
 			}
+			memcpy(network->buffer, &send_info_header, sizeof(struct rp_send_info_header));
+			network->size = sizeof(struct rp_send_info_header);
+			rp_network_transfer_release(&rp_ctx->syn.network.transfer, network, 0);
+		} else {
+			struct rp_network_encode_t *network = &rp_ctx->network_encode[thread_n];
+			memcpy(network->buffer, &send_info_header, sizeof(struct rp_send_info_header));
+			network->size = sizeof(struct rp_send_info_header);
+			if ((ret = rpKCPSend(&rp_ctx->net_state, network->buffer, network->size)))
+				return;
+		}
+
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)
+			rp_sem_rel(rp_ctx->network_init, 1);
+	} else {
+		if ((ret = rp_sem_wait(rp_ctx->network_init, RP_SYN_WAIT_MAX))) {
+			nsDbgPrint("%d network_init sem wait failed: %d\n", thread_n, ret);
+			goto end;
 		}
 	}
 
@@ -245,7 +247,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		}
 
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
-		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : rp_ctx->conf.me.enabled != 0 ? &image->d : &rp_const_image(image_curr)->d;
+		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : image ? &image->d : &rp_const_image(image_curr)->d;
 
 		struct rp_send_data_header send_header = {
 			.type_data = RP_SEND_HEADER_TYPE_DATA,
@@ -271,8 +273,10 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.encoder_which = rp_ctx->conf.encoder_which,
 		};
 		ret = rpJLSEncodeScreenAndSend(&encode_send_ctx, im, &c, &rp_ctx->conf.me);
-		if (ret)
+		if (ret < 0) {
+			nsDbgPrint("rpJLSEncodeScreenAndSend failed: %d\n", ret);
 			break;
+		}
 		rpSetPriorityScreen(&rp_ctx->dyn_prio, c.top_bot, ret);
 
 		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
@@ -350,7 +354,8 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	}
 
 	rpScreenEncodeInit(&rp_ctx->screen_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks, screen_ctx_sync);
-	rp_svc_print_limits();
+	if (0)
+		rp_svc_print_limits();
 
 	rpEncodeScreenAndSend(rp_ctx, thread_n);
 
@@ -410,16 +415,23 @@ void rpThreadStart(u32 arg) {
 			RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !rp_ctx->conf.multicore_network
 		);
 
-		ret = svc_createThread(
-			&rp_ctx->network_thread,
-			rpNetworkTransferThread,
-			(u32)rp_ctx,
-			(u32 *)&rp_ctx->network_transfer_thread_stack[RP_MISC_STACK_SIZE - 40],
-			0x8,
-			3);
-		if (ret != 0) {
-			nsDbgPrint("Create rpNetworkTransferThread Failed: %08x\n", ret);
-			break;
+		if (rp_ctx->conf.multicore_network) {
+			ret = svc_createThread(
+				&rp_ctx->network_thread,
+				rpNetworkTransferThread,
+				(u32)rp_ctx,
+				(u32 *)&rp_ctx->network_transfer_thread_stack[RP_MISC_STACK_SIZE - 40],
+				0x8,
+				3);
+			if (ret != 0) {
+				nsDbgPrint("Create rpNetworkTransferThread Failed: %08x\n", ret);
+				break;
+			}
+		} else {
+			if ((ret = rpKCPReady(&rp_ctx->net_ctx, &rp_ctx->kcp, &rp_ctx->conf.kcp, &rp_ctx->net_ctx))) {
+				nsDbgPrint("rpKCPReady error %d\n", ret);
+				break;
+			}
 		}
 
 		ret = rpSendFrames(rp_ctx);

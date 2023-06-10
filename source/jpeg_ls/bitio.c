@@ -74,6 +74,7 @@ int bitoflush(struct bito_ctx *bctx) {
 		    bctx->reg <<= 8;
 		}
 	}
+     return 0;
 }
 
 
