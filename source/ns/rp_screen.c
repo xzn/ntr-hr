@@ -58,7 +58,7 @@ int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma)
 void rpKernelCallback(struct rp_screen_encode_t *screen) {
 	u32 current_fb;
 
-	if (screen->c.top_bot == 0) {
+	if (screen->c.top_bot == SCREEN_TOP) {
 		screen->c.format = REG(IoBasePdc + 0x470);
 		screen->pitch = REG(IoBasePdc + 0x490);
 
@@ -97,30 +97,41 @@ void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn
 }
 
 static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_state_t *ctx) {
+	int ret;
+	u64 duration = 0;
+
+	if (ctx->sync && (ret = rp_lock_wait(ctx->mutex, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("rpScreenEncodeSetup mutex wait failed: %d", ret);
+		return ret;
+	}
+
 	u64 curr_tick, tick_diff = (curr_tick = svc_getSystemTick()) - ctx->last_tick;
 	s64 desired_tick_diff = (s64)curr_tick - (s64)ctx->desired_last_tick;
 
 	if (desired_tick_diff < (s64)ctx->min_capture_interval_ticks) {
-		u64 duration = ((s64)ctx->min_capture_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
-		svc_sleepThread(duration);
+		duration = ((s64)ctx->min_capture_interval_ticks - desired_tick_diff) * 1000 / SYSTICK_PER_US;
 	} else {
 		u64 min_tick = ctx->min_capture_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
 		if (tick_diff < min_tick) {
-			u64 duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
-			svc_sleepThread(duration);
+			duration = (min_tick - tick_diff) * 1000 / SYSTICK_PER_US;
 		}
 	}
 
 	ctx->desired_last_tick += ctx->min_capture_interval_ticks;
 	ctx->last_tick = curr_tick;
 
-	int frame_rate = 1;
-	int top_bot = rpGetPriorityScreen(ctx->dyn_prio, &frame_rate);
-
-	u64 desired_last_tick_step = ctx->min_capture_interval_ticks * frame_rate *
-		RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+	u64 desired_last_tick_step = SYSTICK_PER_SEC * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
 	if ((s64)ctx->last_tick - (s64)ctx->desired_last_tick > (s64)desired_last_tick_step)
 		ctx->desired_last_tick = ctx->last_tick - desired_last_tick_step;
+
+	if (ctx->sync)
+		rp_lock_rel(ctx->mutex);
+
+	if (duration)
+		svc_sleepThread(duration);
+
+	int frame_rate = 1;
+	int top_bot = rpGetPriorityScreen(ctx->dyn_prio, &frame_rate);
 
 	return top_bot;
 }
@@ -193,13 +204,7 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 ) {
 	int ret;
 
-	if (ctx->sync && (ret = rp_lock_wait(ctx->mutex, RP_SYN_WAIT_MAX))) {
-		nsDbgPrint("rpScreenEncodeSetup mutex wait failed: %d", ret);
-		return ret;
-	}
 	screen->c.top_bot = rpScreenEncodeGetScreenLimitFrameRate(ctx);
-	if (ctx->sync)
-		rp_lock_rel(ctx->mutex);
 
 	if ((ret = rpScreenEncodeCaptureScreen(screen, dma)) != 0)
 		return ret;

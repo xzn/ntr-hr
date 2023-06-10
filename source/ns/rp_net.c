@@ -213,8 +213,7 @@ int rpKCPSend(struct rp_net_state_t *state, const u8 *buf, int size) {
 
 	struct rp_net_ctx_t *ctx = state->net_ctx;
 
-	u64 desired_last_tick_step = state->min_send_interval_ticks * ctx->kcp->snd_wnd *
-		RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
+	u64 desired_last_tick_step = SYSTICK_PER_SEC * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
 	if ((s64)state->last_tick - (s64)state->desired_last_tick > (s64)desired_last_tick_step)
 		state->desired_last_tick = state->last_tick - desired_last_tick_step;
 
@@ -223,14 +222,14 @@ int rpKCPSend(struct rp_net_state_t *state, const u8 *buf, int size) {
 	if (state->sync)
 		rp_lock_rel(state->mutex);
 
+	if (duration)
+		svc_sleepThread(duration);
+
 	while (!*exit_thread) {
 		if ((tick_diff = (curr_tick = svc_getSystemTick()) - last_tick) > KCP_TIMEOUT_TICKS) {
 			nsDbgPrint("kcp timeout send data\n");
 			return -1;
 		}
-
-		if (duration)
-			svc_sleepThread(duration);
 
 		if ((ret = rpKCPLock(ctx))) {
 			nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
