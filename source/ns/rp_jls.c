@@ -202,6 +202,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	}
 
 	send_ctx->send_header->data_end = 1;
+	send_ctx->send_header->data_size = send_ctx->buffer_begin - send_ctx->network->buffer - sizeof(struct rp_send_data_header);
 	ret = rpJLSSendEnd(send_ctx, 1);
 	if (ret)
 		return ret;

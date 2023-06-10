@@ -55,6 +55,7 @@ struct rp_send_data_header {
     u32 p_frame : 1;
     u32 bpp : 3;
     u32 data_end : 1;
+	u32 data_size : 11;
     u32 plane_type : 1;
     u32 plane_comp : 2;
 };

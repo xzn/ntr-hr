@@ -1,6 +1,6 @@
 #include "rp_conf.h"
 
-union UNUSED rp_conf_arg0_t {
+union rp_conf_arg0_t {
 	int arg0;
 	struct {
 		u32 kcp_nocwnd : 1;
@@ -17,13 +17,12 @@ union rp_conf_arg1_t {
 		u32 yuv_option : 2;
 		u32 color_transform_hp : 2;
 		u32 downscale_uv : 1;
-		u32 encoder_which : 1;
+		u32 encoder_which : 2;
 		u32 me_block_size : 2;
 		u32 me_method : 3;
 		u32 me_search_param : 5;
 		u32 me_downscale : 1;
 		u32 me_interpolate : 1;
-		u32 encode_verify : 1;
 		u32 kcp_minrto : 7;
 		u32 kcp_snd_wnd_size : 6;
 	};
@@ -49,9 +48,6 @@ _Static_assert(sizeof(union rp_conf_arg1_t) == sizeof(int));
 _Static_assert(sizeof(union rp_conf_arg2_t) == sizeof(int));
 
 int rp_set_params(struct rp_conf_t *conf) {
-
-	u8 multicore_encode = conf->multicore_encode;
-
 	union rp_conf_arg0_t arg0 = { .arg0 = g_nsConfig->startupInfo[8] };
 	union rp_conf_arg1_t arg1 = { .arg1 = g_nsConfig->startupInfo[9] };
 	union rp_conf_arg2_t arg2 = { .arg2 = g_nsConfig->startupInfo[10] };
@@ -88,7 +84,6 @@ int rp_set_params(struct rp_conf_t *conf) {
 #else
 	conf->me.interpolate = 0;
 #endif
-	conf->encode_verify = arg1.encode_verify;
 
 	conf->screen_priority[SCREEN_TOP] = arg2.top_priority;
 	conf->screen_priority[SCREEN_BOT] = arg2.bot_priority;
@@ -101,6 +96,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->multicore_screen = arg0.multicore_screen;
 	conf->dynamic_priority = arg2.dynamic_priority;
 	conf->min_dp_frame_rate = arg2.min_dp_frame_rate;
+	conf->max_frame_rate = arg2.max_frame_rate;
 	conf->target_mbit_rate = arg2.target_mbit_rate;
 
 	conf->encode_buffer_count = RP_ENCODE_BUFFER_COUNT - conf->low_latency -
@@ -113,11 +109,66 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->min_capture_interval_ticks = conf->max_frame_rate ?
 		(u64)SYSTICK_PER_SEC / (u16)conf->max_frame_rate : 0;
 
-	int ret = 0;
-	if (conf->multicore_encode != multicore_encode)
-		ret = 1;
+	nsDbgPrint(
+		"yuv option: %d\n"
+		"color transform hp: %d\n"
+		"downscale uv: %d\n"
+		"encoder which: %d\n"
+		"me method: %d\n"
+		"me select: %d\n"
+		"me enabled: %d\n"
+		"me block size: %d\n"
+		"me block size log2: %d\n"
+		"me search param: %d\n"
+		"me search param bpp: %d\n"
+		"me search param bpp half range: %d\n"
+		"me mafd shift: %d\n"
+		"me select threshold: %d\n"
+		"me downscale: %d\n"
+		"me interpolate: %d\n"
+		"top screen priority: %d\n"
+		"bot screen priority: %d\n"
+		"multicore encode: %d\n"
+		"multicore network: %d\n"
+		"multicore screen: %d\n"
+		"dynamic priority: %d\n"
+		"min dp frame rate: %d\n"
+		"max frame rate: %d\n"
+		"target mbit rate: %d\n"
+		"encode buffer count: %d\n"
+		"min send interval ticks: %d\n"
+		"min capture interval ticks: %d\n",
+		conf->yuv_option,
+		conf->color_transform_hp,
+		conf->downscale_uv,
+		conf->encoder_which,
+		conf->me.select,
+		conf->me.method,
+		conf->me.enabled,
+		conf->me.block_size,
+		conf->me.block_size_log2,
+		conf->me.search_param,
+		conf->me.bpp,
+		conf->me.bpp_half_range,
+		conf->me.mafd_shift,
+		conf->me.select_threshold,
+		conf->me.downscale,
+		conf->me.interpolate,
+		conf->screen_priority[SCREEN_TOP],
+		conf->screen_priority[SCREEN_BOT],
+		conf->multicore_encode,
+		conf->multicore_network,
+		conf->multicore_screen,
+		conf->dynamic_priority,
+		conf->min_dp_frame_rate,
+		conf->max_frame_rate,
+		conf->target_mbit_rate,
+		conf->encode_buffer_count,
+		conf->min_send_interval_ticks,
+		conf->min_capture_interval_ticks
+		);
 
-	return ret;
+	return 0;
 }
 
 int rp_check_params(struct rp_conf_t *conf, volatile u32 *updated, volatile u8 *exit_thread) {
