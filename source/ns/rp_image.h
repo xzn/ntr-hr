@@ -103,7 +103,6 @@ struct rp_image_ctx_t {
 	} image_me_buffer[RP_ENCODE_THREAD_COUNT];
 
 	struct rp_screen_image_t {
-		rp_lock_t mutex;
 		u8 image_n;
 		u8 frame_n;
 		u8 p_frame;

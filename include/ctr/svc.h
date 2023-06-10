@@ -121,4 +121,6 @@ typedef enum {
 	Result svcSetProcessResourceLimits(Handle process, Handle resourceLimit);
 	Result svcCreateResourceLimit(Handle* resourceLimit);
 	Result svcSetResourceLimitValues(Handle resourceLimit, const ResourceLimitType* names, const s64* values, s32 nameCount);
+
+	Result svcSetGpuProt(bool useApplicationRestriction);
 #endif

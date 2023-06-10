@@ -3,6 +3,7 @@
 #include "rp_dyn_prio.h"
 #include "rp_syn.h"
 #include "rp_conf.h"
+#include "rp_jls.h"
 
 static uint16_t ip_checksum(void* vdata, size_t length) {
 	// Cast the data pointer to one that can be indexed.
@@ -309,18 +310,21 @@ int rpNetworkTransfer(
 			continue;
 		}
 
-		u32 size_remain = network->size;
-		u8 *data = network->buffer;
-
-		// kcp send data
-		while (!*exit_thread && size_remain) {
-			u32 data_size = RP_MIN(size_remain, RP_PACKET_SIZE);
-
-			if ((ret = rpKCPSend(state, data, data_size)))
-				return ret;
-			size_remain -= data_size;
-			data += data_size;
+		struct rp_send_data_header *header = (struct rp_send_data_header *)network->buffer;
+		if (0 && header->type_data == RP_SEND_HEADER_TYPE_DATA) {
+			nsDbgPrint(
+				"s %d "
+				"n %d "
+				"p %d "
+				"type %d "
+				"comp %d "
+				"size %d "
+				"end %d\n",
+				(s32)header->top_bot, (s32)header->frame_n, (s32)header->p_frame, (s32)header->plane_type, (s32)header->plane_comp, (s32)header->data_size, (s32)header->data_end);
 		}
+		// kcp send data
+		if ((ret = rpKCPSend(state, network->buffer, network->size)))
+			return ret;
 
 		rp_network_encode_release(&network_queue->encode, network);
 	}

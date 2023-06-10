@@ -51,7 +51,7 @@ static int rpJLSSendBegin(struct rp_jls_send_ctx_t *ctx, u8 init) {
 			break;
 		}
 	}
-	if (init)
+	if (!ctx->multicore_network && init)
 		memcpy(ctx->network->buffer, ctx->send_header, sizeof(struct rp_send_data_header));
 	ctx->buffer_begin = ctx->network->buffer + sizeof(struct rp_send_data_header);
 	ctx->buffer_end = ctx->network->buffer + sizeof(ctx->network->buffer);
@@ -62,7 +62,7 @@ static int rpJLSSendEnd(struct rp_jls_send_ctx_t *ctx, u8 fini) {
 	if (*ctx->exit_thread)
 		return -1;
 
-	if (fini)
+	if (ctx->multicore_network || fini)
 		memcpy(ctx->network->buffer, ctx->send_header, sizeof(struct rp_send_data_header));
 
 	int ret;

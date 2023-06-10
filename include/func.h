@@ -52,7 +52,8 @@ u32 kGetCurrentKProcess();
 u32 kGetKProcessByHandle(u32 handle);
 u32 kSwapProcessPid(u32 kProcess, u32 newPid) ;
 void kDoKernelHax(void);
-void kRemotePlayCallback(int top_bot);
+struct rp_screen_encode_t;
+void kRemotePlayCallback(struct rp_screen_encode_t *);
 
 void initFromInjectPM();
 void initFromInjectGame();

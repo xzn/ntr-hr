@@ -1,7 +1,6 @@
 #include "rp_dma.h"
 
 void rpInitDmaHome(struct rp_dma_ctx_t *ctx, const u8 dma_config[24]) {
-	(void)rp_lock_init(ctx->mutex);
 	svc_openProcess(&ctx->home_handle, 0xf);
 	ctx->dma_config = dma_config;
 }

@@ -470,3 +470,9 @@ svcCreateResourceLimit:
 svcSetResourceLimitValues:
 	svc 0x79
 	bx  lr
+
+.global svcSetGpuProt
+.type svcSetGpuProt, %function
+svcSetGpuProt:
+	svc 0x59
+	bx  lr

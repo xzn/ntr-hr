@@ -7,16 +7,16 @@
 #include "rp_main.h"
 #include "rp_screen.h"
 
-static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx, struct rp_ctx_t *rp_ctx, int lock_write) {
-	return rpScreenEncodeSetup(screen, ctx, rp_ctx->image_ctx.screen_image,
-		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled, lock_write
+static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_ctx_t *rp_ctx, int lock_write, int thread_n) {
+	return rpScreenEncodeSetup(screen, &rp_ctx->screen_ctx, rp_ctx->image_ctx.screen_image,
+		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled, lock_write, thread_n
 	);
 }
 
 static void rpScreenTransferThread(u32 arg) {
 	struct rp_ctx_t *rp_ctx = (struct rp_ctx_t *)arg;
 
-	int UNUSED thread_n = RP_SCREEN_TRANSFER_THREAD_ID;
+	int thread_n = RP_SCREEN_TRANSFER_THREAD_ID;
 
 	int acquire_count = 0;
 	while (!rp_ctx->exit_thread) {
@@ -30,7 +30,7 @@ static void rpScreenTransferThread(u32 arg) {
 		}
 		acquire_count = 0;
 
-		if (rpScreenEncodeSetupMain(screen, &rp_ctx->screen_ctx, rp_ctx, 1)) {
+		if (rpScreenEncodeSetupMain(screen, rp_ctx, 1, thread_n)) {
 			break;
 		}
 
@@ -202,8 +202,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			acquire_count = 0;
 		} else {
 			screen = &rp_ctx->screen_encode[thread_n];
-			if (rpScreenEncodeSetupMain(screen, &rp_ctx->screen_ctx, rp_ctx,
-				RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)
+			if (rpScreenEncodeSetupMain(screen, rp_ctx,
+				RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, thread_n)
 			) {
 				break;
 			}
@@ -304,7 +304,9 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)))
 		return ret;
 
-	int screen_ctx_sync = 0;
+	// Without dedicated screen thread, both encode thread will compete for access, thus needing sync
+	int screen_ctx_sync = RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !rp_ctx->conf.multicore_screen;
+	rpScreenEncodeInit(&rp_ctx->screen_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks, screen_ctx_sync);
 
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
 		rp_sem_close(rp_ctx->network_init);
@@ -343,13 +345,9 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 				svc_closeHandle(rp_ctx->second_thread);
 				return -1;
 			}
-		} else {
-			// Without dedicated screen thread, both encode thread will compete for access, thus needing sync
-			screen_ctx_sync = 1;
 		}
 	}
 
-	rpScreenEncodeInit(&rp_ctx->screen_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks, screen_ctx_sync);
 	if (0)
 		rp_svc_print_limits();
 

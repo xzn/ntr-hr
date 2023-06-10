@@ -230,3 +230,10 @@ void kDoKernelHax(void) {
 
 	svc_backDoor(currentBackdoorHandler);
 }
+
+void kRemotePlayCallback(struct rp_screen_encode_t *ctx) {
+	kernelArgs[0] = 7;
+	kernelArgs[1] = (u32)ctx;
+
+	svc_backDoor(currentBackdoorHandler);
+}

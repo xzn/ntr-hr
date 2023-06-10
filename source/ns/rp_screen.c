@@ -7,7 +7,7 @@
 #include "rp_color_aux.h"
 #include "rp_me.h"
 
-int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma, u8 sync) {
+static int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma) {
 	u32 bufSize = screen->pitch * SCREEN_WIDTH(screen->c.top_bot);
 	if (bufSize > RP_SCREEN_BUFFER_SIZE) {
 		nsDbgPrint("rpCaptureScreen bufSize too large: %x > %x\n", bufSize, RP_SCREEN_BUFFER_SIZE);
@@ -21,39 +21,23 @@ int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma,
 	Handle hdma;
 	int ret;
 
-	if (sync && (ret = rp_lock_wait(dma->mutex, RP_SYN_WAIT_MAX))) {
-		nsDbgPrint("rpCaptureScreen mutex wait failed: %d", ret);
-		return ret;
-	}
-
 	if (isInVRAM(phys)) {
 		rpCloseGameHandle(dma);
 		ret = svc_startInterProcessDma(&hdma, CURRENT_PROCESS_HANDLE,
 			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)dma->dma_config);
-		if (ret != 0) {
-			if (sync)
-				rp_lock_rel(dma->mutex);
+		if (ret != 0)
 			return ret;
-		}
 	}
 	else if (isInFCRAM(phys) && (hProcess = rpGetGameHandle(dma))) {
 		ret = svc_startInterProcessDma(&hdma, CURRENT_PROCESS_HANDLE,
 			dest, hProcess, (const void *)(dma->game_fcram_base + (phys - 0x20000000)), bufSize, (u32 *)dma->dma_config);
-		if (ret != 0) {
-			if (sync)
-				rp_lock_rel(dma->mutex);
+		if (ret != 0)
 			return ret;
-		}
 	} else {
 		nsDbgPrint("No output avaiilable for capture\n");
-		if (sync)
-			rp_lock_rel(dma->mutex);
 		svc_sleepThread(RP_THREAD_LOOP_IDLE_WAIT);
 		return 0;
 	}
-
-	if (sync)
-		rp_lock_rel(dma->mutex);
 
 	u32 state, i;
 	for (i = 0; i < RP_THREAD_LOOP_WAIT_COUNT; i++ ) {
@@ -113,13 +97,7 @@ void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn
 }
 
 static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_state_t *ctx) {
-	int ret;
 	u64 duration = 0;
-
-	if (ctx->sync && (ret = rp_lock_wait(ctx->mutex, RP_SYN_WAIT_MAX))) {
-		nsDbgPrint("rpScreenEncodeSetup mutex wait failed: %d", ret);
-		return ret;
-	}
 
 	u64 curr_tick, tick_diff = (curr_tick = svc_getSystemTick()) - ctx->last_tick;
 	s64 desired_tick_diff = (s64)curr_tick - (s64)ctx->desired_last_tick;
@@ -140,9 +118,6 @@ static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_state_t *ctx) 
 	if ((s64)ctx->last_tick - (s64)ctx->desired_last_tick > (s64)desired_last_tick_step)
 		ctx->desired_last_tick = ctx->last_tick - desired_last_tick_step;
 
-	if (ctx->sync)
-		rp_lock_rel(ctx->mutex);
-
 	if (duration)
 		svc_sleepThread(duration);
 
@@ -152,12 +127,16 @@ static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_state_t *ctx) 
 	return top_bot;
 }
 
-static int rpScreenEncodeCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma, u8 sync) {
+static int rpScreenEncodeCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma, int thread_n) {
 	int ret;
 	int capture_n = 0;
 	do {
-		rpKernelCallback(screen);
-		ret = rpCaptureScreen(screen, dma, sync);
+		if (thread_n == RP_SECOND_ENCODE_THREAD_ID) {
+			kRemotePlayCallback(screen);
+		} else {
+			rpKernelCallback(screen);
+		}
+		ret = rpCaptureScreen(screen, dma);
 
 		if (ret == 0)
 			break;
@@ -175,16 +154,11 @@ static int rpScreenEncodeCaptureScreen(struct rp_screen_encode_t *screen, struct
 static int rpScreenEncodeReadyImage(
 	struct rp_screen_encode_t *screen, struct rp_screen_image_t screen_images[SCREEN_MAX],
 	struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
-	int me_enabled, int sync, int lock_write
+	int me_enabled, int lock_write
 ) {
 	int ret;
 	int top_bot = screen->c.top_bot;
 	struct rp_screen_image_t *screen_image = &screen_images[top_bot];
-
-	if (sync && (ret = rp_lock_wait(screen_image->mutex, RP_SYN_WAIT_MAX))) {
-		nsDbgPrint("rpScreenEncodeReadyImage mutex wait failed: %d", ret);
-		return -1;
-	}
 
 	u8 image_n = screen_image->image_n;
 	screen_image->image_n = (image_n + 1) % RP_IMAGE_BUFFER_COUNT;
@@ -210,10 +184,6 @@ static int rpScreenEncodeReadyImage(
 	screen_image->first_frame = 0;
 	screen_image->format = screen->c.format;
 
-	if (!lock_write)
-		if (sync)
-			rp_lock_rel(screen_image->mutex);
-
 	screen->c.first_frame = first_frame;
 	screen->c.p_frame = p_frame;
 	screen->c.frame_n = frame_n;
@@ -226,12 +196,8 @@ static int rpScreenEncodeReadyImage(
 		struct rp_image_t *image = screen->image;
 		if ((ret = rpImageWriteLock(image))) {
 			nsDbgPrint("rpScreenEncodeReadyImage sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen);
-			if (sync)
-				rp_lock_rel(screen_image->mutex);
 			return -1;
 		}
-		if (sync)
-			rp_lock_rel(screen_image->mutex);
 	}
 
 	return 0;
@@ -240,17 +206,25 @@ static int rpScreenEncodeReadyImage(
 int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx,
 	struct rp_screen_image_t screen_images[SCREEN_MAX],
 	struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
-	struct rp_dma_ctx_t *dma, int me_enabled, int lock_write
+	struct rp_dma_ctx_t *dma, int me_enabled, int lock_write, int thread_n
 ) {
 	int ret;
 
+	if (ctx->sync && (ret = rp_lock_wait(ctx->mutex, RP_SYN_WAIT_MAX))) {
+		nsDbgPrint("rpScreenEncodeSetup mutex wait failed: %d", ret);
+		return ret;
+	}
+
 	screen->c.top_bot = rpScreenEncodeGetScreenLimitFrameRate(ctx);
 
-	if ((ret = rpScreenEncodeCaptureScreen(screen, dma, ctx->sync)) != 0)
+	if ((ret = rpScreenEncodeCaptureScreen(screen, dma, thread_n)) != 0)
 		return ret;
 
-	if ((ret = rpScreenEncodeReadyImage(screen, screen_images, images, me_enabled, ctx->sync, lock_write)))
+	if ((ret = rpScreenEncodeReadyImage(screen, screen_images, images, me_enabled, lock_write)))
 		return ret;
+
+	if (ctx->sync)
+		rp_lock_rel(ctx->mutex);
 
 	return 0;
 }
