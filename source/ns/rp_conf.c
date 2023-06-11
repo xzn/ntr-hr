@@ -77,7 +77,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->me.bpp_half_range = (1 << conf->me.bpp) >> 1;
 	conf->me.mafd_shift = RP_MAX(0, (int)conf->me.block_size_log2 * 2 - 8);
 	conf->me.select_threshold =
-		((u32)conf->me.block_size * (u32)conf->me.block_size * (u32)conf->me.select) >> conf->me.mafd_shift;
+		(u32)conf->me.block_size * (u32)conf->me.block_size * (u32)conf->me.select;
 	conf->me.downscale = arg1.me_downscale;
 #if RP_ME_INTERPOLATE
 	conf->me.interpolate = arg1.me_interpolate;

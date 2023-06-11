@@ -63,7 +63,7 @@ void motion_estimate(s8 *me_x_image, s8 *me_y_image, const u8 *ref, const u8 *cu
 	me_ctx.data_ref = ref;
 	me_ctx.data_cur = cur;
 
-	select_threshold = ((u32)select_threshold * bpp) >> RP_IMAGE_ME_SELECT_BITS;
+	select_threshold = ((u32)select_threshold * (1 << bpp)) >> (RP_IMAGE_ME_SELECT_BITS + mafd_shift);
 
 	for (int block_y = 0, y = y_off; block_y < block_y_n; ++block_y, y += block_size) {
 		me_x_image += LEFTMARGIN;
@@ -202,7 +202,7 @@ u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 		u8 x_off = (width & block_size_mask) >> 1;
 		u8 y_off = (height & block_size_mask) >> 1;
 
-		select_threshold = ((u32)select_threshold * bpp) >> RP_IMAGE_ME_SELECT_BITS;
+		select_threshold = ((u32)select_threshold * (1 << bpp)) >> (RP_IMAGE_ME_SELECT_BITS + mafd_shift);
 
 		me_x_image += LEFTMARGIN;
 
@@ -218,7 +218,7 @@ u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 					u32 sad;
 					ff_scene_sad_c(ref + x * pitch + y, pitch, cur + x * pitch + y, pitch, block_size, block_size, &sad);
 					u16 sad_prev = *mafd_prev++;
-					*mafd++ = sad >>= mafd_shift;
+					*mafd++ = sad >>= (mafd_shift + scale_log2 * 2);
 					s32 diff = FFABS((s32)sad_prev - (s32)sad);
 					if (RP_MIN(diff, (s32)sad) >= select_threshold) {
 						*me_x_image++ = 1;
