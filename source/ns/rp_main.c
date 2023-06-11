@@ -82,7 +82,6 @@ static int rpJLSEncodePlaneAndSend(struct rp_encode_and_send_screen_ctx_t *ctx, 
 
 static void rpUpdateSendHeader(struct rp_send_data_header *send_header, u8 plane_type, u8 plane_comp) {
 	send_header->data_end = 0;
-	send_header->data_size = RP_PACKET_SIZE - sizeof(struct rp_send_data_header);
 	send_header->plane_type = plane_type;
 	send_header->plane_comp = plane_comp;
 }

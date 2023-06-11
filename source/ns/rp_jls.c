@@ -67,6 +67,9 @@ static int rpJLSSendEnd(struct rp_jls_send_ctx_t *ctx, u8 fini) {
 
 	int ret;
 	ctx->send_size_total += ctx->network->size = ctx->buffer_begin - ctx->network->buffer;
+	struct rp_send_data_header *send_header = (struct rp_send_data_header *)ctx->network->buffer;
+	send_header->data_size = ctx->network->size - sizeof(struct rp_send_data_header);
+
 	if (ctx->multicore_network) {
 		if ((ret = rp_network_transfer_release(&ctx->network_queue->transfer, ctx->network, ctx->network_sync))) {
 			nsDbgPrint("%d rp_network_transfer_release syn failed\n", ctx->thread_n);
@@ -185,7 +188,10 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
 
-		flush_put_bits(&s);
+		if ((ret = flush_put_bits(&s))) {
+			nsDbgPrint("flush_put_bits failed: %d\n", ret);
+			return -1;
+		}
 		send_ctx->buffer_begin = s.buf_ptr;
 	} else {
 		struct jls_enc_ctx *ctx = &jls_ctx->enc;
@@ -206,7 +212,6 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	}
 
 	send_ctx->send_header->data_end = 1;
-	send_ctx->send_header->data_size = send_ctx->buffer_begin - send_ctx->network->buffer - sizeof(struct rp_send_data_header);
 	ret = rpJLSSendEnd(send_ctx, 1);
 	if (ret)
 		return -1;

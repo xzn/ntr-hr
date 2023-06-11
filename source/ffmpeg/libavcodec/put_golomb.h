@@ -126,7 +126,7 @@ static inline int set_ur_golomb_jpegls(PutBitContext *pb, int i, int k,
         }
         put_bits_checked(pb, e, 1);
         if (k)
-            put_bits_checked(pb, k, i);
+            put_sbits(pb, k, i);
     } else {
         while (limit > 31) {
             put_bits_checked(pb, 31, 0);
