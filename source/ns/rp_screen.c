@@ -262,8 +262,6 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 	width = SCREEN_WIDTH(top_bot);
 	height = SCREEN_HEIGHT;;
 
-	struct rp_const_image_data_t *im_prev = c->first_frame ? 0 : &image_prev->d;
-
 	int ds_width = DS_DIM(width, 1);
 	int ds_height = DS_DIM(height, 1);
 
@@ -314,6 +312,8 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 				return -1;
 			}
 		}
+
+		struct rp_const_image_data_t *im_prev = &image_prev->d;
 
 		if (me->enabled == 1) {
 

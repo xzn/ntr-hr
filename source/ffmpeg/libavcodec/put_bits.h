@@ -55,12 +55,11 @@ typedef struct PutBitContext {
     int (*flush)(struct PutBitContext *);
 } PutBitContext;
 
-static inline int assert_or_flush_buffer(PutBitContext *s, int assert_cond)
-{
-    if (!assert_cond)
-        return s->flush(s);
-    return 0;
-}
+#define assert_or_flush_buffer(s, c) do { \
+    int ret_val; \
+    if (!(c) && (ret_val = (s)->flush(s))) \
+        return ret_val; \
+} while (0)
 
 /**
  * Initialize the PutBitContext s.
