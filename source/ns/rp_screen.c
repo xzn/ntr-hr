@@ -127,15 +127,11 @@ static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_state_t *ctx) 
 	return top_bot;
 }
 
-static int rpScreenEncodeCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma, int thread_n) {
+static int rpScreenEncodeCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma, int UNUSED thread_n) {
 	int ret;
 	int capture_n = 0;
 	do {
-		if (thread_n == RP_SECOND_ENCODE_THREAD_ID) {
-			kRemotePlayCallback(screen);
-		} else {
-			rpKernelCallback(screen);
-		}
+		rpKernelCallback(screen);
 		ret = rpCaptureScreen(screen, dma);
 
 		if (ret == 0)

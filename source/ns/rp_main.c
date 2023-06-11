@@ -7,9 +7,9 @@
 #include "rp_main.h"
 #include "rp_screen.h"
 
-static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_ctx_t *rp_ctx, int lock_write, int thread_n) {
+static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_ctx_t *rp_ctx, int thread_n) {
 	return rpScreenEncodeSetup(screen, &rp_ctx->screen_ctx, rp_ctx->image_ctx.screen_image,
-		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled, lock_write, thread_n
+		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, thread_n
 	);
 }
 
@@ -30,7 +30,7 @@ static void rpScreenTransferThread(u32 arg) {
 		}
 		acquire_count = 0;
 
-		if (rpScreenEncodeSetupMain(screen, rp_ctx, 1, thread_n)) {
+		if (rpScreenEncodeSetupMain(screen, rp_ctx, thread_n)) {
 			break;
 		}
 
@@ -190,7 +190,9 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			rp_check_params(&rp_ctx->conf, &g_nsConfig->remotePlayUpdate, &rp_ctx->exit_thread);
 
 		struct rp_screen_encode_t *screen;
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.multicore_screen) {
+		int multicore_screen = RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode &&
+			(rp_ctx->conf.multicore_screen || thread_n == RP_SECOND_ENCODE_THREAD_ID);
+		if (multicore_screen) {
 			screen = rp_screen_encode_acquire(&rp_ctx->syn.screen.encode, RP_THREAD_LOOP_MED_WAIT);
 			if (!screen) {
 				if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
@@ -201,9 +203,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			}
 			acquire_count = 0;
 		} else {
-			screen = &rp_ctx->screen_encode[thread_n];
-			if (rpScreenEncodeSetupMain(screen, rp_ctx,
-				RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, thread_n)
+			screen = &rp_ctx->screen_encode[RP_ENCODE_BUFFER_COUNT - thread_n - 1];
+			if (rpScreenEncodeSetupMain(screen, rp_ctx, thread_n)
 			) {
 				break;
 			}
@@ -218,7 +219,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_image_t *image_curr = screen->image;
 		struct rp_const_image_t *image_prev = screen->image_prev;
 		struct rp_screen_ctx_t c = screen->c;
-		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && rp_ctx->conf.multicore_screen) {
+		if (multicore_screen) {
 			if (rp_screen_transfer_release(&rp_ctx->syn.screen.transfer, screen) != 0) {
 				nsDbgPrint("rpEncodeScreenAndSend screen release syn failed\n");
 				break;
@@ -312,7 +313,9 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 		rp_sem_close(rp_ctx->network_init);
 		(void)rp_sem_init(rp_ctx->network_init, 0, 1);
 
-		if ((ret = rp_screen_queue_init(&rp_ctx->syn.screen, rp_ctx->screen_encode, rp_ctx->conf.encode_buffer_count))) {
+		if ((ret = rp_screen_queue_init(&rp_ctx->syn.screen, rp_ctx->screen_encode,
+			rp_ctx->conf.multicore_screen ? rp_ctx->conf.encode_buffer_count : rp_ctx->conf.low_latency ? 1 : 2))
+		) {
 			nsDbgPrint("rp_screen_queue_init failed %d\n", ret);
 			return ret;
 		}
@@ -329,22 +332,20 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 			return -1;
 		}
 
-		if (rp_ctx->conf.multicore_screen) {
-			ret = svc_createThread(
-				&rp_ctx->screen_thread,
-				rpScreenTransferThread,
-				(u32)rp_ctx,
-				(u32 *)&rp_ctx->screen_transfer_thread_stack[RP_MISC_STACK_SIZE - 40],
-				0x8,
-				2);
-			if (ret != 0) {
-				nsDbgPrint("Create rpScreenTransferThread Thread Failed: %08x\n", ret);
+		ret = svc_createThread(
+			&rp_ctx->screen_thread,
+			rpScreenTransferThread,
+			(u32)rp_ctx,
+			(u32 *)&rp_ctx->screen_transfer_thread_stack[RP_MISC_STACK_SIZE - 40],
+			0x8,
+			2);
+		if (ret != 0) {
+			nsDbgPrint("Create rpScreenTransferThread Thread Failed: %08x\n", ret);
 
-				rp_ctx->exit_thread = 1;
-				svc_waitSynchronization1(rp_ctx->second_thread, U64_MAX);
-				svc_closeHandle(rp_ctx->second_thread);
-				return -1;
-			}
+			rp_ctx->exit_thread = 1;
+			svc_waitSynchronization1(rp_ctx->second_thread, U64_MAX);
+			svc_closeHandle(rp_ctx->second_thread);
+			return -1;
 		}
 	}
 
@@ -354,10 +355,8 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	rpEncodeScreenAndSend(rp_ctx, thread_n);
 
 	if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
-		if (rp_ctx->conf.multicore_screen) {
-			svc_waitSynchronization1(rp_ctx->screen_thread, U64_MAX);
-			svc_closeHandle(rp_ctx->screen_thread);
-		}
+		svc_waitSynchronization1(rp_ctx->screen_thread, U64_MAX);
+		svc_closeHandle(rp_ctx->screen_thread);
 		svc_waitSynchronization1(rp_ctx->second_thread, U64_MAX);
 		svc_closeHandle(rp_ctx->second_thread);
 	}
