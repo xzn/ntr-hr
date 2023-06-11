@@ -181,7 +181,7 @@ void me_add_half_range(u8 *me, int width, int height, u8 scale_log2, u8 half_ran
 
 void diff_image(s8 *me_x_image, u8 *dst, const u8 *ref, const u8 *cur,
 u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
-	int width, int height, int pitch, int bpp, u8 block_size, u8 block_size_log2
+	int width, int height, int pitch, int bpp, int scale_log2, u8 block_size, u8 block_size_log2
 ) {
 	convert_set_zero(&dst);
 	ref += LEFTMARGIN;
@@ -192,6 +192,9 @@ u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 } while (0)
 
 	if (select) {
+		block_size <<= scale_log2;
+		block_size_log2 += scale_log2;
+
 		u8 block_size_mask = (1 << block_size_log2) - 1;
 		u8 block_x_n = width >> block_size_log2;
 		u8 block_y_n = height >> block_size_log2;
@@ -205,25 +208,27 @@ u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 
 		const s8 *me_x_col = me_x_image;
 
-		for (int block_y = 0, y = y_off; block_y < block_y_n; ++block_y, y += block_size) {
-			if (block_y > 0) {
-				convert_set_prev_first((u8 **)&me_x_image, block_y_n);
-			}
-
+		if (mafd && mafd_prev) {
 			for (int block_x = 0, x = x_off; block_x < block_x_n; ++block_x, x += block_size) {
-				u32 sad;
-				ff_scene_sad_c(ref + y * pitch + x, pitch, cur + y * pitch + x, pitch, block_size, block_size, &sad);
-				u16 sad_prev = *mafd_prev++;
-				*mafd++ = sad >>= mafd_shift;
-				s32 diff = FFABS((s32)sad_prev - (s32)sad);
-				if (RP_MIN(diff, (s32)sad) >= select_threshold) {
-					*me_x_image++ = 1;
-				} else {
-					*me_x_image++ = 0;
+				if (block_x > 0) {
+					convert_set_prev_first((u8 **)&me_x_image, block_y_n);
 				}
-			}
 
-			convert_set_last((u8 **)&me_x_image);
+				for (int block_y = 0, y = y_off; block_y < block_y_n; ++block_y, y += block_size) {
+					u32 sad;
+					ff_scene_sad_c(ref + x * pitch + y, pitch, cur + x * pitch + y, pitch, block_size, block_size, &sad);
+					u16 sad_prev = *mafd_prev++;
+					*mafd++ = sad >>= mafd_shift;
+					s32 diff = FFABS((s32)sad_prev - (s32)sad);
+					if (RP_MIN(diff, (s32)sad) >= select_threshold) {
+						*me_x_image++ = 1;
+					} else {
+						*me_x_image++ = 0;
+					}
+				}
+
+				convert_set_last((u8 **)&me_x_image);
+			}
 		}
 
 		for (int i = 0; i < width; ++i) {

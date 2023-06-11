@@ -146,7 +146,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.downscale_uv = rp_ctx->conf.downscale_uv,
 			.yuv_option = rp_ctx->conf.yuv_option,
 			.color_transform_hp = rp_ctx->conf.color_transform_hp,
-			.me_enabled = rp_ctx->conf.me.enabled,
+			.me_enabled = rp_ctx->conf.me.enabled > 1 ?
+				rp_ctx->conf.me.enabled - !rp_ctx->conf.me.select : rp_ctx->conf.me.enabled,
 			.me_downscale = rp_ctx->conf.me.downscale,
 			.me_search_param = rp_ctx->conf.me.search_param - RP_ME_MIN_SEARCH_PARAM,
 			.me_block_size = rp_ctx->conf.me.block_size_log2 - RP_ME_MIN_BLOCK_SIZE_LOG2,

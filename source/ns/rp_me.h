@@ -5,7 +5,7 @@
 
 void diff_image(s8 *me_x_image, u8 *dst, const u8 *ref, const u8 *cur,
 u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
-	int width, int height, int pitch, int bpp, u8 block_size, u8 block_size_log2);
+	int width, int height, int pitch, int bpp, int scale_log2, u8 block_size, u8 block_size_log2);
 void predict_image(u8 *dst, const u8 *ref, const u8 *cur, const s8 *me_x_image, const s8 *me_y_image,
 	int width, int height, int scale_log2, int bpp,
 	u8 block_size, u8 block_size_log2, int interpolate, u8 select, u8 half_range

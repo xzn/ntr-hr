@@ -315,6 +315,10 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 
 		struct rp_const_image_data_t *im_prev = &image_prev->d;
 
+		int scale_log2_offset = me->downscale == 0 ? 0 : 1;
+		int scale_log2 = 1 + scale_log2_offset;
+		int ds_scale_log2 = 0 + scale_log2_offset;
+
 		if (me->enabled == 1) {
 
 #define MOTION_EST(n, m, w, h, b) do { \
@@ -332,10 +336,6 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			} else {
 				MOTION_EST(ds_y_image, mafd_image, ds_width, ds_height, y_bpp);
 			}
-
-			int scale_log2_offset = me->downscale == 0 ? 0 : 1;
-			int scale_log2 = 1 + scale_log2_offset;
-			int ds_scale_log2 = 0 + scale_log2_offset;
 
 #define PREDICT_IM(n, w, h, s, b) do { \
 	predict_image(image_me->n, im_prev->n, im->n, \
@@ -362,22 +362,22 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 				me->bpp_half_range, me->block_size_log2);
 		} else {
 
-#define DIFF_IM(n, w, h, b) do { \
+#define DIFF_IM(n, w, h, s, b, m) do { \
 	diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, \
 		me->select, me->select_threshold, \
-		me->downscale ? im->mafd_ds_image : im->mafd_image, \
-		me->downscale ? im_prev->mafd_ds_image : im_prev->mafd_image, me->mafd_shift, \
-		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, me->block_size, me->block_size_log2); \
+		m ? me->downscale ? im->mafd_ds_image : im->mafd_image : 0, \
+		m ? me->downscale ? im_prev->mafd_ds_image : im_prev->mafd_image : 0, me->mafd_shift, \
+		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, s, me->block_size, me->block_size_log2); \
 } while (0)
 
-			DIFF_IM(y_image, width, height, y_bpp);
+			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1);
 
 			if (downscale_uv) {
-				DIFF_IM(ds_u_image, ds_width, ds_height, u_bpp);
-				DIFF_IM(ds_v_image, ds_width, ds_height, v_bpp);
+				DIFF_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp, 0);
+				DIFF_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp, 0);
 			} else {
-				DIFF_IM(u_image, width, height, u_bpp);
-				DIFF_IM(v_image, width, height, v_bpp);
+				DIFF_IM(u_image, width, height, scale_log2, u_bpp, 0);
+				DIFF_IM(v_image, width, height, scale_log2, v_bpp, 0);
 			}
 
 		}
