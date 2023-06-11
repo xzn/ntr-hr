@@ -18,7 +18,7 @@
 #define RP_ME_INTERPOLATE (1)
 #define RP_ENCODE_MULTITHREAD (1)
 // (0) svc (1) syn
-#define RP_SYN_METHOD (1)
+#define RP_SYN_METHOD (0)
 #define RP_SYN_EX (1)
 
 #define RP_SVC_MS(ms) ((u64)ms * 1000 * 1000)
@@ -79,8 +79,8 @@
 #define SCREEN_DS_HEIGHT(ds) DS_DIM(SCREEN_HEIGHT, ds)
 
 // (+ 1) since motion estimation operates on images downscaled at least once
-#define ME_DS_WIDTH(s, ds) SCREEN_DS_WIDTH(s, 1 + RP_ME_MIN_BLOCK_SIZE + ds)
-#define ME_DS_HEIGHT(ds) SCREEN_DS_HEIGHT(1 + RP_ME_MIN_BLOCK_SIZE + ds)
+#define ME_DS_WIDTH(s, ds) SCREEN_DS_WIDTH(s, 1 + RP_ME_MIN_BLOCK_SIZE_LOG2 + ds)
+#define ME_DS_HEIGHT(ds) SCREEN_DS_HEIGHT(1 + RP_ME_MIN_BLOCK_SIZE_LOG2 + ds)
 
 #define SCREEN_PADDED_SIZE(s) PADDED_SIZE(SCREEN_WIDTH(s), SCREEN_HEIGHT)
 #define SCREEN_PADDED_DS_SIZE(s, ds) PADDED_SIZE(SCREEN_DS_WIDTH(s, ds), SCREEN_DS_HEIGHT(ds))

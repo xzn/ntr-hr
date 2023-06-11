@@ -410,9 +410,6 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			}
 		}
 	}
-	im->ds_y_image = 0;
-	im->ds_ds_y_image = 0;
-	im->mafd_ds_image = 0;
 
 	return 0;
 }
