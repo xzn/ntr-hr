@@ -79,6 +79,7 @@ struct rp_jls_send_ctx_t {
 	u8 thread_n;
 	struct rp_network_encode_t *network;
 	struct rp_net_state_t *net_state;
+	struct jpeg_compress_struct *cinfo;
 	u8 *buffer_begin;
 	u8 *buffer_end;
 	int send_size_total;
@@ -102,5 +103,7 @@ void jls_encoder_prepare_LUTs(struct rp_jls_params_t *params);
 int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
 	const u8 *src, int w, int h, int bpp, u8 encoder_which);
+
+void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT], struct jpeg_error_mgr *jerr, volatile u8 *exit_thread, u8 *alloc, u32 size);
 
 #endif

@@ -12,8 +12,10 @@
 #include "libavfilter/motion_estimation.h"
 #include "libavfilter/scene_sad.h"
 #include "../jpeg_ls/global.h"
+#undef MAX_COMPONENTS
 #include "../jpeg_ls/bitio.h"
 #include "../imagezero/iz_c.h"
+#include "../jpeg_turbo/jpeglib.h"
 #include "xxhash.h"
 
 #define RP_ME_INTERPOLATE (1)
@@ -139,7 +141,8 @@ enum {
     RP_ENCODER_FFMPEG_JLS,
     RP_ENCODER_HP_JLS,
     RP_ENCODER_JLS_COUNT,
-    RP_ENCODER_IMAGE_ZERO = RP_ENCODER_JLS_COUNT
+    RP_ENCODER_IMAGE_ZERO = RP_ENCODER_JLS_COUNT,
+    RP_ENCODER_JPEG_TURBO,
 };
 
 #endif

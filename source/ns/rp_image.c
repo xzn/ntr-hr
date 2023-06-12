@@ -6,7 +6,6 @@ void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
 #define SET_IMAGE_BUFFER(sv, sn, in) do { ctx->image[sv][i].d.in = ctx->image_buffer.sn[i].in; } while (0)
 
 #define SET_IMAGE_BUFFER_SCREEN(sv, sn) do { \
-	SET_IMAGE_BUFFER(sv, sn, rgb_image); \
 	SET_IMAGE_BUFFER(sv, sn, y_image); \
 	SET_IMAGE_BUFFER(sv, sn, u_image); \
 	SET_IMAGE_BUFFER(sv, sn, v_image); \
@@ -29,6 +28,7 @@ void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
 #define SET_IMAGE_ME_BUFFER(in) do { ctx->image_me[i].in = ctx->image_me_buffer[i].in; } while (0)
 
 #define SET_IMAGE_ME_BUFFER_SCREEN() do { \
+	SET_IMAGE_ME_BUFFER(rgb_image); \
 	SET_IMAGE_ME_BUFFER(me_x_image); \
 	SET_IMAGE_ME_BUFFER(me_y_image); \
 	SET_IMAGE_ME_BUFFER(y_image); \

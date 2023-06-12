@@ -14,6 +14,7 @@ LDLIBS := -L. -lc -lm -lgcc -nostdlib
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
 SRC_C += $(wildcard source/ffmpeg/libavcodec/*.c) $(wildcard source/ffmpeg/libavfilter/*.c) $(wildcard source/ffmpeg/libavutil/*.c)
 SRC_C += $(wildcard source/jpeg_ls/*.c)
+SRC_C += $(wildcard source/jpeg_turbo/*.c)
 SRC_X += $(wildcard source/imagezero/*.cpp)
 SRC_S := $(wildcard source/*.s) $(wildcard source/libctru/*.s)
 OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_X:.cpp=.o) $(SRC_S:.s=.o)))
@@ -77,6 +78,9 @@ obj/%.o: source/ffmpeg/libavutil/%.c
 	$(CC_CMD) -Isource/ffmpeg
 
 obj/%.o: source/jpeg_ls/%.c
+	$(CC_CMD)
+
+obj/%.o: source/jpeg_turbo/%.c
 	$(CC_CMD)
 
 obj/%.o: source/imagezero/%.cpp

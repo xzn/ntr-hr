@@ -8,6 +8,7 @@ union rp_conf_arg0_t {
 		u32 me_select : RP_IMAGE_ME_SELECT_BITS;
 		u32 multicore_network : 1;
 		u32 multicore_screen : 1;
+		u32 jpeg_quality : 7;
 	};
 };
 
@@ -65,6 +66,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->color_transform_hp = arg1.color_transform_hp;
 	conf->downscale_uv = arg1.downscale_uv;
 	conf->encoder_which = arg1.encoder_which;
+	conf->jpeg_quality = arg0.jpeg_quality;
 
 	conf->me.select = arg0.me_select;
 	conf->me.method = arg1.me_method;

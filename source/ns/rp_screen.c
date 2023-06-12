@@ -245,7 +245,7 @@ int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_t
 	);
 }
 
-int rpEncodeImageRGB(struct rp_screen_encode_t *screen) {
+int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *image_me) {
 	struct rp_screen_ctx_t c = screen->c;
 	int top_bot = c.top_bot;
 
@@ -253,12 +253,9 @@ int rpEncodeImageRGB(struct rp_screen_encode_t *screen) {
 	width = SCREEN_WIDTH(top_bot);
 	height = SCREEN_HEIGHT;
 
-	struct rp_image_t *image = screen->image;
-	struct rp_image_data_t *im = &image->d;
-
 	return convert_rgb_image(
 		screen->c.format, width, height, screen->pitch,
-		screen->buffer, im->rgb_image, &im->y_bpp
+		screen->buffer, image_me->rgb_image, &image_me->y_bpp
 	);
 }
 

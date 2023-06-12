@@ -59,21 +59,16 @@ struct rp_image_ctx_t {
 
 #define RP_IMAGE_BUFFER_DEFINE(sv) \
 	struct { \
+		u8 y_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
 		union { \
+			u8 u_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
 			struct { \
-				u8 y_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
-				union { \
-					u8 u_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
-					struct { \
-						u8 ds_v_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-						u8 ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-						u8 ds_ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
-					}; \
-				}; \
-				u8 v_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
+				u8 ds_v_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+				u8 ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+				u8 ds_ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
 			}; \
-			u8 rgb_image[SCREEN_WIDTH_MAX * SCREEN_HEIGHT * 3] ALIGN_4; \
 		}; \
+		u8 v_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
 		union { \
 			u8 ds_u_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
 			u8 ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
@@ -86,26 +81,32 @@ struct rp_image_ctx_t {
 		}; \
 	} \
 
-	struct {
-		RP_IMAGE_BUFFER_DEFINE(SCREEN_TOP) top[RP_IMAGE_BUFFER_COUNT];
-		RP_IMAGE_BUFFER_DEFINE(SCREEN_BOT) bot[RP_IMAGE_BUFFER_COUNT];
-	} image_buffer;
+	union {
+		struct {
+			RP_IMAGE_BUFFER_DEFINE(SCREEN_TOP) top[RP_IMAGE_BUFFER_COUNT];
+			RP_IMAGE_BUFFER_DEFINE(SCREEN_BOT) bot[RP_IMAGE_BUFFER_COUNT];
+		} image_buffer;
+		u8 jpeg_turbo_alloc[RP_ENCODE_THREAD_COUNT][768 * 1024] ALIGN_4;
+	};
 
 	struct rp_image_data_t image_me[RP_ENCODE_THREAD_COUNT];
 
-	struct {
-		s8 me_x_image[ME_SIZE_MAX] ALIGN_4;
-		s8 me_y_image[ME_SIZE_MAX] ALIGN_4;
-		u8 y_image[SCREEN_SIZE_MAX] ALIGN_4;
-		// either non-ds or ds
-		union {
-			u8 u_image[SCREEN_SIZE_MAX] ALIGN_4;
-			u8 ds_u_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
+	union {
+		struct {
+			s8 me_x_image[ME_SIZE_MAX] ALIGN_4;
+			s8 me_y_image[ME_SIZE_MAX] ALIGN_4;
+			u8 y_image[SCREEN_SIZE_MAX] ALIGN_4;
+			// either non-ds or ds
+			union {
+				u8 u_image[SCREEN_SIZE_MAX] ALIGN_4;
+				u8 ds_u_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
+			};
+			union {
+				u8 v_image[SCREEN_SIZE_MAX] ALIGN_4;
+				u8 ds_v_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
+			};
 		};
-		union {
-			u8 v_image[SCREEN_SIZE_MAX] ALIGN_4;
-			u8 ds_v_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
-		};
+		u8 rgb_image[SCREEN_WIDTH_MAX * SCREEN_HEIGHT * 3] ALIGN_4; \
 	} image_me_buffer[RP_ENCODE_THREAD_COUNT];
 
 	struct rp_screen_image_t {

@@ -106,7 +106,7 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 
 	struct rp_send_data_header *send_header = ctx->jls_send_ctx->send_header;
 
-	if (ctx->encoder_which == RP_ENCODER_IMAGE_ZERO) {
+	if (ctx->encoder_which >= RP_ENCODER_JLS_COUNT) {
 		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_Y);
 		return rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->rgb_image, width, height, im->y_bpp);
 	}
@@ -225,7 +225,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 				break;
 			}
 		} else {
-			ret = rpEncodeImageRGB(screen);
+			ret = rpEncodeImageRGB(screen, image_me);
 			if (ret < 0) {
 				nsDbgPrint("rpEncodeImageRGB failed\n");
 				break;
@@ -262,7 +262,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		image_curr = 0;
 
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
-		struct rp_const_image_data_t *im = c.p_frame ? rp_const_image_data(image_me) : &image->d;
+		struct rp_const_image_data_t *im = c.p_frame || !encoder_jls ? rp_const_image_data(image_me) : &image->d;
 
 		struct rp_send_data_header send_header = {
 			.type_data = RP_SEND_HEADER_TYPE_DATA,
@@ -279,6 +279,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.multicore_network = rp_ctx->conf.multicore_network,
 			.network = !rp_ctx->conf.multicore_network ? &rp_ctx->network_encode[thread_n] : 0,
 			.net_state = !rp_ctx->conf.multicore_network ? &rp_ctx->net_state : 0,
+			.cinfo = &rp_ctx->cinfo[thread_n],
 		};
 		struct rp_encode_and_send_screen_ctx_t encode_send_ctx = {
 			.jls_send_ctx = &jls_send_ctx,
@@ -396,6 +397,7 @@ void rpThreadStart(u32 arg) {
 	}
 	rp_init_image_buffers(&rp_ctx->image_ctx);
 	jls_encoder_prepare_LUTs(&rp_ctx->jls_param);
+	jpeg_turbo_init_ctx(rp_ctx->cinfo, &rp_ctx->jerr, &rp_ctx->exit_thread, *rp_ctx->image_ctx.jpeg_turbo_alloc, sizeof(*rp_ctx->image_ctx.jpeg_turbo_alloc));
 	izInitEncodeTable();
 	rpInitDmaHome(&rp_ctx->dma_ctx, rp_ctx->dma_config);
 
@@ -405,6 +407,9 @@ void rpThreadStart(u32 arg) {
 	int ret = 0;
 	while (ret >= 0) {
 		rp_set_params(&rp_ctx->conf);
+
+		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i)
+			jpeg_set_quality(&rp_ctx->cinfo[i], rp_ctx->conf.jpeg_quality, 1);
 
 		if ((ret = rpKCPClear(&rp_ctx->net_ctx))) {
 			nsDbgPrint("rpKCPClear timeout/error %d\n", ret);
