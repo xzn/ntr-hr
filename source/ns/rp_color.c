@@ -134,6 +134,101 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 	};
 }
 
+int convert_rgb_image(int format, int width, int height, int pitch, const u8 *restrict sp, u8 *restrict dp_rgb_out, u8 *bpp) {
+	int bytes_per_pixel;
+	if (format == 0) {
+		bytes_per_pixel = 4;
+	} else if (format == 1) {
+		bytes_per_pixel = 3;
+	} else {
+		bytes_per_pixel = 2;
+	}
+	int bytes_per_column = bytes_per_pixel * height;
+	int bytes_to_next_column = pitch - bytes_per_column;
+
+	ASSUME_ALIGN_4(sp);
+	ASSUME_ALIGN_4(dp_rgb_out);
+
+	int x, y;
+
+	switch (format) {
+		// untested
+		case 0:
+			if (0)
+				++sp;
+			else
+				return -1;
+
+			FALLTHRU
+		case 1: {
+			for (x = 0; x < width; ++x) {
+				for (y = 0; y < height; ++y) {
+					*dp_rgb_out++ = sp[2];
+					*dp_rgb_out++ = sp[1];
+					*dp_rgb_out++ = sp[0];
+					sp += bytes_per_pixel;
+				}
+				sp += bytes_to_next_column;
+			}
+			*bpp = 8;
+			break;
+		}
+
+		case 2: {
+			for (x = 0; x < width; x++) {
+				for (y = 0; y < height; y++) {
+					u16 pix = *(u16*)sp;
+					*dp_rgb_out++ = ((pix >> 11) & 0x1f) << 1;
+					*dp_rgb_out++ = (pix >> 5) & 0x3f;
+					*dp_rgb_out++ = (pix & 0x1f) << 1;
+					sp += bytes_per_pixel;
+				}
+				sp += bytes_to_next_column;
+			}
+			*bpp = 6;
+			break;
+		}
+
+		// untested
+		case 3:
+		if (0) {
+			for (x = 0; x < width; x++) {
+				for (y = 0; y < height; y++) {
+					u16 pix = *(u16*)sp;
+					*dp_rgb_out++ = (pix >> 11) & 0x1f;
+					*dp_rgb_out++ = (pix >> 6) & 0x1f;
+					*dp_rgb_out++ = (pix >> 1) & 0x1f;
+					sp += bytes_per_pixel;
+				}
+				sp += bytes_to_next_column;
+			}
+			*bpp = 5;
+			break;
+		} FALLTHRU
+
+		// untested
+		case 4:
+		if (0) {
+			for (x = 0; x < width; x++) {
+				for (y = 0; y < height; y++) {
+					u16 pix = *(u16*)sp;
+					*dp_rgb_out++ = (pix >> 12) & 0x0f;
+					*dp_rgb_out++ = (pix >> 8) & 0x0f;
+					*dp_rgb_out++ = (pix >> 4) & 0x0f;
+					sp += bytes_per_pixel;
+				}
+				sp += bytes_to_next_column;
+			}
+			*bpp = 4;
+			break;
+		} FALLTHRU
+
+		default:
+			return -1;
+	}
+	return 0;
+}
+
 int convert_yuv_image(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,

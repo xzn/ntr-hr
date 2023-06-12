@@ -106,6 +106,11 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 
 	struct rp_send_data_header *send_header = ctx->jls_send_ctx->send_header;
 
+	if (ctx->encoder_which == RP_ENCODER_IMAGE_ZERO) {
+		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_Y);
+		return rpJLSEncodePlaneAndSend(ctx, (const u8 *)im->rgb_image, width, height, im->y_bpp);
+	}
+
 	if (c->p_frame) {
 		if (me->enabled == 1 || (me->enabled > 1 && me->select)) {
 			rpUpdateSendHeader(send_header, RP_PLANE_TYPE_ME, RP_PLANE_COMP_ME_X);
@@ -146,6 +151,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.downscale_uv = rp_ctx->conf.downscale_uv,
 			.yuv_option = rp_ctx->conf.yuv_option,
 			.color_transform_hp = rp_ctx->conf.color_transform_hp,
+			.encoder_which = rp_ctx->conf.encoder_which,
 			.me_enabled = rp_ctx->conf.me.enabled > 1 ?
 				rp_ctx->conf.me.enabled - !rp_ctx->conf.me.select : rp_ctx->conf.me.enabled,
 			.me_downscale = rp_ctx->conf.me.downscale,
@@ -210,10 +216,20 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			}
 		}
 
-		ret = rpEncodeImage(screen, rp_ctx->conf.yuv_option, rp_ctx->conf.color_transform_hp);
-		if (ret < 0) {
-			nsDbgPrint("rpEncodeImage failed\n");
-			break;
+		int encoder_jls = rp_ctx->conf.encoder_which < RP_ENCODER_JLS_COUNT;
+
+		if (encoder_jls) {
+			ret = rpEncodeImage(screen, rp_ctx->conf.yuv_option, rp_ctx->conf.color_transform_hp);
+			if (ret < 0) {
+				nsDbgPrint("rpEncodeImage failed\n");
+				break;
+			}
+		} else {
+			ret = rpEncodeImageRGB(screen);
+			if (ret < 0) {
+				nsDbgPrint("rpEncodeImageRGB failed\n");
+				break;
+			}
 		}
 
 		struct rp_image_t *image_curr = screen->image;
@@ -227,10 +243,12 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		}
 		screen = 0;
 
-		ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode);
-		if (ret < 0) {
-			nsDbgPrint("rpDownscaleMEImage failed\n");
-			break;
+		if (encoder_jls) {
+			ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode);
+			if (ret < 0) {
+				nsDbgPrint("rpDownscaleMEImage failed\n");
+				break;
+			}
 		}
 		image_prev = 0;
 		struct rp_const_image_t *image = 0;
@@ -378,6 +396,7 @@ void rpThreadStart(u32 arg) {
 	}
 	rp_init_image_buffers(&rp_ctx->image_ctx);
 	jls_encoder_prepare_LUTs(&rp_ctx->jls_param);
+	izInitEncodeTable();
 	rpInitDmaHome(&rp_ctx->dma_ctx, rp_ctx->dma_config);
 
 	rpNetworkInit(&rp_ctx->net_ctx, rp_ctx->nwm_send_buffer, rp_ctx->control_recv_buffer);

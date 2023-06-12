@@ -9,6 +9,8 @@ int convert_yuv_image(
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp
 );
 
+int convert_rgb_image(int format, int width, int height, int pitch, const u8 *restrict sp, u8 *restrict dp_rgb_out, u8 *bpp);
+
 void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig);
 
 #endif

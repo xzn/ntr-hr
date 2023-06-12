@@ -122,6 +122,17 @@ static int rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
 	return 0;
 }
 
+static int rpJLSSendEncodedCallback_2(struct BitCoderPtrs *ctx) {
+	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
+	sctx->buffer_begin = (u8 *)ctx->p;
+	int ret;
+	if ((ret = rpJLSSendEncodedCallback(sctx)))
+		return ret;
+	ctx->p = (Code_def_t *)sctx->buffer_begin;
+	ctx->p_end = (Code_def_t *)sctx->buffer_end;
+	return 0;
+}
+
 extern const uint8_t psl0[];
 int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
@@ -159,7 +170,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 	}
 
-	if (encoder_which == 0) {
+	if (encoder_which == RP_ENCODER_FFMPEG_JLS) {
 		JLSState state = { 0 };
 		state.bpp = bpp;
 
@@ -193,7 +204,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 		}
 		send_ctx->buffer_begin = s.buf_ptr;
-	} else {
+	} else if (encoder_which == RP_ENCODER_HP_JLS) {
 		struct jls_enc_ctx *ctx = &jls_ctx->enc;
 		struct bito_ctx *bctx = &jls_ctx->bito;
 		bctx->flush = rpJLSSendEncodedCallback_1;
@@ -209,6 +220,22 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 		}
 		send_ctx->buffer_begin = (u8 *)bctx->buf;
+	} else if (encoder_which == RP_ENCODER_IMAGE_ZERO) {
+		struct BitCoderPtrs ptrs = {
+			.p = (Code_def_t *)send_ctx->buffer_begin,
+			.p_end = (Code_def_t *)send_ctx->buffer_end,
+			.flush = rpJLSSendEncodedCallback_2,
+			.user = send_ctx,
+		};
+		ret = izEncodeImageRGB(&ptrs, src, h, w, h * 3);
+		if (ret) {
+			nsDbgPrint("izEncodeImageRGB failed: %d\n", ret);
+			return -1;
+		}
+		send_ctx->buffer_begin = (u8 *)ptrs.p;
+	} else {
+		nsDbgPrint("Unknown encoder: %d\n", encoder_which);
+		return -1;
 	}
 
 	send_ctx->send_header->data_end = 1;

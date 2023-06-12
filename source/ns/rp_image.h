@@ -7,6 +7,7 @@
 	struct n { \
 		CONST_OPT s8 *me_x_image; \
 		CONST_OPT s8 *me_y_image; \
+		CONST_OPT u8 *rgb_image; \
 		CONST_OPT u8 *y_image; \
 		CONST_OPT u8 *u_image; \
 		CONST_OPT u8 *v_image; \
@@ -58,16 +59,21 @@ struct rp_image_ctx_t {
 
 #define RP_IMAGE_BUFFER_DEFINE(sv) \
 	struct { \
-		u8 y_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
 		union { \
-			u8 u_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
 			struct { \
-				u8 ds_v_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-				u8 ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-				u8 ds_ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
+				u8 y_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
+				union { \
+					u8 u_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
+					struct { \
+						u8 ds_v_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+						u8 ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+						u8 ds_ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
+					}; \
+				}; \
+				u8 v_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
 			}; \
+			u8 rgb_image[SCREEN_WIDTH_MAX * SCREEN_HEIGHT * 3] ALIGN_4; \
 		}; \
-		u8 v_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
 		union { \
 			u8 ds_u_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
 			u8 ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \

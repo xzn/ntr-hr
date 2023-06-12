@@ -14,8 +14,9 @@ LDLIBS := -L. -lc -lm -lgcc -nostdlib
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
 SRC_C += $(wildcard source/ffmpeg/libavcodec/*.c) $(wildcard source/ffmpeg/libavfilter/*.c) $(wildcard source/ffmpeg/libavutil/*.c)
 SRC_C += $(wildcard source/jpeg_ls/*.c)
+SRC_X += $(wildcard source/imagezero/*.cpp)
 SRC_S := $(wildcard source/*.s) $(wildcard source/libctru/*.s)
-OBJ := $(addprefix obj/,$(notdir $(SRC_S:.s=.o) $(SRC_C:.c=.o)))
+OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_X:.cpp=.o) $(SRC_S:.s=.o)))
 DEP := $(OBJ:.o=.d)
 
 PAYLOAD_BIN_NAME := ntr.n3ds.hr.bin
@@ -43,6 +44,7 @@ $(PAYLOAD_LOCAL_ELF): $(OBJ)
 	$(CC) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $<
+CXX_CMD = $(CXX) $(CFLAGS) $(CPPFLAGS) -fno-exceptions -MMD -c -o $@ $<
 
 obj/%.o: source/%.s
 	$(CC_CMD)
@@ -76,6 +78,9 @@ obj/%.o: source/ffmpeg/libavutil/%.c
 
 obj/%.o: source/jpeg_ls/%.c
 	$(CC_CMD)
+
+obj/%.o: source/imagezero/%.cpp
+	$(CXX_CMD)
 
 -include $(DEP)
 
