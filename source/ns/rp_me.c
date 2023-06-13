@@ -167,7 +167,7 @@ void me_add_half_range(u8 *me, int width, int height, u8 scale_log2, u8 half_ran
 	u8 block_x_n = width >> block_size_log2;
 	u8 block_y_n = height >> block_size_log2;
 
-	me += LEFTMARGIN;
+	convert_set_zero(&me);
 	for (int i = 0; i < block_x_n; ++i) {
 		if (i)
 			convert_set_prev_first(&me, block_y_n);
@@ -204,7 +204,7 @@ u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 
 		select_threshold = ((u32)select_threshold * (1 << bpp)) >> (RP_IMAGE_ME_SELECT_BITS + mafd_shift);
 
-		me_x_image += LEFTMARGIN;
+		convert_set_zero((u8 **)&me_x_image);
 
 		const s8 *me_x_col = me_x_image;
 

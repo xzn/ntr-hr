@@ -245,7 +245,7 @@ int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_t
 	);
 }
 
-int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *image_me) {
+int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *image_me, int bpp) {
 	struct rp_screen_ctx_t c = screen->c;
 	int top_bot = c.top_bot;
 
@@ -253,10 +253,14 @@ int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *
 	width = SCREEN_WIDTH(top_bot);
 	height = SCREEN_HEIGHT;
 
-	return convert_rgb_image(
+	u8 *rgb_bpp = bpp ? 0 : &image_me->y_bpp;
+	int ret = convert_rgb_image(
 		screen->c.format, width, height, screen->pitch,
-		screen->buffer, image_me->rgb_image, &image_me->y_bpp
+		screen->buffer, image_me->rgb_image, rgb_bpp
 	);
+	if (bpp)
+		image_me->y_bpp = 8;
+	return ret;
 }
 
 int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, struct rp_const_image_t *image_prev, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore UNUSED) {

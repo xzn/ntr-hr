@@ -170,7 +170,8 @@ int convert_rgb_image(int format, int width, int height, int pitch, const u8 *re
 				}
 				sp += bytes_to_next_column;
 			}
-			*bpp = 8;
+			if (bpp)
+				*bpp = 8;
 			break;
 		}
 
@@ -178,14 +179,21 @@ int convert_rgb_image(int format, int width, int height, int pitch, const u8 *re
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					*dp_rgb_out++ = ((pix >> 11) & 0x1f) << 1;
-					*dp_rgb_out++ = (pix >> 5) & 0x3f;
-					*dp_rgb_out++ = (pix & 0x1f) << 1;
+					if (bpp) {
+						*dp_rgb_out++ = ((pix >> 11) & 0x1f) << 1;
+						*dp_rgb_out++ = (pix >> 5) & 0x3f;
+						*dp_rgb_out++ = (pix & 0x1f) << 1;
+					} else {
+						*dp_rgb_out++ = ((pix >> 11) & 0x1f) << 3;
+						*dp_rgb_out++ = ((pix >> 5) & 0x3f) << 2;
+						*dp_rgb_out++ = (pix & 0x1f) << 3;
+					}
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 			}
-			*bpp = 6;
+			if (bpp)
+				*bpp = 6;
 			break;
 		}
 
@@ -195,14 +203,21 @@ int convert_rgb_image(int format, int width, int height, int pitch, const u8 *re
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					*dp_rgb_out++ = (pix >> 11) & 0x1f;
-					*dp_rgb_out++ = (pix >> 6) & 0x1f;
-					*dp_rgb_out++ = (pix >> 1) & 0x1f;
+					if (bpp) {
+						*dp_rgb_out++ = (pix >> 11) & 0x1f;
+						*dp_rgb_out++ = (pix >> 6) & 0x1f;
+						*dp_rgb_out++ = (pix >> 1) & 0x1f;
+					} else {
+						*dp_rgb_out++ = ((pix >> 11) & 0x1f) << 3;
+						*dp_rgb_out++ = ((pix >> 6) & 0x1f) << 3;
+						*dp_rgb_out++ = ((pix >> 1) & 0x1f) << 3;
+					}
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 			}
-			*bpp = 5;
+			if (bpp)
+				*bpp = 5;
 			break;
 		} FALLTHRU
 
@@ -212,14 +227,21 @@ int convert_rgb_image(int format, int width, int height, int pitch, const u8 *re
 			for (x = 0; x < width; x++) {
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
-					*dp_rgb_out++ = (pix >> 12) & 0x0f;
-					*dp_rgb_out++ = (pix >> 8) & 0x0f;
-					*dp_rgb_out++ = (pix >> 4) & 0x0f;
+					if (bpp) {
+						*dp_rgb_out++ = (pix >> 12) & 0x0f;
+						*dp_rgb_out++ = (pix >> 8) & 0x0f;
+						*dp_rgb_out++ = (pix >> 4) & 0x0f;
+					} else {
+						*dp_rgb_out++ = ((pix >> 12) & 0x0f) << 4;
+						*dp_rgb_out++ = ((pix >> 8) & 0x0f) << 4;
+						*dp_rgb_out++ = ((pix >> 4) & 0x0f) << 4;
+					}
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 			}
-			*bpp = 4;
+			if (bpp)
+				*bpp = 4;
 			break;
 		} FALLTHRU
 

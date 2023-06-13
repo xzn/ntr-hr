@@ -298,17 +298,20 @@ typedef enum {
 
 /* Common fields between JPEG compression and decompression master structs. */
 
+struct rp_jpeg_client_data_t {
+  volatile uint8_t *exit_thread;
+  uint8_t *dst, *dst_end;
+  void *user;
+  uint8_t *alloc_begin, *alloc, *alloc_end;
+};
+
 #define jpeg_common_fields \
   struct jpeg_error_mgr *err;   /* Error handler module */ \
   struct jpeg_memory_mgr *mem;  /* Memory manager module */ \
   struct jpeg_progress_mgr *progress; /* Progress monitor, or NULL if none */ \
   void *client_data;            /* Available for use by application */ \
   boolean is_decompressor;      /* So common code can tell which is which */ \
-  int global_state;              /* For checking call sequence validity */ \
-  volatile uint8_t *exit_thread; \
-  uint8_t *dst, *dst_end; \
-  void *user; \
-  uint8_t *alloc_begin, *alloc, *alloc_end
+  int global_state              /* For checking call sequence validity */
 
 /* Routines that are to be used by both halves of the library are declared
  * to receive a pointer to this structure.  There are no actual instances of

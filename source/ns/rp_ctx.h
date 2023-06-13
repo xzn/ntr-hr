@@ -54,6 +54,7 @@ struct rp_ctx_t {
 	struct rp_screen_state_t screen_ctx;
 
 	struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT];
+	struct rp_jpeg_client_data_t cinfo_user[RP_ENCODE_THREAD_COUNT];
 	struct jpeg_error_mgr jerr;
 };
 

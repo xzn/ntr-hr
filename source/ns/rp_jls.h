@@ -104,6 +104,8 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
 	const u8 *src, int w, int h, int bpp, u8 encoder_which);
 
-void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT], struct jpeg_error_mgr *jerr, volatile u8 *exit_thread, u8 *alloc, u32 size);
+void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT],
+	struct rp_jpeg_client_data_t cinfo_user[RP_ENCODE_THREAD_COUNT],
+	struct jpeg_error_mgr *jerr, volatile u8 *exit_thread, u8 *alloc, u32 size);
 
 #endif

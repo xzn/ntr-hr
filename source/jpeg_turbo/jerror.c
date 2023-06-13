@@ -79,7 +79,7 @@ error_exit(j_common_ptr cinfo)
   jpeg_destroy(cinfo);
 
   // exit(EXIT_FAILURE);
-  *cinfo->exit_thread = 1;
+  *((struct rp_jpeg_client_data_t *)(cinfo->client_data))->exit_thread = 1;
   svc_exitThread();
   __builtin_unreachable();
 }

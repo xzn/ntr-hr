@@ -225,7 +225,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 				break;
 			}
 		} else {
-			ret = rpEncodeImageRGB(screen, image_me);
+			ret = rpEncodeImageRGB(screen, image_me, rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO);
 			if (ret < 0) {
 				nsDbgPrint("rpEncodeImageRGB failed\n");
 				break;
@@ -326,7 +326,7 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 
 	if (rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO) {
 		jpeg_turbo_init_ctx(
-			rp_ctx->cinfo, &rp_ctx->jerr, &rp_ctx->exit_thread,
+			rp_ctx->cinfo, rp_ctx->cinfo_user, &rp_ctx->jerr, &rp_ctx->exit_thread,
 			*rp_ctx->image_ctx.jpeg_turbo_alloc, sizeof(*rp_ctx->image_ctx.jpeg_turbo_alloc));
 
 		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i)

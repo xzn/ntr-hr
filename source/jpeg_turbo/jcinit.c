@@ -64,11 +64,11 @@ jinit_compress_master(j_compress_ptr cinfo)
   if (cinfo->master->lossless) {
 #ifdef C_LOSSLESS_SUPPORTED
     /* Prediction, sample differencing, and point transform */
-    if (cinfo->data_precision == 16)
-      j16init_lossless_compressor(cinfo);
-    else if (cinfo->data_precision == 12)
-      j12init_lossless_compressor(cinfo);
-    else
+    // if (cinfo->data_precision == 16)
+    //   j16init_lossless_compressor(cinfo);
+    // else if (cinfo->data_precision == 12)
+    //   j12init_lossless_compressor(cinfo);
+    // else
       jinit_lossless_compressor(cinfo);
     /* Entropy encoding: either Huffman or arithmetic coding. */
     if (cinfo->arith_code) {
@@ -78,13 +78,13 @@ jinit_compress_master(j_compress_ptr cinfo)
     }
 
     /* Need a full-image difference buffer in any multi-pass mode. */
-    if (cinfo->data_precision == 16)
-      j16init_c_diff_controller(cinfo, (boolean)(cinfo->num_scans > 1 ||
-                                                 cinfo->optimize_coding));
-    else if (cinfo->data_precision == 12)
-      j12init_c_diff_controller(cinfo, (boolean)(cinfo->num_scans > 1 ||
-                                                 cinfo->optimize_coding));
-    else
+    // if (cinfo->data_precision == 16)
+    //   j16init_c_diff_controller(cinfo, (boolean)(cinfo->num_scans > 1 ||
+    //                                              cinfo->optimize_coding));
+    // else if (cinfo->data_precision == 12)
+    //   j12init_c_diff_controller(cinfo, (boolean)(cinfo->num_scans > 1 ||
+    //                                              cinfo->optimize_coding));
+    // else
       jinit_c_diff_controller(cinfo, (boolean)(cinfo->num_scans > 1 ||
                                                cinfo->optimize_coding));
 #else

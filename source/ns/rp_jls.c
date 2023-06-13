@@ -134,13 +134,14 @@ static int rpJLSSendEncodedCallback_2(struct BitCoderPtrs *ctx) {
 }
 
 static int rpJLSSendEncodedCallback_3(j_common_ptr ctx) {
-	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
-	sctx->buffer_begin = ctx->dst;
+	struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)ctx->client_data;
+	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)cctx->user;
+	sctx->buffer_begin = cctx->dst;
 	int ret;
 	if ((ret = rpJLSSendEncodedCallback(sctx)))
 		return ret;
-	ctx->dst = sctx->buffer_begin;
-	ctx->dst_end = sctx->buffer_end;
+	cctx->dst = sctx->buffer_begin;
+	cctx->dst_end = sctx->buffer_end;
 	return 0;
 }
 
@@ -246,9 +247,11 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		send_ctx->buffer_begin = (u8 *)ptrs.p;
 	} else if (encoder_which == RP_ENCODER_JPEG_TURBO) {
 		j_compress_ptr cinfo = send_ctx->cinfo;
-		cinfo->dst = send_ctx->buffer_begin;
-		cinfo->dst_end = send_ctx->buffer_end;
-		cinfo->user = send_ctx;
+		struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)cinfo->client_data;
+
+		cctx->dst = send_ctx->buffer_begin;
+		cctx->dst_end = send_ctx->buffer_end;
+		cctx->user = send_ctx;
 
 		cinfo->image_width = h;
 		cinfo->image_height = w;
@@ -262,11 +265,11 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		jpeg_finish_compress(cinfo);
 		if (0)
 			nsDbgPrint("jpeg turbo memory used: %d/%d\n",
-				cinfo->alloc - cinfo->alloc_begin,
-				cinfo->alloc_end - cinfo->alloc_begin);
-		cinfo->alloc = cinfo->alloc_begin;
+				cctx->alloc - cctx->alloc_begin,
+				cctx->alloc_end - cctx->alloc_begin);
+		cctx->alloc = cctx->alloc_begin;
 
-		send_ctx->buffer_begin = cinfo->dst;
+		send_ctx->buffer_begin = cctx->dst;
 	} else {
 		nsDbgPrint("Unknown encoder: %d\n", encoder_which);
 		return -1;
@@ -279,13 +282,18 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	return send_ctx->send_size_total;
 }
 
-void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT], struct jpeg_error_mgr *jerr, volatile u8 *exit_thread, u8 *alloc, u32 size) {
+void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT],
+	struct rp_jpeg_client_data_t cinfo_user[RP_ENCODE_THREAD_COUNT],
+	struct jpeg_error_mgr *jerr, volatile u8 *exit_thread, u8 *alloc, u32 size
+) {
 	struct jpeg_error_mgr *err = jpeg_std_error(jerr);
 	for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
-		cinfo[i].alloc = alloc + size * i;
-		cinfo[i].alloc_end = cinfo[i].alloc + size;
+		cinfo_user[i].alloc = alloc + size * i;
+		cinfo_user[i].alloc_end = cinfo_user[i].alloc + size;
+		cinfo_user[i].exit_thread = exit_thread;
 
 		cinfo[i].err = err;
+		cinfo[i].client_data = &cinfo_user[i];
 		jpeg_create_compress(&cinfo[i]);
 		jpeg_stdio_dest(&cinfo[i], 0);
 
@@ -294,22 +302,22 @@ void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUN
 		cinfo[i].dct_method = JDCT_FASTEST;
 		cinfo[i].input_components = 3;
 
-		cinfo[i].exit_thread = exit_thread;
-		cinfo[i].alloc_begin = cinfo[i].alloc;
+		cinfo_user[i].alloc_begin = cinfo_user[i].alloc;
 	}
 }
 
 int jpeg_turbo_write(j_common_ptr cinfo, const u8 *buf, u32 size) {
+	struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)cinfo->client_data;
 	while (size) {
-		int write_size = RP_MIN((int)size, (int)(cinfo->dst_end - cinfo->dst));
+		int write_size = RP_MIN((int)size, (int)(cctx->dst_end - cctx->dst));
 		if (!write_size) {
 			int ret;
 			if ((ret = rpJLSSendEncodedCallback_3(cinfo)))
 				return ret;
 			continue;
 		}
-		memcpy(cinfo->dst, buf, write_size);
-		cinfo->dst += write_size;
+		memcpy(cctx->dst, buf, write_size);
+		cctx->dst += write_size;
 		buf += write_size;
 		size -= write_size;
 	}
@@ -317,13 +325,15 @@ int jpeg_turbo_write(j_common_ptr cinfo, const u8 *buf, u32 size) {
 }
 
 void *jpeg_turbo_malloc(j_common_ptr cinfo, size_t size) {
+	struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)cinfo->client_data;
 	size = (size + 8 - 1) / 8 * 8;
-	u8 *ret = cinfo->alloc + size;
-	if (ret <= cinfo->alloc_end) {
-		cinfo->alloc = ret;
+	u8 *ret = cctx->alloc;
+	u8 *alloc_next = ret + size;
+	if (alloc_next <= cctx->alloc_end) {
+		cctx->alloc = alloc_next;
 		return ret;
 	}
-	nsDbgPrint("jpeg_turbo_malloc out of memory\n");
+	showDbg((u8 *)"jpeg_turbo_malloc out of memory\n", 0, 0);
 	return 0;
 }
 
