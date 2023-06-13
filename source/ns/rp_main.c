@@ -328,6 +328,9 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 		jpeg_turbo_init_ctx(
 			rp_ctx->cinfo, &rp_ctx->jerr, &rp_ctx->exit_thread,
 			*rp_ctx->image_ctx.jpeg_turbo_alloc, sizeof(*rp_ctx->image_ctx.jpeg_turbo_alloc));
+
+		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i)
+			jpeg_set_quality(&rp_ctx->cinfo[i], rp_ctx->conf.jpeg_quality, 1);
 	}
 
 	// Without dedicated screen thread, both encode thread will compete for access, thus needing sync
@@ -412,9 +415,6 @@ void rpThreadStart(u32 arg) {
 	int ret = 0;
 	while (ret >= 0) {
 		rp_set_params(&rp_ctx->conf);
-
-		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i)
-			jpeg_set_quality(&rp_ctx->cinfo[i], rp_ctx->conf.jpeg_quality, 1);
 
 		if ((ret = rpKCPClear(&rp_ctx->net_ctx))) {
 			nsDbgPrint("rpKCPClear timeout/error %d\n", ret);
