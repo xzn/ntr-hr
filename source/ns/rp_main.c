@@ -324,6 +324,12 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)))
 		return ret;
 
+	if (rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO) {
+		jpeg_turbo_init_ctx(
+			rp_ctx->cinfo, &rp_ctx->jerr, &rp_ctx->exit_thread,
+			*rp_ctx->image_ctx.jpeg_turbo_alloc, sizeof(*rp_ctx->image_ctx.jpeg_turbo_alloc));
+	}
+
 	// Without dedicated screen thread, both encode thread will compete for access, thus needing sync
 	int screen_ctx_sync = RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !rp_ctx->conf.multicore_screen;
 	rpScreenEncodeInit(&rp_ctx->screen_ctx, &rp_ctx->dyn_prio, rp_ctx->conf.min_capture_interval_ticks, screen_ctx_sync);
@@ -397,7 +403,6 @@ void rpThreadStart(u32 arg) {
 	}
 	rp_init_image_buffers(&rp_ctx->image_ctx);
 	jls_encoder_prepare_LUTs(&rp_ctx->jls_param);
-	jpeg_turbo_init_ctx(rp_ctx->cinfo, &rp_ctx->jerr, &rp_ctx->exit_thread, *rp_ctx->image_ctx.jpeg_turbo_alloc, sizeof(*rp_ctx->image_ctx.jpeg_turbo_alloc));
 	izInitEncodeTable();
 	rpInitDmaHome(&rp_ctx->dma_ctx, rp_ctx->dma_config);
 

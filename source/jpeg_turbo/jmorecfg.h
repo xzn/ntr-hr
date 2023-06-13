@@ -26,7 +26,7 @@
  * bytes of storage, whether actually used in an image or not.)
  */
 
-#define MAX_COMPONENTS  10      /* maximum number of image components */
+#define MAX_COMPONENTS  4      /* maximum number of image components */
 
 
 /*
