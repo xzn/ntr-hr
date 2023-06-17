@@ -101,7 +101,7 @@ static int rpJLSSendEncodedCallback(struct rp_jls_send_ctx_t *ctx) {
 }
 
 static int rpJLSSendEncodedCallback_0(struct PutBitContext *ctx) {
-	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
+	struct rp_jls_send_ctx_t *sctx = ctx->user;
 	sctx->buffer_begin = ctx->buf_ptr;
 	int ret;
 	if ((ret = rpJLSSendEncodedCallback(sctx)))
@@ -112,7 +112,7 @@ static int rpJLSSendEncodedCallback_0(struct PutBitContext *ctx) {
 }
 
 static int rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
-	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
+	struct rp_jls_send_ctx_t *sctx = ctx->user;
 	sctx->buffer_begin = (u8 *)ctx->buf;
 	int ret;
 	if ((ret = rpJLSSendEncodedCallback(sctx)))
@@ -123,7 +123,7 @@ static int rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
 }
 
 static int rpJLSSendEncodedCallback_2(struct BitCoderPtrs *ctx) {
-	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)ctx->user;
+	struct rp_jls_send_ctx_t *sctx = ctx->user;
 	sctx->buffer_begin = (u8 *)ctx->p;
 	int ret;
 	if ((ret = rpJLSSendEncodedCallback(sctx)))
@@ -135,7 +135,7 @@ static int rpJLSSendEncodedCallback_2(struct BitCoderPtrs *ctx) {
 
 static int rpJLSSendEncodedCallback_3(j_common_ptr ctx) {
 	struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)ctx->client_data;
-	struct rp_jls_send_ctx_t *sctx = (struct rp_jls_send_ctx_t *)cctx->user;
+	struct rp_jls_send_ctx_t *sctx = cctx->user;
 	sctx->buffer_begin = cctx->dst;
 	int ret;
 	if ((ret = rpJLSSendEncodedCallback(sctx)))
@@ -191,7 +191,6 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 
 		PutBitContext s;
 		init_put_bits(&s, send_ctx->buffer_begin, send_ctx->buffer_end);
-		s.flush = rpJLSSendEncodedCallback_0;
 		s.user = send_ctx;
 
 		const u8 *last = psl0 + LEFTMARGIN;
@@ -219,7 +218,6 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	} else if (encoder_which == RP_ENCODER_HP_JLS) {
 		struct jls_enc_ctx *ctx = &jls_ctx->enc;
 		struct bito_ctx *bctx = &jls_ctx->bito;
-		bctx->flush = rpJLSSendEncodedCallback_1;
 		bctx->user = send_ctx;
 		ret = jpeg_ls_encode(
 			enc_params, ctx, bctx,
@@ -236,7 +234,6 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		struct BitCoderPtrs ptrs = {
 			.p = (Code_def_t *)send_ctx->buffer_begin,
 			.p_end = (Code_def_t *)send_ctx->buffer_end,
-			.flush = rpJLSSendEncodedCallback_2,
 			.user = send_ctx,
 		};
 		ret = izEncodeImageRGB(&ptrs, src, h, w, h * 3);
@@ -280,6 +277,18 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	if (ret)
 		return -1;
 	return send_ctx->send_size_total;
+}
+
+int ffmpeg_jls_flush(struct PutBitContext *ctx) {
+	return rpJLSSendEncodedCallback_0(ctx);
+}
+
+int jls_bito_flush(struct bito_ctx *ctx) {
+	return rpJLSSendEncodedCallback_1(ctx);
+}
+
+int izBitCoderFlush(struct BitCoderPtrs *ctx) {
+	return rpJLSSendEncodedCallback_2(ctx);
 }
 
 void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT],

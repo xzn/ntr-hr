@@ -13,14 +13,14 @@ LDLIBS := -L. -lc -lm -lgcc -nostdlib
 
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
 SRC_S := $(wildcard source/*.s) $(wildcard source/libctru/*.s)
-RP_SRC_C := $(wildcard source/rp/*.c) $(wildcard source/misc/*.c)
+RP_SRC_C := $(wildcard source/rp/*.c) $(wildcard source/rp_misc/*.c)
 RP_SRC_C += $(wildcard source/ffmpeg/libavcodec/*.c) $(wildcard source/ffmpeg/libavfilter/*.c) $(wildcard source/ffmpeg/libavutil/*.c)
 RP_SRC_C += $(wildcard source/jpeg_ls/*.c)
 RP_SRC_C += $(wildcard source/jpeg_turbo/*.c)
 RP_SRC_X += $(filter-out %iz_dec.cpp,$(wildcard source/imagezero/*.cpp))
 RP_OBJ := $(addprefix obj/,$(notdir $(RP_SRC_C:.c=.o) $(RP_SRC_X:.cpp=.o)))
 OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_S:.s=.o)) rp.o)
-DEP := $(OBJ:.o=.d)
+DEP := $(OBJ:.o=.d) $(RP_OBJ:.o=.d)
 
 PAYLOAD_BIN_NAME := ntr.n3ds.hr.bin
 PAYLOAD_TARGET_DIR := ../BootNTR-Selector/romfs/
@@ -69,10 +69,10 @@ obj/%.o: source/libctru/%.c
 	$(CC_CMD)
 
 obj/%.o: source/rp/%.c
-	$(RP_CC_CMD) -Isource/ffmpeg -Isource/misc -Wall -Wextra
+	$(RP_CC_CMD) -Isource/ffmpeg -Isource/rp_misc -Wall -Wextra
 
-obj/%.o: source/misc/%.c
-	$(RP_CC_CMD) -Isource/misc
+obj/%.o: source/rp_misc/%.c
+	$(RP_CC_CMD) -Isource/rp_misc
 
 obj/%.o: source/ffmpeg/libavcodec/%.c
 	$(RP_CC_CMD) -Isource/ffmpeg

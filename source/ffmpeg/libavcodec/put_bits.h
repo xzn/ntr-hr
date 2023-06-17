@@ -47,17 +47,19 @@ typedef uint32_t BitBuf;
 
 static const int BUF_BITS = 8 * sizeof(BitBuf);
 
+struct rp_jls_send_ctx_t;
 typedef struct PutBitContext {
     BitBuf bit_buf;
     int bit_left;
     uint8_t *buf, *buf_ptr, *buf_end;
-    void *user;
-    int (*flush)(struct PutBitContext *);
+    struct rp_jls_send_ctx_t *user;
 } PutBitContext;
+
+int ffmpeg_jls_flush(struct PutBitContext *ctx);
 
 #define assert_or_flush_buffer(s, c) do { \
     int ret_val; \
-    if (!(c) && (ret_val = (s)->flush(s))) \
+    if (!(c) && (ret_val = ffmpeg_jls_flush(s))) \
         return ret_val; \
 } while (0)
 

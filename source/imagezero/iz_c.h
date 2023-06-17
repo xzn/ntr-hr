@@ -10,10 +10,10 @@ extern "C" {
 typedef uint64_t Cache_t;
 typedef uint32_t Code_def_t;
 
+struct rp_jls_send_ctx_t;
 struct BitCoderPtrs {
     Code_def_t *p, *p_end;
-    void *user;
-    int (*flush)(struct BitCoderPtrs *);
+    struct rp_jls_send_ctx_t *user;
 };
 
 void izInitDecodeTable();
@@ -21,6 +21,8 @@ void izInitEncodeTable();
 
 int izDecodeImageRGB(uint8_t *dst, const uint8_t *src, int width, int height);
 int izEncodeImageRGB(struct BitCoderPtrs *dst, const uint8_t *src, int width, int height, int pitch);
+
+int izBitCoderFlush(struct BitCoderPtrs *ctx);
 
 #ifdef __cplusplus
 }

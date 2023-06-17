@@ -127,7 +127,7 @@ public:
     int storeCode(Code code) {
         int ret;
         if (p >= p_end)
-            if ((ret = flush(this)))
+            if ((ret = izBitCoderFlush(this)))
                 return ret;
         *p++ = /*__builtin_bswap32*/(code);
         return 0;

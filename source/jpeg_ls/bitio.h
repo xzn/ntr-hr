@@ -60,8 +60,8 @@
 
 #define ESCAPE 0
 
+struct rp_jls_send_ctx_t;
 struct bito_ctx {
-
 	uint8_t *buf, *buf_end;
 
 	/* BIT I/O variables */
@@ -70,9 +70,7 @@ struct bito_ctx {
 	/* (number of bits free)-8 in bit buffer (on input)*/
 #define BITBUFSIZE (8*sizeof(reg))
 
-	void *user;
-	int (*flush)(struct bito_ctx *);
-
+	struct rp_jls_send_ctx_t *user;
 };
 
 #define myputc(bctx, c) \
@@ -87,8 +85,10 @@ struct bito_ctx {
 
 #define assert(...)
 
+int jls_bito_flush(struct bito_ctx *ctx);
+
 static inline int flushbuff(struct bito_ctx *bctx) {
-	return bctx->flush(bctx);
+	return jls_bito_flush(bctx);
 }
 
 

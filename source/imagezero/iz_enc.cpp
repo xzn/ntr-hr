@@ -25,7 +25,6 @@ int izEncodeImageRGB(struct BitCoderPtrs *dst, const uint8_t *src, int width, in
     IZ::ImageEncoder<> ic;
     ic.begin((unsigned char *)dst->p);
     ic.p_end = dst->p_end;
-    ic.flush = dst->flush;
     ic.user = dst->user;
     int ret = ic.encodeImagePixels(image);
     if (ret)

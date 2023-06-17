@@ -298,10 +298,11 @@ typedef enum {
 
 /* Common fields between JPEG compression and decompression master structs. */
 
+struct rp_jls_send_ctx_t;
 struct rp_jpeg_client_data_t {
   volatile uint8_t *exit_thread;
   uint8_t *dst, *dst_end;
-  void *user;
+  struct rp_jls_send_ctx_t *user;
   uint8_t *alloc_begin, *alloc, *alloc_end;
 };
 
