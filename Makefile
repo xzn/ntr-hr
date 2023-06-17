@@ -12,12 +12,14 @@ LDFLAGS := $(CFLAGS) -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
 LDLIBS := -L. -lc -lm -lgcc -nostdlib
 
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
-SRC_C += $(wildcard source/ffmpeg/libavcodec/*.c) $(wildcard source/ffmpeg/libavfilter/*.c) $(wildcard source/ffmpeg/libavutil/*.c)
-SRC_C += $(wildcard source/jpeg_ls/*.c)
-SRC_C += $(wildcard source/jpeg_turbo/*.c)
-SRC_X += $(wildcard source/imagezero/*.cpp)
 SRC_S := $(wildcard source/*.s) $(wildcard source/libctru/*.s)
-OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_X:.cpp=.o) $(SRC_S:.s=.o)))
+RP_SRC_C := $(wildcard source/rp/*.c) $(wildcard source/misc/*.c)
+RP_SRC_C += $(wildcard source/ffmpeg/libavcodec/*.c) $(wildcard source/ffmpeg/libavfilter/*.c) $(wildcard source/ffmpeg/libavutil/*.c)
+RP_SRC_C += $(wildcard source/jpeg_ls/*.c)
+RP_SRC_C += $(wildcard source/jpeg_turbo/*.c)
+RP_SRC_X += $(filter-out %iz_dec.cpp,$(wildcard source/imagezero/*.cpp))
+RP_OBJ := $(addprefix obj/,$(notdir $(RP_SRC_C:.c=.o) $(RP_SRC_X:.cpp=.o)))
+OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_S:.s=.o)) rp.o)
 DEP := $(OBJ:.o=.d)
 
 PAYLOAD_BIN_NAME := ntr.n3ds.hr.bin
@@ -42,10 +44,11 @@ $(PAYLOAD_LOCAL_BIN): $(PAYLOAD_LOCAL_ELF)
 	$(OBJCOPY) -O binary $< $@ -S
 
 $(PAYLOAD_LOCAL_ELF): $(OBJ)
-	$(CC) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $<
-CXX_CMD = $(CXX) $(CFLAGS) $(CPPFLAGS) -fno-exceptions -MMD -c -o $@ $<
+RP_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $<
+RP_CXX_CMD = $(CXX) -flto $(CFLAGS) $(CPPFLAGS) -fno-exceptions -MMD -c -o $@ $<
 
 obj/%.o: source/%.s
 	$(CC_CMD)
@@ -59,32 +62,38 @@ obj/%.o: source/dsp/%.c
 obj/%.o: source/ns/%.c
 	$(CC_CMD)
 
-obj/rp%o: source/ns/rp%c
-	$(CC_CMD) -Isource/ffmpeg -Wall -Wextra
-
 obj/%.o: source/%.c
 	$(CC_CMD)
 
 obj/%.o: source/libctru/%.c
 	$(CC_CMD)
 
+obj/%.o: source/rp/%.c
+	$(RP_CC_CMD) -Isource/ffmpeg -Isource/misc -Wall -Wextra
+
+obj/%.o: source/misc/%.c
+	$(RP_CC_CMD) -Isource/misc
+
 obj/%.o: source/ffmpeg/libavcodec/%.c
-	$(CC_CMD) -Isource/ffmpeg
+	$(RP_CC_CMD) -Isource/ffmpeg
 
 obj/%.o: source/ffmpeg/libavfilter/%.c
-	$(CC_CMD) -Isource/ffmpeg
+	$(RP_CC_CMD) -Isource/ffmpeg
 
 obj/%.o: source/ffmpeg/libavutil/%.c
-	$(CC_CMD) -Isource/ffmpeg
+	$(RP_CC_CMD) -Isource/ffmpeg
 
 obj/%.o: source/jpeg_ls/%.c
-	$(CC_CMD)
+	$(RP_CC_CMD)
 
 obj/%.o: source/jpeg_turbo/%.c
-	$(CC_CMD)
+	$(RP_CC_CMD)
 
 obj/%.o: source/imagezero/%.cpp
-	$(CXX_CMD)
+	$(RP_CXX_CMD)
+
+obj/rp.o: $(RP_OBJ)
+	$(CC) -flto $(CFLAGS) -r -nostdlib -o $@ $^
 
 -include $(DEP)
 
