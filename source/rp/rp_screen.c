@@ -333,7 +333,7 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		int scale_log2 = 1 + scale_log2_offset;
 		int ds_scale_log2 = 0 + scale_log2_offset;
 
-		if (me->enabled == 1) {
+		if (RP_ME_ENABLE && me->enabled == 1) {
 
 #define MOTION_EST(n, m, w, h, b) do { \
 	motion_estimate(image_me->me_x_image, image_me->me_y_image, \

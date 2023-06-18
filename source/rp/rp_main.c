@@ -218,18 +218,21 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 
 		int encoder_jls = rp_ctx->conf.encoder_which < RP_ENCODER_JLS_COUNT;
 
-		if (encoder_jls) {
+		if (RP_FILTER_YUV_ENABLE && encoder_jls) {
 			ret = rpEncodeImage(screen, rp_ctx->conf.yuv_option, rp_ctx->conf.color_transform_hp);
 			if (ret < 0) {
 				nsDbgPrint("rpEncodeImage failed\n");
 				break;
 			}
-		} else {
+		} else if (RP_FILTER_RGB_ENABLE) {
 			ret = rpEncodeImageRGB(screen, image_me, rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO);
 			if (ret < 0) {
 				nsDbgPrint("rpEncodeImageRGB failed\n");
 				break;
 			}
+		} else {
+			nsDbgPrint("rpEncodeImage not available\n");
+			break;
 		}
 
 		struct rp_image_t *image_curr = screen->image;
@@ -326,16 +329,16 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)))
 		return ret;
 
-	if (rp_ctx->conf.encoder_which < RP_ENCODER_JLS_USE_LUT_COUNT) {
+	if (RP_ENCODER_JLS_LUT_ENABLE && rp_ctx->conf.encoder_which < RP_ENCODER_JLS_USE_LUT_COUNT) {
 		jls_encoder_prepare_LUTs(&rp_ctx->jls_param);
-	} else if (rp_ctx->conf.encoder_which == RP_ENCODER_ZSTD_JLS) {
+	} else if (RP_ENCODER_ZSTD_ENABLE && rp_ctx->conf.encoder_which == RP_ENCODER_ZSTD_JLS) {
 		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
 			if ((ret = zstd_med_init_ws(rp_ctx->zstd_med_ws[i], sizeof(rp_ctx->zstd_med_ws[i]), rp_ctx->conf.zstd_comp_level))) {
 				nsDbgPrint("zstd_med_init_ws error\n");
 				return ret;
 			}
 		}
-	} else if (rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO) {
+	} else if (RP_ENCODER_JPEG_TURBO_ENABLE && rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO) {
 		jpeg_turbo_init_ctx(
 			rp_ctx->jcinfo, rp_ctx->jcinfo_user, &rp_ctx->jerr, &rp_ctx->exit_thread,
 			*rp_ctx->image_ctx.jpeg_turbo_alloc, sizeof(*rp_ctx->image_ctx.jpeg_turbo_alloc));

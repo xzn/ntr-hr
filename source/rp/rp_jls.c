@@ -235,7 +235,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 	}
 
-	if (encoder_which == RP_ENCODER_FFMPEG_JLS) {
+	if (RP_ENCODER_FFMPEG_JLS_ENABLE && encoder_which == RP_ENCODER_FFMPEG_JLS) {
 		JLSState state = { 0 };
 		state.bpp = bpp;
 
@@ -268,7 +268,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 		}
 		send_ctx->buffer_begin = s.buf_ptr;
-	} else if (encoder_which == RP_ENCODER_HP_JLS) {
+	} else if (RP_ENCODER_HP_JLS_ENABLE && encoder_which == RP_ENCODER_HP_JLS) {
 		struct jls_enc_ctx *ctx = &jls_ctx->enc;
 		struct bito_ctx *bctx = &jls_ctx->bito;
 		bctx->user = send_ctx;
@@ -283,7 +283,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 		}
 		send_ctx->buffer_begin = (u8 *)bctx->buf;
-	} else if (encoder_which == RP_ENCODER_ZSTD_JLS) {
+	} else if (RP_ENCODER_ZSTD_ENABLE && encoder_which == RP_ENCODER_ZSTD_JLS) {
 		ZSTD_CStream *cstream = (ZSTD_CStream *)send_ctx->zstd_med_ws;
 		u8 *pred_buf = send_ctx->zstd_med_pred_line;
 
@@ -330,7 +330,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			nsDbgPrint("ZSTD_CCtx_reset failed: %d\n", ret);
 			return ret;
 		}
-	} else if (encoder_which == RP_ENCODER_IMAGE_ZERO) {
+	} else if (RP_ENCODER_IMAGEZERO_ENABLE && encoder_which == RP_ENCODER_IMAGE_ZERO) {
 		struct BitCoderPtrs ptrs = {
 			.p = (Code_def_t *)send_ctx->buffer_begin,
 			.p_end = (Code_def_t *)send_ctx->buffer_end,
@@ -342,7 +342,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 		}
 		send_ctx->buffer_begin = (u8 *)ptrs.p;
-	} else if (encoder_which == RP_ENCODER_JPEG_TURBO) {
+	} else if (RP_ENCODER_JPEG_TURBO_ENABLE && encoder_which == RP_ENCODER_JPEG_TURBO) {
 		j_compress_ptr cinfo = send_ctx->jcinfo;
 		struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)cinfo->client_data;
 
