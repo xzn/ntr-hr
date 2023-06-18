@@ -83,7 +83,7 @@ struct bito_ctx {
 	*bctx->buf++ = c; \
 }
 
-#define assert(...)
+#define assert(...) ((void)0)
 
 int jls_bito_flush(struct bito_ctx *ctx);
 

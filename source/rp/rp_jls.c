@@ -4,7 +4,11 @@
 #include "rp_syn.h"
 #include "rp_net.h"
 
+#include "../zstd/compress/zstd_compress_internal.h"
+
 void jls_encoder_prepare_LUTs(struct rp_jls_params_t *ctx) {
+	memset(ctx, 0, sizeof(*ctx));
+
 	prepare_classmap(ctx->enc_luts.classmap);
 	struct jls_enc_params *p;
 
@@ -100,7 +104,7 @@ static int rpJLSSendEncodedCallback(struct rp_jls_send_ctx_t *ctx) {
 	return 0;
 }
 
-static int rpJLSSendEncodedCallback_0(struct PutBitContext *ctx) {
+static int rpJLSSendEncodedCallback_FFmpeg(struct PutBitContext *ctx) {
 	struct rp_jls_send_ctx_t *sctx = ctx->user;
 	sctx->buffer_begin = ctx->buf_ptr;
 	int ret;
@@ -111,7 +115,7 @@ static int rpJLSSendEncodedCallback_0(struct PutBitContext *ctx) {
 	return 0;
 }
 
-static int rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
+static int rpJLSSendEncodedCallback_JLS(struct bito_ctx *ctx) {
 	struct rp_jls_send_ctx_t *sctx = ctx->user;
 	sctx->buffer_begin = (u8 *)ctx->buf;
 	int ret;
@@ -122,7 +126,7 @@ static int rpJLSSendEncodedCallback_1(struct bito_ctx *ctx) {
 	return 0;
 }
 
-static int rpJLSSendEncodedCallback_2(struct BitCoderPtrs *ctx) {
+static int rpJLSSendEncodedCallback_IZ(struct BitCoderPtrs *ctx) {
 	struct rp_jls_send_ctx_t *sctx = ctx->user;
 	sctx->buffer_begin = (u8 *)ctx->p;
 	int ret;
@@ -133,7 +137,7 @@ static int rpJLSSendEncodedCallback_2(struct BitCoderPtrs *ctx) {
 	return 0;
 }
 
-static int rpJLSSendEncodedCallback_3(j_common_ptr ctx) {
+static int rpJLSSendEncodedCallback_JT(j_common_ptr ctx) {
 	struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)ctx->client_data;
 	struct rp_jls_send_ctx_t *sctx = cctx->user;
 	sctx->buffer_begin = cctx->dst;
@@ -143,6 +147,55 @@ static int rpJLSSendEncodedCallback_3(j_common_ptr ctx) {
 	cctx->dst = sctx->buffer_begin;
 	cctx->dst_end = sctx->buffer_end;
 	return 0;
+}
+
+static int rpJLSSendEncodedCallback_ZSTD(struct rp_jls_send_ctx_t *sctx, ZSTD_outBuffer *cctx) {
+	sctx->buffer_begin = cctx->dst + cctx->pos;
+	int ret;
+	if ((ret = rpJLSSendEncodedCallback(sctx)))
+		return ret;
+	cctx->dst = sctx->buffer_begin;
+	cctx->size = sctx->buffer_end - sctx->buffer_begin;
+	cctx->pos = 0;
+	return 0;
+}
+
+static uint8_t zstd_pred_med(uint8_t Rb, uint8_t Ra, uint8_t Rc) {
+	uint8_t minx;
+	uint8_t maxx;
+
+	if (Rb > Ra) {
+		minx = Ra;
+		maxx = Rb;
+	} else {
+		maxx = Ra;
+		minx = Rb;
+	}
+	if (Rc >= maxx)
+		return minx;
+	else if (Rc <= minx)
+		return maxx;
+	else
+		return Ra + Rb - Rc;
+}
+
+static size_t zstd_compress_stream(struct rp_jls_send_ctx_t *sctx,
+	ZSTD_CStream *cstream, ZSTD_outBuffer *cur_output, ZSTD_inBuffer *cur_input, ZSTD_EndDirective endOp
+) {
+	size_t ret;
+	while (1) {
+		ret = ZSTD_compressStream2(cstream, cur_output, cur_input, endOp);
+		if (cur_output->pos == cur_output->size) {
+			if ((ret = rpJLSSendEncodedCallback_ZSTD(sctx, cur_output)))
+				return -1;
+			continue;
+		}
+		if (ZSTD_isError(ret)) {
+			nsDbgPrint("ZSTD_compressStream2 error: %d\n", ret);
+			return ret;
+		}
+		return 0;
+	}
 }
 
 extern const uint8_t psl0[];
@@ -230,6 +283,53 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 		}
 		send_ctx->buffer_begin = (u8 *)bctx->buf;
+	} else if (encoder_which == RP_ENCODER_ZSTD_JLS) {
+		ZSTD_CStream *cstream = (ZSTD_CStream *)send_ctx->zstd_med_ws;
+		u8 *pred_buf = send_ctx->zstd_med_pred_line;
+
+		const u8 *last = psl0 + LEFTMARGIN;
+		const u8 *in = src + LEFTMARGIN;
+
+		size_t ret;
+
+		ZSTD_outBuffer cur_output = {
+			.dst = send_ctx->buffer_begin,
+			.size = send_ctx->buffer_end - send_ctx->buffer_begin,
+		};
+
+		ZSTD_inBuffer cur_input = {
+			.src = pred_buf,
+			.size = h,
+		};
+		for (int j = 0; j < w; ++j) {
+			for (int i = 0; i < h; ++i) {
+				uint8_t Ra = in[i - 1], Rb = last[i], Rc = last[i - 1];
+				pred_buf[i] = in[i] - zstd_pred_med(Rb, Ra, Rc);
+			}
+			cur_input.pos = 0;
+			ret = zstd_compress_stream(send_ctx, cstream, &cur_output, &cur_input, ZSTD_e_continue);
+			if (ZSTD_isError(ret)) {
+				nsDbgPrint("zstd_compress_stream failed\n");
+				return ret;
+			}
+
+			last = in;
+			in += h + LEFTMARGIN + RIGHTMARGIN;
+		}
+
+		cur_input.src = (void *)(cur_input.size = cur_input.pos = 0);
+		ret = zstd_compress_stream(send_ctx, cstream, &cur_output, &cur_input, ZSTD_e_end);
+        if (ZSTD_isError(ret)) {
+            nsDbgPrint("zstd_compress_stream end failed\n");
+            return ret;
+        }
+
+		send_ctx->buffer_begin = cur_output.dst + cur_output.pos;
+
+		if (ZSTD_isError(ret = ZSTD_CCtx_reset(cstream, ZSTD_reset_session_only))) {
+			nsDbgPrint("ZSTD_CCtx_reset failed: %d\n", ret);
+			return ret;
+		}
 	} else if (encoder_which == RP_ENCODER_IMAGE_ZERO) {
 		struct BitCoderPtrs ptrs = {
 			.p = (Code_def_t *)send_ctx->buffer_begin,
@@ -243,7 +343,7 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		}
 		send_ctx->buffer_begin = (u8 *)ptrs.p;
 	} else if (encoder_which == RP_ENCODER_JPEG_TURBO) {
-		j_compress_ptr cinfo = send_ctx->cinfo;
+		j_compress_ptr cinfo = send_ctx->jcinfo;
 		struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)cinfo->client_data;
 
 		cctx->dst = send_ctx->buffer_begin;
@@ -280,15 +380,47 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 }
 
 int ffmpeg_jls_flush(struct PutBitContext *ctx) {
-	return rpJLSSendEncodedCallback_0(ctx);
+	return rpJLSSendEncodedCallback_FFmpeg(ctx);
 }
 
 int jls_bito_flush(struct bito_ctx *ctx) {
-	return rpJLSSendEncodedCallback_1(ctx);
+	return rpJLSSendEncodedCallback_JLS(ctx);
 }
 
 int izBitCoderFlush(struct BitCoderPtrs *ctx) {
-	return rpJLSSendEncodedCallback_2(ctx);
+	return rpJLSSendEncodedCallback_IZ(ctx);
+}
+
+int zstd_med_init_ws(u8 *ws, int ws_size, int comp_level) {
+	ZSTD_parameters params = ZSTD_getParams(comp_level, SCREEN_HEIGHT, 0);
+	ZSTD_CCtx_params cctx = { 0 };
+
+	size_t ret;
+	if ((ret = ZSTD_CCtxParams_init_advanced(&cctx, params))) {
+		nsDbgPrint("ZSTD_CCtxParams_init_advanced failed: %d\n", ret);
+		return ret;
+	}
+	ret = ZSTD_estimateCStreamSize_usingCCtxParams(&cctx);
+	if (ZSTD_isError(ret)) {
+		nsDbgPrint("ZSTD_estimateCStreamSize_usingCCtxParams failed: %d\n", ret);
+		return ret;
+	}
+	if ((int)ret > ws_size) {
+		nsDbgPrint("zstd_med_init_ws provided buffer too small: %d (%d)\n", ws_size, ret);
+		return -1;
+	}
+	ZSTD_CStream *cstream = ZSTD_initStaticCStream(ws, ws_size);
+	if (!cstream) {
+		nsDbgPrint("ZSTD_initStaticCStream failed\n");
+		return -1;
+	}
+
+	if ((ret = ZSTD_CCtx_setParams(cstream, params))) {
+		nsDbgPrint("ZSTD_CCtx_setParams failed: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
 }
 
 void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT],
@@ -321,7 +453,7 @@ int jpeg_turbo_write(j_common_ptr cinfo, const u8 *buf, u32 size) {
 		int write_size = RP_MIN((int)size, (int)(cctx->dst_end - cctx->dst));
 		if (!write_size) {
 			int ret;
-			if ((ret = rpJLSSendEncodedCallback_3(cinfo)))
+			if ((ret = rpJLSSendEncodedCallback_JT(cinfo)))
 				return ret;
 			continue;
 		}

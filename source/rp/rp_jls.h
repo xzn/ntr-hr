@@ -41,7 +41,7 @@ struct rp_send_info_header {
     u32 downscale_uv : 1;
     u32 yuv_option : 2;
     u32 color_transform_hp : 2;
-	u32 encoder_which : 2;
+	u32 encoder_which : 3;
     u32 me_enabled : 2;
     u32 me_downscale : 1;
     u32 me_search_param : 5;
@@ -79,7 +79,9 @@ struct rp_jls_send_ctx_t {
 	u8 thread_n;
 	struct rp_network_encode_t *network;
 	struct rp_net_state_t *net_state;
-	struct jpeg_compress_struct *cinfo;
+	struct jpeg_compress_struct *jcinfo;
+	u8 *zstd_med_ws;
+	u8 *zstd_med_pred_line;
 	u8 *buffer_begin;
 	u8 *buffer_end;
 	int send_size_total;
@@ -103,6 +105,8 @@ void jls_encoder_prepare_LUTs(struct rp_jls_params_t *params);
 int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
 	const u8 *src, int w, int h, int bpp, u8 encoder_which);
+
+int zstd_med_init_ws(u8 *ws, int ws_size, int comp_level);
 
 void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT],
 	struct rp_jpeg_client_data_t cinfo_user[RP_ENCODE_THREAD_COUNT],

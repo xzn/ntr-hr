@@ -12,5 +12,7 @@
 #include "../jpeg_ls/bitio.h"
 #include "../imagezero/iz_c.h"
 #include "../jpeg_turbo/jpeglib.h"
+#define ZSTD_STATIC_LINKING_ONLY
+#include "../zstd/zstd.h"
 
 #endif

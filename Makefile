@@ -8,7 +8,7 @@ CP := cp
 
 CFLAGS := -s -Ofast -march=armv6k -mtune=mpcore -mfloat-abi=hard
 CPPFLAGS := -Iinclude
-LDFLAGS := $(CFLAGS) -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
+LDFLAGS := -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
 LDLIBS := -L. -lc -lm -lgcc -nostdlib
 
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/ns/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
@@ -17,6 +17,7 @@ RP_SRC_C := $(wildcard source/rp/*.c) $(wildcard source/rp_misc/*.c)
 RP_SRC_C += $(wildcard source/ffmpeg/libavcodec/*.c) $(wildcard source/ffmpeg/libavfilter/*.c) $(wildcard source/ffmpeg/libavutil/*.c)
 RP_SRC_C += $(wildcard source/jpeg_ls/*.c)
 RP_SRC_C += $(wildcard source/jpeg_turbo/*.c)
+RP_SRC_C += $(wildcard source/zstd/common/*.c) $(wildcard source/zstd/compress/*.c)
 RP_SRC_X += $(filter-out %iz_dec.cpp,$(wildcard source/imagezero/*.cpp))
 RP_OBJ := $(addprefix obj/,$(notdir $(RP_SRC_C:.c=.o) $(RP_SRC_X:.cpp=.o)))
 OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_S:.s=.o)) rp.o)
@@ -89,11 +90,20 @@ obj/%.o: source/jpeg_ls/%.c
 obj/%.o: source/jpeg_turbo/%.c
 	$(RP_CC_CMD)
 
+obj/%.o: source/jpeg_turbo/%.c
+	$(RP_CC_CMD)
+
+obj/%.o: source/zstd/common/%.c
+	$(RP_CC_CMD)
+
+obj/%.o: source/zstd/compress/%.c
+	$(RP_CC_CMD)
+
 obj/%.o: source/imagezero/%.cpp
 	$(RP_CXX_CMD)
 
 obj/rp.o: $(RP_OBJ)
-	$(CC) -flto $(CFLAGS) -r -nostdlib -o $@ $^
+	$(CC) -flto $(CFLAGS) -r -o $@ $^
 
 -include $(DEP)
 

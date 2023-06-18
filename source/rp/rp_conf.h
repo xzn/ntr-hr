@@ -20,6 +20,7 @@ struct rp_conf_t {
     u8 encoder_which;
     u8 downscale_uv;
     u8 jpeg_quality;
+    s8 zstd_comp_level;
 
     struct rp_conf_me_t {
         u8 enabled;

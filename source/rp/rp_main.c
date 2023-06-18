@@ -279,7 +279,9 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.multicore_network = rp_ctx->conf.multicore_network,
 			.network = !rp_ctx->conf.multicore_network ? &rp_ctx->network_encode[thread_n] : 0,
 			.net_state = !rp_ctx->conf.multicore_network ? &rp_ctx->net_state : 0,
-			.cinfo = &rp_ctx->jcinfo[thread_n],
+			.jcinfo = &rp_ctx->jcinfo[thread_n],
+			.zstd_med_ws = rp_ctx->zstd_med_ws[thread_n],
+			.zstd_med_pred_line = rp_ctx->zstd_med_pred_line[thread_n],
 		};
 		struct rp_encode_and_send_screen_ctx_t encode_send_ctx = {
 			.jls_send_ctx = &jls_send_ctx,
@@ -324,8 +326,15 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)))
 		return ret;
 
-	if (rp_ctx->conf.encoder_which < RP_ENCODER_JLS_COUNT) {
+	if (rp_ctx->conf.encoder_which < RP_ENCODER_JLS_USE_LUT_COUNT) {
 		jls_encoder_prepare_LUTs(&rp_ctx->jls_param);
+	} else if (rp_ctx->conf.encoder_which == RP_ENCODER_ZSTD_JLS) {
+		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
+			if ((ret = zstd_med_init_ws(rp_ctx->zstd_med_ws[i], sizeof(rp_ctx->zstd_med_ws[i]), rp_ctx->conf.zstd_comp_level))) {
+				nsDbgPrint("zstd_med_init_ws error\n");
+				return ret;
+			}
+		}
 	} else if (rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO) {
 		jpeg_turbo_init_ctx(
 			rp_ctx->jcinfo, rp_ctx->jcinfo_user, &rp_ctx->jerr, &rp_ctx->exit_thread,

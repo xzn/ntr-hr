@@ -44,7 +44,7 @@ struct rp_ctx_t {
 			struct jpeg_error_mgr jerr;
 		};
 		struct {
-			u8 zstd_med_ws[RP_ENCODE_THREAD_COUNT][36 * 1024];
+			u8 zstd_med_ws[RP_ENCODE_THREAD_COUNT][RP_ZSTD_WS_SIZE];
 			u8 zstd_med_pred_line[RP_ENCODE_THREAD_COUNT][SCREEN_HEIGHT];
 		};
 	};

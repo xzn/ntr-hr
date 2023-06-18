@@ -6,9 +6,11 @@ union rp_conf_arg0_t {
 		u32 kcp_nocwnd : 1;
 		u32 kcp_fastresend : 2;
 		u32 me_select : RP_IMAGE_ME_SELECT_BITS;
+		u32 me_interpolate : 1;
 		u32 multicore_network : 1;
 		u32 multicore_screen : 1;
 		u32 jpeg_quality : 7;
+		u32 zstd_comp_level : RP_ZSTD_COMP_LEVEL_BITS;
 	};
 };
 
@@ -18,12 +20,11 @@ union rp_conf_arg1_t {
 		u32 yuv_option : 2;
 		u32 color_transform_hp : 2;
 		u32 downscale_uv : 1;
-		u32 encoder_which : 2;
+		u32 encoder_which : 3;
 		u32 me_block_size : 2;
 		u32 me_method : 3;
 		u32 me_search_param : 5;
 		u32 me_downscale : 1;
-		u32 me_interpolate : 1;
 		u32 kcp_minrto : 7;
 		u32 kcp_snd_wnd_size : RP_KCP_SNDWNDSIZE_BITS;
 	};
@@ -67,6 +68,9 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->downscale_uv = arg1.downscale_uv;
 	conf->encoder_which = arg1.encoder_which;
 	conf->jpeg_quality = arg0.jpeg_quality;
+	conf->zstd_comp_level = (int)arg0.zstd_comp_level - RP_ZSTD_COMP_LEVEL_HALF_RANGE;
+	if (conf->zstd_comp_level >= 0)
+		++conf->zstd_comp_level;
 
 	conf->me.select = arg0.me_select;
 	conf->me.method = arg1.me_method;
@@ -82,7 +86,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 		(u32)conf->me.block_size * (u32)conf->me.block_size * (u32)conf->me.select;
 	conf->me.downscale = arg1.me_downscale;
 #if RP_ME_INTERPOLATE
-	conf->me.interpolate = arg1.me_interpolate;
+	conf->me.interpolate = arg0.me_interpolate;
 #else
 	conf->me.interpolate = 0;
 #endif
