@@ -47,7 +47,7 @@ static void rpNetworkTransferThread(u32 arg) {
 	const int thread_n = RP_NETWORK_TRANSFER_THREAD_ID;
 
 	while (!rp_ctx->exit_thread) {
-		rpNetworkTransfer(&rp_ctx->net_state, thread_n, &rp_ctx->kcp, &rp_ctx->conf.kcp, &rp_ctx->syn.network);
+		rpNetworkTransfer(&rp_ctx->net_state, thread_n, &rp_ctx->conf.kcp, &rp_ctx->syn.network);
 		svc_sleepThread(RP_THREAD_LOOP_SLOW_WAIT);
 	}
 	svc_exitThread();
@@ -279,7 +279,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.multicore_network = rp_ctx->conf.multicore_network,
 			.network = !rp_ctx->conf.multicore_network ? &rp_ctx->network_encode[thread_n] : 0,
 			.net_state = !rp_ctx->conf.multicore_network ? &rp_ctx->net_state : 0,
-			.cinfo = &rp_ctx->cinfo[thread_n],
+			.cinfo = &rp_ctx->jcinfo[thread_n],
 		};
 		struct rp_encode_and_send_screen_ctx_t encode_send_ctx = {
 			.jls_send_ctx = &jls_send_ctx,
@@ -324,13 +324,15 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)))
 		return ret;
 
-	if (rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO) {
+	if (rp_ctx->conf.encoder_which < RP_ENCODER_JLS_COUNT) {
+		jls_encoder_prepare_LUTs(&rp_ctx->jls_param);
+	} else if (rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO) {
 		jpeg_turbo_init_ctx(
-			rp_ctx->cinfo, rp_ctx->cinfo_user, &rp_ctx->jerr, &rp_ctx->exit_thread,
+			rp_ctx->jcinfo, rp_ctx->jcinfo_user, &rp_ctx->jerr, &rp_ctx->exit_thread,
 			*rp_ctx->image_ctx.jpeg_turbo_alloc, sizeof(*rp_ctx->image_ctx.jpeg_turbo_alloc));
 
 		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i)
-			jpeg_set_quality(&rp_ctx->cinfo[i], rp_ctx->conf.jpeg_quality, 1);
+			jpeg_set_quality(&rp_ctx->jcinfo[i], rp_ctx->conf.jpeg_quality, 1);
 	}
 
 	// Without dedicated screen thread, both encode thread will compete for access, thus needing sync
@@ -405,11 +407,10 @@ void rpThreadStart(u32 arg) {
 		__sync_init();
 	}
 	rp_init_image_buffers(&rp_ctx->image_ctx);
-	jls_encoder_prepare_LUTs(&rp_ctx->jls_param);
 	izInitEncodeTable();
 	rpInitDmaHome(&rp_ctx->dma_ctx, rp_ctx->dma_config);
 
-	rpNetworkInit(&rp_ctx->net_ctx, rp_ctx->nwm_send_buffer, rp_ctx->control_recv_buffer);
+	rpNetworkInit(&rp_ctx->net_ctx, rp_ctx->nwm_send_buffer, rp_ctx->control_recv_buffer, &rp_ctx->kcp_ctx);
 	rp_net_ctx = &rp_ctx->net_ctx;
 
 	int ret = 0;
@@ -450,7 +451,7 @@ void rpThreadStart(u32 arg) {
 				break;
 			}
 		} else {
-			if ((ret = rpKCPReady(&rp_ctx->net_ctx, &rp_ctx->kcp, &rp_ctx->conf.kcp, &rp_ctx->net_ctx))) {
+			if ((ret = rpKCPReady(&rp_ctx->net_ctx, &rp_ctx->conf.kcp, &rp_ctx->net_ctx))) {
 				nsDbgPrint("rpKCPReady error %d\n", ret);
 				break;
 			}

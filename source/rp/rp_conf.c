@@ -25,7 +25,7 @@ union rp_conf_arg1_t {
 		u32 me_downscale : 1;
 		u32 me_interpolate : 1;
 		u32 kcp_minrto : 7;
-		u32 kcp_snd_wnd_size : 6;
+		u32 kcp_snd_wnd_size : RP_KCP_SNDWNDSIZE_BITS;
 	};
 };
 

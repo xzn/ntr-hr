@@ -11,7 +11,7 @@
 #include "rp_screen.h"
 
 struct rp_ctx_t {
-	ikcpcb kcp;
+	struct rp_kcp_ctx_t kcp_ctx;
 
 	u8 exit_thread;
 	Handle second_thread;
@@ -29,13 +29,25 @@ struct rp_ctx_t {
 	u8 network_transfer_thread_stack[RP_MISC_STACK_SIZE] ALIGN_4;
 	u8 screen_transfer_thread_stack[RP_MISC_STACK_SIZE] ALIGN_4;
 	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
-	u8 umm_heap[RP_UMM_HEAP_SIZE] ALIGN_4;
 
 	struct rp_screen_encode_t screen_encode[RP_ENCODE_BUFFER_COUNT];
 	struct rp_network_encode_t network_encode[RP_ENCODE_BUFFER_COUNT];
 
-	struct rp_jls_params_t jls_param;
-	struct rp_jls_ctx_t jls_ctx[RP_ENCODE_THREAD_COUNT];
+	union {
+		struct {
+			struct rp_jls_params_t jls_param;
+			struct rp_jls_ctx_t jls_ctx[RP_ENCODE_THREAD_COUNT];
+		};
+		struct {
+			struct jpeg_compress_struct jcinfo[RP_ENCODE_THREAD_COUNT];
+			struct rp_jpeg_client_data_t jcinfo_user[RP_ENCODE_THREAD_COUNT];
+			struct jpeg_error_mgr jerr;
+		};
+		struct {
+			u8 zstd_med_ws[RP_ENCODE_THREAD_COUNT][36 * 1024];
+			u8 zstd_med_pred_line[RP_ENCODE_THREAD_COUNT][SCREEN_HEIGHT];
+		};
+	};
 
 	struct rp_image_ctx_t image_ctx;
 
@@ -52,10 +64,6 @@ struct rp_ctx_t {
 	struct rp_net_state_t net_state;
 
 	struct rp_screen_state_t screen_ctx;
-
-	struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUNT];
-	struct rp_jpeg_client_data_t cinfo_user[RP_ENCODE_THREAD_COUNT];
-	struct jpeg_error_mgr jerr;
 };
 
 #endif

@@ -86,7 +86,7 @@ struct rp_image_ctx_t {
 			RP_IMAGE_BUFFER_DEFINE(SCREEN_TOP) top[RP_IMAGE_BUFFER_COUNT];
 			RP_IMAGE_BUFFER_DEFINE(SCREEN_BOT) bot[RP_IMAGE_BUFFER_COUNT];
 		} image_buffer;
-		u8 jpeg_turbo_alloc[RP_ENCODE_THREAD_COUNT][768 * 1024] ALIGN_4;
+		u8 jpeg_turbo_alloc[RP_ENCODE_THREAD_COUNT][768 * 1024] ALIGN_8;
 	};
 
 	struct rp_image_data_t image_me[RP_ENCODE_THREAD_COUNT];

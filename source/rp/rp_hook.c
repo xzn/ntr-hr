@@ -12,6 +12,16 @@ static RT_HOOK nwmValParamHook;
 
 static u8 rpInited;
 
+static mp_pool_t *mp_pool;
+static void *rp_kcp_malloc(size_t size) {
+	if (size > sizeof(*((struct rp_ctx_t *)0)->kcp_ctx.seg_mem))
+		return 0;
+	return mp_malloc(mp_pool);
+}
+static void rp_kcp_free(void *p) {
+	return mp_free(mp_pool, p);
+}
+
 static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
 	int ret;
 	Handle hThread;
@@ -35,8 +45,15 @@ static int nwmValParamCallback(u8* buf, int buflen UNUSED) {
 
 			memcpy(rp_ctx->nwm_send_buffer, buf, 0x22 + 8);
 
-			umm_init_heap(rp_ctx->umm_heap, RP_UMM_HEAP_SIZE);
-			ikcp_allocator(umm_malloc, umm_free);
+			if ((ret = mp_init(sizeof(*rp_ctx->kcp_ctx.seg_mem),
+				sizeof(rp_ctx->kcp_ctx.seg_mem) / sizeof(*rp_ctx->kcp_ctx.seg_mem),
+				rp_ctx->kcp_ctx.seg_mem,
+				(mp_pool = &rp_ctx->kcp_ctx.seg_pool))
+			)) {
+				nsDbgPrint("umm_init_heap failed\n");
+				return 0;
+			}
+			ikcp_allocator(rp_kcp_malloc, rp_kcp_free);
 
 			rp_ctx->dma_config[2] = 4;
 

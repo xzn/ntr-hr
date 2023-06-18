@@ -129,6 +129,8 @@ void xvprintf (
 			r = 2; break;
 		case 'O' :					/* Octal */
 			r = 8; break;
+		case 'I' :
+			d = 'D';
 		case 'D' :					/* Signed decimal */
 		case 'U' :					/* Unsigned decimal */
 			r = 10; break;

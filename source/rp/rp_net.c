@@ -65,7 +65,7 @@ static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *use
 	u8 *dataBuf = sendBuf + NWM_HEADER_SIZE;
 
 	if (len > KCP_PACKET_SIZE) {
-		nsDbgPrint("rp_udp_output len exceeded PACKET_SIZE: %d\n", len);
+		nsDbgPrint("rp_udp_output len exceeded KCP_PACKET_SIZE: %d\n", len);
 		return 0;
 	}
 
@@ -77,9 +77,10 @@ static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *use
 	return len;
 }
 
-void rpNetworkInit(struct rp_net_ctx_t *ctx, u8 *nwm_send_buf, u8 *ctrl_recv_buf) {
+void rpNetworkInit(struct rp_net_ctx_t *ctx, u8 *nwm_send_buf, u8 *ctrl_recv_buf, struct rp_kcp_ctx_t *kcp_ctx) {
 	ctx->nwm_send_buf = nwm_send_buf;
 	ctx->ctrl_recv_buf = ctrl_recv_buf;
+	ctx->kcp_ctx = kcp_ctx;
 	svc_createMutex(&ctx->kcp_mutex, 0);
 	__atomic_store_n(&ctx->kcp_inited, 1, __ATOMIC_RELEASE);
 }
@@ -92,30 +93,26 @@ static void rpKCPUnlock(struct rp_net_ctx_t *ctx) {
 	svc_releaseMutex(ctx->kcp_mutex);
 }
 
-int rpKCPReady(struct rp_net_ctx_t *ctx, ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, void *user) {
+int rpKCPReady(struct rp_net_ctx_t *ctx, struct rp_conf_kcp_t *kcp_conf, void *user) {
 	int res;
 	if ((res = rpKCPLock(ctx)))
 		return res;
 
-	kcp = ikcp_create(kcp, kcp_conf->conv, user);
+	ikcpcb *kcp = ikcp_create(&ctx->kcp_ctx->kcp, kcp_conf->conv, user,
+		KCP_PACKET_SIZE, (char *)ctx->kcp_ctx->buffer, sizeof(ctx->kcp_ctx->buffer),
+		ctx->kcp_ctx->acklist, sizeof(ctx->kcp_ctx->acklist) / sizeof(IUINT32) / 2);
 	if (!kcp) {
 		nsDbgPrint("ikcp_create failed\n");
 		rpKCPUnlock(ctx);
 		return -1;
 	} else {
 		kcp->output = rp_udp_output;
-		if ((res = ikcp_setmtu(kcp, KCP_PACKET_SIZE)) < 0) {
-			nsDbgPrint("ikcp_setmtu failed: %d\n", res);
-			rpKCPUnlock(ctx);
-			return -1;
-		}
 		ikcp_nodelay(kcp, kcp_conf->nodelay, 10, kcp_conf->fastresend, kcp_conf->nocwnd);
 		kcp->rx_minrto = kcp_conf->minrto;
 		ikcp_wndsize(kcp, kcp_conf->snd_wnd_size, 0);
-		kcp->stream = 1;
+		// kcp->stream = 1;
 	}
 
-	ctx->kcp = kcp;
 	ctx->kcp_ready = 1;
 	rpKCPUnlock(ctx);
 	return 0;
@@ -126,8 +123,7 @@ int rpKCPClear(struct rp_net_ctx_t *ctx) {
 	if ((res = rpKCPLock(ctx)))
 		return res;
 	if (ctx->kcp_ready) {
-		ikcp_release(ctx->kcp);
-		ctx->kcp = 0;
+		ikcp_release(&ctx->kcp_ctx->kcp);
 		ctx->kcp_ready = 0;
 	}
 	rpKCPUnlock(ctx);
@@ -178,12 +174,12 @@ void rpControlRecv(struct rp_net_ctx_t *ctx) {
 		return;
 	}
 
-	if ((ret = ikcp_input(ctx->kcp, (const char *)ctx->ctrl_recv_buf, bufSize)) < 0) {
+	if ((ret = ikcp_input(&ctx->kcp_ctx->kcp, (const char *)ctx->ctrl_recv_buf, bufSize)) < 0) {
 		nsDbgPrint("ikcp_input failed: %d\n", ret);
 	}
 
-	ikcp_update(ctx->kcp, iclock());
-	ret = ikcp_recv(ctx->kcp, (char *)ctx->ctrl_recv_buf, RP_CONTROL_RECV_BUFFER_SIZE);
+	ikcp_update(&ctx->kcp_ctx->kcp, iclock());
+	ret = ikcp_recv(&ctx->kcp_ctx->kcp, (char *)ctx->ctrl_recv_buf, RP_CONTROL_RECV_BUFFER_SIZE);
 	rpKCPUnlock(ctx);
 	if (ret >= 0) {
 		rpControlRecvHandle(ctx->ctrl_recv_buf, ret);
@@ -236,9 +232,9 @@ int rpKCPSend(struct rp_net_state_t *state, const u8 *buf, int size) {
 			nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
 			return -1;
 		}
-		int waitsnd = ikcp_waitsnd(ctx->kcp);
-		if (waitsnd < (int)ctx->kcp->snd_wnd) {
-			ret = ikcp_send(ctx->kcp, (const char *)buf, size);
+		int waitsnd = ikcp_waitsnd(&ctx->kcp_ctx->kcp);
+		if (waitsnd < (int)ctx->kcp_ctx->kcp.snd_wnd) {
+			ret = ikcp_send(&ctx->kcp_ctx->kcp, (const char *)buf, size);
 
 			if (ret < 0) {
 				nsDbgPrint("ikcp_send failed: %d\n", ret);
@@ -246,12 +242,12 @@ int rpKCPSend(struct rp_net_state_t *state, const u8 *buf, int size) {
 				return -1;
 			}
 
-			ikcp_update(ctx->kcp, iclock());
+			ikcp_update(&ctx->kcp_ctx->kcp, iclock());
 			rpKCPUnlock(ctx);
 
 			return 0;
 		}
-		ikcp_update(ctx->kcp, iclock());
+		ikcp_update(&ctx->kcp_ctx->kcp, iclock());
 		rpKCPUnlock(ctx);
 
 		svc_sleepThread(RP_THREAD_KCP_LOOP_WAIT);
@@ -273,19 +269,16 @@ void rpNetworkStateInit(struct rp_net_state_t *state, struct rp_net_ctx_t *ctx, 
 	state->net_ctx = ctx;
 }
 
-int rpNetworkTransfer(
-	struct rp_net_state_t *state, int thread_n UNUSED,
-	ikcpcb *kcp, struct rp_conf_kcp_t *kcp_conf, struct rp_syn_comp_t *network_queue
-) {
+int rpNetworkTransfer(struct rp_net_state_t *state, int thread_n UNUSED, struct rp_conf_kcp_t *kcp_conf, struct rp_syn_comp_t *network_queue) {
 	int ret;
 
 	struct rp_net_ctx_t *ctx = state->net_ctx;
 
 	// kcp init
-	if ((ret = rpKCPReady(ctx, kcp, kcp_conf, ctx)))
+	if ((ret = rpKCPReady(ctx, kcp_conf, ctx)))
 		return ret;
 
-	ikcp_update(ctx->kcp, iclock());
+	ikcp_update(&ctx->kcp_ctx->kcp, iclock());
 	rpKCPUnlock(ctx);
 
 	u64 curr_tick = svc_getSystemTick();
@@ -302,7 +295,7 @@ int rpNetworkTransfer(
 			nsDbgPrint("kcp mutex lock timeout, %d\n", ret);
 			break;
 		}
-		ikcp_update(ctx->kcp, iclock());
+		ikcp_update(&ctx->kcp_ctx->kcp, iclock());
 		rpKCPUnlock(ctx);
 
 		struct rp_network_encode_t *network = rp_network_transfer_acquire(&network_queue->transfer, RP_THREAD_LOOP_FAST_WAIT);
