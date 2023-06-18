@@ -80,12 +80,23 @@ void convert_yuv_hp_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, 
 
 static ALWAYS_INLINE
 void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
-	u8 bpp, u8 bpp_2, int yuv_option, int color_transform_hp
+	u8 bpp, u8 bpp_2, int yuv_option, int color_transform_hp, int lq
 ) {
+	bpp_2 = bpp_2 ? 1 : 0;
+
+	u8 spp_lq = 0;
+	u8 spp_2_lq = 0;
+
+	// LQ: RGB454
+	if (lq) {
+		spp_lq = bpp - 4;
+		spp_2_lq = bpp - 4 - (bpp_2 ? 0 : 1);
+	}
+
 	switch (yuv_option) {
 		case 1:
-			if (bpp_2) {
-				convert_yuv_hp_2(r, g, b, y_out, u_out, v_out, bpp, color_transform_hp);
+			if (bpp_2 || lq) {
+				convert_yuv_hp_2(r >> spp_lq, g >> spp_2_lq, b >> spp_lq, y_out, u_out, v_out, lq ? 4 : bpp, color_transform_hp);
 			} else {
 				convert_yuv_hp(r, g, b, y_out, u_out, v_out, bpp, color_transform_hp);
 			}
@@ -93,14 +104,16 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 
 #define RP_RGB_SHIFT \
 	u8 spp = 8 - bpp; \
-	u8 spp_2 = 8 - bpp - (bpp_2 ? 1 : 0); \
+	u8 spp_2 = 8 - bpp - bpp_2; \
 	u8 bpp_mask = (1 << bpp) - 1; \
-	u8 UNUSED bpp_2_mask = (1 << (bpp + (bpp_2 ? 1 : 0))) - 1; \
+	u8 UNUSED bpp_2_mask = (1 << (bpp + bpp_2)) - 1; \
 	if (spp) { \
 		r <<= spp; \
 		g <<= spp_2; \
 		b <<= spp; \
-	}
+	} \
+	spp += spp_lq; \
+	spp_2 += spp_2_lq;
 
 		case 2: {
 			RP_RGB_SHIFT
@@ -127,9 +140,9 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 #undef RP_RGB_SHIFT
 
 		default:
-			*y_out = g;
-			*u_out = r;
-			*v_out = b;
+			*y_out = g >> spp_2_lq;
+			*u_out = r >> spp_lq;
+			*v_out = b >> spp_lq;
 			break;
 	};
 }
@@ -254,7 +267,7 @@ int convert_rgb_image(int format, int width, int height, int pitch, const u8 *re
 int convert_yuv_image(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
-	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp
+	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
 ) {
 	int bytes_per_pixel;
 	if (format == 0) {
@@ -291,14 +304,19 @@ int convert_yuv_image(
 				for (y = 0; y < height; ++y) {
 					convert_yuv(sp[2], sp[1], sp[0], dp_y_out++, dp_u_out++, dp_v_out++,
 						8, 0,
-                        yuv_option, color_transform_hp
+						yuv_option, color_transform_hp, lq
 					);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
-			*y_bpp = *u_bpp = *v_bpp = 8;
+			if (lq) {
+				*y_bpp = 5;
+				*u_bpp = *v_bpp = 4;
+			} else {
+				*y_bpp = *u_bpp = *v_bpp = 8;
+			}
 			break;
 		}
 
@@ -312,16 +330,20 @@ int convert_yuv_image(
 						(pix >> 11) & 0x1f, (pix >> 5) & 0x3f, pix & 0x1f,
 						dp_y_out++, dp_u_out++, dp_v_out++,
 						5, 1,
-                        yuv_option, color_transform_hp
+						yuv_option, color_transform_hp, lq
 					);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
-			*y_bpp = 6;
-			*u_bpp = 5;
-			*v_bpp = 5;
+			if (lq) {
+				*y_bpp = 5;
+				*u_bpp = *v_bpp = 4;
+			} else {
+				*y_bpp = 6;
+				*u_bpp = *v_bpp =5;
+			}
 			break;
 		}
 
@@ -337,14 +359,19 @@ int convert_yuv_image(
 						(pix >> 11) & 0x1f, (pix >> 6) & 0x1f, (pix >> 1) & 0x1f,
 						dp_y_out++, dp_u_out++, dp_v_out++,
 						5, 0,
-                        yuv_option, color_transform_hp
+						yuv_option, color_transform_hp, lq
 					);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
-			*y_bpp = *u_bpp = *v_bpp = 5;
+			if (lq) {
+				*y_bpp = 5;
+				*u_bpp = *v_bpp = 4;
+			} else {
+				*y_bpp = *u_bpp = *v_bpp = 5;
+			}
 			break;
 		} FALLTHRU
 
@@ -360,7 +387,7 @@ int convert_yuv_image(
 						(pix >> 12) & 0x0f, (pix >> 8) & 0x0f, (pix >> 4) & 0x0f,
 						dp_y_out++, dp_u_out++, dp_v_out++,
 						4, 0,
-                        yuv_option, color_transform_hp
+                        yuv_option, color_transform_hp, 0
 					);
 					sp += bytes_per_pixel;
 				}

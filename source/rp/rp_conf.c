@@ -9,6 +9,7 @@ union rp_conf_arg0_t {
 		u32 me_interpolate : 1;
 		u32 multicore_network : 1;
 		u32 multicore_screen : 1;
+		u32 encode_lq : 1;
 		u32 jpeg_quality : 7;
 		u32 zstd_comp_level : RP_ZSTD_COMP_LEVEL_BITS;
 	};
@@ -67,6 +68,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->color_transform_hp = arg1.color_transform_hp;
 	conf->downscale_uv = arg1.downscale_uv;
 	conf->encoder_which = arg1.encoder_which;
+	conf->encode_lq = arg0.encode_lq;
 	conf->jpeg_quality = arg0.jpeg_quality;
 	conf->zstd_comp_level = (int)arg0.zstd_comp_level - RP_ZSTD_COMP_LEVEL_HALF_RANGE;
 	if (conf->zstd_comp_level >= 0)

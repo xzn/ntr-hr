@@ -219,7 +219,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		int encoder_jls = rp_ctx->conf.encoder_which < RP_ENCODER_JLS_COUNT;
 
 		if (RP_FILTER_YUV_ENABLE && encoder_jls) {
-			ret = rpEncodeImage(screen, rp_ctx->conf.yuv_option, rp_ctx->conf.color_transform_hp);
+			ret = rpEncodeImage(screen, rp_ctx->conf.yuv_option, rp_ctx->conf.color_transform_hp, rp_ctx->conf.encode_lq);
 			if (ret < 0) {
 				nsDbgPrint("rpEncodeImage failed\n");
 				break;

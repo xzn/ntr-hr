@@ -19,6 +19,7 @@ struct rp_conf_t {
     u8 color_transform_hp;
     u8 encoder_which;
     u8 downscale_uv;
+    u8 encode_lq;
     u8 jpeg_quality;
     s8 zstd_comp_level;
 

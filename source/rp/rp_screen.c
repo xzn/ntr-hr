@@ -225,7 +225,7 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 	return 0;
 }
 
-int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_transform_hp) {
+int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_transform_hp, int lq) {
 	struct rp_screen_ctx_t c = screen->c;
 	int top_bot = c.top_bot;
 
@@ -241,11 +241,11 @@ int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_t
 		screen->buffer,
 		im->y_image, im->u_image, im->v_image,
 		&im->y_bpp, &im->u_bpp, &im->v_bpp,
-		yuv_option, color_transform_hp
+		yuv_option, color_transform_hp, lq
 	);
 }
 
-int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *image_me, int bpp) {
+int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *image_me, int force_bpp8) {
 	struct rp_screen_ctx_t c = screen->c;
 	int top_bot = c.top_bot;
 
@@ -253,12 +253,12 @@ int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *
 	width = SCREEN_WIDTH(top_bot);
 	height = SCREEN_HEIGHT;
 
-	u8 *rgb_bpp = bpp ? 0 : &image_me->y_bpp;
+	u8 *rgb_bpp = force_bpp8 ? 0 : &image_me->y_bpp;
 	int ret = convert_rgb_image(
 		screen->c.format, width, height, screen->pitch,
 		screen->buffer, image_me->rgb_image, rgb_bpp
 	);
-	if (bpp)
+	if (force_bpp8)
 		image_me->y_bpp = 8;
 	return ret;
 }
