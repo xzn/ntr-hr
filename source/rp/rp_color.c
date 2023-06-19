@@ -120,7 +120,7 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
 			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
-			*y_out = rshift_to_even(y, 8 + spp_2);
+			*y_out = rshift_to_even(y, 8) >> spp_2;
 			*u_out = (u8)((u8)srshift_to_even(s16, u, 8 + spp) + (128 >> spp)) & bpp_mask;
 			*v_out = (u8)((u8)srshift_to_even(s16, v, 8 + spp) + (128 >> spp)) & bpp_mask;
 			break;
