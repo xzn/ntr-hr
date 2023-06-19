@@ -152,14 +152,14 @@ static void interpolate_me(const s8 *me_x_vec[CORNER_COUNT], const s8 *me_y_vec[
 		((int)*me_x_vec[CORNER_BOT_LEFT]) * x_left * y_bot +
 		((int)*me_x_vec[CORNER_BOT_RIGHT]) * x_right * y_bot +
 		((int)*me_x_vec[CORNER_TOP_RIGHT]) * x_right * y_top;
-	*x = srshift_to_even(int, x_unscaled, rshift_scale) << scale_log2;
+	*x = srshift_to_even(x_unscaled, rshift_scale) << scale_log2;
 
 	int y_unscaled =
 		((int)*me_y_vec[CORNER_TOP_LEFT]) * x_left * y_top +
 		((int)*me_y_vec[CORNER_BOT_LEFT]) * x_left * y_bot +
 		((int)*me_y_vec[CORNER_BOT_RIGHT]) * x_right * y_bot +
 		((int)*me_y_vec[CORNER_TOP_RIGHT]) * x_right * y_top;
-	*y = srshift_to_even(int, y_unscaled, rshift_scale) << scale_log2;
+	*y = srshift_to_even(y_unscaled, rshift_scale) << scale_log2;
 }
 
 void me_add_half_range(u8 *me, int width, int height, u8 scale_log2, u8 half_range, u8 block_size_log2) {

@@ -121,7 +121,9 @@
 #define ALWAYS_INLINE __attribute__((always_inline)) inline
 
 #define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
-#define srshift_to_even(t, n, s) ((t)((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
+#define srshift_to_even(n, s) ((n) > 0 ? rshift_to_even((n), (s)) : -rshift_to_even(-(n), (s)))
+#define srshift(n, s) ((n) > 0 ? (n) >> (s) : -(-(n) >> (s)))
+#define RP_CLIP(n, min, max) RP_MIN(RP_MAX((n), (typeof(n))(min)), (typeof(n))(max))
 
 #define RP_ENCODE_THREAD_COUNT (1 + RP_ENCODE_MULTITHREAD)
 // (+ 1) for screen/network transfer then (+ 1) again for start/finish at different time

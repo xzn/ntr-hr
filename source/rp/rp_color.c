@@ -105,7 +105,7 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 #define RP_RGB_SHIFT \
 	u8 spp = 8 - bpp; \
 	u8 spp_2 = 8 - bpp - bpp_2; \
-	u8 bpp_mask = (1 << bpp) - 1; \
+	u8 UNUSED bpp_mask = (1 << bpp) - 1; \
 	u8 UNUSED bpp_2_mask = (1 << (bpp + bpp_2)) - 1; \
 	if (spp) { \
 		r <<= spp; \
@@ -121,8 +121,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
 			*y_out = rshift_to_even(y, 8) >> spp_2;
-			*u_out = (u8)((u8)srshift_to_even(s16, u, 8 + spp) + (128 >> spp)) & bpp_mask;
-			*v_out = (u8)((u8)srshift_to_even(s16, v, 8 + spp) + (128 >> spp)) & bpp_mask;
+			*u_out = srshift(srshift_to_even(u, 8), spp) + (128 >> spp);
+			*v_out = srshift(srshift_to_even(v, 8), spp) + (128 >> spp);
 			break;
 		}
 
@@ -131,9 +131,9 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			u16 y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
 			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
 			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
-			*y_out = (u8)((u8)rshift_to_even(y, 8 + spp_2) + (16 >> spp_2));
-			*u_out = (u8)((u8)srshift_to_even(s16, u, 8 + spp) + (128 >> spp)) & bpp_mask;
-			*v_out = (u8)((u8)srshift_to_even(s16, v, 8 + spp) + (128 >> spp)) & bpp_mask;
+			*y_out = (u8)((u8)(rshift_to_even(y, 8) + 16) >> spp_2);
+			*u_out = srshift(srshift_to_even(u, 8), spp) + (128 >> spp);
+			*v_out = srshift(srshift_to_even(v, 8), spp) + (128 >> spp);
 			break;
 		}
 
