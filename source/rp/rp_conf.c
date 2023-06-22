@@ -9,7 +9,7 @@ union rp_conf_arg0_t {
 		u32 me_interpolate : 1;
 		u32 multicore_network : 1;
 		u32 multicore_screen : 1;
-		u32 encode_lq : 1;
+		u32 encode_lq : 2;
 		u32 jpeg_quality : 7;
 		u32 zstd_comp_level : RP_ZSTD_COMP_LEVEL_BITS;
 	};

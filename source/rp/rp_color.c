@@ -82,62 +82,100 @@ static ALWAYS_INLINE
 void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
 	u8 bpp, u8 bpp_2, int yuv_option, int color_transform_hp, int lq
 ) {
-	bpp_2 = bpp_2 ? 1 : 0;
+	bpp_2 = bpp_2 ? bpp + 1 : bpp;
 
 	u8 spp_lq = 0;
 	u8 spp_2_lq = 0;
 
-	// LQ: RGB454
+	u8 bpp_lq = 8;
+	u8 bpp_2_lq = 8;
+
+	// LQ1: RGB565
+	// LQ2: RGB454
+	// LQ3: RGB444
 	if (lq) {
-		spp_lq = bpp - 4;
-		spp_2_lq = bpp - 4 - (bpp_2 ? 0 : 1);
+		if (lq == 1)
+			bpp_lq = 5;
+		else
+			bpp_lq = 4;
+
+		if (lq == 1 || lq == 2)
+			bpp_2_lq = bpp_lq + 1;
+		else
+			bpp_2_lq = bpp_lq;
+
+		spp_lq = bpp - bpp_lq;
+		spp_2_lq = bpp_2 - bpp_2_lq;
 	}
+
+	if (yuv_option == 2 || yuv_option == 3) {
+		u8 spp = 8 - bpp;
+		u8 spp_2 = 8 - bpp_2;
+		if (spp) {
+			r <<= spp;
+			g <<= spp_2;
+			b <<= spp;
+		}
+	}
+
+	u16 y = 0;
+	s16 u = 0;
+	s16 v = 0;
 
 	switch (yuv_option) {
 		case 1:
-			if (bpp_2 || lq) {
-				convert_yuv_hp_2(r >> spp_lq, g >> spp_2_lq, b >> spp_lq, y_out, u_out, v_out, lq ? 4 : bpp, color_transform_hp);
+			if (lq == 1 || lq == 2) {
+				convert_yuv_hp_2(r >> spp_lq, g >> spp_2_lq, b >> spp_lq, y_out, u_out, v_out, bpp_lq, color_transform_hp);
+			} else if (lq == 3) {
+				convert_yuv_hp(r >> spp_lq, g >> spp_2_lq, b >> spp_lq, y_out, u_out, v_out, bpp_lq, color_transform_hp);
+			} else if (bpp_2 > bpp) {
+				convert_yuv_hp_2(r, g, b, y_out, u_out, v_out, bpp, color_transform_hp);
 			} else {
 				convert_yuv_hp(r, g, b, y_out, u_out, v_out, bpp, color_transform_hp);
 			}
 			break;
 
-#define RP_RGB_SHIFT \
-	u8 spp = 8 - bpp; \
-	u8 spp_2 = 8 - bpp - bpp_2; \
-	u8 UNUSED bpp_mask = (1 << bpp) - 1; \
-	u8 UNUSED bpp_2_mask = (1 << (bpp + bpp_2)) - 1; \
-	if (spp) { \
-		r <<= spp; \
-		g <<= spp_2; \
-		b <<= spp; \
-	} \
-	spp += spp_lq; \
-	spp_2 += spp_2_lq;
-
 		case 2: {
-			RP_RGB_SHIFT
-			u16 y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
-			s16 u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
-			s16 v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
-			*y_out = rshift_to_even(y, 8) >> spp_2;
-			*u_out = srshift(srshift_to_even(u, 8), spp) + (128 >> spp);
-			*v_out = srshift(srshift_to_even(v, 8), spp) + (128 >> spp);
+			if (lq == 0) {
+				y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
+				u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
+				v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
+			} else if (lq == 1) {
+				y = 19 * (u16)r + 38 * (u16)g + 7 * (u16)b;
+				u = -5 * (s16)r + -10 * (s16)g + 15 * (s16)b;
+				v = 15 * (s16)r + -13 * (s16)g + -2 * (s16)b;
+			} else {
+				if (lq == 2) {
+					y = 9 * (u16)r + 19 * (u16)g + 4 * (u16)b;
+				} else {
+					y = 5 * (u16)r + 9 * (u16)g + 2 * (u16)b;
+				}
+				u = -2 * (s16)r + -5 * (s16)g + 7 * (s16)b;
+				v = 7 * (s16)r + -6 * (s16)g + -1 * (s16)b;
+			}
 			break;
 		}
 
 		case 3: {
-			RP_RGB_SHIFT
-			u16 y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
-			s16 u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
-			s16 v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
-			*y_out = (u8)((u8)(rshift_to_even(y, 8) + 16) >> spp_2);
-			*u_out = srshift(srshift_to_even(u, 8), spp) + (128 >> spp);
-			*v_out = srshift(srshift_to_even(v, 8), spp) + (128 >> spp);
+			if (lq == 0) {
+				y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
+				u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
+				v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
+			} else if (lq == 1) {
+				y = 17 * (u16)r + 32 * (u16)g + 6 * (u16)b;
+				u = -5 * (s16)r + -9 * (s16)g + 14 * (s16)b;
+				v = 14 * (s16)r + -12 * (s16)g + -2 * (s16)b;
+			} else {
+				if (lq == 2) {
+					y = 8 * (u16)r + 16 * (u16)g + 3 * (u16)b;
+				} else {
+					y = 4 * (u16)r + 8 * (u16)g + 1 * (u16)b;
+				}
+				u = -2 * (s16)r + -5 * (s16)g + 7 * (s16)b;
+				v = 7 * (s16)r + -6 * (s16)g + -1 * (s16)b;
+			}
 			break;
 		}
-
-#undef RP_RGB_SHIFT
 
 		default:
 			*y_out = g >> spp_2_lq;
@@ -145,6 +183,12 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			*v_out = b >> spp_lq;
 			break;
 	};
+
+	if (yuv_option == 2 || yuv_option == 3) {
+		*y_out = rshift_to_even(y, bpp_2_lq) >> (8 - bpp_2_lq);
+		*u_out = srshift(srshift_to_even(u, bpp_lq), 8 - bpp_lq) + (128 >> (8 - bpp_lq));
+		*v_out = srshift(srshift_to_even(v, bpp_lq), 8 - bpp_lq) + (128 >> (8 - bpp_lq));
+	}
 }
 
 int convert_rgb_image(int format, int width, int height, int pitch, const u8 *restrict sp, u8 *restrict dp_rgb_out, u8 *bpp) {
@@ -264,7 +308,7 @@ int convert_rgb_image(int format, int width, int height, int pitch, const u8 *re
 	return 0;
 }
 
-int convert_yuv_image(
+static ALWAYS_INLINE int convert_yuv_image_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
@@ -287,6 +331,19 @@ int convert_yuv_image(
 
 	convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out);
 	int x, y;
+
+	int hq = 0;
+	if (lq == 1) {
+		*y_bpp = 6;
+		*u_bpp = *v_bpp = 5;
+	} else if (lq == 2) {
+		*y_bpp = 5;
+		*u_bpp = *v_bpp = 4;
+	} else if (lq == 3) {
+		*y_bpp = *u_bpp = *v_bpp = 4;
+	} else {
+		hq = 1;
+	}
 
 	switch (format) {
 		// untested
@@ -311,10 +368,7 @@ int convert_yuv_image(
 				sp += bytes_to_next_column;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
-			if (lq) {
-				*y_bpp = 5;
-				*u_bpp = *v_bpp = 4;
-			} else {
+			if (hq) {
 				*y_bpp = *u_bpp = *v_bpp = 8;
 			}
 			break;
@@ -337,12 +391,14 @@ int convert_yuv_image(
 				sp += bytes_to_next_column;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
-			if (lq) {
-				*y_bpp = 5;
-				*u_bpp = *v_bpp = 4;
-			} else {
-				*y_bpp = 6;
-				*u_bpp = *v_bpp =5;
+			if (hq) {
+				if (yuv_option == 2 || yuv_option == 3) {
+					*y_bpp = 8;
+					*u_bpp = *v_bpp = 8;
+				} else {
+					*y_bpp = 6;
+					*u_bpp = *v_bpp = 5;
+				}
 			}
 			break;
 		}
@@ -359,19 +415,14 @@ int convert_yuv_image(
 						(pix >> 11) & 0x1f, (pix >> 6) & 0x1f, (pix >> 1) & 0x1f,
 						dp_y_out++, dp_u_out++, dp_v_out++,
 						5, 0,
-						yuv_option, color_transform_hp, lq
+						yuv_option, color_transform_hp, 0
 					);
 					sp += bytes_per_pixel;
 				}
 				sp += bytes_to_next_column;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
-			if (lq) {
-				*y_bpp = 5;
-				*u_bpp = *v_bpp = 4;
-			} else {
-				*y_bpp = *u_bpp = *v_bpp = 5;
-			}
+			*y_bpp = *u_bpp = *v_bpp = 5;
 			break;
 		} FALLTHRU
 
@@ -402,6 +453,105 @@ int convert_yuv_image(
 			return -1;
 	}
 	return 0;
+}
+
+static ALWAYS_INLINE int convert_yuv_image_color_transform_hp_g(
+	int format, int width, int height, int pitch,
+	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
+	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
+) {
+	switch (color_transform_hp) {
+		default:
+		case 0:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, 0, lq);
+
+		case 1:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, 1, lq);
+
+		case 2:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, 2, lq);
+
+		case 3:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, 3, lq);
+	}
+}
+
+static ALWAYS_INLINE int convert_yuv_image_yuv_option_g(
+	int format, int width, int height, int pitch,
+	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
+	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
+) {
+	switch (yuv_option) {
+		default:
+		case 0:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 0, color_transform_hp, lq);
+
+		case 1:
+			return convert_yuv_image_color_transform_hp_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 1, color_transform_hp, lq);
+
+		case 2:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 2, color_transform_hp, lq);
+
+		case 3:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 3, color_transform_hp, lq);
+	}
+}
+
+static ALWAYS_INLINE int convert_yuv_image_lq_g(
+	int format, int width, int height, int pitch,
+	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
+	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
+) {
+	switch (lq) {
+		default:
+			return -1;
+
+		case 0:
+			return convert_yuv_image_yuv_option_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 0);
+
+		case 1:
+			return convert_yuv_image_yuv_option_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 1);
+
+		case 2:
+			return convert_yuv_image_yuv_option_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 2);
+
+		case 3:
+			return convert_yuv_image_yuv_option_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 3);
+	}
+}
+
+static ALWAYS_INLINE int convert_yuv_image_format_g(
+	int format, int width, int height, int pitch,
+	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
+	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
+) {
+	switch (format) {
+		case 0:
+			return convert_yuv_image_lq_g(0, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+
+		case 1:
+			return convert_yuv_image_lq_g(1, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+
+		case 2:
+			return convert_yuv_image_lq_g(2, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+
+		case 3:
+			return convert_yuv_image_yuv_option_g(3, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 0);
+
+		case 4:
+			return convert_yuv_image_yuv_option_g(4, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 0);
+
+		default:
+			return -1;
+	}
+}
+
+int convert_yuv_image(
+	int format, int width, int height, int pitch,
+	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
+	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
+) {
+	return convert_yuv_image_format_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
 }
 
 void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
