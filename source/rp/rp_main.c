@@ -285,6 +285,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.jcinfo = &rp_ctx->jcinfo[thread_n],
 			.zstd_med_ws = rp_ctx->zstd_med_ws[thread_n],
 			.zstd_med_pred_line = rp_ctx->zstd_med_pred_line[thread_n],
+			.lz4_med_ws = &rp_ctx->lz4_med_ws[thread_n],
+			.lz4_med_pred_line = rp_ctx->lz4_med_pred_line[thread_n],
 		};
 		struct rp_encode_and_send_screen_ctx_t encode_send_ctx = {
 			.jls_send_ctx = &jls_send_ctx,
@@ -331,6 +333,10 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 
 	if (RP_ENCODER_JLS_LUT_ENABLE && rp_ctx->conf.encoder_which < RP_ENCODER_JLS_USE_LUT_COUNT) {
 		jls_encoder_prepare_LUTs(&rp_ctx->jls_param);
+	} else if (RP_ENCODER_LZ4_ENABLE && rp_ctx->conf.encoder_which == RP_ENCODER_LZ4_JLS) {
+		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
+			LZ4_initStream(&rp_ctx->lz4_med_ws[i], sizeof(LZ4_stream_t));
+		}
 	} else if (RP_ENCODER_ZSTD_ENABLE && rp_ctx->conf.encoder_which == RP_ENCODER_ZSTD_JLS) {
 		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
 			if ((ret = zstd_med_init_ws(rp_ctx->zstd_med_ws[i], sizeof(rp_ctx->zstd_med_ws[i]), rp_ctx->conf.zstd_comp_level))) {

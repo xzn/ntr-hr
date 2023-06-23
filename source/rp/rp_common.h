@@ -14,5 +14,6 @@
 #include "../jpeg_turbo/jpeglib.h"
 #define ZSTD_STATIC_LINKING_ONLY
 #include "../zstd/zstd.h"
+#include "lz4.h"
 
 #endif

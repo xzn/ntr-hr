@@ -160,7 +160,21 @@ static int rpJLSSendEncodedCallback_ZSTD(struct rp_jls_send_ctx_t *sctx, ZSTD_ou
 	return 0;
 }
 
-static uint8_t zstd_pred_med(uint8_t Rb, uint8_t Ra, uint8_t Rc) {
+struct rp_jls_lz4_ctx_t {
+	u8 *dst, *dst_end;
+};
+
+static int rpJLSSendEncodedCallback_LZ4(struct rp_jls_send_ctx_t *sctx, struct rp_jls_lz4_ctx_t *cctx) {
+	sctx->buffer_begin = cctx->dst;
+	int ret;
+	if ((ret = rpJLSSendEncodedCallback(sctx)))
+		return ret;
+	cctx->dst = sctx->buffer_begin;
+	cctx->dst_end = sctx->buffer_end;
+	return 0;
+}
+
+static uint8_t jls_pred_med(uint8_t Rb, uint8_t Ra, uint8_t Rc) {
 	uint8_t minx;
 	uint8_t maxx;
 
@@ -196,6 +210,24 @@ static size_t zstd_compress_stream(struct rp_jls_send_ctx_t *sctx,
 		}
 		return 0;
 	}
+}
+
+static int lz4_write_bytes(struct rp_jls_send_ctx_t *sctx, struct rp_jls_lz4_ctx_t *cctx, const u8 *bytes, int size) {
+	int remaining_size = size;
+	int ret;
+	while (remaining_size) {
+		size = RP_MIN(remaining_size, (int)(cctx->dst_end - cctx->dst));
+		if (size == 0) {
+			if ((ret = rpJLSSendEncodedCallback_LZ4(sctx, cctx)))
+				return -1;
+			continue;
+		}
+		memcpy(cctx->dst, bytes, size);
+		cctx->dst += size;
+		bytes += size;
+		remaining_size -= size;
+	}
+	return 0;
 }
 
 extern const uint8_t psl0[];
@@ -283,6 +315,50 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			return -1;
 		}
 		send_ctx->buffer_begin = (u8 *)bctx->buf;
+	} else if (RP_ENCODER_LZ4_ENABLE && encoder_which == RP_ENCODER_LZ4_JLS) {
+		struct rp_jls_lz4_ctx_t cctx = {
+			.dst = send_ctx->buffer_begin,
+			.dst_end = send_ctx->buffer_end,
+		};
+		uint8_t pred_buf_index = 0;
+
+		const u8 *last = psl0 + LEFTMARGIN;
+		const u8 *in = src + LEFTMARGIN;
+
+		int ret;
+
+		for (int j = 0; j < w; ++j) {
+			u8 *pred_buf = send_ctx->lz4_med_pred_line[pred_buf_index];
+
+			for (int i = 0; i < h; ++i) {
+				u8 Ra = in[i - 1], Rb = last[i], Rc = last[i - 1];
+				pred_buf[i] = in[i] - jls_pred_med(Rb, Ra, Rc);
+			}
+
+			u8 comp_buf[LZ4_COMPRESSBOUND(h)];
+
+			const u8 comp_size = LZ4_compress_fast_continue(
+				send_ctx->lz4_med_ws, (const char *)pred_buf, (char *)comp_buf, h, sizeof(comp_buf), 0);
+
+			if (comp_size <= 0) {
+				nsDbgPrint("LZ4_compress_fast_continue failed: %d\n", comp_size);
+				return -1;
+			}
+
+			if ((ret = lz4_write_bytes(send_ctx, &cctx, &comp_size, sizeof(comp_size))))
+				return ret;
+			if ((ret = lz4_write_bytes(send_ctx, &cctx, comp_buf, comp_size)))
+				return ret;
+
+			last = in;
+			in += h + LEFTMARGIN + RIGHTMARGIN;
+
+			pred_buf_index = (pred_buf_index + 1) % 2;
+		}
+
+		send_ctx->buffer_begin = cctx.dst;
+		LZ4_resetStream_fast(send_ctx->lz4_med_ws);
+
 	} else if (RP_ENCODER_ZSTD_ENABLE && encoder_which == RP_ENCODER_ZSTD_JLS) {
 		ZSTD_CStream *cstream = (ZSTD_CStream *)send_ctx->zstd_med_ws;
 		u8 *pred_buf = send_ctx->zstd_med_pred_line;
@@ -303,8 +379,8 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		};
 		for (int j = 0; j < w; ++j) {
 			for (int i = 0; i < h; ++i) {
-				uint8_t Ra = in[i - 1], Rb = last[i], Rc = last[i - 1];
-				pred_buf[i] = in[i] - zstd_pred_med(Rb, Ra, Rc);
+				u8 Ra = in[i - 1], Rb = last[i], Rc = last[i - 1];
+				pred_buf[i] = in[i] - jls_pred_med(Rb, Ra, Rc);
 			}
 			cur_input.pos = 0;
 			ret = zstd_compress_stream(send_ctx, cstream, &cur_output, &cur_input, ZSTD_e_continue);
