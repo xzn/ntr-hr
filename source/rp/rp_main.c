@@ -287,6 +287,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.zstd_med_pred_line = rp_ctx->zstd_med_pred_line[thread_n],
 			.lz4_med_ws = &rp_ctx->lz4_med_ws[thread_n],
 			.lz4_med_pred_line = rp_ctx->lz4_med_pred_line[thread_n],
+			.huff_med_ws = &rp_ctx->huff_med_ws[thread_n],
+			.huff_med_pred_image = rp_ctx->huff_med_pred_image[thread_n],
 		};
 		struct rp_encode_and_send_screen_ctx_t encode_send_ctx = {
 			.jls_send_ctx = &jls_send_ctx,

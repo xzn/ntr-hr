@@ -84,6 +84,8 @@ struct rp_jls_send_ctx_t {
 	u8 *zstd_med_pred_line;
 	LZ4_stream_t *lz4_med_ws;
 	u8 (*lz4_med_pred_line)[SCREEN_HEIGHT];
+	struct rp_huff_ctx *huff_med_ws;
+	u8 *huff_med_pred_image;
 	u8 *buffer_begin;
 	u8 *buffer_end;
 	int send_size_total;

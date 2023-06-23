@@ -406,6 +406,43 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			nsDbgPrint("ZSTD_CCtx_reset failed: %d\n", ret);
 			return ret;
 		}
+	} else if (RP_ENCODER_HUFF_ENABLE && encoder_which == RP_ENCODER_HUFF_JLS) {
+		struct rp_rle_encode_ctx_t rle_ctx;
+		rle_encode_init(&rle_ctx, send_ctx->huff_med_pred_image);
+
+		const u8 *last = psl0 + LEFTMARGIN;
+		const u8 *in = src + LEFTMARGIN;
+
+		for (int j = 0; j < w; ++j) {
+			for (int i = 0; i < h; ++i) {
+				u8 Ra = in[i - 1], Rb = last[i], Rc = last[i - 1];
+				rle_encode_next(&rle_ctx, (u8)(in[i] - jls_pred_med(Rb, Ra, Rc)));
+			}
+			last = in;
+			in += h + LEFTMARGIN + RIGHTMARGIN;
+		}
+
+		int rle_size = rle_encode_end(&rle_ctx);
+		if (rle_size > RP_HUFF_WS_SIZE) {
+			nsDbgPrint("rle_encode_end overflow!\n");
+			return -1;
+		}
+
+		*(u32 *)send_ctx->buffer_begin = rle_size;
+		PutBitContext s;
+		init_put_bits(&s, send_ctx->buffer_begin + sizeof(u32), send_ctx->buffer_end);
+		s.user = send_ctx;
+
+		int ret = huff_encode(send_ctx->huff_med_ws, &s, send_ctx->huff_med_pred_image, rle_size);
+		if (ret) {
+			nsDbgPrint("huff_encode failed: %d\n", ret);
+			return -1;
+		}
+		if ((ret = flush_put_bits(&s))) {
+			nsDbgPrint("huff flush_put_bits failed: %d\n", ret);
+			return -1;
+		}
+		send_ctx->buffer_begin = s.buf_ptr;
 	} else if (RP_ENCODER_IMAGEZERO_ENABLE && encoder_which == RP_ENCODER_IMAGE_ZERO) {
 		struct BitCoderPtrs ptrs = {
 			.p = (Code_def_t *)send_ctx->buffer_begin,

@@ -551,7 +551,7 @@ int convert_yuv_image(
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
 ) {
-	return convert_yuv_image_format_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+	return convert_yuv_image_format_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, RP_ENCODE_STATIC_LQ ? lq : 0);
 }
 
 void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {

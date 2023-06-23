@@ -4,6 +4,7 @@
 #include "rp_common_base.h"
 
 #include "libavcodec/jpegls.h"
+#include "libavcodec/huffman.h"
 #include "libavcodec/get_bits.h"
 #include "libavfilter/motion_estimation.h"
 #include "libavfilter/scene_sad.h"
@@ -15,5 +16,6 @@
 #define ZSTD_STATIC_LINKING_ONLY
 #include "../zstd/zstd.h"
 #include "lz4.h"
+#include "rlecodec.h"
 
 #endif

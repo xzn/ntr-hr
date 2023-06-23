@@ -51,7 +51,10 @@ struct rp_ctx_t {
 			LZ4_stream_t lz4_med_ws[RP_ENCODE_THREAD_COUNT];
 			u8 lz4_med_pred_line[RP_ENCODE_THREAD_COUNT][2][SCREEN_HEIGHT];
 		};
-		u8 med_pred_image[RP_ENCODE_THREAD_COUNT][SCREEN_WIDTH_MAX * SCREEN_HEIGHT];
+		struct {
+			struct rp_huff_ctx huff_med_ws[RP_ENCODE_THREAD_COUNT];
+			u8 huff_med_pred_image[RP_ENCODE_THREAD_COUNT][RP_HUFF_WS_SIZE];
+		};
 	};
 
 	struct rp_image_ctx_t image_ctx;
