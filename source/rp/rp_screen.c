@@ -380,7 +380,6 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			me_add_half_range((u8 *)image_me->me_y_image, width, height, scale_log2,
 				me->bpp_half_range, me->block_size_log2);
 
-
 			image_me->y_bpp = im->y_bpp;
 			image_me->u_bpp = im->u_bpp;
 			image_me->v_bpp = im->v_bpp;
@@ -411,7 +410,6 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 				else
 					bpp_2_lq = bpp_lq;
 			}
-
 
 			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1, bpp_2_lq);
 

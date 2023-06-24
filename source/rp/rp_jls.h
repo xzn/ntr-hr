@@ -100,15 +100,17 @@ enum rp_plane_comp_t {
 	RP_PLANE_COMP_Y,
 	RP_PLANE_COMP_U,
 	RP_PLANE_COMP_V,
+	RP_PLANE_COMP_UV,
 
 	RP_PLANE_COMP_ME_X = 0,
 	RP_PLANE_COMP_ME_Y,
 };
 
 void jls_encoder_prepare_LUTs(struct rp_jls_params_t *params);
-int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
+
+int rpJLSEncodeImage_2(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
-	const u8 *src, int w, int h, int bpp, u8 encoder_which);
+	const u8 *src, const u8 *src_2, int w, int h, int bpp, int bpp_2, u8 encoder_which);
 
 int zstd_med_init_ws(u8 *ws, int ws_size, int comp_level);
 

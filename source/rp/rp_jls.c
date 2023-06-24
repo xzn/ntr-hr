@@ -231,9 +231,10 @@ static int lz4_write_bytes(struct rp_jls_send_ctx_t *sctx, struct rp_jls_lz4_ctx
 }
 
 extern const uint8_t psl0[];
-int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
+
+static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
-	const u8 *src, int w, int h, int bpp, u8 encoder_which
+	const u8 *src, const u8 *src_2, int w, int h, int bpp, int bpp_2, u8 encoder_which
 ) {
 	int ret;
 
@@ -244,6 +245,9 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 
 	struct jls_enc_params *enc_params = 0;
 	if (encoder_which < RP_ENCODER_JLS_USE_LUT_COUNT) {
+		if (src_2 && bpp != bpp_2)
+			return -1;
+
 		switch (bpp) {
 			case 8:
 				enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP8]; break;
@@ -412,16 +416,20 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		struct rp_rle_encode_ctx_t rle_ctx;
 		rle_encode_init(&rle_ctx, send_ctx->huff_med_pred_image);
 
-		const u8 *last = psl0 + LEFTMARGIN;
-		const u8 *in = src + LEFTMARGIN;
+		const u8 *in_2[] = {src, src_2};
 
-		for (int j = 0; j < w; ++j) {
-			for (int i = 0; i < h; ++i) {
-				u8 Ra = in[i - 1], Rb = last[i], Rc = last[i - 1];
-				rle_encode_next(&rle_ctx, (u8)(in[i] - jls_pred_med(Rb, Ra, Rc)));
+		for (int k = 0; k < (int)(sizeof(in_2) / sizeof(*in_2)) && in_2[k]; ++k) {
+			const u8 *last = psl0 + LEFTMARGIN;
+			const u8 *in = in_2[k] + LEFTMARGIN;
+
+			for (int j = 0; j < w; ++j) {
+				for (int i = 0; i < h; ++i) {
+					u8 Ra = in[i - 1], Rb = last[i], Rc = last[i - 1];
+					rle_encode_next(&rle_ctx, (u8)(in[i] - jls_pred_med(Rb, Ra, Rc)));
+				}
+				last = in;
+				in += h + LEFTMARGIN + RIGHTMARGIN;
 			}
-			last = in;
-			in += h + LEFTMARGIN + RIGHTMARGIN;
 		}
 
 		int rle_size = rle_encode_end(&rle_ctx);
@@ -492,6 +500,30 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	if (ret)
 		return -1;
 	return send_ctx->send_size_total;
+}
+
+int rpJLSEncodeImage_2(struct rp_jls_send_ctx_t *send_ctx,
+	struct rp_jls_params_t *params, struct rp_jls_ctx_t *jls_ctx,
+	const u8 *src, const u8 *src_2, int w, int h, int bpp, int bpp_2, u8 encoder_which
+) {
+	if (encoder_which == RP_ENCODER_HUFF_JLS || !src_2) {
+		return rpJLSEncodeImage(send_ctx, params, jls_ctx, src, src_2, w, h, bpp, bpp_2, RP_ENCODER_HUFF_JLS);
+	} else {
+		if (send_ctx->send_header->plane_type != RP_PLANE_TYPE_COLOR || send_ctx->send_header->plane_comp != RP_PLANE_COMP_UV)
+			return -1;
+
+		int ret, size;
+
+		send_ctx->send_header->plane_comp = RP_PLANE_COMP_U;
+		ret = rpJLSEncodeImage(send_ctx, params, jls_ctx, src, 0, w, h, bpp, 0, encoder_which);
+		if (ret < 0) { return ret; } size += ret;
+
+		send_ctx->send_header->plane_comp = RP_PLANE_COMP_V;
+		ret = rpJLSEncodeImage(send_ctx, params, jls_ctx, src_2, 0, w, h, bpp_2, 0, encoder_which);
+		if (ret < 0) { return ret; } size += ret;
+
+		return size;
+	}
 }
 
 int ffmpeg_jls_flush(struct PutBitContext *ctx) {

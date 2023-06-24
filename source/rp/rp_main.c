@@ -61,23 +61,27 @@ struct rp_encode_and_send_screen_ctx_t {
 	u8 encoder_which;
 };
 
-static int rpJLSEncodeDownscaledPlaneAndSend(struct rp_encode_and_send_screen_ctx_t *ctx, const u8 *n, const u8 *ds_n,
-	int w, int h, int ds_w, int ds_h, int bpp
+static int rpJLSEncodePlaneAndSend_2(struct rp_encode_and_send_screen_ctx_t *ctx, const u8 *n, const u8 *n_2,
+	int w, int h, int bpp, int bpp_2
 ) {
+	if (n_2 && bpp != bpp_2)
+		return -1;
+
 	ctx->jls_send_ctx->send_header->bpp = bpp;
-	return rpJLSEncodeImage(ctx->jls_send_ctx,
+	return rpJLSEncodeImage_2(ctx->jls_send_ctx,
 		ctx->jls_param, ctx->jls_ctx,
-		(const u8 *)(ctx->downscale_uv ? ds_n : n),
-		ctx->downscale_uv ? ds_w : w,
-		ctx->downscale_uv ? ds_h : h,
-		bpp,
+		(const u8 *)n,
+		(const u8 *)n_2,
+		w,
+		h,
+		bpp, bpp_2,
 		ctx->encoder_which
 	);
 }
 
 static int rpJLSEncodePlaneAndSend(struct rp_encode_and_send_screen_ctx_t *ctx, const u8 *n,
 	int w, int h, int bpp) {
-	return rpJLSEncodeDownscaledPlaneAndSend(ctx, n, n, w, h, w, h, bpp);
+	return rpJLSEncodePlaneAndSend_2(ctx, n, 0, w, h, bpp, 0);
 }
 
 static void rpUpdateSendHeader(struct rp_send_data_header *send_header, u8 plane_type, u8 plane_comp) {
@@ -129,13 +133,19 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 	ret = rpJLSEncodePlaneAndSend(ctx, im->y_image, width, height, im->y_bpp);
 	if (ret < 0) { return ret; } size += ret;
 
-	rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_U);
-	ret = rpJLSEncodeDownscaledPlaneAndSend(ctx, im->u_image, im->ds_u_image, width, height, ds_width, ds_height, im->u_bpp);
-	if (ret < 0) { return ret; } size += ret;
+	if (ctx->downscale_uv) {
+		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_UV);
+		ret = rpJLSEncodePlaneAndSend_2(ctx, im->ds_u_image, im->ds_v_image, ds_width, ds_height, im->u_bpp, im->v_bpp);
+		if (ret < 0) { return ret; } size += ret;
+	} else {
+		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_U);
+		ret = rpJLSEncodePlaneAndSend(ctx, im->u_image, width, height, im->u_bpp);
+		if (ret < 0) { return ret; } size += ret;
 
-	rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_V);
-	ret = rpJLSEncodeDownscaledPlaneAndSend(ctx, im->v_image, im->ds_v_image, width, height, ds_width, ds_height, im->v_bpp);
-	if (ret < 0) { return ret; } size += ret;
+		rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, RP_PLANE_COMP_V);
+		ret = rpJLSEncodePlaneAndSend(ctx, im->v_image, width, height, im->v_bpp);
+		if (ret < 0) { return ret; } size += ret;
+	}
 
 	return size;
 }

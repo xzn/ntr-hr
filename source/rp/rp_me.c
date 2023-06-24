@@ -187,10 +187,12 @@ void diff_image(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq,
 	ref += LEFTMARGIN;
 	cur += LEFTMARGIN;
 
+	u8 max_lq = (1 << (bpp - spp_lq)) - 1;
+
 #define DO_DIFF() do { \
 	*dst = (*cur - *ref) / (1 << spp_lq); \
 	*cur = *ref + (s8)*dst * (1 << spp_lq); \
-	*dst = (*dst + (128 >> (8 - bpp + spp_lq))) & ((1 << (bpp - spp_lq)) - 1); \
+	*dst = (*dst + (128 >> (8 - bpp + spp_lq))) & max_lq; \
 	++dst, ++cur, ++ref; \
 } while (0)
 
