@@ -247,7 +247,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		screen = 0;
 
 		if (encoder_jls) {
-			ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode);
+			ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, rp_ctx->conf.encode_lq);
 			if (ret < 0) {
 				nsDbgPrint("rpDownscaleMEImage failed\n");
 				break;

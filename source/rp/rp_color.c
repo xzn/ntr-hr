@@ -393,8 +393,7 @@ static ALWAYS_INLINE int convert_yuv_image_g(
 			}
 			if (hq) {
 				if (yuv_option == 2 || yuv_option == 3) {
-					*y_bpp = 8;
-					*u_bpp = *v_bpp = 8;
+					*y_bpp = *u_bpp = *v_bpp = 8;
 				} else {
 					*y_bpp = 6;
 					*u_bpp = *v_bpp = 5;

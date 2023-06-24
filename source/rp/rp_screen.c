@@ -18,18 +18,23 @@ static int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_
 	u8 *dest = screen->buffer;
 	Handle hProcess = dma->home_handle;
 
-	Handle hdma;
+	Handle *hdma = &screen->hdma;
+	if (*hdma) {
+		svc_closeHandle(*hdma);
+		*hdma = 0;
+	}
+	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)dest, bufSize);
 	int ret;
 
 	if (isInVRAM(phys)) {
 		rpCloseGameHandle(dma);
-		ret = svc_startInterProcessDma(&hdma, CURRENT_PROCESS_HANDLE,
+		ret = svc_startInterProcessDma(hdma, CURRENT_PROCESS_HANDLE,
 			dest, hProcess, (const void *)(0x1F000000 + (phys - 0x18000000)), bufSize, (u32 *)dma->dma_config);
 		if (ret != 0)
 			return ret;
 	}
 	else if (isInFCRAM(phys) && (hProcess = rpGetGameHandle(dma))) {
-		ret = svc_startInterProcessDma(&hdma, CURRENT_PROCESS_HANDLE,
+		ret = svc_startInterProcessDma(hdma, CURRENT_PROCESS_HANDLE,
 			dest, hProcess, (const void *)(dma->game_fcram_base + (phys - 0x20000000)), bufSize, (u32 *)dma->dma_config);
 		if (ret != 0)
 			return ret;
@@ -39,19 +44,19 @@ static int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_
 		return 0;
 	}
 
-	u32 state, i;
-	for (i = 0; i < RP_THREAD_LOOP_WAIT_COUNT; i++ ) {
-		state = 0;
-		svc_getDmaState(&state, hdma);
-		if (state == 4)
-			break;
-		svc_sleepThread(RP_THREAD_LOOP_ULTRA_FAST_WAIT);
+	if (0) {
+		u32 state, i;
+		for (i = 0; i < RP_THREAD_LOOP_WAIT_COUNT; i++ ) {
+			state = 0;
+			svc_getDmaState(&state, *hdma);
+			if (state == 4)
+				break;
+			svc_sleepThread(RP_THREAD_LOOP_ULTRA_FAST_WAIT);
+		}
+		if (i >= RP_THREAD_LOOP_WAIT_COUNT) {
+			nsDbgPrint("rpCaptureScreen time out %08x", state, 0);
+		}
 	}
-	if (i >= RP_THREAD_LOOP_WAIT_COUNT) {
-		nsDbgPrint("rpCaptureScreen time out %08x", state, 0);
-	}
-	svc_closeHandle(hdma);
-	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)dest, bufSize);
 	return 0;
 }
 
@@ -263,7 +268,7 @@ int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *
 	return ret;
 }
 
-int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, struct rp_const_image_t *image_prev, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore UNUSED) {
+int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, struct rp_const_image_t *image_prev, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore UNUSED, u8 lq) {
 	int UNUSED ret;
 
 	image_me->me_bpp = me->bpp;
@@ -374,31 +379,60 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 				me->bpp_half_range, me->block_size_log2);
 			me_add_half_range((u8 *)image_me->me_y_image, width, height, scale_log2,
 				me->bpp_half_range, me->block_size_log2);
+
+
+			image_me->y_bpp = im->y_bpp;
+			image_me->u_bpp = im->u_bpp;
+			image_me->v_bpp = im->v_bpp;
 		} else {
 
-#define DIFF_IM(n, w, h, s, b, m) do { \
-	diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, \
+#define DIFF_IM(n, w, h, s, b, m, b_lq) do { \
+	diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, RP_ENCODE_STATIC_LQ ? 0 : im->b - b_lq, \
 		me->select, me->select_threshold, \
 		m ? me->downscale ? im->mafd_ds_image : im->mafd_image : 0, \
 		m ? me->downscale ? im_prev->mafd_ds_image : im_prev->mafd_image : 0, me->mafd_shift, \
 		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, s, me->block_size, me->block_size_log2); \
 } while (0)
 
-			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1);
+			u8 bpp_lq = 8;
+			u8 bpp_2_lq = 8;
 
-			if (downscale_uv) {
-				DIFF_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp, 0);
-				DIFF_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp, 0);
-			} else {
-				DIFF_IM(u_image, width, height, scale_log2, u_bpp, 0);
-				DIFF_IM(v_image, width, height, scale_log2, v_bpp, 0);
+			// LQ1: RGB565
+			// LQ2: RGB454
+			// LQ3: RGB444
+			if (lq) {
+				if (lq == 1)
+					bpp_lq = 5;
+				else
+					bpp_lq = 4;
+
+				if (lq == 1 || lq == 2)
+					bpp_2_lq = bpp_lq + 1;
+				else
+					bpp_2_lq = bpp_lq;
 			}
 
-		}
 
-		image_me->y_bpp = im->y_bpp;
-		image_me->u_bpp = im->u_bpp;
-		image_me->v_bpp = im->v_bpp;
+			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1, bpp_2_lq);
+
+			if (downscale_uv) {
+				DIFF_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp, 0, bpp_lq);
+				DIFF_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp, 0, bpp_lq);
+			} else {
+				DIFF_IM(u_image, width, height, scale_log2, u_bpp, 0, bpp_lq);
+				DIFF_IM(v_image, width, height, scale_log2, v_bpp, 0, bpp_lq);
+			}
+
+			if (RP_ENCODE_STATIC_LQ) {
+				image_me->y_bpp = im->y_bpp;
+				image_me->u_bpp = im->u_bpp;
+				image_me->v_bpp = im->v_bpp;
+			} else {
+				image_me->y_bpp = bpp_2_lq;
+				image_me->u_bpp = bpp_lq;
+				image_me->v_bpp = bpp_lq;
+			}
+		}
 
 		if (multicore && me->enabled != 0) {
 			// done read

@@ -179,8 +179,8 @@ void me_add_half_range(u8 *me, int width, int height, u8 scale_log2, u8 half_ran
 	}
 }
 
-void diff_image(s8 *me_x_image, u8 *dst, const u8 *ref, const u8 *cur,
-u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
+void diff_image(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq,
+	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	int width, int height, int pitch, int bpp, int scale_log2, u8 block_size, u8 block_size_log2
 ) {
 	convert_set_zero(&dst);
@@ -188,7 +188,10 @@ u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	cur += LEFTMARGIN;
 
 #define DO_DIFF() do { \
-	*dst++ = (u8)((u8)(*cur++) - (u8)(*ref++) + (128 >> (8 - bpp))) & ((1 << bpp) - 1); \
+	*dst = (*cur - *ref) / (1 << spp_lq); \
+	*cur = *ref + (s8)*dst * (1 << spp_lq); \
+	*dst = (*dst + (128 >> (8 - bpp + spp_lq))) & ((1 << (bpp - spp_lq)) - 1); \
+	++dst, ++cur, ++ref; \
 } while (0)
 
 	if (select) {
@@ -260,8 +263,9 @@ u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 				}
 
 				if (scene_change) {
-					ref++;
-					*dst++ = *cur++;
+					*dst = rshift_to_even(*cur, spp_lq);
+					*cur = *dst << spp_lq;
+					++dst, ++cur, ++ref;
 				} else {
 					// do diff
 					DO_DIFF();

@@ -4,6 +4,7 @@
 #include "rp_common.h"
 
 struct rp_screen_encode_t {
+    Handle hdma;
     u32 pitch;
     u32 fbaddr;
     u8 buffer[RP_SCREEN_BUFFER_SIZE] ALIGN_4;

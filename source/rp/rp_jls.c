@@ -242,29 +242,31 @@ int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 	if (ret < 0)
 		return ret;
 
-	struct jls_enc_params *enc_params;
-	switch (bpp) {
-		case 8:
-			enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP8]; break;
+	struct jls_enc_params *enc_params = 0;
+	if (encoder_which < RP_ENCODER_JLS_USE_LUT_COUNT) {
+		switch (bpp) {
+			case 8:
+				enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP8]; break;
 
-		case 7:
-			enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP7]; break;
+			case 7:
+				enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP7]; break;
 
-		case 6:
-			enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP6]; break;
+			case 6:
+				enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP6]; break;
 
-		case 5:
-			enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP5]; break;
+			case 5:
+				enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP5]; break;
 
-		case 4:
-			enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP4]; break;
+			case 4:
+				enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP4]; break;
 
-		case 1:
-			enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP1]; break;
+			case 1:
+				enc_params = &params->enc_params[RP_ENCODE_PARAMS_BPP1]; break;
 
-		default:
-			nsDbgPrint("Unsupported bpp in rpJLSEncodeImage: %d\n", bpp);
-			return -1;
+			default:
+				nsDbgPrint("Unsupported bpp in rpJLSEncodeImage: %d\n", bpp);
+				return -1;
+		}
 	}
 
 	if (RP_ENCODER_FFMPEG_JLS_ENABLE && encoder_which == RP_ENCODER_FFMPEG_JLS) {
