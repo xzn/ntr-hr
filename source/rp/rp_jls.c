@@ -359,7 +359,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			last = in;
 			in += h + LEFTMARGIN + RIGHTMARGIN;
 
-			pred_buf_index = (pred_buf_index + 1) % 2;
+			pred_buf_index = (pred_buf_index + 1) % RP_LZ4_BUFFER_COUNT;
 		}
 
 		send_ctx->buffer_begin = cctx.dst;
@@ -433,10 +433,6 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		}
 
 		int rle_size = rle_encode_end(&rle_ctx);
-		if (rle_size > RP_HUFF_WS_SIZE) {
-			nsDbgPrint("rle_encode_end overflow!\n");
-			return -1;
-		}
 
 		*(u32 *)send_ctx->buffer_begin = rle_size;
 		PutBitContext s;

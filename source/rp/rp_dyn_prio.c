@@ -1,13 +1,13 @@
 #include "rp_dyn_prio.h"
 
-int rpInitPriorityCtx(struct rp_dyn_prio_t* dyn_prio, u8 screen_priority[SCREEN_MAX], u8 dyn, u8 frame_rate) {
+int rpInitPriorityCtx(struct rp_dyn_prio_t* dyn_prio, u8 screen_priority[SCREEN_COUNT], u8 dyn, u8 frame_rate, u8 frame_size_count) {
 	rp_lock_close(dyn_prio->mutex);
 	memset(dyn_prio, 0, sizeof(struct rp_dyn_prio_t));
 	int res;
 	if ((res = rp_lock_init(dyn_prio->mutex)))
 		return res;
 
-	for (int i = 0; i < SCREEN_MAX; ++i) {
+	for (int i = 0; i < SCREEN_COUNT; ++i) {
 		dyn_prio->s[i].initializing = RP_DYN_PRIO_FRAME_COUNT;
 
 		dyn_prio->s[i].priority = screen_priority[i];
@@ -15,11 +15,12 @@ int rpInitPriorityCtx(struct rp_dyn_prio_t* dyn_prio, u8 screen_priority[SCREEN_
 
 	dyn_prio->dyn = dyn;
 	dyn_prio->frame_rate = frame_rate;
+	dyn_prio->frame_size_count = frame_size_count;
 	return 0;
 }
 
 int rpGetPriorityScreen(struct rp_dyn_prio_t* ctx, int *frame_rate) {
-	for (int i = 0; i < SCREEN_MAX; ++i)
+	for (int i = 0; i < SCREEN_COUNT; ++i)
 		if (ctx->s[i].priority == 0)
 			return i;
 
@@ -106,7 +107,7 @@ int rpGetPriorityScreen(struct rp_dyn_prio_t* ctx, int *frame_rate) {
 }
 
 void rpSetPriorityScreen(struct rp_dyn_prio_t* ctx, int top_bot, u32 size) {
-	for (int i = 0; i < SCREEN_MAX; ++i)
+	for (int i = 0; i < SCREEN_COUNT; ++i)
 		if (ctx->s[i].priority == 0)
 			return;
 
@@ -123,27 +124,38 @@ void rpSetPriorityScreen(struct rp_dyn_prio_t* ctx, int top_bot, u32 size) {
 	sctx->tc = 0; \
 } while (0)
 
+	int frame_next = 0;
+	if (++sctx->frame_size_n == ctx->frame_size_count) {
+		frame_next = 1;
+		sctx->frame_size_n = 0;
+	}
+
 	if (ctx->dyn) {
 		sctx->frame_size_chn += av_ceil_log2(size);
-		SET_SIZE(frame_size, frame_size_acc, frame_size_chn);
 
-		u32 tick = svc_getSystemTick();
-		u32 tick_delta = tick - sctx->tick[sctx->frame_index];
-		sctx->tick[sctx->frame_index] = tick;
+		if (frame_next) {
+			SET_SIZE(frame_size, frame_size_acc, frame_size_chn);
 
-		if (sctx->initializing) {
-			--sctx->initializing;
-			sctx->frame_rate = 0;
-		} else {
-			sctx->frame_rate = (u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / tick_delta;
+			u32 tick = svc_getSystemTick();
+			u32 tick_delta = tick - sctx->tick[sctx->frame_index];
+			sctx->tick[sctx->frame_index] = tick;
+
+			if (sctx->initializing) {
+				--sctx->initializing;
+				sctx->frame_rate = 0;
+			} else {
+				sctx->frame_rate = (u64)SYSTICK_PER_SEC * RP_DYN_PRIO_FRAME_COUNT / tick_delta;
+			}
 		}
 	}
 
-	sctx->priority_size_chn += sctx->priority;
-	SET_SIZE(priority_size, priority_size_acc, priority_size_chn);
+	if (frame_next) {
+		sctx->priority_size_chn += sctx->priority;
+		SET_SIZE(priority_size, priority_size_acc, priority_size_chn);
 
-	++sctx->frame_index;
-	sctx->frame_index %= RP_DYN_PRIO_FRAME_COUNT;
+		++sctx->frame_index;
+		sctx->frame_index %= RP_DYN_PRIO_FRAME_COUNT;
+	}
 
 #undef SET_SIZE
 

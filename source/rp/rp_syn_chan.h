@@ -3,11 +3,13 @@
 
 #include "rp_common.h"
 
+struct rp_screen_capture_syn_t;
 struct rp_screen_encode_t {
     Handle hdma;
     u32 pitch;
     u32 fbaddr;
-    u8 buffer[RP_SCREEN_BUFFER_SIZE] ALIGN_4;
+    u8 *buffer;
+    struct rp_screen_capture_syn_t *syn;
     struct rp_image_t *image;
     struct rp_const_image_t *image_prev;
     struct rp_screen_ctx_t {
@@ -16,6 +18,8 @@ struct rp_screen_encode_t {
         u8 p_frame;
         u8 first_frame;
         u8 frame_n;
+        u8 left_right;
+        u16 width;
     } c;
 };
 

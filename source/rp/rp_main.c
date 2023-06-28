@@ -7,9 +7,11 @@
 #include "rp_main.h"
 #include "rp_screen.h"
 
-static int rpScreenEncodeSetupMain(struct rp_screen_encode_t *screen, struct rp_ctx_t *rp_ctx, int thread_n) {
+static int rpCtxScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_ctx_t *rp_ctx, int thread_n) {
 	return rpScreenEncodeSetup(screen, &rp_ctx->screen_ctx, rp_ctx->image_ctx.screen_image,
-		rp_ctx->image_ctx.image, &rp_ctx->dma_ctx, rp_ctx->conf.me.enabled, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, thread_n
+		rp_ctx->image_ctx.image_1, rp_ctx->image_ctx.image_2,
+		&rp_ctx->dma_ctx, rp_ctx->conf.me.enabled,
+		thread_n, rp_ctx->conf.encode_thread_split_image
 	);
 }
 
@@ -30,7 +32,7 @@ static void rpScreenTransferThread(u32 arg) {
 		}
 		acquire_count = 0;
 
-		if (rpScreenEncodeSetupMain(screen, rp_ctx, thread_n)) {
+		if (rpCtxScreenEncodeSetup(screen, rp_ctx, thread_n)) {
 			break;
 		}
 
@@ -97,7 +99,7 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 	int scale_log2 = 1 + scale_log2_offset;
 	u8 block_size_log2 = me->block_size_log2 + scale_log2;
 
-	int width = SCREEN_WIDTH(c->top_bot);
+	int width = c->width;
 	int height = SCREEN_HEIGHT;
 
 	int me_width = width >> block_size_log2;
@@ -162,6 +164,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.yuv_option = rp_ctx->conf.yuv_option,
 			.color_transform_hp = rp_ctx->conf.color_transform_hp,
 			.encoder_which = rp_ctx->conf.encoder_which,
+			.encode_split_image = rp_ctx->conf.encode_thread_split_image,
 			.me_enabled = rp_ctx->conf.me.enabled > 1 ?
 				rp_ctx->conf.me.enabled - !rp_ctx->conf.me.select : rp_ctx->conf.me.enabled,
 			.me_downscale = rp_ctx->conf.me.downscale,
@@ -197,7 +200,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		}
 	}
 
-	struct rp_image_data_t *image_me = &rp_ctx->image_ctx.image_me[thread_n];
+	struct rp_image_data_t *image_me = RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode ? &rp_ctx->image_ctx.image_me_2[thread_n] : &rp_ctx->image_ctx.image_me_1;
 
 	int acquire_count = 0;
 
@@ -219,9 +222,18 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			}
 			acquire_count = 0;
 		} else {
-			screen = &rp_ctx->screen_encode[RP_ENCODE_BUFFER_COUNT - thread_n - 1];
-			if (rpScreenEncodeSetupMain(screen, rp_ctx, thread_n)
+			screen = &rp_ctx->screen_encode[RP_ENCODE_SCREEN_BUFFER_COUNT - thread_n - 1];
+			if (rpCtxScreenEncodeSetup(screen, rp_ctx, thread_n)
 			) {
+				break;
+			}
+		}
+
+		// lock write
+		if (RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode) {
+			struct rp_image_t *image = screen->image;
+			if ((ret = rpImageWriteLock(image))) {
+				nsDbgPrint("rpEncodeScreenAndSend sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen);
 				break;
 			}
 		}
@@ -243,6 +255,12 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		} else {
 			nsDbgPrint("rpEncodeImage not available\n");
 			break;
+		}
+
+		if (rp_ctx->conf.encode_thread_split_image) {
+			if (__atomic_add_fetch(&screen->syn->count, 1, __ATOMIC_RELAXED) >= RP_SCREEN_SPLIT_COUNT) {
+				rp_sem_rel(screen->syn->sem, 1);
+			}
 		}
 
 		struct rp_image_t *image_curr = screen->image;
@@ -281,6 +299,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.type_data = RP_SEND_HEADER_TYPE_DATA,
 			.top_bot = c.top_bot,
 			.frame_n = c.frame_n,
+			.left_right = c.left_right == RP_SCREEN_SPLIT_LEFT || c.left_right == RP_SCREEN_SPLIT_RIGHT ? c.left_right : RP_SCREEN_SPLIT_LEFT,
 			.p_frame = c.p_frame,
 		};
 		struct rp_jls_send_ctx_t jls_send_ctx = {
@@ -298,7 +317,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.lz4_med_ws = &rp_ctx->lz4_med_ws[thread_n],
 			.lz4_med_pred_line = rp_ctx->lz4_med_pred_line[thread_n],
 			.huff_med_ws = &rp_ctx->huff_med_ws[thread_n],
-			.huff_med_pred_image = rp_ctx->huff_med_pred_image[thread_n],
+			.huff_med_pred_image = RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode ? rp_ctx->huff_med_pred_image_2[thread_n] : rp_ctx->huff_med_pred_image_1,
 		};
 		struct rp_encode_and_send_screen_ctx_t encode_send_ctx = {
 			.jls_send_ctx = &jls_send_ctx,
@@ -340,7 +359,7 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 	int ret = 0;
 	int thread_n = RP_MAIN_ENCODE_THREAD_ID;
 
-	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)))
+	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, rp_ctx->conf.encode_thread_split_image)))
 		return ret;
 
 	if (RP_ENCODER_JLS_LUT_ENABLE && rp_ctx->conf.encoder_which < RP_ENCODER_JLS_USE_LUT_COUNT) {
@@ -374,7 +393,7 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 		(void)rp_sem_init(rp_ctx->network_init, 0, 1);
 
 		if ((ret = rp_screen_queue_init(&rp_ctx->syn.screen, rp_ctx->screen_encode,
-			rp_ctx->conf.multicore_screen ? rp_ctx->conf.encode_buffer_count : rp_ctx->conf.low_latency ? 1 : 2))
+			rp_ctx->conf.multicore_screen ? rp_ctx->conf.encode_screen_buffer_count : rp_ctx->conf.low_latency ? 1 : 2))
 		) {
 			nsDbgPrint("rp_screen_queue_init failed %d\n", ret);
 			return ret;
@@ -436,16 +455,17 @@ void rpThreadStart(u32 arg) {
 	} else {
 		__sync_init();
 	}
-	rp_init_image_buffers(&rp_ctx->image_ctx);
 	izInitEncodeTable();
 	rpInitDmaHome(&rp_ctx->dma_ctx, rp_ctx->dma_config);
 
-	rpNetworkInit(&rp_ctx->net_ctx, rp_ctx->nwm_send_buffer, rp_ctx->control_recv_buffer, &rp_ctx->kcp_ctx);
+	if (rpNetworkInit(&rp_ctx->net_ctx, rp_ctx->nwm_send_buffer, rp_ctx->control_recv_buffer, &rp_ctx->kcp_ctx))
+		return;
 	rp_net_ctx = &rp_ctx->net_ctx;
 
 	int ret = 0;
 	while (ret >= 0) {
 		rp_set_params(&rp_ctx->conf);
+		rp_init_image_buffers(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, rp_ctx->conf.encode_thread_split_image);
 
 		if ((ret = rpKCPClear(&rp_ctx->net_ctx))) {
 			nsDbgPrint("rpKCPClear timeout/error %d\n", ret);
@@ -453,11 +473,11 @@ void rpThreadStart(u32 arg) {
 		}
 
 		rp_ctx->exit_thread = 0;
-		if ((ret = rp_network_queue_init(&rp_ctx->syn.network, rp_ctx->network_encode, rp_ctx->conf.encode_buffer_count))) {
+		if ((ret = rp_network_queue_init(&rp_ctx->syn.network, rp_ctx->network_encode, rp_ctx->conf.encode_network_buffer_count))) {
 			nsDbgPrint("rp_network_queue_init failed %d\n", ret);
 			break;
 		}
-		if ((ret = rpInitPriorityCtx(&rp_ctx->dyn_prio, rp_ctx->conf.screen_priority, rp_ctx->conf.dynamic_priority, rp_ctx->conf.min_dp_frame_rate))) {
+		if ((ret = rpInitPriorityCtx(&rp_ctx->dyn_prio, rp_ctx->conf.screen_priority, rp_ctx->conf.dynamic_priority, rp_ctx->conf.min_dp_frame_rate, rp_ctx->conf.encode_thread_split_image ? RP_SCREEN_SPLIT_COUNT : 1))) {
 			nsDbgPrint("rpInitPriorityCtx failed %d\n", ret);
 			break;
 		}
@@ -481,7 +501,7 @@ void rpThreadStart(u32 arg) {
 				break;
 			}
 		} else {
-			if ((ret = rpKCPReady(&rp_ctx->net_ctx, &rp_ctx->conf.kcp, &rp_ctx->net_ctx))) {
+			if ((ret = rpKCPReady(&rp_ctx->net_ctx, &rp_ctx->conf.kcp))) {
 				nsDbgPrint("rpKCPReady error %d\n", ret);
 				break;
 			}

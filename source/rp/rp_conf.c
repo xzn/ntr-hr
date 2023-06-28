@@ -95,19 +95,21 @@ int rp_set_params(struct rp_conf_t *conf) {
 
 	conf->screen_priority[SCREEN_TOP] = arg2.top_priority;
 	conf->screen_priority[SCREEN_BOT] = arg2.bot_priority;
-	conf->low_latency = arg2.low_latency;
+	conf->low_latency = !RP_ENCODE_ADDITIONAL_BUFFER || arg2.low_latency;
 	if (RP_ENCODE_MULTITHREAD)
 		conf->multicore_encode = arg2.multicore_encode;
 	else
 		conf->multicore_encode = 0;
-	conf->multicore_network = arg0.multicore_network;
+	conf->multicore_network = RP_ENCODE_MULTITHREAD_NETWORK && arg0.multicore_network;
 	conf->multicore_screen = arg0.multicore_screen;
 	conf->dynamic_priority = arg2.dynamic_priority;
 	conf->min_dp_frame_rate = arg2.min_dp_frame_rate;
 	conf->max_frame_rate = arg2.max_frame_rate;
 	conf->target_mbit_rate = arg2.target_mbit_rate;
 
-	conf->encode_buffer_count = RP_ENCODE_BUFFER_COUNT - conf->low_latency -
+	conf->encode_thread_split_image = RP_ENCODE_MULTITHREAD && conf->multicore_encode && conf->low_latency;
+	conf->encode_screen_buffer_count = RP_ENCODE_SCREEN_BUFFER_COUNT - (RP_ENCODE_MULTITHREAD && !conf->multicore_encode) * 2;
+	conf->encode_network_buffer_count = RP_ENCODE_NETWORK_BUFFER_COUNT - (RP_ENCODE_ADDITIONAL_BUFFER && conf->low_latency) -
 		(RP_ENCODE_MULTITHREAD && !conf->multicore_encode);
 
 	conf->min_send_interval_ticks =
@@ -144,7 +146,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 			"min dp frame rate: %d\n"
 			"max frame rate: %d\n"
 			"target mbit rate: %d\n"
-			"encode buffer count: %d\n"
+			"network encode buffer count: %d\n"
 			"min send interval ticks: %d\n"
 			"min capture interval ticks: %d\n",
 			(u32)conf->yuv_option,
@@ -172,7 +174,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 			(u32)conf->min_dp_frame_rate,
 			(u32)conf->max_frame_rate,
 			(u32)conf->target_mbit_rate,
-			(u32)conf->encode_buffer_count,
+			(u32)conf->encode_network_buffer_count,
 			(u32)conf->min_send_interval_ticks,
 			(u32)conf->min_capture_interval_ticks
 		);

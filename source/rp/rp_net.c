@@ -77,12 +77,17 @@ static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *use
 	return len;
 }
 
-void rpNetworkInit(struct rp_net_ctx_t *ctx, u8 *nwm_send_buf, u8 *ctrl_recv_buf, struct rp_kcp_ctx_t *kcp_ctx) {
+int rpNetworkInit(struct rp_net_ctx_t *ctx, u8 *nwm_send_buf, u8 *ctrl_recv_buf, struct rp_kcp_ctx_t *kcp_ctx) {
+	int ret;
 	ctx->nwm_send_buf = nwm_send_buf;
 	ctx->ctrl_recv_buf = ctrl_recv_buf;
 	ctx->kcp_ctx = kcp_ctx;
-	svc_createMutex(&ctx->kcp_mutex, 0);
+	if ((ret = svc_createMutex(&ctx->kcp_mutex, 0))) {
+		nsDbgPrint("kcp_mutex create failed: %d\n", ret);
+		return ret;
+	}
 	__atomic_store_n(&ctx->kcp_inited, 1, __ATOMIC_RELEASE);
+	return 0;
 }
 
 static int rpKCPLock(struct rp_net_ctx_t *ctx) {
@@ -93,12 +98,12 @@ static void rpKCPUnlock(struct rp_net_ctx_t *ctx) {
 	svc_releaseMutex(ctx->kcp_mutex);
 }
 
-int rpKCPReady(struct rp_net_ctx_t *ctx, struct rp_conf_kcp_t *kcp_conf, void *user) {
+int rpKCPReady(struct rp_net_ctx_t *ctx, struct rp_conf_kcp_t *kcp_conf) {
 	int res;
 	if ((res = rpKCPLock(ctx)))
 		return res;
 
-	ikcpcb *kcp = ikcp_create(&ctx->kcp_ctx->kcp, kcp_conf->conv, user,
+	ikcpcb *kcp = ikcp_create(&ctx->kcp_ctx->kcp, kcp_conf->conv, ctx,
 		KCP_PACKET_SIZE, (char *)ctx->kcp_ctx->buffer, sizeof(ctx->kcp_ctx->buffer),
 		ctx->kcp_ctx->acklist, sizeof(ctx->kcp_ctx->acklist) / sizeof(IUINT32) / 2);
 	if (!kcp) {
@@ -261,6 +266,7 @@ void rpNetworkStateInit(struct rp_net_state_t *state, struct rp_net_ctx_t *ctx, 
 		(void)rp_lock_init(state->mutex);
 	else
 		state->mutex = 0;
+	state->sync = sync;
 	state->exit_thread = exit_thread;
 	state->min_send_interval_ticks = min_send_interval_ticks;
 	u64 curr_tick = svc_getSystemTick();
@@ -275,15 +281,12 @@ int rpNetworkTransfer(struct rp_net_state_t *state, int thread_n UNUSED, struct 
 	struct rp_net_ctx_t *ctx = state->net_ctx;
 
 	// kcp init
-	if ((ret = rpKCPReady(ctx, kcp_conf, ctx)))
+	if ((ret = rpKCPReady(ctx, kcp_conf)))
 		return ret;
-
-	ikcp_update(&ctx->kcp_ctx->kcp, iclock());
-	rpKCPUnlock(ctx);
 
 	u64 curr_tick = svc_getSystemTick();
 
-	 volatile u8 *exit_thread = state->exit_thread;
+	volatile u8 *exit_thread = state->exit_thread;
 
 	while (!*exit_thread) {
 		if ((curr_tick = svc_getSystemTick()) - state->last_tick > KCP_TIMEOUT_TICKS) {

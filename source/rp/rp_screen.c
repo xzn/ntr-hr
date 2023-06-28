@@ -8,7 +8,7 @@
 #include "rp_me.h"
 
 static int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_t *dma) {
-	u32 bufSize = screen->pitch * SCREEN_WIDTH(screen->c.top_bot);
+	u32 bufSize = screen->pitch * screen->c.width;
 	if (bufSize > RP_SCREEN_BUFFER_SIZE) {
 		nsDbgPrint("rpCaptureScreen bufSize too large: %x > %x\n", bufSize, RP_SCREEN_BUFFER_SIZE);
 		return -1;
@@ -44,7 +44,7 @@ static int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_
 		return 0;
 	}
 
-	if (0) {
+	if (1) {
 		u32 state, i;
 		for (i = 0; i < RP_THREAD_LOOP_WAIT_COUNT; i++ ) {
 			state = 0;
@@ -52,9 +52,6 @@ static int rpCaptureScreen(struct rp_screen_encode_t *screen, struct rp_dma_ctx_
 			if (state == 4)
 				break;
 			svc_sleepThread(RP_THREAD_LOOP_ULTRA_FAST_WAIT);
-		}
-		if (i >= RP_THREAD_LOOP_WAIT_COUNT) {
-			nsDbgPrint("rpCaptureScreen time out %08x", state, 0);
 		}
 	}
 	return 0;
@@ -99,6 +96,11 @@ void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn
 	ctx->desired_last_tick = curr_tick + min_capture_interval_ticks;
 	ctx->dyn_prio = dyn_prio;
 	ctx->min_capture_interval_ticks = min_capture_interval_ticks;
+	ctx->screen_left = 0;
+	for (int i = 0; i < RP_ENCODE_CAPTURE_BUFFER_COUNT; ++i) {
+		rp_sem_close(ctx->screen_capture_syn[i].sem);
+		(void)rp_sem_init(ctx->screen_capture_syn[i].sem, 1, 1);
+	}
 }
 
 static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_state_t *ctx) {
@@ -153,12 +155,13 @@ static int rpScreenEncodeCaptureScreen(struct rp_screen_encode_t *screen, struct
 }
 
 static int rpScreenEncodeReadyImage(
-	struct rp_screen_encode_t *screen, struct rp_screen_image_t screen_images[SCREEN_MAX],
-	struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
-	int me_enabled, int lock_write
+	struct rp_screen_encode_t *screen, struct rp_screen_image_t screen_images[SCREEN_COUNT],
+	struct rp_image_t images_1[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT],
+	struct rp_image_t images_2[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT][RP_SCREEN_SPLIT_COUNT],
+	int split_image, int me_enabled
 ) {
-	int ret;
 	int top_bot = screen->c.top_bot;
+
 	struct rp_screen_image_t *screen_image = &screen_images[top_bot];
 
 	u8 image_n = screen_image->image_n;
@@ -188,26 +191,20 @@ static int rpScreenEncodeReadyImage(
 	screen->c.first_frame = first_frame;
 	screen->c.p_frame = p_frame;
 	screen->c.frame_n = frame_n;
-	screen->image = &images[top_bot][image_n];
+#define GET_SPLIT_IMAGE (split_image ? &images_2[top_bot][image_n][RP_SCREEN_SPLIT_LEFT] : &images_1[top_bot][image_n])
+	screen->image = GET_SPLIT_IMAGE;
 	image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
-	screen->image_prev = first_frame ? 0 : rp_const_image(&images[top_bot][image_n]);
-
-	// lock write
-	if (lock_write) {
-		struct rp_image_t *image = screen->image;
-		if ((ret = rpImageWriteLock(image))) {
-			nsDbgPrint("rpScreenEncodeReadyImage sem write wait timeout/error (%d) at (%d)\n", ret, (s32)screen);
-			return -1;
-		}
-	}
+	screen->image_prev = first_frame ? 0 : rp_const_image(GET_SPLIT_IMAGE);
+#undef GET_SPLIT_IMAGE
 
 	return 0;
 }
 
 int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx,
-	struct rp_screen_image_t screen_images[SCREEN_MAX],
-	struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
-	struct rp_dma_ctx_t *dma, int me_enabled, int lock_write, int thread_n
+	struct rp_screen_image_t screen_images[SCREEN_COUNT],
+	struct rp_image_t images_1[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT],
+	struct rp_image_t images_2[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT][RP_SCREEN_SPLIT_COUNT],
+	struct rp_dma_ctx_t *dma, int me_enabled, int thread_n, int split_image
 ) {
 	int ret;
 
@@ -216,13 +213,51 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 		return ret;
 	}
 
-	screen->c.top_bot = rpScreenEncodeGetScreenLimitFrameRate(ctx);
+	if (split_image && ctx->screen_left) {
+		if (screen->hdma)
+			svc_closeHandle(screen->hdma);
+		*screen = *ctx->screen_left;
+		screen->hdma = 0;
+		screen->buffer += screen->c.width * screen->pitch;
 
-	if ((ret = rpScreenEncodeCaptureScreen(screen, dma, thread_n)) != 0)
-		return ret;
+		screen->image = &screen->image[RP_SCREEN_SPLIT_RIGHT];
+		if (screen->image_prev)
+			screen->image_prev = &screen->image_prev[RP_SCREEN_SPLIT_RIGHT];
 
-	if ((ret = rpScreenEncodeReadyImage(screen, screen_images, images, me_enabled, lock_write)))
-		return ret;
+		screen->c.left_right = RP_SCREEN_SPLIT_RIGHT;
+		ctx->screen_left = 0;
+	} else {
+		screen->c.top_bot = rpScreenEncodeGetScreenLimitFrameRate(ctx);
+		screen->c.width = SCREEN_WIDTH(screen->c.top_bot);
+
+		screen->buffer = ctx->screen_capture_buffer[ctx->screen_capture_n];
+		screen->syn = &ctx->screen_capture_syn[ctx->screen_capture_n];
+		ctx->screen_capture_n = (ctx->screen_capture_n + 1) % RP_ENCODE_CAPTURE_BUFFER_COUNT;
+
+		if (split_image) {
+			ret = rp_sem_wait(screen->syn->sem, RP_SYN_WAIT_MAX);
+			if (ret) {
+				nsDbgPrint("rpScreenEncodeSetup screen sem wait failed: %d\n", ret);
+				return ret;
+			}
+			__atomic_store_n(&screen->syn->count, 0, __ATOMIC_RELAXED);
+		}
+
+		if ((ret = rpScreenEncodeCaptureScreen(screen, dma, thread_n)) != 0)
+			return ret;
+
+		if ((ret = rpScreenEncodeReadyImage(screen, screen_images, images_1, images_2, split_image, me_enabled)))
+			return ret;
+
+		if (split_image) {
+			screen->c.width /= 2;
+			screen->c.left_right = RP_SCREEN_SPLIT_LEFT;
+			ctx->screen_left = screen;
+		} else {
+			screen->c.left_right = RP_SCREEN_SPLIT_FULL;
+			ctx->screen_left = 0;
+		}
+	}
 
 	if (ctx->sync)
 		rp_lock_rel(ctx->mutex);
@@ -232,10 +267,9 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 
 int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_transform_hp, int lq) {
 	struct rp_screen_ctx_t c = screen->c;
-	int top_bot = c.top_bot;
 
 	int width, height;
-	width = SCREEN_WIDTH(top_bot);
+	width = c.width;
 	height = SCREEN_HEIGHT;
 
 	struct rp_image_t *image = screen->image;
@@ -252,10 +286,9 @@ int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_t
 
 int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *image_me, int force_bpp8) {
 	struct rp_screen_ctx_t c = screen->c;
-	int top_bot = c.top_bot;
 
 	int width, height;
-	width = SCREEN_WIDTH(top_bot);
+	width = c.width;
 	height = SCREEN_HEIGHT;
 
 	u8 *rgb_bpp = force_bpp8 ? 0 : &image_me->y_bpp;
@@ -273,12 +306,11 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 
 	image_me->me_bpp = me->bpp;
 
-	int top_bot = c->top_bot;
 	int UNUSED frame_n = c->frame_n;
 	int p_frame = c->p_frame;
 
 	int width, height;
-	width = SCREEN_WIDTH(top_bot);
+	width = c->width;
 	height = SCREEN_HEIGHT;;
 
 	int ds_width = DS_DIM(width, 1);
@@ -288,13 +320,13 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		downscale_image(
 			im->ds_u_image,
 			im->u_image,
-			width, height
+			width, height, 1
 		);
 
 		downscale_image(
 			im->ds_v_image,
 			im->v_image,
-			width, height
+			width, height, 1
 		);
 
 		im->ds_y_image = im->ds_y_image_ds_uv;
@@ -313,14 +345,14 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		downscale_image(
 			im->ds_y_image,
 			im->y_image,
-			width, height
+			width, height, 0
 		);
 
 		if (me->downscale) {
 			downscale_image(
 				im->ds_ds_y_image,
 				im->ds_y_image,
-				ds_width, ds_height
+				ds_width, ds_height, 0
 			);
 		}
 
@@ -385,8 +417,8 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			image_me->v_bpp = im->v_bpp;
 		} else {
 
-#define DIFF_IM(n, w, h, s, b, m, b_lq) do { \
-	diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, RP_ENCODE_STATIC_LQ ? 0 : im->b - b_lq, \
+#define DIFF_IM(n, w, h, s, b, m, b_lq, sn) do { \
+	diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, RP_ENCODE_STATIC_LQ ? 0 : im->b - b_lq, sn, \
 		me->select, me->select_threshold, \
 		m ? me->downscale ? im->mafd_ds_image : im->mafd_image : 0, \
 		m ? me->downscale ? im_prev->mafd_ds_image : im_prev->mafd_image : 0, me->mafd_shift, \
@@ -411,14 +443,14 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 					bpp_2_lq = bpp_lq;
 			}
 
-			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1, bpp_2_lq);
+			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1, bpp_2_lq, 0);
 
 			if (downscale_uv) {
-				DIFF_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp, 0, bpp_lq);
-				DIFF_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp, 0, bpp_lq);
+				DIFF_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp, 0, bpp_lq, 1);
+				DIFF_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp, 0, bpp_lq, 1);
 			} else {
-				DIFF_IM(u_image, width, height, scale_log2, u_bpp, 0, bpp_lq);
-				DIFF_IM(v_image, width, height, scale_log2, v_bpp, 0, bpp_lq);
+				DIFF_IM(u_image, width, height, scale_log2, u_bpp, 0, bpp_lq, 1);
+				DIFF_IM(v_image, width, height, scale_log2, v_bpp, 0, bpp_lq, 1);
 			}
 
 			if (RP_ENCODE_STATIC_LQ) {

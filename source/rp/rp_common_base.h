@@ -8,22 +8,24 @@
 #include "mempool.h"
 #include "ikcp.h"
 
-#define RP_ENCODER_FFMPEG_JLS_ENABLE (0)
-#define RP_ENCODER_HP_JLS_ENABLE (0)
+#define RP_ENCODER_FFMPEG_JLS_ENABLE (0) // broken; not needed
+#define RP_ENCODER_HP_JLS_ENABLE (0) // broken; not needed
 #define RP_ENCODER_ZSTD_ENABLE (0)
 #define RP_ENCODER_LZ4_ENABLE (0)
 #define RP_ENCODER_HUFF_ENABLE (1)
 #define RP_ENCODER_IMAGEZERO_ENABLE (0)
 #define RP_ENCODER_JPEG_TURBO_ENABLE (0)
 
-#define RP_ME_ENABLE (0)
+#define RP_ME_ENABLE (0) // broken; not used
 #define RP_ENCODER_JLS_LUT_ENABLE (RP_ENCODER_FFMPEG_JLS_ENABLE || RP_ENCODER_HP_JLS_ENABLE)
 #define RP_FILTER_YUV_ENABLE (RP_ENCODER_FFMPEG_JLS_ENABLE || RP_ENCODER_HP_JLS_ENABLE || RP_ENCODER_ZSTD_ENABLE || RP_ENCODER_LZ4_ENABLE || RP_ENCODER_HUFF_ENABLE)
 #define RP_FILTER_RGB_ENABLE (RP_ENCODER_IMAGEZERO_ENABLE || RP_ENCODER_JPEG_TURBO_ENABLE)
 
-#define RP_ME_INTERPOLATE (0)
+#define RP_ME_INTERPOLATE (0) // Not used
 #define RP_ENCODE_MULTITHREAD (1)
-#define RP_ENCODE_STATIC_LQ (0)
+#define RP_ENCODE_MULTITHREAD_NETWORK (0)// Could be broken
+#define RP_ENCODE_STATIC_LQ (0) // Likely broken
+#define RP_ENCODE_ADDITIONAL_BUFFER (0) // Maybe broken
 // (0) svc (1) syn
 #define RP_SYN_METHOD (0)
 #define RP_SYN_EX (1)
@@ -52,7 +54,9 @@
 #define RP_MISC_STACK_SIZE (0x1000)
 #define RP_CONTROL_RECV_BUFFER_SIZE (1500)
 #define RP_ZSTD_WS_SIZE (36 * 1024)
-#define RP_HUFF_WS_SIZE RLE_MAX_COMPRESSED_SIZE(SCREEN_WIDTH_MAX * SCREEN_HEIGHT)
+#define RP_HUFF_WS_SIZE_2 RLE_MAX_COMPRESSED_SIZE(SCREEN_WIDTH_MAX / RP_ENCODE_BUFFER_SIZE_DENUM * SCREEN_HEIGHT)
+#define RP_HUFF_WS_SIZE_1 RLE_MAX_COMPRESSED_SIZE(SCREEN_WIDTH_MAX * SCREEN_HEIGHT)
+#define RP_ENCODE_BUFFER_SIZE_DENUM (RP_ENCODE_ADDITIONAL_BUFFER ? 1 : 2)
 
 #define KCP_PACKET_SIZE (1448)
 #define KCP_BUFFER_SIZE ((KCP_PACKET_SIZE + IKCP_OVERHEAD) * 3)
@@ -75,9 +79,24 @@
 #define RP_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define RP_MIN(a, b) ((a) > (b) ? (b) : (a))
 
-#define SCREEN_TOP 0
-#define SCREEN_BOT 1
-#define SCREEN_MAX 2
+enum {
+    SCREEN_TOP,
+    SCREEN_BOT,
+    SCREEN_COUNT,
+};
+
+enum {
+    RP_SCREEN_SPLIT_LEFT,
+    RP_SCREEN_SPLIT_RIGHT,
+    RP_SCREEN_SPLIT_COUNT,
+    RP_SCREEN_SPLIT_FULL = (u8)-1,
+};
+
+enum {
+    RP_SCREEN_FRAME_EVEN,
+    RP_SCREEN_FRAME_ODD,
+    RP_SCREEN_FRAME_FULL = (u8)-1,
+};
 
 #define SCREEN_CHOOSE(s, a, b) ((s) == SCREEN_TOP ? (a) : (s) == SCREEN_BOT ? (b) : 0)
 #define SCREEN_CHOOSE_MAX(c, ...) RP_MAX(c(SCREEN_TOP, ## __VA_ARGS__), c(SCREEN_BOT, ## __VA_ARGS__))
@@ -86,6 +105,8 @@
 #define SCREEN_WIDTH_MAX SCREEN_CHOOSE_MAX(SCREEN_WIDTH)
 #define SCREEN_HEIGHT (240)
 
+#define DS_DIM(w, ds) ((w) >> (ds))
+
 #define SCREEN_DS_WIDTH(s, ds) DS_DIM(SCREEN_WIDTH(s), ds)
 #define SCREEN_DS_HEIGHT(ds) DS_DIM(SCREEN_HEIGHT, ds)
 
@@ -93,20 +114,29 @@
 #define ME_DS_WIDTH(s, ds) SCREEN_DS_WIDTH(s, 1 + RP_ME_MIN_BLOCK_SIZE_LOG2 + ds)
 #define ME_DS_HEIGHT(ds) SCREEN_DS_HEIGHT(1 + RP_ME_MIN_BLOCK_SIZE_LOG2 + ds)
 
-#define SCREEN_PADDED_SIZE(s) PADDED_SIZE(SCREEN_WIDTH(s), SCREEN_HEIGHT)
-#define SCREEN_PADDED_DS_SIZE(s, ds) PADDED_SIZE(SCREEN_DS_WIDTH(s, ds), SCREEN_DS_HEIGHT(ds))
+#define PADDED_HEIGHT(h) ((h) + LEFTMARGIN + RIGHTMARGIN)
+#define PADDED_SIZE(w, h) ((w) * PADDED_HEIGHT(h))
+
+#define SCREEN_1_PADDED_SIZE(s) PADDED_SIZE(SCREEN_WIDTH(s), SCREEN_HEIGHT)
+#define SCREEN_1_PADDED_DS_SIZE(s, ds) PADDED_SIZE(SCREEN_DS_WIDTH(s, ds), SCREEN_DS_HEIGHT(ds))
+#define ME_1_PADDED_DS_SIZE(s, ds) PADDED_SIZE(ME_DS_WIDTH(s, ds), ME_DS_HEIGHT(ds))
+#define ME_1_PADDED_SIZE(s) ME_1_PADDED_DS_SIZE(s, 0)
+
+#define SCREEN_2_PADDED_SIZE(s) (PADDED_SIZE(SCREEN_WIDTH(s), SCREEN_HEIGHT / 2))
+#define SCREEN_2_PADDED_DS_SIZE(s, ds) (PADDED_SIZE(SCREEN_DS_WIDTH(s, ds), SCREEN_DS_HEIGHT(ds) / 2))
+#define ME_2_PADDED_DS_SIZE(s, ds) (PADDED_SIZE(ME_DS_WIDTH(s, ds), ME_DS_HEIGHT(ds) / 2))
+#define ME_2_PADDED_SIZE(s) ME_2_PADDED_DS_SIZE(s, 0)
+
+#define SCREEN_PADDED_SIZE(s) RP_MAX(SCREEN_1_PADDED_SIZE(s), SCREEN_2_PADDED_SIZE(s) * 2)
+#define SCREEN_PADDED_DS_SIZE(s, ds) RP_MAX(SCREEN_1_PADDED_DS_SIZE(s, ds), SCREEN_2_PADDED_DS_SIZE(s, ds) * 2)
+#define ME_PADDED_DS_SIZE(s, ds) RP_MAX(ME_1_PADDED_DS_SIZE(s, ds), ME_2_PADDED_DS_SIZE(s, ds) * 2)
+#define ME_PADDED_SIZE(s) RP_MAX(ME_1_PADDED_SIZE(s), ME_2_PADDED_SIZE(s) * 2)
 
 #define SCREEN_SIZE_MAX SCREEN_CHOOSE_MAX(SCREEN_PADDED_SIZE)
 #define SCREEN_DS_SIZE_MAX(ds) SCREEN_CHOOSE_MAX(SCREEN_PADDED_DS_SIZE, ds)
-#define ME_PADDED_DS_SIZE(s, ds) PADDED_SIZE(ME_DS_WIDTH(s, ds), ME_DS_HEIGHT(ds))
-#define ME_PADDED_SIZE(s) ME_PADDED_DS_SIZE(s, 0)
 #define ME_SIZE_MAX SCREEN_CHOOSE_MAX(ME_PADDED_SIZE)
 
 #define RP_TOP_BOT_STR(top_bot) ((top_bot) == 0 ? "top" : "bot")
-
-#define PADDED_HEIGHT(h) ((h) + LEFTMARGIN + RIGHTMARGIN)
-#define PADDED_SIZE(w, h) ((w) * PADDED_HEIGHT(h))
-#define DS_DIM(w, ds) ((w) >> (ds))
 
 #define RP_ASSERT(c, ...) do { if (!(c)) { nsDbgPrint(__VA_ARGS__); } } while (0)
 #define RP_DBG(c, ...) RP_ASSERT(!(c), __VA_ARGS__)
@@ -119,7 +149,7 @@
 #define ALIGN_4 ALIGN(4)
 #define ALIGN_8 ALIGN(8)
 // assume aligned
-#define ASSUME_ALIGN_4(a) (a = __builtin_assume_aligned (a, 4))
+#define ASSUME_ALIGN_4(a) (a = __builtin_assume_aligned(a, 4))
 #define UNUSED __attribute__((unused))
 #define FALLTHRU __attribute__((fallthrough));
 #define ALWAYS_INLINE __attribute__((always_inline)) inline
@@ -130,15 +160,21 @@
 #define RP_CLIP(n, min, max) RP_MIN(RP_MAX((n), (typeof(n))(min)), (typeof(n))(max))
 
 #define RP_ENCODE_THREAD_COUNT (1 + RP_ENCODE_MULTITHREAD)
-// (+ 1) for screen/network transfer then (+ 1) again for start/finish at different time
-#define RP_ENCODE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 2)
-// (+ 1) for motion estimation reference
-#define RP_IMAGE_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + 1)
+// (+ 1) for network transfer then (+ 1) again for start/finish at different time
+#define RP_ENCODE_NETWORK_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT + RP_ENCODE_MULTITHREAD_NETWORK + (RP_ENCODE_MULTITHREAD_NETWORK && RP_ENCODE_ADDITIONAL_BUFFER))
+// (* 2) for screen transfer (one for every thread for split screen encode)
+#define RP_ENCODE_SCREEN_BUFFER_COUNT (RP_ENCODE_THREAD_COUNT * 2)
+#define RP_ENCODE_BUFFER_MAX_COUNT RP_MAX(RP_ENCODE_NETWORK_BUFFER_COUNT, RP_ENCODE_SCREEN_BUFFER_COUNT)
+// (2) for working + transfer
+#define RP_ENCODE_CAPTURE_BUFFER_COUNT (2 + RP_ENCODE_ADDITIONAL_BUFFER)
+// (2) for motion estimation reference
+#define RP_IMAGE_BUFFER_COUNT (2 + RP_ENCODE_ADDITIONAL_BUFFER)
 #define RP_IMAGE_ME_SELECT_BITS (6)
 #define RP_IMAGE_FRAME_N_BITS (3)
 #define RP_IMAGE_FRAME_N_RANGE (1 << RP_IMAGE_FRAME_N_BITS)
 #define RP_ZSTD_COMP_LEVEL_BITS (3)
 #define RP_ZSTD_COMP_LEVEL_HALF_RANGE (1 << (RP_ZSTD_COMP_LEVEL_BITS - 1))
+#define RP_LZ4_BUFFER_COUNT (2)
 
 typedef u32 (*NWMSendPacket_t)(u8 *, u32);
 extern NWMSendPacket_t nwmSendPacket;

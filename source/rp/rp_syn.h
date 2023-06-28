@@ -41,7 +41,7 @@ struct rp_syn_comp_t {
 		rp_sem_t sem;
 		rp_lock_t mutex;
 		u8 pos_head, pos_tail;
-		void *pos[RP_ENCODE_BUFFER_COUNT];
+		void *pos[RP_ENCODE_BUFFER_MAX_COUNT];
 		u8 count;
 	} transfer, encode;
 };

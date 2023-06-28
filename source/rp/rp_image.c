@@ -1,9 +1,13 @@
 #include "rp_image.h"
 
-void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
+void rp_init_image_buffers(struct rp_image_ctx_t *ctx, int multicore, int split_image) {
 	for (int i = 0; i < RP_IMAGE_BUFFER_COUNT; ++i) {
+		if (split_image) {
 
-#define SET_IMAGE_BUFFER(sv, sn, in) do { ctx->image[sv][i].d.in = ctx->image_buffer.sn[i].in; } while (0)
+#define SET_IMAGE_BUFFER(sv, sn, in) do { \
+	for (int k = 0; k < RP_SCREEN_SPLIT_COUNT; ++k) \
+		ctx->image_2[sv][i][k].d.in = ctx->image_buffer_2.sn[i][k].in; \
+} while (0)
 
 #define SET_IMAGE_BUFFER_SCREEN(sv, sn) do { \
 	SET_IMAGE_BUFFER(sv, sn, y_image); \
@@ -20,12 +24,26 @@ void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
 	SET_IMAGE_BUFFER(sv, sn, mafd_ds_image_full_uv); \
 } while (0)
 
-		SET_IMAGE_BUFFER_SCREEN(SCREEN_TOP, top);
-		SET_IMAGE_BUFFER_SCREEN(SCREEN_BOT, bot);
+			SET_IMAGE_BUFFER_SCREEN(SCREEN_TOP, top);
+			SET_IMAGE_BUFFER_SCREEN(SCREEN_BOT, bot);
+		} else {
+
+#undef SET_IMAGE_BUFFER
+#define SET_IMAGE_BUFFER(sv, sn, in) do { \
+	ctx->image_1[sv][i].d.in = ctx->image_buffer_1.sn[i].in; \
+} while (0)
+
+			SET_IMAGE_BUFFER_SCREEN(SCREEN_TOP, top);
+			SET_IMAGE_BUFFER_SCREEN(SCREEN_BOT, bot);
+		}
 	}
 
-	for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
-#define SET_IMAGE_ME_BUFFER(in) do { ctx->image_me[i].in = ctx->image_me_buffer[i].in; } while (0)
+	if (multicore) {
+		for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
+
+#define SET_IMAGE_ME_BUFFER(in) do { \
+	ctx->image_me_2[i].in = ctx->image_me_buffer_2[i].in; \
+} while (0)
 
 #define SET_IMAGE_ME_BUFFER_SCREEN() do { \
 	SET_IMAGE_ME_BUFFER(rgb_image); \
@@ -38,12 +56,24 @@ void rp_init_image_buffers(struct rp_image_ctx_t *ctx) {
 	SET_IMAGE_ME_BUFFER(ds_v_image); \
 } while (0)
 
+			SET_IMAGE_ME_BUFFER_SCREEN();
+		}
+	} else {
+
+#undef SET_IMAGE_ME_BUFFER
+#define SET_IMAGE_ME_BUFFER(in) do { \
+	ctx->image_me_1.in = ctx->image_me_buffer_1.in; \
+} while (0)
+
 		SET_IMAGE_ME_BUFFER_SCREEN();
 	}
+
+#undef SET_IMAGE_ME_BUFFER
 }
 
-int rp_init_images(struct rp_image_ctx_t *ctx, int multicore) {
-	for (int i = 0; i < SCREEN_MAX; ++i) {
+int rp_init_images(struct rp_image_ctx_t *ctx, int multicore, int split_image) {
+	for (int i = 0; i < SCREEN_COUNT; ++i) {
+		ctx->screen_image[i].even_odd = RP_SCREEN_FRAME_FULL;
 		ctx->screen_image[i].frame_n = ctx->screen_image[i].p_frame = 0;
 		ctx->screen_image[i].first_frame = 1;
 	}
@@ -58,11 +88,19 @@ int rp_init_images(struct rp_image_ctx_t *ctx, int multicore) {
 } while (0)
 
 	if (multicore) {
-		for (int i = 0; i < SCREEN_MAX; ++i) {
+		for (int i = 0; i < SCREEN_COUNT; ++i) {
 			for (int j = 0; j < RP_IMAGE_BUFFER_COUNT; ++j) {
-				RP_INIT_SEM(ctx->image[i][j].sem_write, 1, 1);
-				RP_INIT_SEM(ctx->image[i][j].sem_read, 0, 1);
-				ctx->image[i][j].sem_count = 0;
+				if (split_image) {
+					for (int k = 0; k < RP_SCREEN_SPLIT_COUNT; ++k) {
+						RP_INIT_SEM(ctx->image_2[i][j][k].sem_write, 1, 1);
+						RP_INIT_SEM(ctx->image_2[i][j][k].sem_read, 0, 1);
+						ctx->image_2[i][j][k].sem_count = 0;
+					}
+				} else {
+					RP_INIT_SEM(ctx->image_1[i][j].sem_write, 1, 1);
+					RP_INIT_SEM(ctx->image_1[i][j].sem_read, 0, 1);
+					ctx->image_1[i][j].sem_count = 0;
+				}
 			}
 		}
 	}

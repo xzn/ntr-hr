@@ -14,6 +14,16 @@ struct rp_screen_state_t {
 	u64 last_tick;
 	u64 desired_last_tick;
 	u32 min_capture_interval_ticks;
+
+	u8 screen_capture_buffer[RP_ENCODE_CAPTURE_BUFFER_COUNT][RP_SCREEN_BUFFER_SIZE] ALIGN_4;
+	struct rp_screen_capture_syn_t {
+		rp_sem_t sem;
+		u8 count;
+	} screen_capture_syn[RP_ENCODE_CAPTURE_BUFFER_COUNT];
+	u8 screen_capture_n;
+
+	struct rp_screen_encode_t *screen_left;
+
 	struct rp_dyn_prio_t *dyn_prio;
 };
 
@@ -23,8 +33,10 @@ struct rp_dma_ctx_t;
 void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks, u8 sync);
 int rpScreenEncodeSetup(
 	struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx,
-	struct rp_screen_image_t screen_images[SCREEN_MAX], struct rp_image_t images[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT],
-	struct rp_dma_ctx_t *dma, int me_enabled, int lock_write, int thread_n);
+	struct rp_screen_image_t screen_images[SCREEN_COUNT],
+	struct rp_image_t images_1[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT],
+	struct rp_image_t images_2[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT][RP_SCREEN_SPLIT_COUNT],
+	struct rp_dma_ctx_t *dma, int me_enabled, int thread_n, int split_image);
 
 struct rp_conf_me_t;
 struct rp_screen_ctx_t;

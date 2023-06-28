@@ -186,8 +186,8 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 
 	if (yuv_option == 2 || yuv_option == 3) {
 		*y_out = rshift_to_even(y, bpp_2_lq) >> (8 - bpp_2_lq);
-		*u_out = srshift(srshift_to_even(u, bpp_lq), 8 - bpp_lq) + (128 >> (8 - bpp_lq));
-		*v_out = srshift(srshift_to_even(v, bpp_lq), 8 - bpp_lq) + (128 >> (8 - bpp_lq));
+		*u_out = srshift(srshift_to_even(u, bpp_lq), 8 - bpp_lq);
+		*v_out = srshift(srshift_to_even(v, bpp_lq), 8 - bpp_lq);
 	}
 }
 
@@ -553,7 +553,7 @@ int convert_yuv_image(
 	return convert_yuv_image_format_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, RP_ENCODE_STATIC_LQ ? lq : 0);
 }
 
-void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig) {
+void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
 	ASSUME_ALIGN_4(ds_dst);
 	ASSUME_ALIGN_4(src);
 
@@ -571,12 +571,21 @@ void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int
 		}
 		const u8 *src_col0_end = src_col0 + hOrig;
 		while (src_col0 < src_col0_end) {
-			u16 p = *src_col0++;
-			p += *src_col0++;
-			p += *src_col1++;
-			p += *src_col1++;
+			if (unsigned_signed == 0) {
+				u16 p = *src_col0++;
+				p += *src_col0++;
+				p += *src_col1++;
+				p += *src_col1++;
 
-			*ds_dst++ = rshift_to_even(p, 2);
+				*ds_dst++ = rshift_to_even(p, 2);
+			} else {
+				s16 p = (s8)*src_col0++;
+				p += (s8)*src_col0++;
+				p += (s8)*src_col1++;
+				p += (s8)*src_col1++;
+
+				*ds_dst++ = srshift_to_even(p, 2);
+			}
 		}
 		src_col0 += RIGHTMARGIN + pitch + LEFTMARGIN;
 		src_col1 += RIGHTMARGIN + pitch + LEFTMARGIN;

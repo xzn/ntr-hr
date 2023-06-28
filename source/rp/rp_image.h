@@ -55,71 +55,87 @@ static ALWAYS_INLINE struct rp_const_image_t *rp_const_image(struct rp_image_t *
 static ALWAYS_INLINE struct rp_const_image_data_t *rp_const_image_data(struct rp_image_data_t *im) { return (struct rp_const_image_data_t *)im; }
 
 struct rp_image_ctx_t {
-	struct rp_image_t image[SCREEN_MAX][RP_IMAGE_BUFFER_COUNT];
+	union {
+		struct rp_image_t image_1[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT];
+		struct rp_image_t image_2[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT][RP_SCREEN_SPLIT_COUNT];
+	};
 
-#define RP_IMAGE_BUFFER_DEFINE(sv) \
+#define RP_IMAGE_BUFFER_DEFINE(sv, d) \
 	struct { \
-		u8 y_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
+		u8 y_image[SCREEN_PADDED_SIZE(sv) / (d)] ALIGN_4; \
 		union { \
-			u8 u_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
+			u8 u_image[SCREEN_PADDED_SIZE(sv) / (d)] ALIGN_4; \
 			struct { \
-				u8 ds_v_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-				u8 ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-				u8 ds_ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
+				u8 ds_v_image[SCREEN_PADDED_DS_SIZE(sv, 1) / (d)] ALIGN_4; \
+				u8 ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 1) / (d)] ALIGN_4; \
+				u8 ds_ds_y_image_ds_uv[SCREEN_PADDED_DS_SIZE(sv, 2) / (d)] ALIGN_4; \
 			}; \
 		}; \
-		u8 v_image[SCREEN_PADDED_SIZE(sv)] ALIGN_4; \
+		u8 v_image[SCREEN_PADDED_SIZE(sv) / (d)] ALIGN_4; \
 		union { \
-			u8 ds_u_image[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-			u8 ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
-			u16 mafd_ds_image_full_uv[ME_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+			u8 ds_u_image[SCREEN_PADDED_DS_SIZE(sv, 1) / (d)] ALIGN_4; \
+			u8 ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 1) / (d)] ALIGN_4; \
+			u16 mafd_ds_image_full_uv[ME_PADDED_DS_SIZE(sv, 1) / (d)] ALIGN_4; \
 		}; \
 		union { \
-			u8 ds_ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 2)] ALIGN_4; \
-			u16 mafd_image[ME_PADDED_SIZE(sv)] ALIGN_4; \
-			u16 mafd_ds_image_ds_uv[ME_PADDED_DS_SIZE(sv, 1)] ALIGN_4; \
+			u8 ds_ds_y_image_full_uv[SCREEN_PADDED_DS_SIZE(sv, 2) / (d)] ALIGN_4; \
+			u16 mafd_image[ME_PADDED_SIZE(sv) / (d)] ALIGN_4; \
+			u16 mafd_ds_image_ds_uv[ME_PADDED_DS_SIZE(sv, 1 / (d))] ALIGN_4; \
 		}; \
 	} \
 
 	union {
 		struct {
-			RP_IMAGE_BUFFER_DEFINE(SCREEN_TOP) top[RP_IMAGE_BUFFER_COUNT];
-			RP_IMAGE_BUFFER_DEFINE(SCREEN_BOT) bot[RP_IMAGE_BUFFER_COUNT];
-		} image_buffer;
+			RP_IMAGE_BUFFER_DEFINE(SCREEN_TOP, 2) top[RP_IMAGE_BUFFER_COUNT][RP_SCREEN_SPLIT_COUNT];
+			RP_IMAGE_BUFFER_DEFINE(SCREEN_BOT, 2) bot[RP_IMAGE_BUFFER_COUNT][RP_SCREEN_SPLIT_COUNT];
+		} image_buffer_2;
+		struct {
+			RP_IMAGE_BUFFER_DEFINE(SCREEN_TOP, 1) top[RP_IMAGE_BUFFER_COUNT];
+			RP_IMAGE_BUFFER_DEFINE(SCREEN_BOT, 1) bot[RP_IMAGE_BUFFER_COUNT];
+		} image_buffer_1;
 		u8 jpeg_turbo_alloc[RP_ENCODE_THREAD_COUNT][768 * 1024] ALIGN_8;
 	};
 
-	struct rp_image_data_t image_me[RP_ENCODE_THREAD_COUNT];
+	union {
+		struct rp_image_data_t image_me_1;
+		struct rp_image_data_t image_me_2[RP_ENCODE_THREAD_COUNT];
+	};
+
+#define ME_BUFFER_DEFINE(d) \
+	union { \
+		struct { \
+			s8 me_x_image[ME_SIZE_MAX / (d)] ALIGN_4; \
+			s8 me_y_image[ME_SIZE_MAX / (d)] ALIGN_4; \
+			u8 y_image[SCREEN_SIZE_MAX / (d)] ALIGN_4; \
+			union { \
+				u8 u_image[SCREEN_SIZE_MAX / (d)] ALIGN_4; \
+				u8 ds_u_image[SCREEN_DS_SIZE_MAX(1) / (d)] ALIGN_4; \
+			}; \
+			union { \
+				u8 v_image[SCREEN_SIZE_MAX / (d)] ALIGN_4; \
+				u8 ds_v_image[SCREEN_DS_SIZE_MAX(1) / (d)] ALIGN_4; \
+			}; \
+		}; \
+		u8 rgb_image[SCREEN_WIDTH_MAX / (d) * SCREEN_HEIGHT * 3] ALIGN_4; \
+	}
 
 	union {
-		struct {
-			s8 me_x_image[ME_SIZE_MAX] ALIGN_4;
-			s8 me_y_image[ME_SIZE_MAX] ALIGN_4;
-			u8 y_image[SCREEN_SIZE_MAX] ALIGN_4;
-			// either non-ds or ds
-			union {
-				u8 u_image[SCREEN_SIZE_MAX] ALIGN_4;
-				u8 ds_u_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
-			};
-			union {
-				u8 v_image[SCREEN_SIZE_MAX] ALIGN_4;
-				u8 ds_v_image[SCREEN_DS_SIZE_MAX(1)] ALIGN_4;
-			};
-		};
-		u8 rgb_image[SCREEN_WIDTH_MAX * SCREEN_HEIGHT * 3] ALIGN_4; \
-	} image_me_buffer[RP_ENCODE_THREAD_COUNT];
+		ME_BUFFER_DEFINE(RP_ENCODE_BUFFER_SIZE_DENUM) image_me_buffer_2[RP_ENCODE_THREAD_COUNT];
+		ME_BUFFER_DEFINE(1) image_me_buffer_1;
+	};
 
 	struct rp_screen_image_t {
 		u8 image_n;
 		u8 frame_n;
+		u8 even_odd;
 		u8 p_frame;
 		u8 first_frame;
 		u8 format;
-	} screen_image[SCREEN_MAX];
+	} screen_image[SCREEN_COUNT];
 };
 
-void rp_init_image_buffers(struct rp_image_ctx_t *ctx);
-int rp_init_images(struct rp_image_ctx_t *ctx, int multicore);
+void rp_init_image_buffers(struct rp_image_ctx_t *ctx, int multicore, int split_image);
+int rp_init_images(struct rp_image_ctx_t *ctx, int multicore, int split_image);
 
 int rpImageReadLock(struct rp_const_image_t *image);
 void rpImageReadUnlockCount(struct rp_const_image_t *image, int count);

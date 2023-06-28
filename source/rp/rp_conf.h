@@ -42,12 +42,14 @@ struct rp_conf_t {
     u8 max_frame_rate;
     u8 target_mbit_rate;
     u8 dynamic_priority;
-    u8 screen_priority[SCREEN_MAX];
+    u8 screen_priority[SCREEN_COUNT];
     u8 low_latency;
     u8 multicore_encode;
     u8 multicore_network;
     u8 multicore_screen;
-    u8 encode_buffer_count;
+    u8 encode_thread_split_image;
+    u8 encode_screen_buffer_count;
+    u8 encode_network_buffer_count;
 
     u32 min_send_interval_ticks;
     u32 min_capture_interval_ticks;

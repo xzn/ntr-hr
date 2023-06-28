@@ -30,8 +30,8 @@ struct rp_ctx_t {
 	u8 screen_transfer_thread_stack[RP_MISC_STACK_SIZE] ALIGN_4;
 	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
 
-	struct rp_screen_encode_t screen_encode[RP_ENCODE_BUFFER_COUNT];
-	struct rp_network_encode_t network_encode[RP_ENCODE_BUFFER_COUNT];
+	struct rp_screen_encode_t screen_encode[RP_ENCODE_SCREEN_BUFFER_COUNT];
+	struct rp_network_encode_t network_encode[RP_ENCODE_NETWORK_BUFFER_COUNT];
 
 	union {
 		struct {
@@ -49,11 +49,14 @@ struct rp_ctx_t {
 		};
 		struct {
 			LZ4_stream_t lz4_med_ws[RP_ENCODE_THREAD_COUNT];
-			u8 lz4_med_pred_line[RP_ENCODE_THREAD_COUNT][2][SCREEN_HEIGHT];
+			u8 lz4_med_pred_line[RP_ENCODE_THREAD_COUNT][RP_LZ4_BUFFER_COUNT][SCREEN_HEIGHT];
 		};
 		struct {
 			struct rp_huff_ctx huff_med_ws[RP_ENCODE_THREAD_COUNT];
-			u8 huff_med_pred_image[RP_ENCODE_THREAD_COUNT][RP_HUFF_WS_SIZE];
+			union {
+				u8 huff_med_pred_image_1[RP_HUFF_WS_SIZE_1];
+				u8 huff_med_pred_image_2[RP_ENCODE_THREAD_COUNT][RP_HUFF_WS_SIZE_2];
+			};
 		};
 	};
 
