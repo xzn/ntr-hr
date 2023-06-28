@@ -108,7 +108,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->target_mbit_rate = arg2.target_mbit_rate;
 
 	conf->encode_thread_split_image = RP_ENCODE_MULTITHREAD && conf->multicore_encode && conf->low_latency;
-	conf->encode_screen_buffer_count = RP_ENCODE_SCREEN_BUFFER_COUNT - (RP_ENCODE_MULTITHREAD && !conf->multicore_encode) * 2;
+	conf->encode_screen_buffer_count = conf->encode_thread_split_image ? RP_ENCODE_SCREEN_BUFFER_COUNT : 1 + conf->multicore_encode + !conf->low_latency;
 	conf->encode_network_buffer_count = RP_ENCODE_NETWORK_BUFFER_COUNT - (RP_ENCODE_ADDITIONAL_BUFFER && conf->low_latency) -
 		(RP_ENCODE_MULTITHREAD && !conf->multicore_encode);
 

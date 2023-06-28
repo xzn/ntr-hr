@@ -230,11 +230,11 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 		screen->c.top_bot = rpScreenEncodeGetScreenLimitFrameRate(ctx);
 		screen->c.width = SCREEN_WIDTH(screen->c.top_bot);
 
-		screen->buffer = ctx->screen_capture_buffer[ctx->screen_capture_n];
-		screen->syn = &ctx->screen_capture_syn[ctx->screen_capture_n];
-		ctx->screen_capture_n = (ctx->screen_capture_n + 1) % RP_ENCODE_CAPTURE_BUFFER_COUNT;
-
 		if (split_image) {
+			screen->buffer = ctx->screen_capture_buffer[ctx->screen_capture_n];
+			screen->syn = &ctx->screen_capture_syn[ctx->screen_capture_n];
+			ctx->screen_capture_n = (ctx->screen_capture_n + 1) % RP_ENCODE_CAPTURE_BUFFER_COUNT;
+
 			ret = rp_sem_wait(screen->syn->sem, RP_SYN_WAIT_MAX);
 			if (ret) {
 				nsDbgPrint("rpScreenEncodeSetup screen sem wait failed: %d\n", ret);

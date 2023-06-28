@@ -1,7 +1,17 @@
 #include "rp_syn_chan.h"
 #include "rp_syn.h"
+#include "rp_screen.h"
 
-int rp_screen_queue_init(struct rp_syn_comp_t *screen, struct rp_screen_encode_t *base, int count) {
+int rp_screen_queue_init(struct rp_syn_comp_t *screen, struct rp_screen_encode_t *base, int count, struct rp_screen_state_t *sctx) {
+	if (sctx) {
+		if (count > RP_ENCODE_CAPTURE_BUFFER_COUNT) {
+			nsDbgPrint("Internal error: rp_screen_queue_init count too large (%d) when initializing with rp_screen_state_t\n", count);
+			return -1;
+		}
+		for (int i = 0; i < count; ++i) {
+			base[i].buffer = sctx->screen_capture_buffer[i];
+		}
+	}
 	return rp_syn_init(screen, 0, 0,
 		base, sizeof(struct rp_screen_encode_t), count);
 }

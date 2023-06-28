@@ -393,7 +393,8 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 		(void)rp_sem_init(rp_ctx->network_init, 0, 1);
 
 		if ((ret = rp_screen_queue_init(&rp_ctx->syn.screen, rp_ctx->screen_encode,
-			rp_ctx->conf.multicore_screen ? rp_ctx->conf.encode_screen_buffer_count : rp_ctx->conf.low_latency ? 1 : 2))
+			rp_ctx->conf.multicore_screen ? rp_ctx->conf.encode_screen_buffer_count : rp_ctx->conf.low_latency ? 1 : 2,
+			rp_ctx->conf.encode_thread_split_image ? 0 : &rp_ctx->screen_ctx))
 		) {
 			nsDbgPrint("rp_screen_queue_init failed %d\n", ret);
 			return ret;
