@@ -273,7 +273,26 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		}
 	}
 
-	if (RP_ENCODER_FFMPEG_JLS_ENABLE && encoder_which == RP_ENCODER_FFMPEG_JLS) {
+	if (bpp == 1) {
+		PutBitContext s;
+		init_put_bits(&s, send_ctx->buffer_begin, send_ctx->buffer_end);
+		s.user = send_ctx;
+
+		const u8 *in = src + LEFTMARGIN;
+
+		for (int i = 0; i < w; ++i) {
+			for (int i = 0; i < h; ++i) {
+				put_bits_checked(&s, 1, in[i]);
+			}
+			in += h + LEFTMARGIN + RIGHTMARGIN;
+		}
+
+		if ((ret = flush_put_bits(&s))) {
+			nsDbgPrint("flush_put_bits failed: %d\n", ret);
+			return -1;
+		}
+		send_ctx->buffer_begin = s.buf_ptr;
+	} else if (RP_ENCODER_FFMPEG_JLS_ENABLE && encoder_which == RP_ENCODER_FFMPEG_JLS) {
 		JLSState state = { 0 };
 		state.bpp = bpp;
 
