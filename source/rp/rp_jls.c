@@ -3,6 +3,7 @@
 #include "rp_syn_chan.h"
 #include "rp_syn.h"
 #include "rp_net.h"
+#include "rp_image.h"
 
 #include "../zstd/compress/zstd_compress_internal.h"
 
@@ -55,7 +56,7 @@ static int rpJLSSendBegin(struct rp_jls_send_ctx_t *ctx, u8 init) {
 			break;
 		}
 	}
-	if (!ctx->multicore_network && init)
+	if (0 && !ctx->multicore_network && init)
 		memcpy(ctx->network->buffer, ctx->send_header, sizeof(struct rp_send_data_header));
 	ctx->buffer_begin = ctx->network->buffer + sizeof(struct rp_send_data_header);
 	ctx->buffer_end = ctx->network->buffer + sizeof(ctx->network->buffer);
@@ -66,7 +67,7 @@ static int rpJLSSendEnd(struct rp_jls_send_ctx_t *ctx, u8 fini) {
 	if (*ctx->exit_thread)
 		return -1;
 
-	if (ctx->multicore_network || fini)
+	if (1 || ctx->multicore_network || fini)
 		memcpy(ctx->network->buffer, ctx->send_header, sizeof(struct rp_send_data_header));
 
 	int ret;
@@ -458,11 +459,68 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		init_put_bits(&s, send_ctx->buffer_begin + sizeof(u32), send_ctx->buffer_end);
 		s.user = send_ctx;
 
+		if (!send_ctx->huff_stats) {
+			nsDbgPrint("huff_stats not set for plane %d %d\n", send_ctx->send_header->plane_type, send_ctx->send_header->plane_comp);
+			return -1;
+		}
+
+		send_ctx->huff_med_ws->he = send_ctx->huff_stats->he;
+#if 0
 		int ret = huff_encode(send_ctx->huff_med_ws, &s, send_ctx->huff_med_pred_image, rle_size);
 		if (ret) {
 			nsDbgPrint("huff_encode failed: %d\n", ret);
 			return -1;
 		}
+#else
+		int unsigned_signed = 0;
+		int ret;
+
+		if (send_ctx->send_header->plane_type == RP_PLANE_TYPE_COLOR && send_ctx->send_header->plane_comp != RP_PLANE_COMP_Y)
+			unsigned_signed = 1;
+
+		if ((ret = rp_sem_wait(send_ctx->huff_stats->sem[send_ctx->thread_n], RP_SYN_WAIT_MAX))) {
+			nsDbgPrint("Huff stats sem wait failed: %d\n", ret);
+			return -1;
+		}
+
+		if ((ret = rp_lock_wait(send_ctx->huff_stats->lock, RP_SYN_WAIT_MAX))) {
+			nsDbgPrint("Huff stats lock wait failed: %d\n", ret);
+			return -1;
+		}
+
+		int huff_stats_valid = __atomic_load_n(&send_ctx->huff_stats->valid, __ATOMIC_ACQUIRE);
+		if (!huff_stats_valid) {
+			ret = huff_len_table(send_ctx->huff_med_ws, &s, send_ctx->huff_med_pred_image, rle_size, 1, bpp, unsigned_signed);
+			if (ret) {
+				nsDbgPrint("huff_len_table failed: %d\n", ret);
+				return -1;
+			}
+
+			__atomic_store_n(&send_ctx->huff_stats->valid, 1, __ATOMIC_RELEASE);
+			rp_lock_rel(send_ctx->huff_stats->lock);
+
+			send_ctx->send_header->data_stats = 1;
+		} else {
+			send_ctx->send_header->data_stats = 0;
+		}
+
+		ret = huff_encode_with_len_table(send_ctx->huff_med_ws->he, &s, send_ctx->huff_med_pred_image, rle_size);
+		if (ret) {
+			nsDbgPrint("huff_encode_with_len_table failed: %d\n", ret);
+			return -1;
+		}
+
+		if (huff_stats_valid) {
+			__atomic_store_n(&send_ctx->huff_stats->valid, 0, __ATOMIC_RELEASE);
+			rp_lock_rel(send_ctx->huff_stats->lock);
+		}
+
+		if (__atomic_add_fetch(&send_ctx->huff_stats->sem_count, 1, __ATOMIC_RELAXED) >= RP_ENCODE_THREAD_COUNT) {
+			__atomic_store_n(&send_ctx->huff_stats->sem_count, 0, __ATOMIC_RELAXED);
+			for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i)
+				rp_sem_rel(send_ctx->huff_stats->sem[i], 1);
+		}
+#endif
 		if ((ret = flush_put_bits(&s))) {
 			nsDbgPrint("huff flush_put_bits failed: %d\n", ret);
 			return -1;
@@ -641,4 +699,29 @@ void *jpeg_turbo_malloc(j_common_ptr cinfo, size_t size) {
 }
 
 void jpeg_turbo_free(j_common_ptr cinfo UNUSED, void *ptr UNUSED) {
+}
+
+int huff_stats_init(struct rp_image_stats_t *stats, int downscale_uv) {
+#define INIT_IMAGE_BUFFER_STATS(s) do { \
+	int ret; \
+	rp_lock_close(stats->s.lock); \
+	if ((ret = rp_lock_init(stats->s.lock))) \
+		return ret; \
+	stats->s.valid = 0; \
+	for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) { \
+		rp_sem_close(stats->s.sem[i]); \
+		if ((ret = rp_sem_init(stats->s.sem[i], 1, 1))) \
+			return ret; \
+	} \
+	stats->s.sem_count = 0; \
+} while (0)
+
+	INIT_IMAGE_BUFFER_STATS(y_stats);
+	if (downscale_uv) {
+		INIT_IMAGE_BUFFER_STATS(uv_stats);
+	} else {
+		INIT_IMAGE_BUFFER_STATS(u_stats);
+		INIT_IMAGE_BUFFER_STATS(v_stats);
+	}
+	return 0;
 }

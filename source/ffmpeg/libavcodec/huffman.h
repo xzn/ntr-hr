@@ -58,7 +58,7 @@ struct rp_huff_ctx
     // void *stack[64][2];
 
     uint32_t counts[256];
-    HuffEntry he[256];
+    HuffEntry *he;
 };
 
 #define FF_HUFFMAN_FLAG_HNODE_FIRST 0x01
@@ -68,8 +68,8 @@ struct rp_huff_ctx
 typedef int (*HuffCmp)(const void *va, const void *vb);
 int ff_huff_gen_len_table(struct rp_huff_ctx *ctx, uint8_t *dst, const uint32_t *stats);
 
-int huff_len_table(struct rp_huff_ctx *ctx, PutBitContext *pb, const uint8_t *src, int src_size); // return usage table, write len table to dst (256 entries)
-int huff_encode_with_len_table(struct rp_huff_ctx *ctx, PutBitContext *pb, const uint8_t *src, int src_size);
+int huff_len_table(struct rp_huff_ctx *ctx, PutBitContext *pb, const uint8_t *src, int src_size, int half_stats, int bpp, int unsigned_signed); // write stats to pb; calculate table
+int huff_encode_with_len_table(const HuffEntry *he, PutBitContext *pb, const uint8_t *src, int src_size);
 int huff_encode(struct rp_huff_ctx *ctx, PutBitContext *pb, const uint8_t *src, int src_size);
 
 #endif /* AVCODEC_HUFFMAN_H */

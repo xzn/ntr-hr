@@ -8,13 +8,16 @@
 #include "mempool.h"
 #include "ikcp.h"
 
-#define RP_ENCODER_FFMPEG_JLS_ENABLE (0) // broken; not needed
-#define RP_ENCODER_HP_JLS_ENABLE (0) // broken; not needed
-#define RP_ENCODER_ZSTD_ENABLE (0)
-#define RP_ENCODER_LZ4_ENABLE (0)
+// Code gated behind many of the macros has not been updated
+// Will be cleaned up some time
+
+#define RP_ENCODER_FFMPEG_JLS_ENABLE (0) // broken; not used
+#define RP_ENCODER_HP_JLS_ENABLE (0) // broken; not used
+#define RP_ENCODER_ZSTD_ENABLE (0) // Likely broken
+#define RP_ENCODER_LZ4_ENABLE (0) // Likely broken
 #define RP_ENCODER_HUFF_ENABLE (1)
-#define RP_ENCODER_IMAGEZERO_ENABLE (0)
-#define RP_ENCODER_JPEG_TURBO_ENABLE (0)
+#define RP_ENCODER_IMAGEZERO_ENABLE (0) // Likely broken
+#define RP_ENCODER_JPEG_TURBO_ENABLE (0) // Likely broken
 
 #define RP_ME_ENABLE (0) // broken; not used
 #define RP_ENCODER_JLS_LUT_ENABLE (RP_ENCODER_FFMPEG_JLS_ENABLE || RP_ENCODER_HP_JLS_ENABLE)

@@ -82,7 +82,7 @@ struct rp_image_ctx_t {
 			u16 mafd_image[ME_PADDED_SIZE(sv) / (d)] ALIGN_4; \
 			u16 mafd_ds_image_ds_uv[ME_PADDED_DS_SIZE(sv, 1 / (d))] ALIGN_4; \
 		}; \
-	} \
+	}
 
 	union {
 		struct {

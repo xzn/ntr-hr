@@ -49,7 +49,7 @@ static void count_usage(const uint8_t *src, int src_size, uint32_t *counts)
 }
 
 /* Calculate the actual huffman codes from the code lengths */
-static void calculate_codes(struct rp_huff_ctx *ctx, HuffEntry *he)
+static void calculate_codes(HuffEntry *he)
 {
     int last, i;
     uint32_t code;
@@ -71,7 +71,7 @@ static void calculate_codes(struct rp_huff_ctx *ctx, HuffEntry *he)
 
 /* Write huffman bit codes to a memory block */
 static int write_huff_codes(const uint8_t *src, PutBitContext *pb,
-                            int src_size, HuffEntry *he)
+                            int src_size, const HuffEntry *he)
 {
     const uint8_t *src_end = src + src_size;
     int i, j;
@@ -87,42 +87,61 @@ static int write_huff_codes(const uint8_t *src, PutBitContext *pb,
     return 0;
 }
 
-int huff_len_table(struct rp_huff_ctx *ctx, PutBitContext *pb, const uint8_t *src, int src_size)
+int huff_len_table(struct rp_huff_ctx *ctx, PutBitContext *pb, const uint8_t *src, int src_size, int half_stats, int bpp, int unsigned_signed)
 {
     if (pb->buf_ptr + 256 > pb->buf_end)
         return -1;
 
     uint32_t *counts = ctx->counts;
+    HuffEntry *he = ctx->he;
+    int i;
 
-    memset(counts, 0, sizeof(*counts) * 256);
+    if (half_stats) {
+        if (unsigned_signed == 0) {
+            for (int i = 0; i < (1 << bpp); ++i) {
+                counts[i] = 2;
+            }
+            for (int i = (1 << bpp); i < 256; ++i) {
+                counts[i] = 1;
+            }
+        } else {
+            for (int i = -(1 << (8 - 1)); i < -(1 << (bpp - 1)) + 1; ++i) {
+                counts[(uint8_t)i] = 1;
+            }
+            for (int i = -(1 << (bpp - 1)) + 1; i < (1 << (bpp - 1)); ++i) {
+                counts[(uint8_t)i] = 2;
+            }
+            for (int i = (1 << (bpp - 1)); i < 1 << (8 - 1); ++i) {
+                counts[(uint8_t)i] = 1;
+            }
+        }
+    } else {
+        memset(counts, 0, sizeof(*counts) * 256);
+    }
 
     count_usage(src, src_size, counts);
 
     ff_huff_gen_len_table(ctx, pb->buf_ptr, counts);
 
-    return 0;
-}
-
-int huff_encode_with_len_table(struct rp_huff_ctx *ctx, PutBitContext *pb, const uint8_t *src, int src_size)
-{
-    HuffEntry *he = ctx->he;
-    uint32_t *counts = ctx->counts;
-
-    int i;
     for (i = 0; i < 256; ++i)
     {
         he[i].len = *pb->buf_ptr++;
         he[i].sym = i;
     }
 
-    calculate_codes(ctx, he);
+    calculate_codes(he);
 
+    return 0;
+}
+
+int huff_encode_with_len_table(const HuffEntry *he, PutBitContext *pb, const uint8_t *src, int src_size)
+{
     return write_huff_codes(src, pb, src_size, he);
 }
 
 int huff_encode(struct rp_huff_ctx *ctx, PutBitContext *pb, const uint8_t *src, int src_size)
 {
-    if (huff_len_table(ctx, pb, src, src_size) < 0)
+    if (huff_len_table(ctx, pb, src, src_size, 0, 0, 0) < 0)
         return -1;
-    return huff_encode_with_len_table(ctx, pb, src, src_size);
+    return huff_encode_with_len_table(ctx->he, pb, src, src_size);
 }
