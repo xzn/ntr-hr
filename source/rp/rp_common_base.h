@@ -98,6 +98,7 @@ enum {
 enum {
     RP_SCREEN_FRAME_EVEN,
     RP_SCREEN_FRAME_ODD,
+    RP_SCREEN_FRAME_COUNT,
     RP_SCREEN_FRAME_FULL = (u8)-1,
 };
 

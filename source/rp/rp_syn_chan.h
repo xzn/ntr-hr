@@ -19,6 +19,7 @@ struct rp_screen_encode_t {
         u8 first_frame;
         u8 frame_n;
         u8 left_right;
+        u8 even_odd;
         u16 width;
     } c;
 };

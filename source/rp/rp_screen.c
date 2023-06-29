@@ -181,6 +181,12 @@ static int rpScreenEncodeReadyImage(
 	u8 frame_n = screen_image->frame_n;
 	screen_image->frame_n = (frame_n + 1) % RP_IMAGE_FRAME_N_RANGE;
 
+	u8 even_odd = screen_image->even_odd;
+	if (even_odd == RP_SCREEN_FRAME_FULL) {
+		even_odd = RP_SCREEN_FRAME_EVEN;
+	}
+	screen_image->even_odd = (even_odd + 1) % RP_SCREEN_FRAME_COUNT;
+
 	u8 first_frame = screen_image->first_frame;
 
 	u8 p_frame = screen_image->p_frame;
@@ -202,6 +208,7 @@ static int rpScreenEncodeReadyImage(
 	screen->c.first_frame = first_frame;
 	screen->c.p_frame = p_frame;
 	screen->c.frame_n = frame_n;
+	screen->c.even_odd = even_odd;
 #define GET_SPLIT_IMAGE (split_image ? &images_2[top_bot][image_n][RP_SCREEN_SPLIT_LEFT] : &images_1[top_bot][image_n])
 	screen->image = GET_SPLIT_IMAGE;
 	image_n = (image_n + (RP_IMAGE_BUFFER_COUNT - 1)) % RP_IMAGE_BUFFER_COUNT;
@@ -249,6 +256,8 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 			ret = rp_sem_wait(screen->syn->sem, RP_SYN_WAIT_MAX);
 			if (ret) {
 				nsDbgPrint("rpScreenEncodeSetup screen sem wait failed: %d\n", ret);
+				if (ctx->sync)
+					rp_lock_rel(ctx->mutex);
 				return ret;
 			}
 			__atomic_store_n(&screen->syn->count, 0, __ATOMIC_RELAXED);

@@ -62,6 +62,7 @@ struct rp_encode_and_send_screen_ctx_t {
 	union rp_image_stats_t *huff_stats;
 	u8 downscale_uv;
 	u8 encoder_which;
+	u8 even_odd;
 };
 
 static int rpJLSEncodePlaneAndSend_2(struct rp_encode_and_send_screen_ctx_t *ctx, const u8 *n, const u8 *n_2,
@@ -157,7 +158,9 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 	} \
 } while (0)
 
-	if (ctx->jls_send_ctx->thread_n == RP_MAIN_ENCODE_THREAD_ID) {
+	if ((ctx->jls_send_ctx->thread_n == RP_MAIN_ENCODE_THREAD_ID && ctx->even_odd == RP_SCREEN_FRAME_EVEN) ||
+		(ctx->jls_send_ctx->thread_n != RP_MAIN_ENCODE_THREAD_ID && ctx->even_odd == RP_SCREEN_FRAME_ODD)
+	) {
 		RP_ENCODE_Y_PLANE_AND_SEND;
 		RP_ENCODE_UV_PLANE_AND_SEND;
 	} else {
@@ -342,6 +345,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.huff_stats = rp_ctx->conf.encode_thread_split_image ? &rp_ctx->huff_stats : 0,
 			.downscale_uv = rp_ctx->conf.downscale_uv,
 			.encoder_which = rp_ctx->conf.encoder_which,
+			.even_odd = c.even_odd,
 		};
 		ret = rpJLSEncodeScreenAndSend(&encode_send_ctx, im, &c, &rp_ctx->conf.me);
 		if (ret < 0) {
