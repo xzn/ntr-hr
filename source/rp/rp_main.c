@@ -59,7 +59,7 @@ struct rp_encode_and_send_screen_ctx_t {
 	struct rp_jls_send_ctx_t *jls_send_ctx;
 	struct rp_jls_params_t *jls_param;
 	struct rp_jls_ctx_t *jls_ctx;
-	struct rp_image_stats_t *huff_stats;
+	union rp_image_stats_t *huff_stats;
 	u8 downscale_uv;
 	u8 encoder_which;
 };
@@ -133,19 +133,18 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 		}
 	}
 
-#define RP_ENCODE_PLANE_AND_SEND(stats, image, bpp, comp) do { \
-	ctx->jls_send_ctx->huff_stats = &ctx->huff_stats->stats; \
+#define RP_ENCODE_PLANE_AND_SEND_0(stats, comp, code) do { \
+	ctx->jls_send_ctx->huff_stats = ctx->huff_stats ? &ctx->huff_stats->stats : 0; \
 	rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, comp); \
-	ret = rpJLSEncodePlaneAndSend(ctx, im->image, width, height, im->bpp); \
+	ret = code; \
 	if (ret < 0) { return ret; } size += ret; \
 } while (0)
 
-#define RP_ENCODE_PLANE_AND_SEND_2(stats, image_0, image_1, bpp_0, bpp_1, comp) do { \
-	ctx->jls_send_ctx->huff_stats = &ctx->huff_stats->stats; \
-	rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, comp); \
-	ret = rpJLSEncodePlaneAndSend_2(ctx, im->image_0, im->image_1, ds_width, ds_height, im->bpp_0, im->bpp_1); \
-	if (ret < 0) { return ret; } size += ret; \
-} while (0)
+#define RP_ENCODE_PLANE_AND_SEND(stats, image, bpp, comp) \
+	RP_ENCODE_PLANE_AND_SEND_0(stats, comp, rpJLSEncodePlaneAndSend(ctx, im->image, width, height, im->bpp))
+
+#define RP_ENCODE_PLANE_AND_SEND_2(stats, image_0, image_1, bpp_0, bpp_1, comp) \
+	RP_ENCODE_PLANE_AND_SEND_0(stats, comp, rpJLSEncodePlaneAndSend_2(ctx, im->image_0, im->image_1, ds_width, ds_height, im->bpp_0, im->bpp_1))
 
 #define RP_ENCODE_Y_PLANE_AND_SEND RP_ENCODE_PLANE_AND_SEND(y_stats, y_image, y_bpp, RP_PLANE_COMP_Y)
 
@@ -340,13 +339,13 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.jls_send_ctx = &jls_send_ctx,
 			.jls_param = &rp_ctx->jls_param,
 			.jls_ctx = jls_ctx,
-			.huff_stats = &rp_ctx->huff_stats,
+			.huff_stats = rp_ctx->conf.encode_thread_split_image ? &rp_ctx->huff_stats : 0,
 			.downscale_uv = rp_ctx->conf.downscale_uv,
 			.encoder_which = rp_ctx->conf.encoder_which,
 		};
 		ret = rpJLSEncodeScreenAndSend(&encode_send_ctx, im, &c, &rp_ctx->conf.me);
 		if (ret < 0) {
-			nsDbgPrint("rpJLSEncodeScreenAndSend failed: %d\n", ret);
+			nsDbgPrint("%d rpJLSEncodeScreenAndSend failed: %d\n", thread_n, ret);
 			break;
 		}
 		rpSetPriorityScreen(&rp_ctx->dyn_prio, c.top_bot, ret);
@@ -394,9 +393,15 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 			}
 		}
 	} else if (RP_ENCODER_HUFF_ENABLE && rp_ctx->conf.encoder_which == RP_ENCODER_HUFF_JLS) {
-		if ((ret = huff_stats_init(&rp_ctx->huff_stats, rp_ctx->conf.downscale_uv))) {
-			nsDbgPrint("huff_stats_init error: %d\n", ret);
-			return ret;
+		if (rp_ctx->conf.encode_thread_split_image) {
+			if ((ret = huff_stats_init(&rp_ctx->huff_stats, rp_ctx->conf.downscale_uv))) {
+				nsDbgPrint("huff_stats_init error: %d\n", ret);
+				return ret;
+			}
+		} else {
+			for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
+				rp_ctx->huff_med_ws[i].he = rp_ctx->huff_stats.stats[i].he;
+			}
 		}
 	} else if (RP_ENCODER_JPEG_TURBO_ENABLE && rp_ctx->conf.encoder_which == RP_ENCODER_JPEG_TURBO) {
 		jpeg_turbo_init_ctx(

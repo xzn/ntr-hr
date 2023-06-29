@@ -30,7 +30,7 @@ struct rp_screen_state_t {
 struct rp_screen_image_t;
 struct rp_image_t;
 struct rp_dma_ctx_t;
-void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks, u8 sync);
+int rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks, u8 sync);
 int rpScreenEncodeSetup(
 	struct rp_screen_encode_t *screen, struct rp_screen_state_t *ctx,
 	struct rp_screen_image_t screen_images[SCREEN_COUNT],

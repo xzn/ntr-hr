@@ -57,7 +57,7 @@ struct rp_ctx_t {
 				u8 huff_med_pred_image_1[RP_HUFF_WS_SIZE_1];
 				u8 huff_med_pred_image_2[RP_ENCODE_THREAD_COUNT][RP_HUFF_WS_SIZE_2];
 			};
-			struct rp_image_stats_t huff_stats;
+			union rp_image_stats_t huff_stats;
 		};
 	};
 

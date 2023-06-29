@@ -84,12 +84,17 @@ void rpKernelCallback(struct rp_screen_encode_t *screen) {
 	screen->c.format &= 0x0f;
 }
 
-void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks, u8 sync) {
+int rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn_prio, u32 min_capture_interval_ticks, u8 sync) {
+	int ret;
 	rp_lock_close(ctx->mutex);
-	if (sync)
-		(void)rp_lock_init(ctx->mutex);
-	else
+	if (sync) {
+		if ((ret = rp_lock_init(ctx->mutex))) {
+			nsDbgPrint("rpScreenEncodeInit rp_lock_init failed: %d\n", ret);
+			return ret;
+		}
+	} else {
 		ctx->mutex = 0;
+	}
 	ctx->sync = sync;
 	u64 curr_tick = svc_getSystemTick();
 	ctx->last_tick = curr_tick;
@@ -97,10 +102,16 @@ void rpScreenEncodeInit(struct rp_screen_state_t *ctx, struct rp_dyn_prio_t *dyn
 	ctx->dyn_prio = dyn_prio;
 	ctx->min_capture_interval_ticks = min_capture_interval_ticks;
 	ctx->screen_left = 0;
+
 	for (int i = 0; i < RP_ENCODE_CAPTURE_BUFFER_COUNT; ++i) {
 		rp_sem_close(ctx->screen_capture_syn[i].sem);
-		(void)rp_sem_init(ctx->screen_capture_syn[i].sem, 1, 1);
+		if ((ret = rp_sem_init(ctx->screen_capture_syn[i].sem, 1, 1))) {
+			nsDbgPrint("rpScreenEncodeInit rp_sem_init failed: %d\n", ret);
+			return ret;
+		}
 	}
+
+	return 0;
 }
 
 static int rpScreenEncodeGetScreenLimitFrameRate(struct rp_screen_state_t *ctx) {
@@ -145,7 +156,7 @@ static int rpScreenEncodeCaptureScreen(struct rp_screen_encode_t *screen, struct
 			break;
 
 		if (++capture_n > RP_THREAD_LOOP_WAIT_COUNT) {
-			nsDbgPrint("rpCaptureScreen failed\n");
+			nsDbgPrint("rpCaptureScreen failed: %d\n", ret);
 			return -1;
 		}
 
