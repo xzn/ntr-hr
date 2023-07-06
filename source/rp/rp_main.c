@@ -11,7 +11,8 @@ static int rpCtxScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_c
 	return rpScreenEncodeSetup(screen, &rp_ctx->screen_ctx, rp_ctx->image_ctx.screen_image,
 		rp_ctx->image_ctx.image_1, rp_ctx->image_ctx.image_2,
 		&rp_ctx->dma_ctx, rp_ctx->conf.me.enabled,
-		thread_n, rp_ctx->conf.encode_thread_split_image
+		thread_n, rp_ctx->conf.encode_thread_split_image,
+		RP_ENCODE_CAPTURE_BUFFER_COUNT - (RP_ENCODE_ADDITIONAL_BUFFER && rp_ctx->conf.low_latency) - (RP_ENCODE_ADDITIONAL_BUFFER && RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode)
 	);
 }
 
@@ -21,8 +22,11 @@ static void rpScreenTransferThread(u32 arg) {
 	int thread_n = RP_SCREEN_TRANSFER_THREAD_ID;
 
 	int acquire_count = 0;
+	int screen_n = 0;
+	int screen_count = 1 + rp_ctx->conf.encode_thread_split_image;
+	struct rp_syn_comp_t *screen_syn = rp_ctx->conf.encode_thread_split_image ? rp_ctx->syn.screen_2 : &rp_ctx->syn.screen;
 	while (!rp_ctx->exit_thread) {
-		struct rp_screen_encode_t *screen = rp_screen_transfer_acquire(&rp_ctx->syn.screen.transfer, RP_THREAD_LOOP_MED_WAIT);
+		struct rp_screen_encode_t *screen = rp_screen_transfer_acquire(&screen_syn[screen_n].transfer, RP_THREAD_LOOP_MED_WAIT);
 		if (!screen) {
 			if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
 				nsDbgPrint("rp_screen_transfer_acquire timeout\n");
@@ -36,7 +40,9 @@ static void rpScreenTransferThread(u32 arg) {
 			break;
 		}
 
-		rp_screen_encode_release(&rp_ctx->syn.screen.encode, screen);
+		rp_screen_encode_release(&screen_syn[screen_n].encode, screen);
+
+		screen_n = (screen_n + 1) % screen_count;
 	}
 	rp_ctx->exit_thread = 1;
 	svc_exitThread();
@@ -223,6 +229,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 
 	int acquire_count = 0;
 
+	struct rp_syn_comp_t *screen_syn = rp_ctx->conf.encode_thread_split_image ? &rp_ctx->syn.screen_2[thread_n] : &rp_ctx->syn.screen;
+
 	while (!rp_ctx->exit_thread) {
 		if (thread_n == RP_MAIN_ENCODE_THREAD_ID)
 			rp_check_params(&rp_ctx->conf, &g_nsConfig->remotePlayUpdate, &rp_ctx->exit_thread);
@@ -231,7 +239,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		int multicore_screen = RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode &&
 			(rp_ctx->conf.multicore_screen || thread_n == RP_SECOND_ENCODE_THREAD_ID);
 		if (multicore_screen) {
-			screen = rp_screen_encode_acquire(&rp_ctx->syn.screen.encode, RP_THREAD_LOOP_MED_WAIT);
+			screen = rp_screen_encode_acquire(&screen_syn->encode, RP_THREAD_LOOP_MED_WAIT);
 			if (!screen) {
 				if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
 					nsDbgPrint("rp_screen_encode_acquire timeout\n");
@@ -286,7 +294,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_const_image_t *image_prev = screen->image_prev;
 		struct rp_screen_ctx_t c = screen->c;
 		if (multicore_screen) {
-			if (rp_screen_transfer_release(&rp_ctx->syn.screen.transfer, screen) != 0) {
+			if (rp_screen_transfer_release(&screen_syn->transfer, screen) != 0) {
 				nsDbgPrint("rpEncodeScreenAndSend screen release syn failed\n");
 				break;
 			}
@@ -424,9 +432,18 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 		rp_sem_close(rp_ctx->network_init);
 		(void)rp_sem_init(rp_ctx->network_init, 0, 1);
 
-		if ((ret = rp_screen_queue_init(&rp_ctx->syn.screen, rp_ctx->screen_encode,
+		if (rp_ctx->conf.encode_thread_split_image) {
+			for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {
+				if ((ret = rp_screen_queue_init(&rp_ctx->syn.screen_2[i], rp_ctx->screen_encode_2[i],
+					rp_ctx->conf.encode_screen_buffer_count, 0))
+				) {
+					nsDbgPrint("rp_screen_queue_init %d failed %d\n", i, ret);
+					return ret;
+				}
+			}
+		} else if ((ret = rp_screen_queue_init(&rp_ctx->syn.screen, rp_ctx->screen_encode,
 			rp_ctx->conf.multicore_screen ? rp_ctx->conf.encode_screen_buffer_count : rp_ctx->conf.low_latency ? 1 : 2,
-			rp_ctx->conf.encode_thread_split_image ? 0 : &rp_ctx->screen_ctx))
+			&rp_ctx->screen_ctx))
 		) {
 			nsDbgPrint("rp_screen_queue_init failed %d\n", ret);
 			return ret;

@@ -478,7 +478,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			if (send_ctx->send_header->plane_type == RP_PLANE_TYPE_COLOR && send_ctx->send_header->plane_comp != RP_PLANE_COMP_Y)
 				unsigned_signed = 1;
 
-			if ((ret = rp_sem_wait(send_ctx->huff_stats->sem[send_ctx->thread_n], RP_SYN_WAIT_MAX))) {
+			if ((ret = rp_sem_wait(send_ctx->huff_stats->sem[send_ctx->send_header->left_right], RP_SYN_WAIT_MAX))) {
 				nsDbgPrint("Huff stats sem wait failed: %d\n", ret);
 				return -1;
 			}
@@ -488,11 +488,15 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 				return -1;
 			}
 
-			int huff_stats_valid = __atomic_load_n(&send_ctx->huff_stats->valid, __ATOMIC_ACQUIRE);
+			int huff_stats_valid = (s8)__atomic_load_n(&send_ctx->huff_stats->valid, __ATOMIC_ACQUIRE);
+			if (huff_stats_valid < 0)
+				return -1;
+
 			if (!huff_stats_valid) {
 				ret = huff_len_table(send_ctx->huff_med_ws, &s, send_ctx->huff_med_pred_image, rle_size, 1, bpp, unsigned_signed);
 				if (ret) {
 					nsDbgPrint("huff_len_table failed: %d\n", ret);
+					__atomic_store_n(&send_ctx->huff_stats->valid, (u8)(s8)-1, __ATOMIC_RELEASE);
 					rp_lock_rel(send_ctx->huff_stats->lock);
 					return -1;
 				}
@@ -508,8 +512,10 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			ret = huff_encode_with_len_table(send_ctx->huff_med_ws->he, &s, send_ctx->huff_med_pred_image, rle_size);
 			if (ret) {
 				nsDbgPrint("huff_encode_with_len_table failed: %d\n", ret);
-				if (huff_stats_valid)
+				if (huff_stats_valid) {
+					__atomic_store_n(&send_ctx->huff_stats->valid, (u8)(s8)-1, __ATOMIC_RELEASE);
 					rp_lock_rel(send_ctx->huff_stats->lock);
+				}
 				return -1;
 			}
 
@@ -518,9 +524,9 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 				rp_lock_rel(send_ctx->huff_stats->lock);
 			}
 
-			if (__atomic_add_fetch(&send_ctx->huff_stats->sem_count, 1, __ATOMIC_RELAXED) >= RP_ENCODE_THREAD_COUNT) {
+			if (__atomic_add_fetch(&send_ctx->huff_stats->sem_count, 1, __ATOMIC_RELAXED) >= RP_SCREEN_SPLIT_COUNT) {
 				__atomic_store_n(&send_ctx->huff_stats->sem_count, 0, __ATOMIC_RELAXED);
-				for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i)
+				for (int i = 0; i < RP_SCREEN_SPLIT_COUNT; ++i)
 					rp_sem_rel(send_ctx->huff_stats->sem[i], 1);
 			}
 		}

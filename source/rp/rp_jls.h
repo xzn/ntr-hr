@@ -127,7 +127,7 @@ struct rp_image_buffer_stats_t {
 	rp_lock_t lock;
 	u8 valid;
 	HuffEntry he[256];
-	rp_sem_t sem[RP_ENCODE_THREAD_COUNT];
+	rp_sem_t sem[RP_SCREEN_SPLIT_COUNT];
 	u8 sem_count;
 };
 

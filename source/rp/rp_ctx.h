@@ -30,7 +30,10 @@ struct rp_ctx_t {
 	u8 screen_transfer_thread_stack[RP_MISC_STACK_SIZE] ALIGN_4;
 	u8 control_recv_buffer[RP_CONTROL_RECV_BUFFER_SIZE] ALIGN_4;
 
-	struct rp_screen_encode_t screen_encode[RP_ENCODE_SCREEN_BUFFER_COUNT];
+	union {
+		struct rp_screen_encode_t screen_encode[RP_ENCODE_SCREEN_BUFFER_COUNT];
+		struct rp_screen_encode_t screen_encode_2[RP_ENCODE_THREAD_COUNT][RP_ENCODE_SCREEN_BUFFER_COUNT / RP_ENCODE_THREAD_COUNT];
+	};
 	struct rp_network_encode_t network_encode[RP_ENCODE_NETWORK_BUFFER_COUNT];
 
 	union {
@@ -64,7 +67,11 @@ struct rp_ctx_t {
 	struct rp_image_ctx_t image_ctx;
 
 	struct {
-		struct rp_syn_comp_t screen, network;
+		union {
+			struct rp_syn_comp_t screen;
+			struct rp_syn_comp_t screen_2[RP_ENCODE_THREAD_COUNT];
+		};
+		struct rp_syn_comp_t network;
 	} syn;
 
 	struct rp_conf_t conf;

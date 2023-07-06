@@ -222,7 +222,7 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 	struct rp_screen_image_t screen_images[SCREEN_COUNT],
 	struct rp_image_t images_1[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT],
 	struct rp_image_t images_2[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT][RP_SCREEN_SPLIT_COUNT],
-	struct rp_dma_ctx_t *dma, int me_enabled, int thread_n, int split_image
+	struct rp_dma_ctx_t *dma, int me_enabled, int thread_n, int split_image, int capture_n
 ) {
 	int ret;
 
@@ -251,7 +251,7 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 		if (split_image) {
 			screen->buffer = ctx->screen_capture_buffer[ctx->screen_capture_n];
 			screen->syn = &ctx->screen_capture_syn[ctx->screen_capture_n];
-			ctx->screen_capture_n = (ctx->screen_capture_n + 1) % RP_ENCODE_CAPTURE_BUFFER_COUNT;
+			ctx->screen_capture_n = (ctx->screen_capture_n + 1) % capture_n;
 
 			ret = rp_sem_wait(screen->syn->sem, RP_SYN_WAIT_MAX);
 			if (ret) {

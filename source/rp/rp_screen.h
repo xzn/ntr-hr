@@ -36,7 +36,7 @@ int rpScreenEncodeSetup(
 	struct rp_screen_image_t screen_images[SCREEN_COUNT],
 	struct rp_image_t images_1[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT],
 	struct rp_image_t images_2[SCREEN_COUNT][RP_IMAGE_BUFFER_COUNT][RP_SCREEN_SPLIT_COUNT],
-	struct rp_dma_ctx_t *dma, int me_enabled, int thread_n, int split_image);
+	struct rp_dma_ctx_t *dma, int me_enabled, int thread_n, int split_image, int capture_n);
 
 struct rp_conf_me_t;
 struct rp_screen_ctx_t;
