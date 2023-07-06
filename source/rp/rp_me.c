@@ -321,7 +321,7 @@ void diff_image(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 u
 	int width, int height, int pitch, int bpp, int scale_log2, u8 block_size, u8 block_size_log2
 ) {
 	switch (spp_lq) {
-#if 1
+#if 0
 		case 0:
 			diff_image_spp_lq_g(me_x_image, dst, ref, cur, 0, unsigned_signed, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, block_size, block_size_log2); break;
 
