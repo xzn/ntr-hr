@@ -509,7 +509,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 				send_ctx->send_header->data_stats = 0;
 			}
 
-			ret = huff_encode_with_len_table(send_ctx->huff_med_ws->he, &s, send_ctx->huff_med_pred_image, rle_size);
+			ret = huff_encode_with_len_table(send_ctx->huff_stats->he, &s, send_ctx->huff_med_pred_image, rle_size);
 			if (ret) {
 				nsDbgPrint("huff_encode_with_len_table failed: %d\n", ret);
 				if (huff_stats_valid) {
@@ -711,7 +711,7 @@ void *jpeg_turbo_malloc(j_common_ptr cinfo, size_t size) {
 void jpeg_turbo_free(j_common_ptr cinfo UNUSED, void *ptr UNUSED) {
 }
 
-int huff_stats_init(union rp_image_stats_t *stats, int downscale_uv) {
+int huff_stats_init(struct rp_image_buffer_split_stats_t *stats, int downscale_uv) {
 #define INIT_IMAGE_BUFFER_STATS(s) do { \
 	int ret; \
 	rp_lock_close(stats->s.lock); \

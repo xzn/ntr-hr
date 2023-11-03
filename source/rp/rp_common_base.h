@@ -179,6 +179,8 @@ enum {
 #define RP_ZSTD_COMP_LEVEL_BITS (3)
 #define RP_ZSTD_COMP_LEVEL_HALF_RANGE (1 << (RP_ZSTD_COMP_LEVEL_BITS - 1))
 #define RP_LZ4_BUFFER_COUNT (2)
+#define RP_HUFF_BUFFER_COUNT 1
+// #define RP_HUFF_BUFFER_COUNT RP_MIN(RP_ENCODE_THREAD_COUNT, 2)
 
 typedef u32 (*NWMSendPacket_t)(u8 *, u32);
 extern NWMSendPacket_t nwmSendPacket;

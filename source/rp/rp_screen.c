@@ -361,21 +361,25 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 	int ds_ds_width = DS_DIM(width, 2);
 	int ds_ds_height = DS_DIM(height, 2);
 
+	u8 bpp_lq = 8;
+	u8 bpp_2_lq = 8;
+
+	// LQ1: RGB565
+	// LQ2: RGB454
+	// LQ3: RGB444
+	if (lq) {
+		if (lq == 1)
+			bpp_lq = 5;
+		else
+			bpp_lq = 4;
+
+		if (lq == 1 || lq == 2)
+			bpp_2_lq = bpp_lq + 1;
+		else
+			bpp_2_lq = bpp_lq;
+	}
+
 	if (p_frame) {
-		downscale_image(
-			im->ds_y_image,
-			im->y_image,
-			width, height, 0
-		);
-
-		if (me->downscale) {
-			downscale_image(
-				im->ds_ds_y_image,
-				im->ds_y_image,
-				ds_width, ds_height, 0
-			);
-		}
-
 		if (multicore && me->enabled != 0) {
 			// lock read
 			if ((ret = rpImageReadLock(image_prev))) {
@@ -402,7 +406,17 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 	); \
 } while (0)
 
+			downscale_image(
+				im->ds_y_image,
+				im->y_image,
+				width, height, 0
+			);
 			if (me->downscale) {
+				downscale_image(
+					im->ds_ds_y_image,
+					im->ds_y_image,
+					ds_width, ds_height, 0
+				);
 				MOTION_EST(ds_ds_y_image, mafd_ds_image, ds_ds_width, ds_ds_height, y_bpp);
 			} else {
 				MOTION_EST(ds_y_image, mafd_image, ds_width, ds_height, y_bpp);
@@ -438,30 +452,14 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		} else {
 
 #define DIFF_IM(n, w, h, s, b, m, b_lq, sn) do { \
-	diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, RP_ENCODE_STATIC_LQ ? 0 : im->b - b_lq, sn, \
+	if (diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, RP_ENCODE_STATIC_LQ ? 0 : im->b - b_lq, sn, \
 		me->select, me->select_threshold, \
 		m ? me->downscale ? im->mafd_ds_image : im->mafd_image : 0, \
 		m ? me->downscale ? im_prev->mafd_ds_image : im_prev->mafd_image : 0, me->mafd_shift, \
-		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, s, me->block_size, me->block_size_log2); \
+		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, s, me->block_size, me->block_size_log2) < 0 \
+	) \
+		return -1; \
 } while (0)
-
-			u8 bpp_lq = 8;
-			u8 bpp_2_lq = 8;
-
-			// LQ1: RGB565
-			// LQ2: RGB454
-			// LQ3: RGB444
-			if (lq) {
-				if (lq == 1)
-					bpp_lq = 5;
-				else
-					bpp_lq = 4;
-
-				if (lq == 1 || lq == 2)
-					bpp_2_lq = bpp_lq + 1;
-				else
-					bpp_2_lq = bpp_lq;
-			}
 
 			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1, bpp_2_lq, 0);
 
@@ -489,22 +487,39 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			rpImageReadUnlock(image_prev);
 		}
 	} else {
-		if (multicore && me->enabled != 0) {
-			if (!c->first_frame) {
-				// done read by skipping
-				rpImageReadSkip(image_prev);
+		if (multicore && me->enabled != 0 && !c->first_frame) {
+			// done read by skipping
+			rpImageReadSkip(image_prev);
+		}
+
+		if (!RP_ENCODE_STATIC_LQ) {
+
+#define DOWNSHIFT_IM(n, w, h, b, b_lq, sn) do { \
+	if (downshift_image(image_me->n, im->n, w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, im->b - b_lq, sn) < 0) \
+		return -1; \
+	image_me->b = b_lq; \
+} while (0)
+
+			DOWNSHIFT_IM(y_image, width, height, y_bpp, bpp_2_lq, 0);
+			if (downscale_uv) {
+				DOWNSHIFT_IM(ds_u_image, ds_width, ds_height, u_bpp, bpp_lq, 1);
+				DOWNSHIFT_IM(ds_v_image, ds_width, ds_height, v_bpp, bpp_lq, 1);
+			} else {
+				DOWNSHIFT_IM(u_image, width, height, u_bpp, bpp_lq, 1);
+				DOWNSHIFT_IM(v_image, width, height, v_bpp, bpp_lq, 1);
 			}
+
+		}
 
 #define MAFD_IMAGE(m, n, w, h, b) do { \
 	calc_mafd_image(im->m, me->mafd_shift, im->n + LEFTMARGIN, w, h, h + LEFTMARGIN + RIGHTMARGIN, me->block_size, me->block_size_log2, im->b); \
 } while (0)
 
-			if (me->select) {
-				if (me->downscale) {
-					MAFD_IMAGE(mafd_ds_image, ds_ds_y_image, ds_ds_width, ds_ds_height, y_bpp);
-				} else {
-					MAFD_IMAGE(mafd_image, ds_y_image, ds_width, ds_height, y_bpp);
-				}
+		if (me->enabled != 0 && me->select) {
+			if (me->downscale) {
+				MAFD_IMAGE(mafd_ds_image, ds_ds_y_image, ds_ds_width, ds_ds_height, y_bpp);
+			} else {
+				MAFD_IMAGE(mafd_image, ds_y_image, ds_width, ds_height, y_bpp);
 			}
 		}
 	}

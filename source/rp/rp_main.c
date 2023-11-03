@@ -141,7 +141,8 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 	}
 
 #define RP_ENCODE_PLANE_AND_SEND_0(stats, comp, code) do { \
-	ctx->jls_send_ctx->huff_stats = ctx->huff_stats ? &ctx->huff_stats->stats : 0; \
+	int split_stats_index = RP_MIN(RP_HUFF_BUFFER_COUNT - 1, ctx->even_odd == RP_SCREEN_FRAME_EVEN ? 0 : 1); \
+	ctx->jls_send_ctx->huff_stats = ctx->huff_stats ? &ctx->huff_stats->split_stats[split_stats_index].stats : 0; \
 	rpUpdateSendHeader(send_header, RP_PLANE_TYPE_COLOR, comp); \
 	ret = code; \
 	if (ret < 0) { return ret; } size += ret; \
@@ -239,7 +240,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		int multicore_screen = RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode &&
 			(rp_ctx->conf.multicore_screen || thread_n == RP_SECOND_ENCODE_THREAD_ID);
 		if (multicore_screen) {
-			screen = rp_screen_encode_acquire(&screen_syn->encode, RP_THREAD_LOOP_MED_WAIT);
+			screen = rp_screen_encode_acquire(&screen_syn->encode, RP_THREAD_LOOP_MED_WAIT, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !rp_ctx->conf.encode_thread_split_image);
 			if (!screen) {
 				if (++acquire_count > RP_THREAD_LOOP_WAIT_COUNT) {
 					nsDbgPrint("rp_screen_encode_acquire timeout\n");
@@ -293,11 +294,15 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_image_t *image_curr = screen->image;
 		struct rp_const_image_t *image_prev = screen->image_prev;
 		struct rp_screen_ctx_t c = screen->c;
-		if (multicore_screen) {
-			if (rp_screen_transfer_release(&screen_syn->transfer, screen) != 0) {
+		int multicore_screen_transfer = RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode && !rp_ctx->conf.encode_thread_split_image;
+		struct rp_screen_encode_t *screen_to_release = NULL;
+		if (multicore_screen && !rp_ctx->conf.low_latency) {
+			if (rp_screen_transfer_release(&screen_syn->transfer, screen, multicore_screen_transfer) != 0) {
 				nsDbgPrint("rpEncodeScreenAndSend screen release syn failed\n");
 				break;
 			}
+		} else {
+			screen_to_release = screen;
 		}
 		screen = 0;
 
@@ -320,7 +325,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		image_curr = 0;
 
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
-		struct rp_const_image_data_t *im = c.p_frame || !encoder_jls ? rp_const_image_data(image_me) : &image->d;
+		struct rp_const_image_data_t *im = c.p_frame || !encoder_jls || !RP_ENCODE_STATIC_LQ ? rp_const_image_data(image_me) : &image->d;
 
 		struct rp_send_data_header send_header = {
 			.type_data = RP_SEND_HEADER_TYPE_DATA,
@@ -371,6 +376,13 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 				rpImageWriteUnlock(image);
 			}
 		}
+
+		if (multicore_screen && rp_ctx->conf.low_latency) {
+			if (rp_screen_transfer_release(&screen_syn->transfer, screen_to_release, multicore_screen_transfer) != 0) {
+				nsDbgPrint("rpEncodeScreenAndSend screen release syn failed\n");
+				break;
+			}
+		}
 	};
 
 end:
@@ -406,9 +418,11 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 		}
 	} else if (RP_ENCODER_HUFF_ENABLE && rp_ctx->conf.encoder_which == RP_ENCODER_HUFF_JLS) {
 		if (rp_ctx->conf.encode_thread_split_image) {
-			if ((ret = huff_stats_init(&rp_ctx->huff_stats, rp_ctx->conf.downscale_uv))) {
-				nsDbgPrint("huff_stats_init error: %d\n", ret);
-				return ret;
+			for (int i = 0; i < RP_HUFF_BUFFER_COUNT; ++i) {
+				if ((ret = huff_stats_init(&rp_ctx->huff_stats.split_stats[i], rp_ctx->conf.downscale_uv))) {
+					nsDbgPrint("huff_stats_init error: %d\n", ret);
+					return ret;
+				}
 			}
 		} else {
 			for (int i = 0; i < RP_ENCODE_THREAD_COUNT; ++i) {

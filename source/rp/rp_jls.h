@@ -130,21 +130,21 @@ struct rp_image_buffer_stats_t {
 	rp_sem_t sem[RP_SCREEN_SPLIT_COUNT];
 	u8 sem_count;
 };
-
-union rp_image_stats_t {
-	struct {
-		struct rp_image_buffer_stats_t y_stats;
-		union {
-			struct rp_image_buffer_stats_t uv_stats;
-			struct {
-				struct rp_image_buffer_stats_t u_stats;
-				struct rp_image_buffer_stats_t v_stats;
-			};
+struct rp_image_buffer_split_stats_t {
+	struct rp_image_buffer_stats_t y_stats;
+	union {
+		struct rp_image_buffer_stats_t uv_stats;
+		struct {
+			struct rp_image_buffer_stats_t u_stats;
+			struct rp_image_buffer_stats_t v_stats;
 		};
 	};
+};
+union rp_image_stats_t {
+	struct rp_image_buffer_split_stats_t split_stats[RP_HUFF_BUFFER_COUNT];
 	struct rp_image_buffer_stats_t stats[RP_ENCODE_THREAD_COUNT];
 };
 
-int huff_stats_init(union rp_image_stats_t *stats, int downscale_uv);
+int huff_stats_init(struct rp_image_buffer_split_stats_t *stats, int downscale_uv);
 
 #endif
