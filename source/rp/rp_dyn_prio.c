@@ -9,7 +9,6 @@ int rpInitPriorityCtx(struct rp_dyn_prio_t* dyn_prio, u8 screen_priority[SCREEN_
 
 	for (int i = 0; i < SCREEN_COUNT; ++i) {
 		dyn_prio->s[i].initializing = RP_DYN_PRIO_FRAME_COUNT;
-
 		dyn_prio->s[i].priority = screen_priority[i];
 	}
 
@@ -33,7 +32,7 @@ int rpGetPriorityScreen(struct rp_dyn_prio_t* ctx, int *frame_rate) {
 	ctx->s[c1].te -=ctx->s[c0].te; \
 	ctx->s[c0].te = ctx->s[c0].ta; \
 } while (0)
-#define SET_WITH_FRAME_SIZE(si, c0, c1) SET_WITH_SIZE(si, c0, c1, frame_size_est, frame_size_acc)
+#define SET_WITH_FRAME_SIZE(si, c0, c1) SET_WITH_SIZE(si, c1, c0, frame_size_est, frame_size_acc)
 #define SET_WITH_PRIORITY_SIZE(si, c0, c1) SET_WITH_SIZE(si, c0, c1, priority_size_est, priority_size_acc)
 
 #define SET_WITH_SIZE_0(si, c0, c1, te, ta) do { \
@@ -41,7 +40,7 @@ int rpGetPriorityScreen(struct rp_dyn_prio_t* ctx, int *frame_rate) {
 	ctx->s[c1].te = 0; \
 	ctx->s[c0].te = ctx->s[c0].ta; \
 } while (0)
-#define SET_WITH_FRAME_SIZE_0(si, c0, c1) SET_WITH_SIZE_0(si, c0, c1, frame_size_est, frame_size_acc)
+#define SET_WITH_FRAME_SIZE_0(si, c0, c1) SET_WITH_SIZE_0(si, c1, c0, frame_size_est, frame_size_acc)
 
 #define SET_SIZE(_, c0, c1, te, ta) do { \
 	if (ctx->s[c0].te <= ctx->s[c1].te) { \
@@ -51,11 +50,13 @@ int rpGetPriorityScreen(struct rp_dyn_prio_t* ctx, int *frame_rate) {
 	} \
 	ctx->s[c0].te = ctx->s[c0].ta; \
 } while (0)
-#define SET_FRAME_SIZE(si, c0, c1) SET_SIZE(si, c0, c1, frame_size_est, frame_size_acc)
+#define SET_FRAME_SIZE(si, c0, c1) SET_SIZE(si, c1, c0, frame_size_est, frame_size_acc)
 #define SET_PRIORITY_SIZE(si, c0, c1) SET_SIZE(si, c0, c1, priority_size_est, priority_size_acc)
 
 #define SET_CASE_FRAME_SIZE(s0, s1) do { \
-	if (ctx->s[s0].priority_size_est <= ctx->s[s1].priority) { \
+	int skip_prio = ctx->s[s0].priority < ctx->s[s1].priority; \
+	if (skip_prio || ctx->s[s0].priority_size_est <= ctx->s[s1].priority) { \
+		/* nsDbgPrint("frame_size_est %d %d\n", s0, ctx->s[s0].frame_size_acc); */ \
 		SET_WITH_FRAME_SIZE(s0, s0, s1); \
 		SET_PRIORITY_SIZE(s0, s0, s1); \
 	} else { \
@@ -71,9 +72,13 @@ int rpGetPriorityScreen(struct rp_dyn_prio_t* ctx, int *frame_rate) {
 } while (0)
 
 	if (ctx->dyn &&
-		ctx->s[SCREEN_TOP].frame_rate + ctx->s[SCREEN_BOT].frame_rate >= ctx->frame_rate
+		ctx->s[SCREEN_TOP].frame_rate + ctx->s[SCREEN_BOT].frame_rate >= ctx->frame_rate &&
+		(
+			ctx->s[SCREEN_TOP].frame_rate != 0 && ctx->s[SCREEN_BOT].frame_rate != 0 &&
+			ctx->s[SCREEN_TOP].frame_size_est != 0 && ctx->s[SCREEN_BOT].frame_size_est != 0
+		)
 	) {
-		if (ctx->s[SCREEN_TOP].frame_size_est <= ctx->s[SCREEN_BOT].frame_size_est) {
+		if (ctx->s[SCREEN_TOP].frame_size_est >= ctx->s[SCREEN_BOT].frame_size_est) {
 			SET_CASE_FRAME_SIZE(SCREEN_TOP, SCREEN_BOT);
 		} else {
 			SET_CASE_FRAME_SIZE(SCREEN_BOT, SCREEN_TOP);
@@ -132,9 +137,11 @@ void rpSetPriorityScreen(struct rp_dyn_prio_t* ctx, int top_bot, u32 size) {
 
 	if (ctx->dyn) {
 		sctx->frame_size_chn += av_ceil_log2(size);
+		// sctx->frame_size_chn += size;
 
 		if (frame_next) {
 			SET_SIZE(frame_size, frame_size_acc, frame_size_chn);
+			// nsDbgPrint("frame_size_acc %d %d\n", top_bot, sctx->frame_size_acc);
 
 			u32 tick = svc_getSystemTick();
 			u32 tick_delta = tick - sctx->tick[sctx->frame_index];

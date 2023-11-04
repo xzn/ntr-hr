@@ -214,7 +214,7 @@ static ALWAYS_INLINE void diff_image_spp_lq_g(s8 *me_x_image, u8 *dst, const u8 
 #define DO_DIFF() do { \
 	u8 cur_shifted; \
 	if (unsigned_signed == 0) { \
-		cur_shifted = RP_CLIP(rshift_to_even(*cur, spp_lq), 1, max_lq); \
+		cur_shifted = RP_MIN(rshift_to_even(*cur, spp_lq), max_lq); \
 		*dst = cur_shifted - (*ref >> spp_lq); \
 		*cur = *ref + (((s8)*dst << spp_lq)); \
 	} else { \
@@ -296,7 +296,7 @@ static ALWAYS_INLINE void diff_image_spp_lq_g(s8 *me_x_image, u8 *dst, const u8 
 
 				if (scene_change) {
 					if (unsigned_signed == 0) {
-						*dst = RP_CLIP(rshift_to_even(*cur, spp_lq), 1, max_lq);
+						*dst = RP_MIN(rshift_to_even(*cur, spp_lq), max_lq);
 						*cur = *dst << spp_lq;
 					} else {
 						*dst = RP_CLIP(srshift_to_even((s8)*cur, spp_lq), -half_max_lq, half_max_lq);
@@ -347,7 +347,7 @@ int downshift_image(u8 *dst, u8 *cur, int width, int height, int pitch UNUSED, i
 
 		for (int j = 0; j < height; ++j) {
 			if (unsigned_signed == 0) {
-				*dst = RP_CLIP(rshift_to_even(*cur, spp_lq), 1, max_lq);
+				*dst = RP_MIN(rshift_to_even(*cur, spp_lq), max_lq);
 				*cur = *dst << spp_lq;
 			} else {
 				*dst = RP_CLIP(srshift_to_even((s8)*cur, spp_lq), -half_max_lq, half_max_lq);
