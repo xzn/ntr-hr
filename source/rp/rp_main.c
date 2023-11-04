@@ -355,7 +355,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 			.jls_send_ctx = &jls_send_ctx,
 			.jls_param = &rp_ctx->jls_param,
 			.jls_ctx = jls_ctx,
-			.huff_stats = rp_ctx->conf.encode_thread_split_image ? &rp_ctx->huff_stats : 0,
+			.huff_stats = RP_HUFF_SHARE_STATS && rp_ctx->conf.encode_thread_split_image ? &rp_ctx->huff_stats : 0,
 			.downscale_uv = rp_ctx->conf.downscale_uv,
 			.encoder_which = rp_ctx->conf.encoder_which,
 			.even_odd = c.even_odd,
@@ -417,7 +417,7 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 			}
 		}
 	} else if (RP_ENCODER_HUFF_ENABLE && rp_ctx->conf.encoder_which == RP_ENCODER_HUFF_JLS) {
-		if (rp_ctx->conf.encode_thread_split_image) {
+		if (RP_HUFF_SHARE_STATS && rp_ctx->conf.encode_thread_split_image) {
 			for (int i = 0; i < RP_HUFF_BUFFER_COUNT; ++i) {
 				if ((ret = huff_stats_init(&rp_ctx->huff_stats.split_stats[i], rp_ctx->conf.downscale_uv))) {
 					nsDbgPrint("huff_stats_init error: %d\n", ret);

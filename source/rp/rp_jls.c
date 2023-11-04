@@ -465,6 +465,8 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 				return -1;
 			}
 
+			send_ctx->send_header->data_stats = 1;
+
 			int ret = huff_encode(send_ctx->huff_med_ws, &s, send_ctx->huff_med_pred_image, rle_size);
 			if (ret) {
 				nsDbgPrint("huff_encode failed: %d\n", ret);
