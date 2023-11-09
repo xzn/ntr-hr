@@ -482,11 +482,12 @@ static ALWAYS_INLINE int convert_yuv_image_yuv_option_g(
 ) {
 	switch (yuv_option) {
 		default:
-		case 0:
-			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 0, color_transform_hp, lq);
+			return -1;
+		// case 0:
+		// 	return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 0, color_transform_hp, lq);
 
-		case 1:
-			return convert_yuv_image_color_transform_hp_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 1, color_transform_hp, lq);
+		// case 1:
+		// 	return convert_yuv_image_color_transform_hp_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 1, color_transform_hp, lq);
 
 		case 2:
 			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 2, color_transform_hp, lq);

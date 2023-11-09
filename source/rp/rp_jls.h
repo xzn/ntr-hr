@@ -38,9 +38,9 @@ enum rp_send_header_type {
 
 struct rp_send_info_header {
 	u32 type_conf : 1;
-	u32 downscale_uv : 1;
-	u32 yuv_option : 2;
-	u32 color_transform_hp : 2;
+	u32 downscale_uv : 2;
+	u32 yuv_option : 1;
+	// u32 color_transform_hp : 2;
 	u32 encoder_which : 3;
 	u32 encode_split_image: 1;
 	u32 me_enabled : 2;

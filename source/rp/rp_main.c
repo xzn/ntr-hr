@@ -187,8 +187,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_send_info_header send_info_header = {
 			.type_conf = RP_SEND_HEADER_TYPE_CONF,
 			.downscale_uv = rp_ctx->conf.downscale_uv,
-			.yuv_option = rp_ctx->conf.yuv_option,
-			.color_transform_hp = rp_ctx->conf.color_transform_hp,
+			.yuv_option = (rp_ctx->conf.yuv_option & 1),
+			// .color_transform_hp = rp_ctx->conf.color_transform_hp,
 			.encoder_which = rp_ctx->conf.encoder_which,
 			.encode_split_image = rp_ctx->conf.encode_thread_split_image,
 			.me_enabled = rp_ctx->conf.me.enabled > 1 ?

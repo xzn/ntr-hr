@@ -18,9 +18,9 @@ union rp_conf_arg0_t {
 union rp_conf_arg1_t {
 	int arg1;
 	struct {
-		u32 yuv_option : 2;
-		u32 color_transform_hp : 2;
-		u32 downscale_uv : 1;
+		u32 yuv_option : 1;
+		// u32 color_transform_hp : 2;
+		u32 downscale_uv : 2;
 		u32 encoder_which : 3;
 		u32 me_block_size : 2;
 		u32 me_method : 3;
@@ -64,8 +64,8 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->kcp.snd_wnd_size = arg1.kcp_snd_wnd_size + RP_KCP_MIN_SNDWNDSIZE;
 	conf->kcp.nodelay = arg2.kcp_nodelay;
 
-	conf->yuv_option = arg1.yuv_option;
-	conf->color_transform_hp = arg1.color_transform_hp;
+	conf->yuv_option = (arg1.yuv_option & 1) | 0x2;
+	conf->color_transform_hp = 0; // arg1.color_transform_hp;
 	conf->downscale_uv = arg1.downscale_uv;
 	conf->encoder_which = arg1.encoder_which;
 	conf->encode_lq = arg0.encode_lq;
@@ -116,12 +116,13 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->min_capture_interval_ticks = conf->max_frame_rate ?
 		(u64)SYSTICK_PER_SEC / (u16)conf->max_frame_rate : 0;
 
-	if (0)
+	if (1)
 		nsDbgPrint(
 			"yuv option: %d\n"
-			"color transform hp: %d\n"
+			// "color transform hp: %d\n"
 			"downscale uv: %d\n"
 			"encoder which: %d\n"
+			"encode lq: %d\n"
 			"me method: %d\n"
 			"me select: %d\n"
 			"me enabled: %d\n"
@@ -139,17 +140,21 @@ int rp_set_params(struct rp_conf_t *conf) {
 			"multicore encode: %d\n"
 			"multicore network: %d\n"
 			"multicore screen: %d\n"
+			"low latency: %d\n"
+			"encode thread split image: %d\n"
 			"dynamic priority: %d\n"
 			"min dp frame rate: %d\n"
 			"max frame rate: %d\n"
 			"target mbit rate: %d\n"
+			"screen encode buffer count: %d\n"
 			"network encode buffer count: %d\n"
 			"min send interval ticks: %d\n"
 			"min capture interval ticks: %d\n",
 			(u32)conf->yuv_option,
-			(u32)conf->color_transform_hp,
+			// (u32)conf->color_transform_hp,
 			(u32)conf->downscale_uv,
 			(u32)conf->encoder_which,
+			(u32)conf->encode_lq,
 			(u32)conf->me.select,
 			(u32)conf->me.method,
 			(u32)conf->me.enabled,
@@ -167,10 +172,13 @@ int rp_set_params(struct rp_conf_t *conf) {
 			(u32)conf->multicore_encode,
 			(u32)conf->multicore_network,
 			(u32)conf->multicore_screen,
+			(u32)conf->low_latency,
+			(u32)conf->encode_thread_split_image,
 			(u32)conf->dynamic_priority,
 			(u32)conf->min_dp_frame_rate,
 			(u32)conf->max_frame_rate,
 			(u32)conf->target_mbit_rate,
+			(u32)conf->encode_screen_buffer_count,
 			(u32)conf->encode_network_buffer_count,
 			(u32)conf->min_send_interval_ticks,
 			(u32)conf->min_capture_interval_ticks
