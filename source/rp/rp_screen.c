@@ -285,7 +285,7 @@ int rpScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_screen_stat
 	return 0;
 }
 
-int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_transform_hp, int lq) {
+int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_transform_hp, u8 lq, u8 static_lq) {
 	struct rp_screen_ctx_t c = screen->c;
 
 	int width, height;
@@ -300,7 +300,7 @@ int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_t
 		screen->buffer,
 		im->y_image, im->u_image, im->v_image,
 		&im->y_bpp, &im->u_bpp, &im->v_bpp,
-		yuv_option, color_transform_hp, lq
+		yuv_option, color_transform_hp, static_lq ? lq : 0
 	);
 }
 
@@ -321,7 +321,7 @@ int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *
 	return ret;
 }
 
-int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, struct rp_const_image_t *image_prev, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore UNUSED, u8 lq) {
+int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, struct rp_const_image_t *image_prev, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore UNUSED, u8 lq, u8 static_lq, u8 unsigned_wrap) {
 	int UNUSED ret;
 
 	image_me->me_bpp = me->bpp;
@@ -378,6 +378,8 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		else
 			bpp_2_lq = bpp_lq;
 	}
+	bpp_2_lq = RP_MIN(bpp_2_lq, im->y_bpp);
+	bpp_lq = RP_MIN(RP_MIN(bpp_lq, im->u_bpp), im->v_bpp);
 
 	if (p_frame) {
 		if (multicore && me->enabled != 0) {
@@ -451,8 +453,8 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			image_me->v_bpp = im->v_bpp;
 		} else {
 
-#define DIFF_IM(n, w, h, s, b, m, b_lq, sn) do { \
-	if (diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, RP_ENCODE_STATIC_LQ ? 0 : im->b - b_lq, sn, \
+#define DIFF_IM(n, w, h, s, b, m, b_lq, sn, uw) do { \
+	if (diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, static_lq ? 0 : im->b - b_lq, sn, uw, \
 		me->select, me->select_threshold, \
 		m ? me->downscale ? im->mafd_ds_image : im->mafd_image : 0, \
 		m ? me->downscale ? im_prev->mafd_ds_image : im_prev->mafd_image : 0, me->mafd_shift, \
@@ -461,17 +463,17 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		return -1; \
 } while (0)
 
-			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1, bpp_2_lq, 0);
+			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1, bpp_2_lq, 0, unsigned_wrap);
 
 			if (downscale_uv) {
-				DIFF_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp, 0, bpp_lq, 1);
-				DIFF_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp, 0, bpp_lq, 1);
+				DIFF_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp, 0, bpp_lq, 1, unsigned_wrap);
+				DIFF_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp, 0, bpp_lq, 1, unsigned_wrap);
 			} else {
-				DIFF_IM(u_image, width, height, scale_log2, u_bpp, 0, bpp_lq, 1);
-				DIFF_IM(v_image, width, height, scale_log2, v_bpp, 0, bpp_lq, 1);
+				DIFF_IM(u_image, width, height, scale_log2, u_bpp, 0, bpp_lq, 1, unsigned_wrap);
+				DIFF_IM(v_image, width, height, scale_log2, v_bpp, 0, bpp_lq, 1, unsigned_wrap);
 			}
 
-			if (RP_ENCODE_STATIC_LQ) {
+			if (static_lq) {
 				image_me->y_bpp = im->y_bpp;
 				image_me->u_bpp = im->u_bpp;
 				image_me->v_bpp = im->v_bpp;
@@ -492,21 +494,21 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			rpImageReadSkip(image_prev);
 		}
 
-		if (!RP_ENCODE_STATIC_LQ) {
+		if (!static_lq && lq) {
 
-#define DOWNSHIFT_IM(n, w, h, b, b_lq, sn) do { \
-	if (downshift_image(image_me->n, im->n, w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, im->b - b_lq, sn) < 0) \
+#define DOWNSHIFT_IM(n, w, h, b, b_lq, sn, uw) do { \
+	if (downshift_image(image_me->n, im->n, w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, im->b - b_lq, sn, uw) < 0) \
 		return -1; \
 	image_me->b = b_lq; \
 } while (0)
 
-			DOWNSHIFT_IM(y_image, width, height, y_bpp, bpp_2_lq, 0);
+			DOWNSHIFT_IM(y_image, width, height, y_bpp, bpp_2_lq, 0, unsigned_wrap);
 			if (downscale_uv) {
-				DOWNSHIFT_IM(ds_u_image, ds_width, ds_height, u_bpp, bpp_lq, 1);
-				DOWNSHIFT_IM(ds_v_image, ds_width, ds_height, v_bpp, bpp_lq, 1);
+				DOWNSHIFT_IM(ds_u_image, ds_width, ds_height, u_bpp, bpp_lq, 1, unsigned_wrap);
+				DOWNSHIFT_IM(ds_v_image, ds_width, ds_height, v_bpp, bpp_lq, 1, unsigned_wrap);
 			} else {
-				DOWNSHIFT_IM(u_image, width, height, u_bpp, bpp_lq, 1);
-				DOWNSHIFT_IM(v_image, width, height, v_bpp, bpp_lq, 1);
+				DOWNSHIFT_IM(u_image, width, height, u_bpp, bpp_lq, 1, unsigned_wrap);
+				DOWNSHIFT_IM(v_image, width, height, v_bpp, bpp_lq, 1, unsigned_wrap);
 			}
 
 		}

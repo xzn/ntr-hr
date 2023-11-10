@@ -6,6 +6,7 @@ union rp_conf_arg0_t {
 		u32 kcp_nocwnd : 1;
 		u32 kcp_fastresend : 2;
 		u32 me_select : RP_IMAGE_ME_SELECT_BITS;
+		u32 me_downscale : 1;
 		u32 me_interpolate : 1;
 		u32 multicore_network : 1;
 		u32 multicore_screen : 1;
@@ -18,14 +19,13 @@ union rp_conf_arg0_t {
 union rp_conf_arg1_t {
 	int arg1;
 	struct {
-		u32 yuv_option : 1;
-		// u32 color_transform_hp : 2;
+		u32 yuv_option : 2;
+		u32 color_transform_hp : 2;
 		u32 downscale_uv : 2;
 		u32 encoder_which : 3;
 		u32 me_block_size : 2;
 		u32 me_method : 3;
 		u32 me_search_param : 5;
-		u32 me_downscale : 1;
 		u32 kcp_minrto : 7;
 		u32 kcp_snd_wnd_size : RP_KCP_SNDWNDSIZE_BITS;
 	};
@@ -64,11 +64,12 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->kcp.snd_wnd_size = arg1.kcp_snd_wnd_size + RP_KCP_MIN_SNDWNDSIZE;
 	conf->kcp.nodelay = arg2.kcp_nodelay;
 
-	conf->yuv_option = (arg1.yuv_option & 1) | 0x2;
-	conf->color_transform_hp = 0; // arg1.color_transform_hp;
+	conf->yuv_option = arg1.yuv_option;
+	conf->color_transform_hp = arg1.color_transform_hp;
 	conf->downscale_uv = arg1.downscale_uv;
 	conf->encoder_which = arg1.encoder_which;
 	conf->encode_lq = arg0.encode_lq;
+	conf->encode_static_lq = RP_ENCODE_STATIC_LQ || (conf->yuv_option == 1 && conf->color_transform_hp > 0);
 	conf->jpeg_quality = arg0.jpeg_quality;
 	conf->zstd_comp_level = (int)arg0.zstd_comp_level - RP_ZSTD_COMP_LEVEL_HALF_RANGE;
 	if (conf->zstd_comp_level >= 0)
@@ -86,7 +87,7 @@ int rp_set_params(struct rp_conf_t *conf) {
 	conf->me.mafd_shift = RP_MAX(0, (int)conf->me.block_size_log2 * 2 - 8);
 	conf->me.select_threshold =
 		(u32)conf->me.block_size * (u32)conf->me.block_size * (u32)conf->me.select;
-	conf->me.downscale = arg1.me_downscale;
+	conf->me.downscale = arg0.me_downscale;
 #if RP_ME_INTERPOLATE
 	conf->me.interpolate = arg0.me_interpolate;
 #else
@@ -119,10 +120,11 @@ int rp_set_params(struct rp_conf_t *conf) {
 	if (1)
 		nsDbgPrint(
 			"yuv option: %d\n"
-			// "color transform hp: %d\n"
+			"color transform hp: %d\n"
 			"downscale uv: %d\n"
 			"encoder which: %d\n"
 			"encode lq: %d\n"
+			"encode static lq: %d\n"
 			"me method: %d\n"
 			"me select: %d\n"
 			"me enabled: %d\n"
@@ -151,10 +153,11 @@ int rp_set_params(struct rp_conf_t *conf) {
 			"min send interval ticks: %d\n"
 			"min capture interval ticks: %d\n",
 			(u32)conf->yuv_option,
-			// (u32)conf->color_transform_hp,
+			(u32)conf->color_transform_hp,
 			(u32)conf->downscale_uv,
 			(u32)conf->encoder_which,
 			(u32)conf->encode_lq,
+			(u32)conf->encode_static_lq,
 			(u32)conf->me.select,
 			(u32)conf->me.method,
 			(u32)conf->me.enabled,

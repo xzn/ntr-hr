@@ -187,8 +187,8 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		struct rp_send_info_header send_info_header = {
 			.type_conf = RP_SEND_HEADER_TYPE_CONF,
 			.downscale_uv = rp_ctx->conf.downscale_uv,
-			.yuv_option = (rp_ctx->conf.yuv_option & 1),
-			// .color_transform_hp = rp_ctx->conf.color_transform_hp,
+			.yuv_option = rp_ctx->conf.yuv_option,
+			.color_transform_hp = rp_ctx->conf.color_transform_hp,
 			.encoder_which = rp_ctx->conf.encoder_which,
 			.encode_split_image = rp_ctx->conf.encode_thread_split_image,
 			.me_enabled = rp_ctx->conf.me.enabled > 1 ?
@@ -269,7 +269,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		int encoder_jls = rp_ctx->conf.encoder_which < RP_ENCODER_JLS_COUNT;
 
 		if (RP_FILTER_YUV_ENABLE && encoder_jls) {
-			ret = rpEncodeImage(screen, rp_ctx->conf.yuv_option, rp_ctx->conf.color_transform_hp, rp_ctx->conf.encode_lq);
+			ret = rpEncodeImage(screen, rp_ctx->conf.yuv_option, rp_ctx->conf.color_transform_hp, rp_ctx->conf.encode_lq, rp_ctx->conf.encode_static_lq);
 			if (ret < 0) {
 				nsDbgPrint("rpEncodeImage failed\n");
 				break;
@@ -307,7 +307,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		screen = 0;
 
 		if (encoder_jls) {
-			ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, rp_ctx->conf.encode_lq);
+			ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, rp_ctx->conf.encode_lq, rp_ctx->conf.encode_static_lq, !(rp_ctx->conf.yuv_option & 0x2));
 			if (ret < 0) {
 				nsDbgPrint("rpDownscaleMEImage failed\n");
 				break;
@@ -325,7 +325,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		image_curr = 0;
 
 		struct rp_jls_ctx_t *jls_ctx = &rp_ctx->jls_ctx[thread_n];
-		struct rp_const_image_data_t *im = c.p_frame || !encoder_jls || !RP_ENCODE_STATIC_LQ ? rp_const_image_data(image_me) : &image->d;
+		struct rp_const_image_data_t *im = c.p_frame || !encoder_jls || (!rp_ctx->conf.encode_static_lq && rp_ctx->conf.encode_lq) ? rp_const_image_data(image_me) : &image->d;
 
 		struct rp_send_data_header send_header = {
 			.type_data = RP_SEND_HEADER_TYPE_DATA,

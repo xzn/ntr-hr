@@ -482,12 +482,11 @@ static ALWAYS_INLINE int convert_yuv_image_yuv_option_g(
 ) {
 	switch (yuv_option) {
 		default:
-			return -1;
-		// case 0:
-		// 	return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 0, color_transform_hp, lq);
+		case 0:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 0, color_transform_hp, lq);
 
-		// case 1:
-		// 	return convert_yuv_image_color_transform_hp_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 1, color_transform_hp, lq);
+		case 1:
+			return convert_yuv_image_color_transform_hp_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 1, color_transform_hp, lq);
 
 		case 2:
 			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 2, color_transform_hp, lq);
@@ -551,7 +550,7 @@ int convert_yuv_image(
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
 ) {
-	return convert_yuv_image_format_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, RP_ENCODE_STATIC_LQ ? lq : 0);
+	return convert_yuv_image_format_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
 }
 
 void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
