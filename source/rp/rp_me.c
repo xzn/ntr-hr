@@ -1,7 +1,7 @@
 #include "rp_me.h"
 #include "rp_color_aux.h"
 
-static u32 sad_const(const u8 *src, int stride, int width, int height, u8 bpp) {
+UNUSED static u32 sad_const(const u8 *src, int stride, int width, int height, u8 bpp) {
 	u32 sad = 0;
 	int x, y;
 
@@ -13,7 +13,7 @@ static u32 sad_const(const u8 *src, int stride, int width, int height, u8 bpp) {
 	return sad;
 }
 
-void calc_mafd_image(u16 *mafd, u8 mafd_shift, const u8 *cur, int width, int height, int pitch, u8 block_size, u8 block_size_log2, u8 bpp) {
+void calc_mafd_image(u16 *mafd, u8 mafd_shift UNUSED, const u8 *cur UNUSED, int width, int height, int pitch UNUSED, u8 block_size, u8 block_size_log2, u8 bpp UNUSED) {
 	u8 block_size_mask = (1 << block_size_log2) - 1;
 	u8 block_x_n = width >> block_size_log2;
 	u8 block_y_n = height >> block_size_log2;
@@ -22,8 +22,12 @@ void calc_mafd_image(u16 *mafd, u8 mafd_shift, const u8 *cur, int width, int hei
 
 	for (int block_x = 0, x = x_off; block_x < block_x_n; ++block_x, x += block_size) {
 		for (int block_y = 0, y = y_off; block_y < block_y_n; ++block_y, y += block_size) {
+#if 0
 			u16 sad = sad_const(cur + x * pitch + y, pitch, block_size, block_size, bpp) >> mafd_shift;
 			*mafd++ = sad;
+#else
+			*mafd++ = 0;
+#endif
 		}
 	}
 }
