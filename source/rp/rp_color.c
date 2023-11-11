@@ -759,10 +759,10 @@ int downscale_x_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, in
 	switch (dsx) {
 		default:
 			return -1;
-		
+
 		case 2:
 			return downscale_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
-		
+
 		case 3:
 			return downscale_3_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
 

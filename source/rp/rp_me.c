@@ -232,7 +232,7 @@ int downshift_image(u8 *dst, u8 *cur, int width, int height, int pitch UNUSED, i
 
 static ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
 	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
-	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2 UNUSED
+	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
 ) {
 	convert_set_zero(&dst);
 	ref += LEFTMARGIN;
@@ -282,6 +282,7 @@ static ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8
 #endif
 
 	if (select) {
+		block_size = 1 << block_size_log2;
 		block_size <<= scale_log2;
 		block_size /= dsx;
 		// block_size_log2 += scale_log2;
@@ -393,16 +394,79 @@ static ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8
 	return 0;
 }
 
+static int diff_image_block_size_log2_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
+	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
+) {
+	switch (block_size_log2) {
+		default:
+			return -1;
+
+		case RP_ME_MIN_BLOCK_SIZE_LOG2:
+			return diff_image_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, RP_ME_MIN_BLOCK_SIZE_LOG2);
+
+		case RP_ME_MIN_BLOCK_SIZE_LOG2 + 1:
+			return diff_image_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, RP_ME_MIN_BLOCK_SIZE_LOG2 + 1);
+
+		case RP_ME_MIN_BLOCK_SIZE_LOG2 + 2:
+			return diff_image_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, RP_ME_MIN_BLOCK_SIZE_LOG2 + 2);
+
+		case RP_ME_MIN_BLOCK_SIZE_LOG2 + 3:
+			return diff_image_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, RP_ME_MIN_BLOCK_SIZE_LOG2 + 3);
+	}
+}
+
+static int diff_image_scale_log2_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
+	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
+) {
+	switch (scale_log2) {
+		default:
+			return -1;
+
+		case 0:
+			return diff_image_block_size_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, 0, dsx, block_size, block_size_log2);
+
+		case 1:
+			return diff_image_block_size_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, 1, dsx, block_size, block_size_log2);
+
+		case 2:
+			return diff_image_block_size_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, 2, dsx, block_size, block_size_log2);
+	}
+}
+
+static int diff_image_dsx_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
+	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
+) {
+	switch (dsx) {
+		default:
+			return -1;
+
+		case 1:
+			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 1, block_size, block_size_log2);
+
+		case 2:
+			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 2, block_size, block_size_log2);
+
+		case 3:
+			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 3, block_size, block_size_log2);
+
+		case 4:
+			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 4, block_size, block_size_log2);
+	}
+}
+
 static int diff_image_unsigned_signed_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
 	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
 ) {
 	if (unsigned_wrap) {
-		return diff_image_g(me_x_image, dst, ref, cur, spp_lq, 0, 1, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
+		return diff_image_dsx_g(me_x_image, dst, ref, cur, spp_lq, 0, 1, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
 	} else if (unsigned_signed == 0) {
-		return diff_image_g(me_x_image, dst, ref, cur, spp_lq, 0, 0, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
+		return diff_image_dsx_g(me_x_image, dst, ref, cur, spp_lq, 0, 0, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
 	} else {
-		return diff_image_g(me_x_image, dst, ref, cur, spp_lq, 1, 0, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
+		return diff_image_dsx_g(me_x_image, dst, ref, cur, spp_lq, 1, 0, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
 	}
 }
 
