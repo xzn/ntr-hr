@@ -80,34 +80,8 @@ void convert_yuv_hp_2(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, 
 
 static ALWAYS_INLINE
 void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
-	u8 bpp, u8 bpp_2, int yuv_option, int color_transform_hp, int lq
+	u8 bpp, u8 bpp_2, u8 spp_lq, u8 spp_2_lq, u8 bpp_lq, u8 bpp_2_lq, u8 bias, u8 bias_2, int yuv_option, int color_transform_hp, int lq
 ) {
-	bpp_2 = bpp_2 ? bpp + 1 : bpp;
-
-	u8 spp_lq = 0;
-	u8 spp_2_lq = 0;
-
-	u8 bpp_lq = 8;
-	u8 bpp_2_lq = 8;
-
-	// LQ1: RGB565
-	// LQ2: RGB454
-	// LQ3: RGB444
-	if (lq) {
-		if (lq == 1)
-			bpp_lq = 5;
-		else
-			bpp_lq = 4;
-
-		if (lq == 1 || lq == 2)
-			bpp_2_lq = bpp_lq + 1;
-		else
-			bpp_2_lq = bpp_lq;
-
-		spp_lq = bpp - bpp_lq;
-		spp_2_lq = bpp_2 - bpp_2_lq;
-	}
-
 	if (yuv_option == 2 || yuv_option == 3) {
 		u8 spp = 8 - bpp;
 		u8 spp_2 = 8 - bpp_2;
@@ -140,18 +114,7 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 				y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
 				u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 				v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
-			} else if (lq == 1) {
-				y = 19 * (u16)r + 38 * (u16)g + 7 * (u16)b;
-				u = -5 * (s16)r + -10 * (s16)g + 15 * (s16)b;
-				v = 15 * (s16)r + -13 * (s16)g + -2 * (s16)b;
 			} else {
-				if (lq == 2) {
-					y = 9 * (u16)r + 19 * (u16)g + 4 * (u16)b;
-				} else {
-					y = 5 * (u16)r + 9 * (u16)g + 2 * (u16)b;
-				}
-				u = -2 * (s16)r + -5 * (s16)g + 7 * (s16)b;
-				v = 7 * (s16)r + -6 * (s16)g + -1 * (s16)b;
 			}
 			break;
 		}
@@ -161,18 +124,7 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 				y = 66 * (u16)r + 129 * (u16)g + 25 * (u16)b;
 				u = -38 * (s16)r + -74 * (s16)g + 112 * (s16)b;
 				v = 112 * (s16)r + -94 * (s16)g + -18 * (s16)b;
-			} else if (lq == 1) {
-				y = 17 * (u16)r + 32 * (u16)g + 6 * (u16)b;
-				u = -5 * (s16)r + -9 * (s16)g + 14 * (s16)b;
-				v = 14 * (s16)r + -12 * (s16)g + -2 * (s16)b;
 			} else {
-				if (lq == 2) {
-					y = 8 * (u16)r + 16 * (u16)g + 3 * (u16)b;
-				} else {
-					y = 4 * (u16)r + 8 * (u16)g + 1 * (u16)b;
-				}
-				u = -2 * (s16)r + -5 * (s16)g + 7 * (s16)b;
-				v = 7 * (s16)r + -6 * (s16)g + -1 * (s16)b;
 			}
 			break;
 		}
@@ -185,9 +137,9 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 	};
 
 	if (yuv_option == 2 || yuv_option == 3) {
-		*y_out = rshift_to_even(y, bpp_2_lq) >> (8 - bpp_2_lq);
-		*u_out = srshift(srshift_to_even(u, bpp_lq), 8 - bpp_lq);
-		*v_out = srshift(srshift_to_even(v, bpp_lq), 8 - bpp_lq);
+		*y_out = ((y + bias_2) >> bpp_2_lq) >> (8 - bpp_2_lq);
+		*u_out = srshift((u + bias) >> bpp_lq, 8 - bpp_lq);
+		*v_out = srshift((v + bias) >> bpp_lq, 8 - bpp_lq);
 	}
 }
 
@@ -313,6 +265,11 @@ static ALWAYS_INLINE int convert_yuv_image_g(
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
 ) {
+	if (yuv_option == 2 || yuv_option == 3) {
+		if (lq)
+			return -1;
+	}
+
 	int bytes_per_pixel;
 	if (format == 0) {
 		bytes_per_pixel = 4;
@@ -328,6 +285,55 @@ static ALWAYS_INLINE int convert_yuv_image_g(
 	ASSUME_ALIGN_4(dp_y_out);
 	ASSUME_ALIGN_4(dp_u_out);
 	ASSUME_ALIGN_4(dp_v_out);
+
+	u8 bpp, bpp_2;
+
+	switch (format) {
+		case 0:
+		case 1:
+			bpp = bpp_2 = 8; break;
+
+		case 2:
+			bpp = 5; bpp_2 = 6; break;
+
+		case 3:
+			bpp = 5; bpp_2 = 5; break;
+
+		case 4:
+			bpp = 4; bpp_2 = 4; break;
+
+		default:
+			return -1;
+	}
+
+	u8 spp_lq = 0;
+	u8 spp_2_lq = 0;
+
+	u8 bpp_lq = 8;
+	u8 bpp_2_lq = 8;
+
+	// LQ1: RGB565
+	// LQ2: RGB454
+	// LQ3: RGB444
+	if (lq) {
+		if (lq == 1)
+			bpp_lq = 5;
+		else
+			bpp_lq = 4;
+
+		if (lq == 1 || lq == 2)
+			bpp_2_lq = bpp_lq + 1;
+		else
+			bpp_2_lq = bpp_lq;
+
+		spp_lq = bpp - bpp_lq;
+		spp_2_lq = bpp_2 - bpp_2_lq;
+	}
+
+	u8 bias_col = (1 << (bpp_lq - 1)) - 1;
+	u8 bias_xor = (1 << bpp_lq) - 1;
+	u8 bias_2_col = (1 << (bpp_2_lq - 1)) - 1;
+	u8 bias_2_xor = (1 << bpp_2_lq) - 1;
 
 	convert_set_3_zero(&dp_y_out, &dp_u_out, &dp_v_out);
 	int x, y;
@@ -358,14 +364,20 @@ static ALWAYS_INLINE int convert_yuv_image_g(
 			for (x = 0; x < width; ++x) {
 				if (x > 0)
 					convert_set_3_prev_first(&dp_y_out, &dp_u_out, &dp_v_out, height);
+				u8 bias = bias_col;
+				u8 bias_2 = bias_2_col;
 				for (y = 0; y < height; ++y) {
 					convert_yuv(sp[2], sp[1], sp[0], dp_y_out++, dp_u_out++, dp_v_out++,
-						8, 0,
+						bpp, bpp_2, spp_lq, spp_2_lq, bpp_lq, bpp_2_lq, bias, bias_2,
 						yuv_option, color_transform_hp, lq
 					);
 					sp += bytes_per_pixel;
+					bias ^= bias_xor;
+					bias_2 ^= bias_2_xor;
 				}
 				sp += bytes_to_next_column;
+				bias_col ^= bias_xor;
+				bias_2_col ^= bias_2_xor;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
 			if (hq) {
@@ -378,17 +390,23 @@ static ALWAYS_INLINE int convert_yuv_image_g(
 			for (x = 0; x < width; x++) {
 				if (x > 0)
 					convert_set_3_prev_first(&dp_y_out, &dp_u_out, &dp_v_out, height);
+				u8 bias = bias_col;
+				u8 bias_2 = bias_2_col;
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
 						(pix >> 11) & 0x1f, (pix >> 5) & 0x3f, pix & 0x1f,
 						dp_y_out++, dp_u_out++, dp_v_out++,
-						5, 1,
+						bpp, bpp_2, spp_lq, spp_2_lq, bpp_lq, bpp_2_lq, bias, bias_2,
 						yuv_option, color_transform_hp, lq
 					);
 					sp += bytes_per_pixel;
+					bias ^= bias_xor;
+					bias_2 ^= bias_2_xor;
 				}
 				sp += bytes_to_next_column;
+				bias_col ^= bias_xor;
+				bias_2_col ^= bias_2_xor;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
 			if (hq) {
@@ -408,17 +426,23 @@ static ALWAYS_INLINE int convert_yuv_image_g(
 			for (x = 0; x < width; x++) {
 				if (x > 0)
 					convert_set_3_prev_first(&dp_y_out, &dp_u_out, &dp_v_out, height);
+				u8 bias = bias_col;
+				u8 bias_2 = bias_2_col;
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
 						(pix >> 11) & 0x1f, (pix >> 6) & 0x1f, (pix >> 1) & 0x1f,
 						dp_y_out++, dp_u_out++, dp_v_out++,
-						5, 0,
+						bpp, bpp_2, spp_lq, spp_2_lq, bpp_lq, bpp_2_lq, bias, bias_2,
 						yuv_option, color_transform_hp, 0
 					);
 					sp += bytes_per_pixel;
+					bias ^= bias_xor;
+					bias_2 ^= bias_2_xor;
 				}
 				sp += bytes_to_next_column;
+				bias_col ^= bias_xor;
+				bias_2_col ^= bias_2_xor;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
 			*y_bpp = *u_bpp = *v_bpp = 5;
@@ -431,17 +455,23 @@ static ALWAYS_INLINE int convert_yuv_image_g(
 			for (x = 0; x < width; x++) {
 				if (x > 0)
 					convert_set_3_prev_first(&dp_y_out, &dp_u_out, &dp_v_out, height);
+				u8 bias = bias_col;
+				u8 bias_2 = bias_2_col;
 				for (y = 0; y < height; y++) {
 					u16 pix = *(u16*)sp;
 					convert_yuv(
 						(pix >> 12) & 0x0f, (pix >> 8) & 0x0f, (pix >> 4) & 0x0f,
 						dp_y_out++, dp_u_out++, dp_v_out++,
-						4, 0,
+						bpp, bpp_2, spp_lq, spp_2_lq, bpp_lq, bpp_2_lq, bias, bias_2,
                         yuv_option, color_transform_hp, 0
 					);
 					sp += bytes_per_pixel;
+					bias ^= bias_xor;
+					bias_2 ^= bias_2_xor;
 				}
 				sp += bytes_to_next_column;
+				bias_col ^= bias_xor;
+				bias_2_col ^= bias_2_xor;
 				convert_set_3_last(&dp_y_out, &dp_u_out, &dp_v_out);
 			}
 			*y_bpp = *u_bpp = *v_bpp = 4;
@@ -563,6 +593,7 @@ static int downscale_image_g(u8 *restrict ds_dst, const u8 *restrict src, int wO
 	src += LEFTMARGIN;
 	const u8 *src_col0 = src;
 	const u8 *src_col1 = src + pitch;
+	u8 bias_col = 1;
 	while (src_col0 < src_end) {
 		if (src_col0 == src) {
 			convert_set_zero(&ds_dst);
@@ -570,6 +601,7 @@ static int downscale_image_g(u8 *restrict ds_dst, const u8 *restrict src, int wO
 			convert_set_prev_first(&ds_dst, DS_DIM(hOrig, 1));
 		}
 		const u8 *src_col0_end = src_col0 + hOrig;
+		u8 bias = bias_col;
 		while (src_col0 < src_col0_end) {
 			if (unsigned_signed == 0) {
 				u16 p = *src_col0++;
@@ -577,16 +609,23 @@ static int downscale_image_g(u8 *restrict ds_dst, const u8 *restrict src, int wO
 				p += *src_col1++;
 				p += *src_col1++;
 
-				*ds_dst++ = rshift_to_even(p, 2);
+				// *ds_dst++ = rshift_to_even(p, 2);
+				p += bias;
+				*ds_dst++ = p >> 2;
+				bias ^= 3;
 			} else {
 				s16 p = (s8)*src_col0++;
 				p += (s8)*src_col0++;
 				p += (s8)*src_col1++;
 				p += (s8)*src_col1++;
 
-				*ds_dst++ = srshift_to_even(p, 2);
+				// *ds_dst++ = srshift_to_even(p, 2);
+				p += bias;
+				*ds_dst++ = p >> 2;
+				bias ^= 3;
 			}
 		}
+		bias_col ^= 3;
 		src_col0 += RIGHTMARGIN + pitch + LEFTMARGIN;
 		src_col1 += RIGHTMARGIN + pitch + LEFTMARGIN;
 		convert_set_last(&ds_dst);
@@ -647,7 +686,8 @@ static int downscale_3_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 				p += *src_col2++;
 				p += *src_col2++;
 
-				*ds_dst++ = (u8)roundf((float)p * (1.0f / 9.0f));
+				// *ds_dst++ = (u8)roundf((float)p * (1.0f / 9.0f));
+				*ds_dst++ = (p + 4) / 9;
 			} else {
 				s16 p = (s8)*src_col0++;
 				p += (s8)*src_col0++;
@@ -661,7 +701,8 @@ static int downscale_3_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 				p += (s8)*src_col2++;
 				p += (s8)*src_col2++;
 
-				*ds_dst++ = (s8)roundf((float)p * (1.0f / 9.0f));
+				// *ds_dst++ = (s8)roundf((float)p * (1.0f / 9.0f));
+				*ds_dst++ = (p + 4) / 9;
 			}
 		}
 		src_col0 += RIGHTMARGIN + pitch * (3 - 1) + LEFTMARGIN;
@@ -685,6 +726,7 @@ static int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 	const u8 *src_col1 = src_col0 + pitch;
 	const u8 *src_col2 = src_col1 + pitch;
 	const u8 *src_col3 = src_col2 + pitch;
+	u8 bias_col = 7;
 	while (src_col0 < src_end) {
 		if (src_col0 == src) {
 			convert_set_zero(&ds_dst);
@@ -692,6 +734,7 @@ static int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 			convert_set_prev_first(&ds_dst, DSX_DIM(hOrig, 4));
 		}
 		const u8 *src_col0_end = src_col0 + hOrig;
+		u8 bias = bias_col;
 		while (src_col0 < src_col0_end) {
 			if (unsigned_signed == 0) {
 				u16 p = *src_col0++;
@@ -714,7 +757,10 @@ static int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 				p += *src_col3++;
 				p += *src_col3++;
 
-				*ds_dst++ = rshift_to_even(p, 4);
+				// *ds_dst++ = rshift_to_even(p, 4);
+				p += bias;
+				*ds_dst++ = p >> 4;
+				bias ^= 15;
 			} else {
 				s16 p = (s8)*src_col0++;
 				p += (s8)*src_col0++;
@@ -736,9 +782,13 @@ static int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 				p += (s8)*src_col3++;
 				p += (s8)*src_col3++;
 
-				*ds_dst++ = srshift_to_even(p, 4);
+				// *ds_dst++ = srshift_to_even(p, 4);
+				p += bias;
+				*ds_dst++ = p >> 4;
+				bias ^= 15;
 			}
 		}
+		bias_col ^= 15;
 		src_col0 += RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN;
 #if 1
 		src_col1 += RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN;
@@ -764,9 +814,13 @@ int downscale_x_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, in
 			return downscale_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
 
 		case 3:
-			return downscale_3_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
+			if (unsigned_signed != 1)
+				return -1;
+			return downscale_3_image(ds_dst, src, wOrig, hOrig, 1);
 
 		case 4:
-			return downscale_4_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
+			if (unsigned_signed != 1)
+				return -1;
+			return downscale_4_image(ds_dst, src, wOrig, hOrig, 1);
 	}
 }

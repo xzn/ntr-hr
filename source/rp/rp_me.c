@@ -189,6 +189,8 @@ static int downshift_image_g(u8 *dst, u8 *cur, int width, int height, int pitch 
 
 	u8 max_lq = (1 << (bpp - spp_lq)) - 1;
 	s8 half_max_lq = (1 << (bpp - spp_lq - 1)) - 1;
+	u8 bias_col = (1 << (spp_lq - 1));
+	u8 bias_xor = (1 << spp_lq) - 1;
 
 	for (int i = 0; i < width; ++i) {
 		if (i > 0) {
@@ -196,20 +198,23 @@ static int downshift_image_g(u8 *dst, u8 *cur, int width, int height, int pitch 
 			cur += LEFTMARGIN;
 		}
 
+		u8 bias = bias_col;
 		for (int j = 0; j < height; ++j) {
 			if (unsigned_wrap) {
 				*dst = *cur >> spp_lq;
 				*cur = *dst << spp_lq;
 			} else if (unsigned_signed == 0) {
-				*dst = RP_MIN(rshift_to_even(*cur, spp_lq), max_lq);
+				*dst = RP_MIN((*cur + bias) >> spp_lq, max_lq);
 				*cur = *dst << spp_lq;
 			} else {
-				*dst = RP_MIN(srshift_to_even((s8)*cur, spp_lq), half_max_lq);
+				*dst = RP_MIN(((s8)*cur + bias) >> spp_lq, half_max_lq);
 				*cur = (s8)*dst << spp_lq;
 			}
+			bias ^= bias_xor;
 			++dst, ++cur;
 		}
 
+		bias_col ^= bias_xor;
 		convert_set_last(&dst);
 		cur += RIGHTMARGIN;
 	}
@@ -269,17 +274,20 @@ static ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8
 		*dst = cur_shifted - (*ref >> spp_lq); \
 		*cur = *ref + (((s8)*dst << spp_lq)); \
 	} else if (unsigned_signed == 0) { \
-		cur_shifted = RP_MIN(rshift_to_even(*cur, spp_lq), max_lq); \
+		cur_shifted = RP_MIN((*cur + bias) >> spp_lq, max_lq); \
 		*dst = cur_shifted - (*ref >> spp_lq); \
 		*cur = *ref + (((s8)*dst << spp_lq)); \
 	} else { \
-		cur_shifted = RP_MIN(srshift_to_even((s8)*cur, spp_lq), half_max_lq); \
+		cur_shifted = RP_MIN(((s8)*cur + bias) >> spp_lq, half_max_lq); \
 		*dst = (s8)cur_shifted - (s8)((s8)*ref >> spp_lq); \
 		*cur = (s8)*ref + (((s8)*dst << spp_lq)); \
 	} \
 	++dst, ++cur, ++ref; \
 } while (0)
 #endif
+
+	u8 bias_col = (1 << (spp_lq - 1));
+	u8 bias_xor = (1 << spp_lq) - 1;
 
 	if (select) {
 		block_size = 1 << block_size_log2;
@@ -342,6 +350,8 @@ static ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8
 			if (select)
 				scene_change = *me_x == 1;
 
+			u8 bias = bias_col;
+
 			for (int j = 0; j < height; ++j) {
 				int j_off = (j - y_off) % block_size;
 				if (j > y_off && j_off == 0 && j < height - y_off - 1) {
@@ -356,10 +366,10 @@ static ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8
 						*dst = *cur >> spp_lq;
 						*cur = *dst << spp_lq;
 					} else if (unsigned_signed == 0) {
-						*dst = RP_MIN(rshift_to_even(*cur, spp_lq), max_lq);
+						*dst = RP_MIN((*cur + bias) >> spp_lq, max_lq);
 						*cur = *dst << spp_lq;
 					} else {
-						*dst = RP_MIN(srshift_to_even((s8)*cur, spp_lq), half_max_lq);
+						*dst = RP_MIN(((s8)*cur + bias) >> spp_lq, half_max_lq);
 						*cur = (s8)*dst << spp_lq;
 					}
 					++dst, ++cur, ++ref;
@@ -367,8 +377,10 @@ static ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8
 					// do diff
 					DO_DIFF();
 				}
+				bias ^= bias_xor;
 			}
 
+			bias_col ^= bias_xor;
 			convert_set_last(&dst);
 			ref += RIGHTMARGIN;
 			cur += RIGHTMARGIN;
@@ -381,10 +393,13 @@ static ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8
 				cur += LEFTMARGIN;
 			}
 
+			u8 bias = bias_col;
 			for (int j = 0; j < height; ++j) {
 				DO_DIFF();
+				bias ^= bias_xor;
 			}
 
+			bias_col ^= bias_xor;
 			convert_set_last(&dst);
 			ref += RIGHTMARGIN;
 			cur += RIGHTMARGIN;
