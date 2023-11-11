@@ -6,6 +6,7 @@
 #include "rp_res.h"
 #include "rp_main.h"
 #include "rp_screen.h"
+#include "rp_color.h"
 
 static int rpCtxScreenEncodeSetup(struct rp_screen_encode_t *screen, struct rp_ctx_t *rp_ctx, int thread_n) {
 	return rpScreenEncodeSetup(screen, &rp_ctx->screen_ctx, rp_ctx->image_ctx.screen_image,
@@ -308,7 +309,7 @@ static void rpEncodeScreenAndSend(struct rp_ctx_t *rp_ctx, int thread_n) {
 		screen = 0;
 
 		if (encoder_jls) {
-			ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, rp_ctx->conf.encode_lq, rp_ctx->conf.encode_static_lq, !(rp_ctx->conf.yuv_option & 0x2));
+			ret = rpDownscaleMEImage(&c, &image_curr->d, image_prev, image_me, rp_ctx->conf.downscale_uv, &rp_ctx->conf.me, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, rp_ctx->conf.encode_lq, rp_ctx->conf.encode_static_lq, rp_ctx->conf.yuv_option == 3, !(rp_ctx->conf.yuv_option & 0x2));
 			if (ret < 0) {
 				nsDbgPrint("rpDownscaleMEImage failed\n");
 				break;
@@ -403,6 +404,10 @@ static int rpSendFrames(struct rp_ctx_t *rp_ctx) {
 
 	if ((ret = rp_init_images(&rp_ctx->image_ctx, RP_ENCODE_MULTITHREAD && rp_ctx->conf.multicore_encode, rp_ctx->conf.encode_thread_split_image)))
 		return ret;
+	
+	if (RP_FILTER_YUV_ENABLE && rp_ctx->conf.encoder_which < RP_ENCODER_JLS_COUNT) {
+		rgb_ycc_start(rp_ctx->rgb_ycc_tab);
+	}
 
 	if (RP_ENCODER_JLS_LUT_ENABLE && rp_ctx->conf.encoder_which < RP_ENCODER_JLS_USE_LUT_COUNT) {
 		jls_encoder_prepare_LUTs(&rp_ctx->jls_param);

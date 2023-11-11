@@ -44,7 +44,7 @@ struct rp_image_data_t;
 struct rp_const_image_t;
 struct rp_const_image_data_t;
 int rpEncodeImage(struct rp_screen_encode_t *screen, int yuv_option, int color_transform_hp, u8 lq, u8 static_lq);
-int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, struct rp_const_image_t *image_prev, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore, u8 lq, u8 static_lq, u8 unsigned_wrap);
+int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, struct rp_const_image_t *image_prev, struct rp_image_data_t *image_me, u8 downscale_uv, struct rp_conf_me_t *me, u8 multicore, u8 lq, u8 static_lq, u8 unsigned_signed, u8 unsigned_wrap);
 
 int rpEncodeImageRGB(struct rp_screen_encode_t *screen, struct rp_image_data_t *image_me, int force_bpp8);
 

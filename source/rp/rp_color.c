@@ -1,6 +1,8 @@
 #include "rp_color_aux.h"
 #include "rp_color.h"
 
+static JLONG *ctab;
+
 static ALWAYS_INLINE
 void convert_yuv_hp(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *restrict v_out,
 	int bpp, int color_transform_hp
@@ -111,9 +113,19 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 
 		case 2: {
 			if (lq == 0) {
+#if 0
 				y = 77 * (u16)r + 150 * (u16)g + 29 * (u16)b;
 				u = -43 * (s16)r + -84 * (s16)g + 127 * (s16)b;
 				v = 127 * (s16)r + -106 * (s16)g + -21 * (s16)b;
+#else
+				*y_out = (JSAMPLE)((ctab[r + R_Y_OFF] + ctab[g + G_Y_OFF] +
+				                    ctab[b + B_Y_OFF]) >> SCALEBITS);
+				*u_out = (JSAMPLE)((ctab[r + R_CB_OFF] + ctab[g + G_CB_OFF] +
+				                    ctab[b + B_CB_OFF]) >> SCALEBITS);
+				*v_out = (JSAMPLE)((ctab[r + R_CR_OFF] + ctab[g + G_CR_OFF] +
+				                    ctab[b + B_CR_OFF]) >> SCALEBITS);
+				return;
+#endif
 			} else {
 			}
 			break;
@@ -260,7 +272,7 @@ int convert_rgb_image(int format, int width, int height, int pitch, const u8 *re
 	return 0;
 }
 
-static ALWAYS_INLINE int convert_yuv_image_g(
+static int convert_yuv_image_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
@@ -484,7 +496,7 @@ static ALWAYS_INLINE int convert_yuv_image_g(
 	return 0;
 }
 
-static ALWAYS_INLINE int convert_yuv_image_color_transform_hp_g(
+static int convert_yuv_image_color_transform_hp_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
@@ -505,7 +517,7 @@ static ALWAYS_INLINE int convert_yuv_image_color_transform_hp_g(
 	}
 }
 
-static ALWAYS_INLINE int convert_yuv_image_yuv_option_g(
+static int convert_yuv_image_yuv_option_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
@@ -526,7 +538,7 @@ static ALWAYS_INLINE int convert_yuv_image_yuv_option_g(
 	}
 }
 
-static ALWAYS_INLINE int convert_yuv_image_lq_g(
+static int convert_yuv_image_lq_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
@@ -549,7 +561,7 @@ static ALWAYS_INLINE int convert_yuv_image_lq_g(
 	}
 }
 
-static ALWAYS_INLINE int convert_yuv_image_format_g(
+static int convert_yuv_image_format_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
@@ -806,21 +818,55 @@ static int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 }
 
 int downscale_x_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int dsx, int unsigned_signed) {
-	switch (dsx) {
-		default:
-			return -1;
-
-		case 2:
-			return downscale_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
-
-		case 3:
-			if (unsigned_signed != 1)
+	if (unsigned_signed == 0) {
+		switch (dsx) {
+			default:
 				return -1;
-			return downscale_3_image(ds_dst, src, wOrig, hOrig, 1);
 
-		case 4:
-			if (unsigned_signed != 1)
+			case 2:
+				return downscale_image_g(ds_dst, src, wOrig, hOrig, 0);
+
+			case 3:
+				return downscale_3_image(ds_dst, src, wOrig, hOrig, 0);
+
+			case 4:
+				return downscale_4_image(ds_dst, src, wOrig, hOrig, 0);
+		}
+	} else {
+		switch (dsx) {
+			default:
 				return -1;
-			return downscale_4_image(ds_dst, src, wOrig, hOrig, 1);
+
+			case 2:
+				return downscale_image_g(ds_dst, src, wOrig, hOrig, 1);
+
+			case 3:
+				return downscale_3_image(ds_dst, src, wOrig, hOrig, 1);
+
+			case 4:
+				return downscale_4_image(ds_dst, src, wOrig, hOrig, 1);
+		}
+	}
+}
+
+void rgb_ycc_start(JLONG rgb_ycc_tab[TABLE_SIZE]) {
+	ctab = rgb_ycc_tab;
+
+	for (int i = 0; i <= MAXJSAMPLE; ++i) {
+		rgb_ycc_tab[i + R_Y_OFF] = FIX(0.29900) * i;
+		rgb_ycc_tab[i + G_Y_OFF] = FIX(0.58700) * i;
+		rgb_ycc_tab[i + B_Y_OFF] = FIX(0.11400) * i   + ONE_HALF;
+		rgb_ycc_tab[i + R_CB_OFF] = (-FIX(0.16874)) * i;
+		rgb_ycc_tab[i + G_CB_OFF] = (-FIX(0.33126)) * i;
+		/* We use a rounding fudge-factor of 0.5-epsilon for Cb and Cr.
+		 * This ensures that the maximum output will round to _MAXJSAMPLE
+		 * not _MAXJSAMPLE+1, and thus that we don't have to range-limit.
+		 */
+		rgb_ycc_tab[i + B_CB_OFF] = FIX(0.50000) * i  + CBCR_OFFSET + ONE_HALF - 1;
+		/* B=>Cb and R=>Cr tables are the same
+		 * rgb_ycc_tab[i + R_CR_OFF] = FIX(0.50000) * i  + CBCR_OFFSET + ONE_HALF - 1;
+		 */
+		rgb_ycc_tab[i + G_CR_OFF] = (-FIX(0.41869)) * i;
+		rgb_ycc_tab[i + B_CR_OFF] = (-FIX(0.08131)) * i;
 	}
 }

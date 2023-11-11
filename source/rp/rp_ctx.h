@@ -64,6 +64,8 @@ struct rp_ctx_t {
 		};
 	};
 
+	JLONG rgb_ycc_tab[TABLE_SIZE];
+
 	struct rp_image_ctx_t image_ctx;
 
 	struct {
