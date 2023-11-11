@@ -113,8 +113,9 @@ static int rpJLSEncodeScreenAndSend(struct rp_encode_and_send_screen_ctx_t *ctx,
 	int me_width = width >> block_size_log2;
 	int me_height = height >> block_size_log2;
 
-	int ds_width = DS_DIM(width, 1);
-	int ds_height = DS_DIM(height, 1);
+	int dsx = ctx->downscale_uv + 1;
+	int ds_width = DSX_DIM(width, dsx);
+	int ds_height = DSX_DIM(height, dsx);
 
 	int ret, size = 0;
 

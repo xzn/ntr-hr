@@ -336,18 +336,24 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 	int ds_width = DS_DIM(width, 1);
 	int ds_height = DS_DIM(height, 1);
 
+	int dsx = downscale_uv + 1;
+	int dsx_width = DSX_DIM(width, dsx);
+	int dsx_height = DSX_DIM(height, dsx);
+
 	if (downscale_uv) {
-		downscale_image(
+		if (downscale_x_image(
 			im->ds_u_image,
 			im->u_image,
-			width, height, 1
-		);
+			width, height, dsx, 1
+		) < 0)
+			return -1;
 
-		downscale_image(
+		if (downscale_x_image(
 			im->ds_v_image,
 			im->v_image,
-			width, height, 1
-		);
+			width, height, dsx, 1
+		) < 0)
+			return -1;
 
 		im->ds_y_image = im->ds_y_image_ds_uv;
 		im->ds_ds_y_image = im->ds_ds_y_image_ds_uv;
@@ -402,23 +408,25 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 	motion_estimate(image_me->me_x_image, image_me->me_y_image, \
 		im_prev->n + LEFTMARGIN, im->n + LEFTMARGIN, \
 		me->select, me->select_threshold, im->m, im_prev->m, me->mafd_shift, \
-		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, \
+		w, h, PADDED_HEIGHT(h), im->b, \
 		me->block_size, me->block_size_log2, \
 		me->search_param, me->method, me->bpp_half_range \
 	); \
 } while (0)
 
-			downscale_image(
+			if (downscale_image(
 				im->ds_y_image,
 				im->y_image,
 				width, height, 0
-			);
+			) < 0)
+				return -1;
 			if (me->downscale) {
-				downscale_image(
+				if (downscale_image(
 					im->ds_ds_y_image,
 					im->ds_y_image,
 					ds_width, ds_height, 0
-				);
+				) < 0)
+					return -1;
 				MOTION_EST(ds_ds_y_image, mafd_ds_image, ds_ds_width, ds_ds_height, y_bpp);
 			} else {
 				MOTION_EST(ds_y_image, mafd_image, ds_width, ds_height, y_bpp);
@@ -436,8 +444,8 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			PREDICT_IM(y_image, width, height, scale_log2, y_bpp);
 
 			if (downscale_uv) {
-				PREDICT_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp);
-				PREDICT_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp);
+				PREDICT_IM(ds_u_image, dsx_width, dsx_height, ds_scale_log2, u_bpp);
+				PREDICT_IM(ds_v_image, dsx_width, dsx_height, ds_scale_log2, v_bpp);
 			} else {
 				PREDICT_IM(u_image, width, height, scale_log2, u_bpp);
 				PREDICT_IM(v_image, width, height, scale_log2, v_bpp);
@@ -453,24 +461,24 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 			image_me->v_bpp = im->v_bpp;
 		} else {
 
-#define DIFF_IM(n, w, h, s, b, m, b_lq, sn, uw) do { \
+#define DIFF_IM(n, w, h, s, x, b, m, b_lq, sn, uw) do { \
 	if (diff_image(image_me->me_x_image, image_me->n, im_prev->n, im->n, static_lq ? 0 : im->b - b_lq, sn, uw, \
 		me->select, me->select_threshold, \
 		m ? me->downscale ? im->mafd_ds_image : im->mafd_image : 0, \
 		m ? me->downscale ? im_prev->mafd_ds_image : im_prev->mafd_image : 0, me->mafd_shift, \
-		w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, s, me->block_size, me->block_size_log2) < 0 \
+		w, h, PADDED_HEIGHT(h), im->b, s, x, me->block_size, me->block_size_log2) < 0 \
 	) \
 		return -1; \
 } while (0)
 
-			DIFF_IM(y_image, width, height, scale_log2, y_bpp, 1, bpp_2_lq, 0, unsigned_wrap);
+			DIFF_IM(y_image, width, height, scale_log2, 1, y_bpp, 1, bpp_2_lq, 0, unsigned_wrap);
 
 			if (downscale_uv) {
-				DIFF_IM(ds_u_image, ds_width, ds_height, ds_scale_log2, u_bpp, 0, bpp_lq, 1, unsigned_wrap);
-				DIFF_IM(ds_v_image, ds_width, ds_height, ds_scale_log2, v_bpp, 0, bpp_lq, 1, unsigned_wrap);
+				DIFF_IM(ds_u_image, dsx_width, dsx_height, scale_log2, dsx, u_bpp, 0, bpp_lq, 1, unsigned_wrap);
+				DIFF_IM(ds_v_image, dsx_width, dsx_height, scale_log2, dsx, v_bpp, 0, bpp_lq, 1, unsigned_wrap);
 			} else {
-				DIFF_IM(u_image, width, height, scale_log2, u_bpp, 0, bpp_lq, 1, unsigned_wrap);
-				DIFF_IM(v_image, width, height, scale_log2, v_bpp, 0, bpp_lq, 1, unsigned_wrap);
+				DIFF_IM(u_image, width, height, scale_log2, 1, u_bpp, 0, bpp_lq, 1, unsigned_wrap);
+				DIFF_IM(v_image, width, height, scale_log2, 1, v_bpp, 0, bpp_lq, 1, unsigned_wrap);
 			}
 
 			if (static_lq) {
@@ -497,15 +505,15 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		if (!static_lq && lq) {
 
 #define DOWNSHIFT_IM(n, w, h, b, b_lq, sn, uw) do { \
-	if (downshift_image(image_me->n, im->n, w, h, h + LEFTMARGIN + RIGHTMARGIN, im->b, im->b - b_lq, sn, uw) < 0) \
+	if (downshift_image(image_me->n, im->n, w, h, PADDED_HEIGHT(h), im->b, im->b - b_lq, sn, uw) < 0) \
 		return -1; \
 	image_me->b = b_lq; \
 } while (0)
 
 			DOWNSHIFT_IM(y_image, width, height, y_bpp, bpp_2_lq, 0, unsigned_wrap);
 			if (downscale_uv) {
-				DOWNSHIFT_IM(ds_u_image, ds_width, ds_height, u_bpp, bpp_lq, 1, unsigned_wrap);
-				DOWNSHIFT_IM(ds_v_image, ds_width, ds_height, v_bpp, bpp_lq, 1, unsigned_wrap);
+				DOWNSHIFT_IM(ds_u_image, dsx_width, dsx_height, u_bpp, bpp_lq, 1, unsigned_wrap);
+				DOWNSHIFT_IM(ds_v_image, dsx_width, dsx_height, v_bpp, bpp_lq, 1, unsigned_wrap);
 			} else {
 				DOWNSHIFT_IM(u_image, width, height, u_bpp, bpp_lq, 1, unsigned_wrap);
 				DOWNSHIFT_IM(v_image, width, height, v_bpp, bpp_lq, 1, unsigned_wrap);
@@ -514,7 +522,7 @@ int rpDownscaleMEImage(struct rp_screen_ctx_t *c, struct rp_image_data_t *im, st
 		}
 
 #define MAFD_IMAGE(m, n, w, h, b) do { \
-	calc_mafd_image(im->m, me->mafd_shift, im->n + LEFTMARGIN, w, h, h + LEFTMARGIN + RIGHTMARGIN, me->block_size, me->block_size_log2, im->b); \
+	calc_mafd_image(im->m, me->mafd_shift, im->n + LEFTMARGIN, w, h, PADDED_HEIGHT(h), me->block_size, me->block_size_log2, im->b); \
 } while (0)
 
 		if (me->enabled != 0 && me->select) {

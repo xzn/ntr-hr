@@ -181,7 +181,7 @@ void convert_yuv(u8 r, u8 g, u8 b, u8 *restrict y_out, u8 *restrict u_out, u8 *r
 			*y_out = g >> spp_2_lq;
 			*u_out = r >> spp_lq;
 			*v_out = b >> spp_lq;
-			break;
+			return;
 	};
 
 	if (yuv_option == 2 || yuv_option == 3) {
@@ -553,7 +553,7 @@ int convert_yuv_image(
 	return convert_yuv_image_format_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
 }
 
-void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+static int downscale_image_g(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
 	ASSUME_ALIGN_4(ds_dst);
 	ASSUME_ALIGN_4(src);
 
@@ -590,5 +590,183 @@ void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int
 		src_col0 += RIGHTMARGIN + pitch + LEFTMARGIN;
 		src_col1 += RIGHTMARGIN + pitch + LEFTMARGIN;
 		convert_set_last(&ds_dst);
+	}
+
+	return 0;
+}
+
+static int downscale_image_unsigned_signed_g(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+	switch (unsigned_signed) {
+		default:
+			return -1;
+
+		case 0:
+			return downscale_image_g(ds_dst, src, wOrig, hOrig, 0);
+
+		case 1:
+			return downscale_image_g(ds_dst, src, wOrig, hOrig, 1);
+	}
+}
+
+int downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+	return downscale_image_unsigned_signed_g(ds_dst, src, wOrig, hOrig, unsigned_signed);
+}
+
+static int downscale_3_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+	ASSUME_ALIGN_4(ds_dst);
+	ASSUME_ALIGN_4(src);
+
+	if (hOrig / 3 * 3 != hOrig)
+		return -1;
+
+	int pitch = PADDED_HEIGHT(hOrig);
+	const u8 *src_end = src + PADDED_SIZE(wOrig, hOrig);
+
+	src += LEFTMARGIN;
+	const u8 *src_col0 = src;
+	const u8 *src_col1 = src_col0 + pitch;
+	const u8 *src_col2 = src_col1 + pitch;
+	while (src_col0 < src_end) {
+		if (src_col0 == src) {
+			convert_set_zero(&ds_dst);
+		} else {
+			convert_set_prev_first(&ds_dst, hOrig / 3);
+		}
+		const u8 *src_col0_end = src_col0 + hOrig;
+		while (src_col0 < src_col0_end) {
+			if (unsigned_signed == 0) {
+				u16 p = *src_col0++;
+				p += *src_col0++;
+				p += *src_col0++;
+
+				p += *src_col1++;
+				p += *src_col1++;
+				p += *src_col1++;
+
+				p += *src_col2++;
+				p += *src_col2++;
+				p += *src_col2++;
+
+				*ds_dst++ = (u8)roundf((float)p * (1.0f / 9.0f));
+			} else {
+				s16 p = (s8)*src_col0++;
+				p += (s8)*src_col0++;
+				p += (s8)*src_col0++;
+
+				p += (s8)*src_col1++;
+				p += (s8)*src_col1++;
+				p += (s8)*src_col1++;
+
+				p += (s8)*src_col2++;
+				p += (s8)*src_col2++;
+				p += (s8)*src_col2++;
+
+				*ds_dst++ = (s8)roundf((float)p * (1.0f / 9.0f));
+			}
+		}
+		src_col0 += RIGHTMARGIN + pitch * (3 - 1) + LEFTMARGIN;
+		src_col1 = RP_MIN(src_col1 + RIGHTMARGIN + pitch * (3 - 1) + LEFTMARGIN, src_end - RIGHTMARGIN - pitch);
+		src_col2 = RP_MIN(src_col2 + RIGHTMARGIN + pitch * (3 - 1) + LEFTMARGIN, src_end - RIGHTMARGIN - pitch);
+		convert_set_last(&ds_dst);
+	}
+
+	return 0;
+}
+
+static int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+	ASSUME_ALIGN_4(ds_dst);
+	ASSUME_ALIGN_4(src);
+
+	int pitch = PADDED_HEIGHT(hOrig);
+	const u8 *src_end = src + PADDED_SIZE(wOrig, hOrig);
+
+	src += LEFTMARGIN;
+	const u8 *src_col0 = src;
+	const u8 *src_col1 = src_col0 + pitch;
+	const u8 *src_col2 = src_col1 + pitch;
+	const u8 *src_col3 = src_col2 + pitch;
+	while (src_col0 < src_end) {
+		if (src_col0 == src) {
+			convert_set_zero(&ds_dst);
+		} else {
+			convert_set_prev_first(&ds_dst, DSX_DIM(hOrig, 4));
+		}
+		const u8 *src_col0_end = src_col0 + hOrig;
+		while (src_col0 < src_col0_end) {
+			if (unsigned_signed == 0) {
+				u16 p = *src_col0++;
+				p += *src_col0++;
+				p += *src_col0++;
+				p += *src_col0++;
+
+				p += *src_col1++;
+				p += *src_col1++;
+				p += *src_col1++;
+				p += *src_col1++;
+
+				p += *src_col2++;
+				p += *src_col2++;
+				p += *src_col2++;
+				p += *src_col2++;
+
+				p += *src_col3++;
+				p += *src_col3++;
+				p += *src_col3++;
+				p += *src_col3++;
+
+				*ds_dst++ = rshift_to_even(p, 4);
+			} else {
+				s16 p = (s8)*src_col0++;
+				p += (s8)*src_col0++;
+				p += (s8)*src_col0++;
+				p += (s8)*src_col0++;
+
+				p += (s8)*src_col1++;
+				p += (s8)*src_col1++;
+				p += (s8)*src_col1++;
+				p += (s8)*src_col1++;
+
+				p += (s8)*src_col2++;
+				p += (s8)*src_col2++;
+				p += (s8)*src_col2++;
+				p += (s8)*src_col2++;
+
+				p += (s8)*src_col3++;
+				p += (s8)*src_col3++;
+				p += (s8)*src_col3++;
+				p += (s8)*src_col3++;
+
+				*ds_dst++ = srshift_to_even(p, 4);
+			}
+		}
+		src_col0 += RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN;
+#if 1
+		src_col1 += RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN;
+		src_col2 += RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN;
+		src_col3 += RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN;
+#else
+		src_col1 = RP_MIN(src_col1 + RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN, src_end - RIGHTMARGIN - pitch);
+		src_col2 = RP_MIN(src_col2 + RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN, src_end - RIGHTMARGIN - pitch);
+		src_col3 = RP_MIN(src_col3 + RIGHTMARGIN + pitch * (4 - 1) + LEFTMARGIN, src_end - RIGHTMARGIN - pitch);
+#endif
+		convert_set_last(&ds_dst);
+	}
+
+	return 0;
+}
+
+int downscale_x_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int dsx, int unsigned_signed) {
+	switch (dsx) {
+		default:
+			return -1;
+		
+		case 2:
+			return downscale_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
+		
+		case 3:
+			return downscale_3_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
+
+		case 4:
+			return downscale_4_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
 	}
 }

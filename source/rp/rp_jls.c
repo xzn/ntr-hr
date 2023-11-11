@@ -285,7 +285,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			for (int i = 0; i < h; ++i) {
 				put_bits_checked(&s, 1, in[i]);
 			}
-			in += h + LEFTMARGIN + RIGHTMARGIN;
+			in += PADDED_HEIGHT(h);
 		}
 
 		if ((ret = flush_put_bits(&s))) {
@@ -318,7 +318,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 				return -1;
 			}
 			last = in;
-			in += h + LEFTMARGIN + RIGHTMARGIN;
+			in += PADDED_HEIGHT(h);
 		}
 
 		if ((ret = flush_put_bits(&s))) {
@@ -333,7 +333,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 		ret = jpeg_ls_encode(
 			enc_params, ctx, bctx,
 			(char *)send_ctx->buffer_begin, (char *)send_ctx->buffer_end,
-			src, w, h, h + LEFTMARGIN + RIGHTMARGIN,
+			src, w, h, PADDED_HEIGHT(h),
 			params->enc_luts.classmap
 		);
 		if (ret) {
@@ -377,7 +377,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 				return ret;
 
 			last = in;
-			in += h + LEFTMARGIN + RIGHTMARGIN;
+			in += PADDED_HEIGHT(h);
 
 			pred_buf_index = (pred_buf_index + 1) % RP_LZ4_BUFFER_COUNT;
 		}
@@ -416,7 +416,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 			}
 
 			last = in;
-			in += h + LEFTMARGIN + RIGHTMARGIN;
+			in += PADDED_HEIGHT(h);
 		}
 
 		cur_input.src = (void *)(cur_input.size = cur_input.pos = 0);
@@ -448,7 +448,7 @@ static int rpJLSEncodeImage(struct rp_jls_send_ctx_t *send_ctx,
 					rle_encode_next(&rle_ctx, (u8)(in[i] - jls_pred_med(Rb, Ra, Rc)));
 				}
 				last = in;
-				in += h + LEFTMARGIN + RIGHTMARGIN;
+				in += PADDED_HEIGHT(h);
 			}
 		}
 

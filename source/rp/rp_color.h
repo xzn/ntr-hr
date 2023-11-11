@@ -11,6 +11,7 @@ int convert_yuv_image(
 
 int convert_rgb_image(int format, int width, int height, int pitch, const u8 *restrict sp, u8 *restrict dp_rgb_out, u8 *bpp);
 
-void downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed);
+int downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed);
+int downscale_x_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int dsx, int unsigned_signed);
 
 #endif

@@ -110,6 +110,7 @@ enum {
 #define SCREEN_HEIGHT (240)
 
 #define DS_DIM(w, ds) ((w) >> (ds))
+#define DSX_DIM(w, dsx) (((w) + (dsx) - 1) / (dsx))
 
 #define SCREEN_DS_WIDTH(s, ds) DS_DIM(SCREEN_WIDTH(s), ds)
 #define SCREEN_DS_HEIGHT(ds) DS_DIM(SCREEN_HEIGHT, ds)
