@@ -136,7 +136,7 @@ void rpSetPriorityScreen(struct rp_dyn_prio_t* ctx, int top_bot, u32 size) {
 	}
 
 	if (ctx->dyn) {
-		sctx->frame_size_chn += av_ceil_log2(size);
+		sctx->frame_size_chn += av_ceil_log2(size) * ctx->s[!top_bot].priority;
 		// sctx->frame_size_chn += size;
 
 		if (frame_next) {
