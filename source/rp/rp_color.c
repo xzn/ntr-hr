@@ -861,12 +861,14 @@ int downscale_x_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, in
 		case 2:
 			return downscale_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
 
+#if RP_FULL_INLINE_CODE_OPT
 		case 3:
 			if (unsigned_signed == 0) {
 				return downscale_3_image(ds_dst, src, wOrig, hOrig, 0);
 			} else {
 				return downscale_3_image(ds_dst, src, wOrig, hOrig, 1);
 			}
+#endif
 
 		case 4:
 			if (unsigned_signed == 0) {
