@@ -1,7 +1,7 @@
 #include "rp_me.h"
 #include "rp_color_aux.h"
 
-UNUSED static u32 sad_const(const u8 *src, int stride, int width, int height, u8 bpp) {
+UNUSED static ALWAYS_INLINE u32 sad_const(const u8 *src, int stride, int width, int height, u8 bpp) {
 	u32 sad = 0;
 	int x, y;
 
@@ -138,7 +138,7 @@ enum {
 	CORNER_COUNT,
 };
 
-static void interpolate_me(const s8 *me_x_vec[CORNER_COUNT], const s8 *me_y_vec[CORNER_COUNT], int scale_log2, int block_size, int block_size_log2, int i, int j, s8 *x, s8 *y) {
+static ALWAYS_INLINE void interpolate_me(const s8 *me_x_vec[CORNER_COUNT], const s8 *me_y_vec[CORNER_COUNT], int scale_log2, int block_size, int block_size_log2, int i, int j, s8 *x, s8 *y) {
 	int step_total = block_size * 2;
 	int step_base = 1;
 	int step = 2;
@@ -183,7 +183,7 @@ void me_add_half_range(u8 *me, int width, int height, u8 scale_log2, u8 half_ran
 	}
 }
 
-static int downshift_image_g(u8 *dst, u8 *cur, int width, int height, int pitch UNUSED, int bpp, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap) {
+static RP_ALWAYS_INLINE int downshift_image_g(u8 *dst, u8 *cur, int width, int height, int pitch UNUSED, int bpp, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap) {
 	convert_set_zero(&dst);
 	cur += LEFTMARGIN;
 
@@ -221,7 +221,7 @@ static int downshift_image_g(u8 *dst, u8 *cur, int width, int height, int pitch 
 	return 0;
 }
 
-static int downshift_image_unsigned_signed_g(u8 *dst, u8 *cur, int width, int height, int pitch UNUSED, int bpp, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap) {
+static RP_ALWAYS_INLINE int downshift_image_unsigned_signed_g(u8 *dst, u8 *cur, int width, int height, int pitch UNUSED, int bpp, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap) {
 	if (unsigned_wrap) {
 		return downshift_image_g(dst, cur, width, height, pitch, bpp, spp_lq, 0, 1);
 	} else if (unsigned_signed == 0) {
@@ -235,7 +235,7 @@ int downshift_image(u8 *dst, u8 *cur, int width, int height, int pitch UNUSED, i
 	return downshift_image_unsigned_signed_g(dst, cur, width, height, pitch, bpp, spp_lq, unsigned_signed, unsigned_wrap);
 }
 
-static int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+static RP_ALWAYS_INLINE int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
 	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
 ) {
@@ -409,11 +409,26 @@ static int diff_image_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_
 	return 0;
 }
 
-static int diff_image_block_size_log2_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+static NO_INLINE int diff_image_ng(s8 *me_x_image UNUSED, u8 *dst UNUSED, const u8 *ref UNUSED, u8 *cur UNUSED, u8 spp_lq UNUSED, u8 unsigned_signed UNUSED, u8 unsigned_wrap UNUSED,
+	u8 select UNUSED, u16 select_threshold UNUSED, u16 *mafd UNUSED, const u16 *mafd_prev UNUSED, u8 mafd_shift UNUSED,
+	int width UNUSED, int height UNUSED, int pitch UNUSED, int bpp UNUSED, int scale_log2 UNUSED, int dsx UNUSED, u8 block_size UNUSED, u8 block_size_log2 UNUSED
+) {
+#if 0
+	return diff_image_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
+#else
+	return -1;
+#endif
+}
+
+static RP_ALWAYS_INLINE int diff_image_block_size_log2_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
 	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
 ) {
 	switch (block_size_log2) {
+		case RP_ME_MIN_BLOCK_SIZE_LOG2 + 3:
+			return diff_image_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, RP_ME_MIN_BLOCK_SIZE_LOG2 + 3);
+
+#if RP_FULL_INLINE_CODE_OPT
 		default:
 			return -1;
 
@@ -425,54 +440,65 @@ static int diff_image_block_size_log2_g(s8 *me_x_image, u8 *dst, const u8 *ref, 
 
 		case RP_ME_MIN_BLOCK_SIZE_LOG2 + 2:
 			return diff_image_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, RP_ME_MIN_BLOCK_SIZE_LOG2 + 2);
-
-		case RP_ME_MIN_BLOCK_SIZE_LOG2 + 3:
-			return diff_image_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, RP_ME_MIN_BLOCK_SIZE_LOG2 + 3);
+#else
+		default:
+			return diff_image_ng(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
+#endif
 	}
 }
 
-static int diff_image_scale_log2_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+static RP_ALWAYS_INLINE int diff_image_scale_log2_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
 	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
 ) {
 	switch (scale_log2) {
+		case 1:
+			return diff_image_block_size_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, 1, dsx, block_size, block_size_log2);
+
+#if RP_FULL_INLINE_CODE_OPT
 		default:
 			return -1;
 
 		case 0:
 			return diff_image_block_size_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, 0, dsx, block_size, block_size_log2);
 
-		case 1:
-			return diff_image_block_size_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, 1, dsx, block_size, block_size_log2);
-
 		case 2:
 			return diff_image_block_size_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, 2, dsx, block_size, block_size_log2);
+#else
+		default:
+			return diff_image_ng(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
+#endif
 	}
 }
 
-static int diff_image_dsx_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+static RP_ALWAYS_INLINE int diff_image_dsx_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
 	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
 ) {
 	switch (dsx) {
-		default:
-			return -1;
-
 		case 1:
 			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 1, block_size, block_size_log2);
 
 		case 2:
 			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 2, block_size, block_size_log2);
 
-		case 3:
-			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 3, block_size, block_size_log2);
-
 		case 4:
 			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 4, block_size, block_size_log2);
+
+#if RP_FULL_INLINE_CODE_OPT
+		default:
+			return -1;
+
+		case 3:
+			return diff_image_scale_log2_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, 3, block_size, block_size_log2);
+#else
+		default:
+			return diff_image_ng(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
+#endif
 	}
 }
 
-static int diff_image_unsigned_signed_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+static RP_ALWAYS_INLINE int diff_image_unsigned_signed_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
 	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
 ) {
@@ -485,12 +511,11 @@ static int diff_image_unsigned_signed_g(s8 *me_x_image, u8 *dst, const u8 *ref, 
 	}
 }
 
-static int diff_image_spp_lq_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
+static RP_ALWAYS_INLINE int diff_image_spp_lq_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, u8 spp_lq, u8 unsigned_signed, u8 unsigned_wrap,
 	u8 select, u16 select_threshold, u16 *mafd, const u16 *mafd_prev, u8 mafd_shift,
 	int width, int height, int pitch, int bpp, int scale_log2, int dsx, u8 block_size, u8 block_size_log2
 ) {
 	switch (spp_lq) {
-#if 1
 		case 0:
 			return diff_image_unsigned_signed_g(me_x_image, dst, ref, cur, 0, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
 
@@ -505,11 +530,9 @@ static int diff_image_spp_lq_g(s8 *me_x_image, u8 *dst, const u8 *ref, u8 *cur, 
 
 		case 4:
 			return diff_image_unsigned_signed_g(me_x_image, dst, ref, cur, 4, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
-#endif
 
 		default:
 			return -1;
-			// return diff_image_unsigned_signed_g(me_x_image, dst, ref, cur, spp_lq, unsigned_signed, unsigned_wrap, select, select_threshold, mafd, mafd_prev, mafd_shift, width, height, pitch, bpp, scale_log2, dsx, block_size, block_size_log2);
 	}
 }
 

@@ -272,7 +272,7 @@ int convert_rgb_image(int format, int width, int height, int pitch, const u8 *re
 	return 0;
 }
 
-static int convert_yuv_image_g(
+static RP_ALWAYS_INLINE int convert_yuv_image_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
@@ -496,13 +496,31 @@ static int convert_yuv_image_g(
 	return 0;
 }
 
-static int convert_yuv_image_color_transform_hp_g(
+static NO_INLINE int convert_yuv_image_ng(
+	int format UNUSED, int width UNUSED, int height UNUSED, int pitch UNUSED,
+	const u8 *restrict sp UNUSED, u8 *restrict dp_y_out UNUSED, u8 *restrict dp_u_out UNUSED, u8 *restrict dp_v_out UNUSED,
+	u8 *y_bpp UNUSED, u8 *u_bpp UNUSED, u8 *v_bpp UNUSED, int yuv_option UNUSED, int color_transform_hp UNUSED, int lq UNUSED
+) {
+#if 0
+	return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+#else
+	return -1;
+#endif
+}
+
+static RP_ALWAYS_INLINE int convert_yuv_image_color_transform_hp_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
 ) {
 	switch (color_transform_hp) {
+		case 3:
+			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, 3, lq);
+
+#if RP_FULL_INLINE_CODE_OPT
 		default:
+			return -1;
+
 		case 0:
 			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, 0, lq);
 
@@ -511,19 +529,19 @@ static int convert_yuv_image_color_transform_hp_g(
 
 		case 2:
 			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, 2, lq);
-
-		case 3:
-			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, 3, lq);
+#else
+		default:
+			return convert_yuv_image_ng(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+#endif
 	}
 }
 
-static int convert_yuv_image_yuv_option_g(
+static RP_ALWAYS_INLINE int convert_yuv_image_yuv_option_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
 ) {
 	switch (yuv_option) {
-		default:
 		case 0:
 			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 0, color_transform_hp, lq);
 
@@ -533,22 +551,31 @@ static int convert_yuv_image_yuv_option_g(
 		case 2:
 			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 2, color_transform_hp, lq);
 
+#if RP_FULL_INLINE_CODE_OPT
+		default:
+			return -1;
+
 		case 3:
 			return convert_yuv_image_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, 3, color_transform_hp, lq);
+#else
+		default:
+			return convert_yuv_image_ng(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+#endif
 	}
 }
 
-static int convert_yuv_image_lq_g(
+static RP_ALWAYS_INLINE int convert_yuv_image_lq_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
 ) {
 	switch (lq) {
-		default:
-			return -1;
-
 		case 0:
 			return convert_yuv_image_yuv_option_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 0);
+
+#if RP_FULL_INLINE_CODE_OPT
+		default:
+			return -1;
 
 		case 1:
 			return convert_yuv_image_yuv_option_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 1);
@@ -558,32 +585,41 @@ static int convert_yuv_image_lq_g(
 
 		case 3:
 			return convert_yuv_image_yuv_option_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 3);
+#else
+		default:
+			return convert_yuv_image_ng(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+#endif
 	}
 }
 
-static int convert_yuv_image_format_g(
+static RP_ALWAYS_INLINE int convert_yuv_image_format_g(
 	int format, int width, int height, int pitch,
 	const u8 *restrict sp, u8 *restrict dp_y_out, u8 *restrict dp_u_out, u8 *restrict dp_v_out,
 	u8 *y_bpp, u8 *u_bpp, u8 *v_bpp, int yuv_option, int color_transform_hp, int lq
 ) {
 	switch (format) {
-		case 0:
-			return convert_yuv_image_lq_g(0, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
-
 		case 1:
 			return convert_yuv_image_lq_g(1, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
 
 		case 2:
 			return convert_yuv_image_lq_g(2, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
 
+#if RP_FULL_INLINE_CODE_OPT
+		default:
+			return -1;
+
+		case 0:
+			return convert_yuv_image_lq_g(0, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+
 		case 3:
 			return convert_yuv_image_yuv_option_g(3, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 0);
 
 		case 4:
 			return convert_yuv_image_yuv_option_g(4, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, 0);
-
+#else
 		default:
-			return -1;
+			return convert_yuv_image_ng(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
+#endif
 	}
 }
 
@@ -595,7 +631,7 @@ int convert_yuv_image(
 	return convert_yuv_image_format_g(format, width, height, pitch, sp, dp_y_out, dp_u_out, dp_v_out, y_bpp, u_bpp, v_bpp, yuv_option, color_transform_hp, lq);
 }
 
-static int downscale_image_g(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+static RP_ALWAYS_INLINE int downscale_image_g(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
 	ASSUME_ALIGN_4(ds_dst);
 	ASSUME_ALIGN_4(src);
 
@@ -646,7 +682,7 @@ static int downscale_image_g(u8 *restrict ds_dst, const u8 *restrict src, int wO
 	return 0;
 }
 
-static int downscale_image_unsigned_signed_g(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+static RP_ALWAYS_INLINE int downscale_image_unsigned_signed_g(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
 	switch (unsigned_signed) {
 		default:
 			return -1;
@@ -659,11 +695,11 @@ static int downscale_image_unsigned_signed_g(u8 *restrict ds_dst, const u8 *rest
 	}
 }
 
-int downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+int NO_INLINE downscale_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
 	return downscale_image_unsigned_signed_g(ds_dst, src, wOrig, hOrig, unsigned_signed);
 }
 
-static int downscale_3_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+static RP_ALWAYS_INLINE int downscale_3_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
 	ASSUME_ALIGN_4(ds_dst);
 	ASSUME_ALIGN_4(src);
 
@@ -726,7 +762,7 @@ static int downscale_3_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 	return 0;
 }
 
-static int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
+static RP_ALWAYS_INLINE int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int unsigned_signed) {
 	ASSUME_ALIGN_4(ds_dst);
 	ASSUME_ALIGN_4(src);
 
@@ -818,34 +854,26 @@ static int downscale_4_image(u8 *restrict ds_dst, const u8 *restrict src, int wO
 }
 
 int downscale_x_image(u8 *restrict ds_dst, const u8 *restrict src, int wOrig, int hOrig, int dsx, int unsigned_signed) {
-	if (unsigned_signed == 0) {
-		switch (dsx) {
-			default:
-				return -1;
+	switch (dsx) {
+		default:
+			return -1;
 
-			case 2:
-				return downscale_image_g(ds_dst, src, wOrig, hOrig, 0);
+		case 2:
+			return downscale_image(ds_dst, src, wOrig, hOrig, unsigned_signed);
 
-			case 3:
+		case 3:
+			if (unsigned_signed == 0) {
 				return downscale_3_image(ds_dst, src, wOrig, hOrig, 0);
-
-			case 4:
-				return downscale_4_image(ds_dst, src, wOrig, hOrig, 0);
-		}
-	} else {
-		switch (dsx) {
-			default:
-				return -1;
-
-			case 2:
-				return downscale_image_g(ds_dst, src, wOrig, hOrig, 1);
-
-			case 3:
+			} else {
 				return downscale_3_image(ds_dst, src, wOrig, hOrig, 1);
+			}
 
-			case 4:
+		case 4:
+			if (unsigned_signed == 0) {
+				return downscale_4_image(ds_dst, src, wOrig, hOrig, 0);
+			} else {
 				return downscale_4_image(ds_dst, src, wOrig, hOrig, 1);
-		}
+			}
 	}
 }
 

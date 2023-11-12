@@ -19,6 +19,13 @@
 #define RP_ENCODER_IMAGEZERO_ENABLE (0) // Likely broken
 #define RP_ENCODER_JPEG_TURBO_ENABLE (0) // Likely broken
 
+#define RP_FULL_INLINE_CODE_OPT (0)
+#if RP_FULL_INLINE_CODE_OPT
+#define RP_ALWAYS_INLINE
+#else
+#define RP_ALWAYS_INLINE ALWAYS_INLINE
+#endif
+
 #define RP_ME_ENABLE (0) // broken; not used
 #define RP_ENCODER_JLS_LUT_ENABLE (RP_ENCODER_FFMPEG_JLS_ENABLE || RP_ENCODER_HP_JLS_ENABLE)
 #define RP_FILTER_YUV_ENABLE (RP_ENCODER_FFMPEG_JLS_ENABLE || RP_ENCODER_HP_JLS_ENABLE || RP_ENCODER_ZSTD_ENABLE || RP_ENCODER_LZ4_ENABLE || RP_ENCODER_HUFF_ENABLE)
@@ -158,6 +165,7 @@ enum {
 #define UNUSED __attribute__((unused))
 #define FALLTHRU __attribute__((fallthrough));
 #define ALWAYS_INLINE __attribute__((always_inline)) inline
+#define NO_INLINE __attribute__ ((noinline))
 
 #define rshift_to_even(n, s) (((n) + ((s) > 1 ? (1 << ((s) - 1)) : 0)) >> (s))
 #define srshift_to_even(n, s) rshift_to_even(n, s)
