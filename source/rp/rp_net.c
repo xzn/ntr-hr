@@ -58,6 +58,8 @@ static int rpInitUDPPacket(int dataLen, u8 *sendBuf) {
 	return dataLen;
 }
 
+static u64 rp_udp_last_tick, rp_udp_min_send_interval_ticks;
+
 static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *user) {
 	struct rp_net_ctx_t *ctx = user;
 
@@ -71,6 +73,14 @@ static int rp_udp_output(const char *buf, int len, ikcpcb *kcp UNUSED, void *use
 
 	memcpy(dataBuf, buf, len);
 	int packetLen = rpInitUDPPacket(len, sendBuf);
+
+	u64 duration = 0;
+	u64 curr_tick = svc_getSystemTick(), tick_diff = curr_tick - rp_udp_last_tick;
+	if (tick_diff < rp_udp_min_send_interval_ticks)
+		duration = (rp_udp_min_send_interval_ticks - tick_diff) * 1000 / SYSTICK_PER_US;
+	rp_udp_last_tick = curr_tick;
+	if (duration)
+		svc_sleepThread(duration);
 
 	nwmSendPacket(sendBuf, packetLen);
 
@@ -273,6 +283,8 @@ void rpNetworkStateInit(struct rp_net_state_t *state, struct rp_net_ctx_t *ctx, 
 	state->last_tick = curr_tick;
 	state->desired_last_tick = curr_tick + min_send_interval_ticks;
 	state->net_ctx = ctx;
+
+	rp_udp_min_send_interval_ticks = min_send_interval_ticks * RP_BANDWIDTH_CONTROL_RATIO_NUM / RP_BANDWIDTH_CONTROL_RATIO_DENUM;
 }
 
 int rpNetworkTransfer(struct rp_net_state_t *state, int thread_n UNUSED, struct rp_conf_kcp_t *kcp_conf, struct rp_syn_comp_t *network_queue) {
