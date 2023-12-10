@@ -15,9 +15,9 @@
 #define RP_ENCODER_HP_JLS_ENABLE (0) // broken; not used
 #define RP_ENCODER_ZSTD_ENABLE (0) // Likely broken
 #define RP_ENCODER_LZ4_ENABLE (0) // Likely broken
-#define RP_ENCODER_HUFF_ENABLE (1)
+#define RP_ENCODER_HUFF_ENABLE (0)
 #define RP_ENCODER_IMAGEZERO_ENABLE (0) // Likely broken
-#define RP_ENCODER_JPEG_TURBO_ENABLE (0) // Likely broken
+#define RP_ENCODER_JPEG_TURBO_ENABLE (1)
 
 #define RP_FULL_INLINE_CODE_OPT (0)
 #if RP_FULL_INLINE_CODE_OPT

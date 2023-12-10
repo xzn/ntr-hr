@@ -592,7 +592,7 @@ int rpJLSEncodeImage_2(struct rp_jls_send_ctx_t *send_ctx,
 	const u8 *src, const u8 *src_2, int w, int h, int bpp, int bpp_2, u8 encoder_which
 ) {
 	if (encoder_which == RP_ENCODER_HUFF_JLS || !src_2) {
-		return rpJLSEncodeImage(send_ctx, params, jls_ctx, src, src_2, w, h, bpp, bpp_2, RP_ENCODER_HUFF_JLS);
+		return rpJLSEncodeImage(send_ctx, params, jls_ctx, src, src_2, w, h, bpp, bpp_2, encoder_which);
 	} else {
 		if (send_ctx->send_header->plane_type != RP_PLANE_TYPE_COLOR || send_ctx->send_header->plane_comp != RP_PLANE_COMP_UV)
 			return -1;
