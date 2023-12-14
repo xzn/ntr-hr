@@ -1,5 +1,5 @@
 /*
- * Copyright (C)2011, 2022 D. R. Commander.  All Rights Reserved.
+ * Copyright (C)2011, 2019 D. R. Commander.  All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -27,27 +27,45 @@
  */
 
 #ifdef _WIN32
-#ifndef strcasecmp
-#define strcasecmp  stricmp
-#endif
-#ifndef strncasecmp
-#define strncasecmp  strnicmp
-#endif
-#endif
 
-#ifdef _MSC_VER
-#define SNPRINTF(str, n, format, ...) \
-  _snprintf_s(str, n, _TRUNCATE, format, ##__VA_ARGS__)
+#include <windows.h>
+#include "tjutil.h"
+
+static double getFreq(void)
+{
+  LARGE_INTEGER freq;
+
+  if (!QueryPerformanceFrequency(&freq)) return 0.0;
+  return (double)freq.QuadPart;
+}
+
+static double f = -1.0;
+
+double getTime(void)
+{
+  LARGE_INTEGER t;
+
+  if (f < 0.0) f = getFreq();
+  if (f == 0.0) return (double)GetTickCount() / 1000.;
+  else {
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart / f;
+  }
+}
+
 #else
-#define SNPRINTF  snprintf
-#endif
 
-#ifndef min
-#define min(a, b)  ((a) < (b) ? (a) : (b))
-#endif
+#include <stdlib.h>
+#include <sys/time.h>
+#include "tjutil.h"
 
-#ifndef max
-#define max(a, b)  ((a) > (b) ? (a) : (b))
-#endif
+double getTime(void)
+{
+  // struct timeval tv;
 
-extern double getTime(void);
+  // if (gettimeofday(&tv, NULL) < 0) return 0.0;
+  // else return (double)tv.tv_sec + ((double)tv.tv_usec / 1000000.);
+  return 0;
+}
+
+#endif

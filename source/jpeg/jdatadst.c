@@ -35,10 +35,9 @@ typedef struct {
 
 typedef my_destination_mgr *my_dest_ptr;
 
-#define OUTPUT_BUF_SIZE  4096   /* choose an efficiently fwrite'able size */
+#define OUTPUT_BUF_SIZE  (1444 * 4)   /* choose an efficiently fwrite'able size */
 
 
-#if JPEG_LIB_VERSION >= 80 || defined(MEM_SRCDST_SUPPORTED)
 /* Expanded data destination object for memory output */
 
 typedef struct {
@@ -52,7 +51,6 @@ typedef struct {
 } my_mem_destination_mgr;
 
 typedef my_mem_destination_mgr *my_mem_dest_ptr;
-#endif
 
 
 /*
@@ -74,13 +72,11 @@ init_destination(j_compress_ptr cinfo)
   dest->pub.free_in_buffer = OUTPUT_BUF_SIZE;
 }
 
-#if JPEG_LIB_VERSION >= 80 || defined(MEM_SRCDST_SUPPORTED)
 METHODDEF(void)
 init_mem_destination(j_compress_ptr cinfo)
 {
   /* no work necessary here */
 }
-#endif
 
 
 /*
@@ -115,6 +111,7 @@ empty_output_buffer(j_compress_ptr cinfo)
   //     (size_t)OUTPUT_BUF_SIZE)
   //   ERREXIT(cinfo, JERR_FILE_WRITE);
 
+  // fwrite(dest->buffer, OUTPUT_BUF_SIZE);
   rpSendBuffer(dest->buffer, OUTPUT_BUF_SIZE, 0);
 
   dest->pub.next_output_byte = dest->buffer;
@@ -123,7 +120,6 @@ empty_output_buffer(j_compress_ptr cinfo)
   return TRUE;
 }
 
-#if JPEG_LIB_VERSION >= 80 || defined(MEM_SRCDST_SUPPORTED)
 METHODDEF(boolean)
 empty_mem_output_buffer(j_compress_ptr cinfo)
 {
@@ -152,7 +148,6 @@ empty_mem_output_buffer(j_compress_ptr cinfo)
 
   return TRUE;
 }
-#endif
 
 
 /*
@@ -171,23 +166,20 @@ term_destination(j_compress_ptr cinfo)
   size_t datacount = OUTPUT_BUF_SIZE - dest->pub.free_in_buffer;
 
   /* Write any data remaining in the buffer */
-  // if (datacount > 0) {
-  //   if (fwrite(dest->buffer, 1, datacount, dest->outfile) != datacount)
-  //     ERREXIT(cinfo, JERR_FILE_WRITE);
-  // }
+  if (datacount > 0) {
+    // if (fwrite(dest->buffer, 1, datacount, dest->outfile) != datacount)
+    // fwrite(dest->buffer, datacount);
+    rpSendBuffer(dest->buffer, datacount, 0x10);
+      // ERREXIT(cinfo, JERR_FILE_WRITE);
+  } else {
+    rpSendBuffer(dest->buffer, 1, 0x10);
+  }
   // fflush(dest->outfile);
   /* Make sure we wrote the output file OK */
   // if (ferror(dest->outfile))
   //   ERREXIT(cinfo, JERR_FILE_WRITE);
-
-  if (datacount > 0) {
-    rpSendBuffer(dest->buffer, datacount, 0x10);
-  } else {
-    rpSendBuffer(dest->buffer, 1, 0x10);
-  }
 }
 
-#if JPEG_LIB_VERSION >= 80 || defined(MEM_SRCDST_SUPPORTED)
 METHODDEF(void)
 term_mem_destination(j_compress_ptr cinfo)
 {
@@ -196,7 +188,6 @@ term_mem_destination(j_compress_ptr cinfo)
   *dest->outbuffer = dest->buffer;
   *dest->outsize = (unsigned long)(dest->bufsize - dest->pub.free_in_buffer);
 }
-#endif
 
 
 /*
@@ -235,7 +226,6 @@ jpeg_stdio_dest(j_compress_ptr cinfo, FILE *outfile)
 }
 
 
-#if JPEG_LIB_VERSION >= 80 || defined(MEM_SRCDST_SUPPORTED)
 /*
  * Prepare for output to a memory buffer.
  * The caller may supply an own initial buffer with appropriate size.
@@ -292,4 +282,3 @@ jpeg_mem_dest(j_compress_ptr cinfo, unsigned char **outbuffer,
   dest->pub.next_output_byte = dest->buffer = *outbuffer;
   dest->pub.free_in_buffer = dest->bufsize = *outsize;
 }
-#endif

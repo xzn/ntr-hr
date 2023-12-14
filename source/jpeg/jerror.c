@@ -3,8 +3,8 @@
  *
  * This file was part of the Independent JPEG Group's software:
  * Copyright (C) 1991-1998, Thomas G. Lane.
- * It was modified by The libjpeg-turbo Project to include only code relevant
- * to libjpeg-turbo.
+ * libjpeg-turbo Modifications:
+ * Copyright (C) 2022, D. R. Commander.
  * For conditions of distribution and use, see the accompanying README.ijg
  * file.
  *
@@ -51,6 +51,10 @@ const char * const jpeg_std_message_table[] = {
   NULL
 };
 
+#include "ctr/types.h"
+#include "ctr/svc.h"
+#include "sharedfunc.h"
+#include "xprintf.h"
 
 /*
  * Error exit handler: must not return to caller.
@@ -65,7 +69,7 @@ const char * const jpeg_std_message_table[] = {
  * or jpeg_destroy) at some point.
  */
 
-METHODDEF(void)
+__attribute__ ((noreturn)) METHODDEF(void)
 error_exit(j_common_ptr cinfo)
 {
   /* Always display the message */
@@ -75,6 +79,9 @@ error_exit(j_common_ptr cinfo)
   jpeg_destroy(cinfo);
 
   // exit(EXIT_FAILURE);
+  *((struct rp_jpeg_client_data_t *)(cinfo->client_data))->exit_thread = 1;
+  svc_exitThread();
+  __builtin_unreachable();
 }
 
 
@@ -109,7 +116,6 @@ output_message(j_common_ptr cinfo)
   /* Send it to stderr, adding a newline */
   // fprintf(stderr, "%s\n", buffer);
   nsDbgPrint("%s\n", buffer);
-  showDbg("%s\n", buffer, 0);
 #endif
 }
 
@@ -189,15 +195,18 @@ format_message(j_common_ptr cinfo, char *buffer)
     }
   }
 
+#undef SNPRINTF
+#define SNPRINTF(d, n, s, ...) xsprintf(d, s, __VA_ARGS__)
+
   /* Format the message into the passed buffer */
   if (isstring)
-    xsprintf(buffer, msgtext, err->msg_parm.s);
+    SNPRINTF(buffer, JMSG_LENGTH_MAX, msgtext, err->msg_parm.s);
   else
-    xsprintf(buffer, msgtext,
-            err->msg_parm.i[0], err->msg_parm.i[1],
-            err->msg_parm.i[2], err->msg_parm.i[3],
-            err->msg_parm.i[4], err->msg_parm.i[5],
-            err->msg_parm.i[6], err->msg_parm.i[7]);
+    SNPRINTF(buffer, JMSG_LENGTH_MAX, msgtext,
+             err->msg_parm.i[0], err->msg_parm.i[1],
+             err->msg_parm.i[2], err->msg_parm.i[3],
+             err->msg_parm.i[4], err->msg_parm.i[5],
+             err->msg_parm.i[6], err->msg_parm.i[7]);
 }
 
 
