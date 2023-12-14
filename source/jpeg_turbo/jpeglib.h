@@ -1207,9 +1207,9 @@ struct jpeg_color_quantizer { long dummy; };
 
 #include "3dstypes.h"
 
-int jpeg_turbo_write(j_common_ptr cinfo, const u8 *buf, u32 size);
-void *jpeg_turbo_malloc(j_common_ptr cinfo, size_t size);
-void jpeg_turbo_free(j_common_ptr cinfo, void *ptr);
+int jpeg_turbo_write(j_compress_ptr cinfo, const u8 *buf, u32 size);
+void *jpeg_turbo_malloc(j_compress_ptr cinfo, size_t size);
+void jpeg_turbo_free(j_compress_ptr cinfo, void *ptr);
 
 #ifdef __cplusplus
 #ifndef DONT_USE_EXTERN_C

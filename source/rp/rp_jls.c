@@ -138,7 +138,7 @@ static int rpJLSSendEncodedCallback_IZ(struct BitCoderPtrs *ctx) {
 	return 0;
 }
 
-static int rpJLSSendEncodedCallback_JT(j_common_ptr ctx) {
+static int rpJLSSendEncodedCallback_JT(j_compress_ptr ctx) {
 	struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)ctx->client_data;
 	struct rp_jls_send_ctx_t *sctx = cctx->user;
 	sctx->buffer_begin = cctx->dst;
@@ -679,25 +679,28 @@ void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUN
 	}
 }
 
-int jpeg_turbo_write(j_common_ptr cinfo, const u8 *buf, u32 size) {
+void jpeg_init_destination(j_compress_ptr cinfo);
+int jpeg_turbo_write(j_compress_ptr cinfo, const u8 *buf UNUSED, u32 size) {
 	struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)cinfo->client_data;
-	while (size) {
-		int write_size = RP_MIN((int)size, (int)(cctx->dst_end - cctx->dst));
-		if (!write_size) {
+	cctx->dst += size;
+	// while (size) {
+	// 	int write_size = RP_MIN((int)size, (int)(cctx->dst_end - cctx->dst));
+	// 	if (!write_size) {
 			int ret;
 			if ((ret = rpJLSSendEncodedCallback_JT(cinfo)))
 				return ret;
-			continue;
-		}
-		memcpy(cctx->dst, buf, write_size);
-		cctx->dst += write_size;
-		buf += write_size;
-		size -= write_size;
-	}
+			// continue;
+	// 	}
+	// 	memcpy(cctx->dst, buf, write_size);
+	// 	cctx->dst += write_size;
+	// 	buf += write_size;
+	// 	size -= write_size;
+	// }
+	jpeg_init_destination(cinfo);
 	return 0;
 }
 
-void *jpeg_turbo_malloc(j_common_ptr cinfo, size_t size) {
+void *jpeg_turbo_malloc(j_compress_ptr cinfo, size_t size) {
 	struct rp_jpeg_client_data_t *cctx = (struct rp_jpeg_client_data_t *)cinfo->client_data;
 	size = (size + 8 - 1) / 8 * 8;
 	u8 *ret = cctx->alloc;
@@ -710,7 +713,7 @@ void *jpeg_turbo_malloc(j_common_ptr cinfo, size_t size) {
 	return 0;
 }
 
-void jpeg_turbo_free(j_common_ptr cinfo UNUSED, void *ptr UNUSED) {
+void jpeg_turbo_free(j_compress_ptr cinfo UNUSED, void *ptr UNUSED) {
 }
 
 int huff_stats_init(struct rp_image_buffer_split_stats_t *stats, int downscale_uv) {

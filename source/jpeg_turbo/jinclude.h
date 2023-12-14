@@ -38,9 +38,9 @@
 // #include <stdio.h>
 #include <string.h>
 #define FILE void
-#define malloc(s) jpeg_turbo_malloc((j_common_ptr)cinfo, s)
-#define free(p) jpeg_turbo_free((j_common_ptr)cinfo, p)
-#define fwrite(b, s) jpeg_turbo_write((j_common_ptr)cinfo, b, s)
+#define malloc(s) jpeg_turbo_malloc((j_compress_ptr)cinfo, s)
+#define free(p) jpeg_turbo_free((j_compress_ptr)cinfo, p)
+#define fwrite(b, s) jpeg_turbo_write((j_compress_ptr)cinfo, b, s)
 
 /*
  * These macros/inline functions facilitate using Microsoft's "safe string"

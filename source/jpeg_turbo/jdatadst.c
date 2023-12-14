@@ -31,11 +31,13 @@ typedef struct {
 
   FILE *outfile;                /* target stream */
   JOCTET *buffer;               /* start of buffer */
+  size_t bufsize;
 } my_destination_mgr;
 
 typedef my_destination_mgr *my_dest_ptr;
 
-#define OUTPUT_BUF_SIZE  4096   /* choose an efficiently fwrite'able size */
+// #define OUTPUT_BUF_SIZE  4096   /* choose an efficiently fwrite'able size */
+#define OUTPUT_BUF_SIZE (((my_dest_ptr)cinfo->dest)->bufsize)
 
 
 /* Expanded data destination object for memory output */
@@ -62,14 +64,22 @@ METHODDEF(void)
 init_destination(j_compress_ptr cinfo)
 {
   my_dest_ptr dest = (my_dest_ptr)cinfo->dest;
+  struct rp_jpeg_client_data_t *client_data = (struct rp_jpeg_client_data_t *)cinfo->client_data;
 
   /* Allocate the output buffer --- it will be released when done with image */
-  dest->buffer = (JOCTET *)
-    (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
-                                OUTPUT_BUF_SIZE * sizeof(JOCTET));
+  // dest->buffer = (JOCTET *)
+  //   (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
+  //                               OUTPUT_BUF_SIZE * sizeof(JOCTET));
+  dest->buffer = client_data->dst;
+  dest->bufsize = client_data->dst_end - client_data->dst;
 
   dest->pub.next_output_byte = dest->buffer;
   dest->pub.free_in_buffer = OUTPUT_BUF_SIZE;
+}
+
+void jpeg_init_destination(j_compress_ptr cinfo)
+{
+  init_destination(cinfo);
 }
 
 METHODDEF(void)
