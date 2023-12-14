@@ -77,10 +77,7 @@ init_destination(j_compress_ptr cinfo)
   dest->pub.free_in_buffer = OUTPUT_BUF_SIZE;
 }
 
-void jpeg_init_destination(j_compress_ptr cinfo)
-{
-  init_destination(cinfo);
-}
+void jpeg_init_destination(j_compress_ptr cinfo) __attribute__((alias("init_destination")));
 
 METHODDEF(void)
 init_mem_destination(j_compress_ptr cinfo)
