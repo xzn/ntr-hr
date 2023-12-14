@@ -672,7 +672,7 @@ void jpeg_turbo_init_ctx(struct jpeg_compress_struct cinfo[RP_ENCODE_THREAD_COUN
 
 		cinfo[i].in_color_space = JCS_RGB;
 		jpeg_set_defaults(&cinfo[i]);
-		cinfo[i].dct_method = JDCT_FASTEST;
+		cinfo[i].dct_method = JDCT_IFAST;
 		cinfo[i].input_components = 3;
 
 		cinfo_user[i].alloc_begin = cinfo_user[i].alloc;
