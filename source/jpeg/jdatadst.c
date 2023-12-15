@@ -35,7 +35,8 @@ typedef struct {
 
 typedef my_destination_mgr *my_dest_ptr;
 
-#define OUTPUT_BUF_SIZE  (1444 * 4)   /* choose an efficiently fwrite'able size */
+/* (PACKET_SIZE - 4) */
+#define OUTPUT_BUF_SIZE  1444   /* choose an efficiently fwrite'able size */
 
 
 /* Expanded data destination object for memory output */
@@ -64,9 +65,10 @@ init_destination(j_compress_ptr cinfo)
   my_dest_ptr dest = (my_dest_ptr)cinfo->dest;
 
   /* Allocate the output buffer --- it will be released when done with image */
-  dest->buffer = (JOCTET *)
-    (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
-                                OUTPUT_BUF_SIZE * sizeof(JOCTET));
+  // dest->buffer = (JOCTET *)
+  //   (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
+  //                               OUTPUT_BUF_SIZE * sizeof(JOCTET));
+  dest->buffer = cinfo->client_data;
 
   dest->pub.next_output_byte = dest->buffer;
   dest->pub.free_in_buffer = OUTPUT_BUF_SIZE;
@@ -101,6 +103,9 @@ init_mem_destination(j_compress_ptr cinfo)
  * Data beyond this point will be regenerated after resumption, so do not
  * write it out when emptying the buffer externally.
  */
+
+EXTERN(void)
+rpSendBuffer(u8* buf, u32 size, u32 flag);
 
 METHODDEF(boolean)
 empty_output_buffer(j_compress_ptr cinfo)
@@ -172,7 +177,7 @@ term_destination(j_compress_ptr cinfo)
     rpSendBuffer(dest->buffer, datacount, 0x10);
       // ERREXIT(cinfo, JERR_FILE_WRITE);
   } else {
-    rpSendBuffer(dest->buffer, 1, 0x10);
+    rpSendBuffer(NULL, 0, 0x10);
   }
   // fflush(dest->outfile);
   /* Make sure we wrote the output file OK */

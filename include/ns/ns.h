@@ -160,8 +160,6 @@ void rtEnableHook(RT_HOOK* hook);
 void rtDisableHook(RT_HOOK* hook);
 void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr);
 
-void rpSendBuffer(u8* buf, u32 size, u32 flag);
-
 
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion);
 u32 rtGenerateJumpCode(u32 dst, u32* buf);

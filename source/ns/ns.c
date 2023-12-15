@@ -348,24 +348,21 @@ void rpSendBuffer(u8* buf, u32 size, u32 flag) {
 	}
 	vu64 tickDiff;
 	vu64 sleepValue;
-	while (size) {
+	{
 		tickDiff = svc_getSystemTick() - rpLastSendTick;
 		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
 			sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
 			svc_sleepThread(sleepValue);
 		}
-		u32 sendSize = size;
-		if (sendSize > (PACKET_SIZE - 4)) {
-			sendSize = (PACKET_SIZE - 4);
-		}
-		size -= sendSize;
-		if (size == 0) {
+		if (flag) {
 			dataBuf[1] |= flag;
 		}
-		memcpy(dataBuf + 4, buf, sendSize);
-		packetLen = initUDPPacket(sendSize + 4);
+		if (size == 0) {
+			dataBuf[4] = 0;
+			size = 1;
+		}
+		packetLen = initUDPPacket(size + 4);
 		nwmSendPacket(remotePlayBuffer, packetLen);
-		buf += sendSize;
 		dataBuf[3] += 1;
 		rpLastSendTick = svc_getSystemTick();
 	}
@@ -434,6 +431,7 @@ void rpInitJpegCompress() {
 #ifdef HAS_JPEG
 	cinfo.err = jpeg_std_error(&jerr);
 	jpeg_create_compress(&cinfo);
+	cinfo.client_data = dataBuf + 4;
 	jpeg_stdio_dest(&cinfo, 0);
 
 	cinfo.in_color_space = JCS_RGB;
@@ -497,6 +495,7 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 }
 
 
+#if 0
 int remotePlayBlit(BLIT_CONTEXT* ctx) {
 	int bpp = ctx->bpp;
 	int width = ctx->width;
@@ -548,6 +547,7 @@ int remotePlayBlit(BLIT_CONTEXT* ctx) {
 	}
 	return dp - dataBuf;
 }
+#endif
 
 
 void remotePlayKernelCallback() {
