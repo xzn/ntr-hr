@@ -90,9 +90,6 @@ obj/%.o: source/jpeg_ls/%.c
 obj/%.o: source/jpeg_turbo/%.c
 	$(RP_CC_CMD)
 
-obj/%.o: source/jpeg_turbo/%.c
-	$(RP_CC_CMD)
-
 obj/%.o: source/zstd/common/%.c
 	$(RP_CC_CMD)
 
