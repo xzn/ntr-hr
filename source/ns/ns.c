@@ -911,10 +911,15 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 		}
 		if (control) {
 			svc_sleepThread(1000000);
+			if (!--controlCount) {
+				nsDbgPrint("rpConfigLock wait timed out\n", 0, 0);
+				svc_closeHandle(hProcess);
+				return;
+			}
 		} else {
 			break;
 		}
-	} while (--controlCount);
+	} while (1);
 
 	RP_CONFIG rp = {
 		.currentMode = mode,
