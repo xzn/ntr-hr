@@ -44,9 +44,6 @@ int rpAllocDebug = 0;
 struct jpeg_compress_struct cinfo;
 struct jpeg_error_mgr jerr;
 
-#define rpCurrentMode (g_nsConfig->rp.currentMode)
-#define rpQuality (g_nsConfig->rp.quality)
-#define rpQosValueInBytes (g_nsConfig->rp.qosValueInBytes)
 u64 rpMinIntervalBetweenPacketsInTick = 0;
 
 #define SYSTICK_PER_US (268);
@@ -703,6 +700,11 @@ void rpCaptureScreen(int isTop) {
 
 
 void remotePlaySendFrames() {
+
+#define rpCurrentMode (g_nsConfig->rpConfig.currentMode)
+#define rpQuality (g_nsConfig->rpConfig.quality)
+#define rpQosValueInBytes (g_nsConfig->rpConfig.qosValueInBytes)
+
 	// rpCurrentMode = g_nsConfig->startupInfo[8];
 	// rpQuality = g_nsConfig->startupInfo[9];
 	// rpQosValueInBytes = g_nsConfig->startupInfo[10];
@@ -720,6 +722,11 @@ void remotePlaySendFrames() {
 		isPriorityTop = 0;
 	}
 	priorityFactor = factor;
+
+#undef rpCurrentMode
+#undef rpQuality
+#undef rpQosValueInBytes
+	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELEASE);
 
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
@@ -765,9 +772,8 @@ void remotePlaySendFrames() {
 			rpCompressAndSendPacket(&botContext);
 		}
 
-		if (g_nsConfig->rp.control) {
-			g_nsConfig->rp.control = 0;
-			svc_sleepThread(1000000000);
+		if (__atomic_load_n(&g_nsConfig->rpConfigLock, __ATOMIC_CONSUME)) {
+			// svc_sleepThread(1000000000);
 			break;
 		}
 	}
@@ -890,16 +896,35 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 		return;
 	}
 
+	u32 control, controlCount = 1000;
+	do {
+		ret = copyRemoteMemory(
+			0xffff8001,
+			&control,
+			hProcess,
+			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfigLock),
+			sizeof(control));
+		if (ret != 0) {
+			nsDbgPrint("copyRemoteMemory (0) failed: %08x\n", ret, 0);
+			svc_closeHandle(hProcess);
+			return;
+		}
+		if (control) {
+			svc_sleepThread(1000000);
+		} else {
+			break;
+		}
+	} while (--controlCount);
+
 	RP_CONFIG rp = {
 		.currentMode = mode,
 		.quality = quality,
 		.qosValueInBytes = qos,
-		.control = 0
 	};
 
 	ret = copyRemoteMemory(
 		hProcess,
-		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rp),
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig),
 		0xffff8001,
 		&rp,
 		sizeof(rp));
@@ -909,10 +934,10 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 		return;
 	}
 
-	u32 control = 1;
+	control = 1;
 	ret = copyRemoteMemory(
 		hProcess,
-		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rp) + offsetof(RP_CONFIG, control),
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfigLock),
 		0xffff8001,
 		&control,
 		sizeof(control));
@@ -953,9 +978,9 @@ int nsHandleRemotePlay() {
 	// cfg.startupInfo[8] = mode;
 	// cfg.startupInfo[9] = quality;
 	// cfg.startupInfo[10] = qosValue;
-	cfg.rp.currentMode = mode;
-	cfg.rp.quality = quality;
-	cfg.rp.qosValueInBytes = qosValue;
+	cfg.rpConfig.currentMode = mode;
+	cfg.rpConfig.quality = quality;
+	cfg.rpConfig.qosValueInBytes = qosValue;
 	ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
