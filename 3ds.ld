@@ -8,7 +8,7 @@ SECTIONS
 . = ALIGN(4);
 .text : {
 	__text_start = .;  	
-	bootloader.o (.text*)
+	obj/bootloader.o (.text*)
 	*(.text*)
 }
 . = ALIGN(CONSTANT(COMMONPAGESIZE));

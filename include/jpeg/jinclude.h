@@ -45,6 +45,8 @@
 #else
 #define malloc rpMalloc
 #define free rpFree
+void *rpMalloc(size_t size);
+void rpFree(void* ptr);
 #endif
 
 /*
