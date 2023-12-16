@@ -309,6 +309,7 @@ struct rp_jpeg_client_data_t {
 #define jpeg_common_fields \
   struct jpeg_error_mgr *err;   /* Error handler module */ \
   struct jpeg_memory_mgr *mem;  /* Memory manager module */ \
+  boolean mem_pool_manual; \
   struct jpeg_progress_mgr *progress; /* Progress monitor, or NULL if none */ \
   void *client_data;            /* Available for use by application */ \
   boolean is_decompressor;      /* So common code can tell which is which */ \
@@ -506,6 +507,7 @@ struct jpeg_compress_struct {
   struct jpeg_entropy_encoder *entropy;
   jpeg_scan_info *script_space; /* workspace for jpeg_simple_progression */
   int script_space_size;
+  boolean fdct_reuse;
 };
 
 

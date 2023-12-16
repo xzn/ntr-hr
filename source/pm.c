@@ -165,7 +165,7 @@ u32 getProcessTIDByHandle(u32 hProcess, u32 tid[]) {
 }
 
 
-u32 getProcessInfo(u32 pid, u8* pname, u32 tid[], u32* kpobj) {
+u32 getProcessInfo(u32 pid, u8* pname, u32 pname_size, u32 tid[], u32* kpobj) {
 	u8 bufKProcess[0x100], bufKCodeSet[0x100];
 	u32 hProcess, pKCodeSet, pKProcess, ret;
 	u8 buf[300];
@@ -174,7 +174,7 @@ u32 getProcessInfo(u32 pid, u8* pname, u32 tid[], u32* kpobj) {
 	ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
-		goto final;
+		return ret;
 	}
 
 	pKProcess = kGetKProcessByHandle(hProcess);
@@ -186,7 +186,8 @@ u32 getProcessInfo(u32 pid, u8* pname, u32 tid[], u32* kpobj) {
 	u32* pTid = (u32*)(&bufKCodeSet[0x5c]);
 	tid[0] = pTid[0];
 	tid[1] = pTid[1];
-	strcpy(pname, pProcessName);
+	strncpy(pname, pProcessName, pname_size - 1);
+	pname[pname_size - 1] = 0;
 	*kpobj = pKProcess;
 
 	final:
@@ -419,10 +420,13 @@ void processManager() {
 			dumpRemoteProcess(pids[r], pidbuf, startAddr);
 		}
 		if (act == 1) {
-			pname[10] = 0;
-			getProcessInfo(pids[r], pname, tid, &t);
-			showDbg("pname: %s", (u32)pname, 0);
-			showDbg("tid: %08x%08x", tid[1], tid[0]);
+			ret = getProcessInfo(pids[r], pname, sizeof(pname), tid, &t);
+			if (ret == 0) {
+				showDbg("pname: %s", (u32)pname, 0);
+				showDbg("tid: %08x%08x", tid[1], tid[0]);
+			} else {
+				showDbg("getProcessInfo error: %d", ret, 0);
+			}
 		}
 	}
 

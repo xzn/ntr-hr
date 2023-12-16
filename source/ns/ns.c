@@ -39,6 +39,10 @@ void tje_log(char* str) {
 u8* rpAllocBuff = 0;
 u32 rpAllocBuffOffset = 0;
 u32 rpAllocBuffRemainSize = 0;
+
+u32 rpAllocBuffOffset_start_pass = 0;
+u32 rpAllocBuffRemainSize_start_pass = 0;
+
 int rpAllocDebug = 0;
 
 struct jpeg_compress_struct cinfo;
@@ -56,8 +60,8 @@ void*  rpMalloc( u32 size)
 {
 	void* ret = rpAllocBuff + rpAllocBuffOffset;
 	u32 totalSize = size;
-	if (totalSize % 32 != 0) {
-		totalSize += 32 - (totalSize % 32);
+	if (totalSize % 4 != 0) {
+		totalSize += 4 - (totalSize % 4);
 	}
 	if (rpAllocBuffRemainSize < totalSize) {
 		nsDbgPrint("bad alloc,  size: %d\n", size);
@@ -68,11 +72,11 @@ void*  rpMalloc( u32 size)
 	}
 	rpAllocBuffOffset += totalSize;
 	rpAllocBuffRemainSize -= totalSize;
-	memset(ret, 0, totalSize);
-	nsDbgPrint("alloc size: %d, ptr: %08x\n", size, ret);
-	if (rpAllocDebug) {
-		showDbg("alloc size: %d, ptr: %08x\n", size, ret);
-	}
+	// memset(ret, 0, totalSize);
+	// nsDbgPrint("alloc size: %d, ptr: %08x\n", size, ret);
+	// if (rpAllocDebug) {
+	// 	showDbg("alloc size: %d, ptr: %08x\n", size, ret);
+	// }
 	return ret;
 }
 
@@ -121,7 +125,10 @@ int nsSendPacketHeader() {
 
 int nsSendPacketData(u8* buf, u32 size) {
 	if (g_nsCtx->remainDataLen < size) {
-		showDbg("send remain < size: %08x, %08x", g_nsCtx->remainDataLen, size);
+		if (buf != g_nsConfig->debugBuf) /* avoid dead-lock */
+			showDbg("send remain < size: %08x, %08x", g_nsCtx->remainDataLen, size);
+		else
+			showMsg("send remain < size");
 		return -1;
 	}
 	g_nsCtx->remainDataLen -= size;
@@ -134,7 +141,7 @@ int nsRecvPacketData(u8* buf, u32 size) {
 		return -1;
 	}
 	g_nsCtx->remainDataLen -= size;
-	rtRecvSocket(g_nsCtx->hSocket, buf, size);
+	return rtRecvSocket(g_nsCtx->hSocket, buf, size);
 }
 
 extern u8 *image_buf;
@@ -430,8 +437,9 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 void rpInitJpegCompress() {
 #ifdef HAS_JPEG
 	cinfo.err = jpeg_std_error(&jerr);
-	jpeg_create_compress(&cinfo);
+	cinfo.mem_pool_manual = TRUE;
 	cinfo.client_data = dataBuf + 4;
+	jpeg_create_compress(&cinfo);
 	jpeg_stdio_dest(&cinfo, 0);
 
 	cinfo.in_color_space = JCS_RGB;
@@ -473,11 +481,29 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 		}
 	}
 
+	u32 bakAllocOffset;
+	u32 bakAllocRemainSize;
 
-	u32 bakAllocOffset = rpAllocBuffOffset;
-	u32 bakAllocRemainSize = rpAllocBuffRemainSize;
+	if (!cinfo.fdct_reuse) {
+		if (!rpAllocBuffOffset_start_pass) {
+			rpAllocBuffOffset_start_pass = rpAllocBuffOffset;
+			rpAllocBuffRemainSize_start_pass = rpAllocBuffRemainSize;
+		} else {
+			rpAllocBuffOffset = rpAllocBuffOffset_start_pass;
+			rpAllocBuffRemainSize = rpAllocBuffRemainSize_start_pass;
+		}
 
-	jpeg_start_compress(&cinfo, TRUE);
+		jpeg_start_compress(&cinfo, TRUE);
+		cinfo.fdct_reuse = TRUE;
+
+		bakAllocOffset = rpAllocBuffOffset;
+		bakAllocRemainSize = rpAllocBuffRemainSize;
+	} else {
+		bakAllocOffset = rpAllocBuffOffset;
+		bakAllocRemainSize = rpAllocBuffRemainSize;
+
+		jpeg_start_compress(&cinfo, TRUE);
+	}
 
 	for (i = 0; i < cinfo.image_height; i++) {
 		row_pointer[i] = &(srcBuff[i * row_stride]);
@@ -713,6 +739,7 @@ void remotePlaySendFrames() {
 	}
 	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpQosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
 	jpeg_set_quality(&cinfo, rpQuality, TRUE);
+	cinfo.fdct_reuse = FALSE;
 
 	u32 isPriorityTop = 1;
 	u32 priorityFactor = 0;
@@ -800,7 +827,7 @@ void remotePlayThreadStart() {
 		goto final;
 	}
 	rpInitDmaHome();
-	kRemotePlayCallback();
+	// kRemotePlayCallback();
 	while (1) {
 		remotePlaySendFrames();
 	}
@@ -829,6 +856,7 @@ int nwmValParamCallback(u8* buf, int buflen) {
 	if (buf[0x17 + 0x8] == 6) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
 			remotePlayInited = 1;
+			rtDisableHook(&nwmValParamHook);
 			memcpy(remotePlayBuffer, buf, 0x22 + 8);
 			packetLen = initUDPPacket(PACKET_SIZE);
 			threadStack = plgRequestMemory(stackSize);
@@ -892,7 +920,6 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 	int ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
-		hProcess = 0;
 		return;
 	}
 
@@ -910,12 +937,12 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 			return;
 		}
 		if (control) {
-			svc_sleepThread(1000000);
 			if (!--controlCount) {
 				nsDbgPrint("rpConfigLock wait timed out\n", 0, 0);
 				svc_closeHandle(hProcess);
 				return;
 			}
+			svc_sleepThread(1000000);
 		} else {
 			break;
 		}
@@ -953,7 +980,7 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 	svc_closeHandle(hProcess);
 }
 
-int nsHandleRemotePlay() {
+void nsHandleRemotePlay(void) {
 
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
 	u32 mode = pac->args[0];
@@ -962,13 +989,13 @@ int nsHandleRemotePlay() {
 
 	if (!((quality >= 10) && (quality <= 100))) {
 		nsDbgPrint("illegal quality\n");
-		goto final;
+		return;
 	}
 
 	if (nsIsRemotePlayStarted) {
 		nsDbgPrint("remote play already started, updating params\n");
 		nsRemotePlayControl(mode, quality, qosValue);
-		goto final;
+		return;
 	}
 	nsIsRemotePlayStarted = 1;
 
@@ -1044,7 +1071,10 @@ void nsHandleSaveFile() {
 	u32 ret, hFile;
 	u32 off = 0, tmp;
 
-	nsRecvPacketData(buf, 0x200);
+	if ((ret = nsRecvPacketData(buf, 0x200)) < 0) {
+		nsDbgPrint("nsHandleSaveFile nsRecvPacketData path error: %d\n", ret);
+		return;
+	}
 	buf[0x200] = 0;
 	remain -= 0x200;
 
@@ -1060,7 +1090,11 @@ void nsHandleSaveFile() {
 		if (t > remain) {
 			t = remain;
 		}
-		nsRecvPacketData(g_nsCtx->gBuff, t);
+		if ((ret = nsRecvPacketData(g_nsCtx->gBuff, t)) < 0) {
+			svc_closeHandle(hFile);
+			nsDbgPrint("nsHandleSaveFile nsRecvPacketData data error: %d\n", ret);
+			return;
+		}
 		FSFILE_Write(hFile, &tmp, off, (u32*)g_nsCtx->gBuff, t, 0);
 
 		remain -= t;
@@ -1337,7 +1371,7 @@ void nsHandleListProcess() {
 	}
 	for (i = 0; i < pidCount; i++) {
 
-		ret = getProcessInfo(pids[i], pname, tid, &kpobj);
+		ret = getProcessInfo(pids[i], pname, sizeof(pname), tid, &kpobj);
 		if (ret != 0) {
 			nsDbgPrint("getProcessInfo failed: %08x\n", ret);
 		}
@@ -1365,6 +1399,9 @@ void printMemLayout(Handle hProcess, u32 base, u32 limit) {
 void nsHandleMemLayout() {
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
 	u32 pid = pac->args[0];
+	/* changing permissions for memory in pid 0 seems to crash 3DS and cause data corruption */
+	if (pid == 0)
+		return;
 	u32 isLastValid = 0, lastAddr = 0;
 	u32 isValid;
 	u32 base = 0x00100000;
@@ -1584,7 +1621,7 @@ void nsHandleListThread() {
 	ret = svc_getThreadList(&tidCount, tids, 100, hProcess);
 	if (ret != 0) {
 		nsDbgPrint("getThreadList failed: %08x\n", ret);
-		return;
+		goto final;
 	}
 	for (i = 0; i < tidCount; i++) {
 		u32 tid = tids[i];
@@ -1597,7 +1634,7 @@ void nsHandleListThread() {
 			nsDbgPrint("%08x ", ctx[j]);
 		}
 		nsDbgPrint("\n");
-		svc_closeHandle(hThread);
+		// svc_closeHandle(hThread);
 
 	}
 	nsGetPCToAttachProcess(hProcess);
@@ -1832,8 +1869,11 @@ void nsHandlePacket() {
 		nsHandleQueryHandle();
 		return;
 	}
+
 	if (pac->cmd == NS_CMD_REMOTEPLAY) {
-		nsHandleRemotePlay();
+		if (g_nsCtx->listenPort == 8000) {
+			nsHandleRemotePlay();
+		}
 		return;
 	}
 }
@@ -1897,6 +1937,7 @@ void nsMainLoop() {
 			}
 			nsUpdateDebugStatus();
 			nsHandlePacket();
+			pac->magic = 0;
 		}
 		closesocket(sockfd);
 	}

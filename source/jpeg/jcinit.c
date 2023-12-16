@@ -97,6 +97,7 @@ jinit_compress_master(j_compress_ptr cinfo)
     // if (cinfo->data_precision == 12)
     //   j12init_forward_dct(cinfo);
     // else
+    if (!cinfo->fdct_reuse)
       jinit_forward_dct(cinfo);
     /* Entropy encoding: either Huffman or arithmetic coding. */
     if (cinfo->arith_code) {

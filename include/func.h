@@ -13,7 +13,7 @@ void processManager() ;
 u32 protectMemory(void* addr, u32 size);
 u32 protectRemoteMemory(Handle hProcess, void* addr, u32 size);
 u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 size);
-u32 getProcessInfo(u32 pid, u8* pname, u32 tid[], u32* kpobj);
+u32 getProcessInfo(u32 pid, u8* pname, u32 pname_size, u32 tid[], u32* kpobj);
 u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size);
 u32 controlMemoryInSysRegion(u32* outAddr, u32 addr0, u32 addr1, u32 size, u32 op, u32 perm);
 u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size);

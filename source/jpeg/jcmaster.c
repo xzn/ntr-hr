@@ -475,7 +475,8 @@ prepare_for_pass(j_compress_ptr cinfo)
       (*cinfo->downsample->start_pass) (cinfo);
       (*cinfo->prep->start_pass) (cinfo, JBUF_PASS_THRU);
     }
-    (*cinfo->fdct->start_pass) (cinfo);
+    if (!cinfo->fdct_reuse)
+      (*cinfo->fdct->start_pass) (cinfo);
     (*cinfo->entropy->start_pass) (cinfo, cinfo->optimize_coding);
     (*cinfo->coef->start_pass) (cinfo,
                                 (master->total_passes > 1 ?

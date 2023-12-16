@@ -266,6 +266,10 @@ METHODDEF(void *)
 alloc_small(j_common_ptr cinfo, int pool_id, size_t sizeofobject)
 /* Allocate a "small" object */
 {
+  if (cinfo->mem_pool_manual) {
+    return jpeg_get_small(cinfo, sizeofobject);
+  }
+
   my_mem_ptr mem = (my_mem_ptr)cinfo->mem;
   small_pool_ptr hdr_ptr, prev_hdr_ptr;
   char *data_ptr;
@@ -363,6 +367,10 @@ METHODDEF(void *)
 alloc_large(j_common_ptr cinfo, int pool_id, size_t sizeofobject)
 /* Allocate a "large" object */
 {
+  if (cinfo->mem_pool_manual) {
+    return jpeg_get_large(cinfo, sizeofobject);
+  }
+
   my_mem_ptr mem = (my_mem_ptr)cinfo->mem;
   large_pool_ptr hdr_ptr;
   char *data_ptr;
@@ -1128,6 +1136,10 @@ free_pool(j_common_ptr cinfo, int pool_id)
       }
     }
     mem->virt_barray_list = NULL;
+  }
+
+  if (cinfo->mem_pool_manual) {
+    return;
   }
 
   /* Release large objects */

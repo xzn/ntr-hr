@@ -53,6 +53,7 @@ const char * const jpeg_std_message_table[] = {
 
 #include "ctr/types.h"
 #include "ctr/svc.h"
+extern void setExitFlag();
 #include "sharedfunc.h"
 #include "xprintf.h"
 
@@ -79,7 +80,8 @@ error_exit(j_common_ptr cinfo)
   jpeg_destroy(cinfo);
 
   // exit(EXIT_FAILURE);
-  *((struct rp_jpeg_client_data_t *)(cinfo->client_data))->exit_thread = 1;
+  // *((struct rp_jpeg_client_data_t *)(cinfo->client_data))->exit_thread = 1;
+  setExitFlag();
   svc_exitThread();
   __builtin_unreachable();
 }
