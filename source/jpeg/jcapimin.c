@@ -54,7 +54,10 @@ jpeg_CreateCompress(j_compress_ptr cinfo, int version, size_t structsize)
     struct jpeg_error_mgr *err = cinfo->err;
     boolean mem_pool_manual = cinfo->mem_pool_manual;
     void *client_data = cinfo->client_data; /* ignore Purify complaint here */
+    struct rp_alloc_state alloc;
+    memcpy(&alloc, &cinfo->alloc, sizeof(struct rp_alloc_state));
     memset(cinfo, 0, sizeof(struct jpeg_compress_struct));
+    memcpy(&cinfo->alloc, &alloc, sizeof(struct rp_alloc_state));
     cinfo->err = err;
     cinfo->client_data = client_data;
     cinfo->mem_pool_manual = mem_pool_manual;

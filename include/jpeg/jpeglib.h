@@ -298,18 +298,21 @@ typedef enum {
 
 /* Common fields between JPEG compression and decompression master structs. */
 
-struct rp_jls_send_ctx_t;
-struct rp_jpeg_client_data_t {
-  volatile uint8_t *exit_thread;
-  uint8_t *dst, *dst_end;
-  struct rp_jls_send_ctx_t *user;
-  uint8_t *alloc_begin, *alloc, *alloc_end;
+struct rp_alloc_stats {
+  uint32_t offset;
+  uint32_t remaining;
+};
+
+struct rp_alloc_state {
+  uint8_t* buf;
+  struct rp_alloc_stats stats;
 };
 
 #define jpeg_common_fields \
   struct jpeg_error_mgr *err;   /* Error handler module */ \
   struct jpeg_memory_mgr *mem;  /* Memory manager module */ \
   boolean mem_pool_manual; \
+  struct rp_alloc_state alloc; \
   struct jpeg_progress_mgr *progress; /* Progress monitor, or NULL if none */ \
   void *client_data;            /* Available for use by application */ \
   boolean is_decompressor;      /* So common code can tell which is which */ \
@@ -330,7 +333,6 @@ struct jpeg_common_struct {
 typedef struct jpeg_common_struct *j_common_ptr;
 typedef struct jpeg_compress_struct *j_compress_ptr;
 typedef struct jpeg_decompress_struct *j_decompress_ptr;
-
 
 /* Master record for a compression instance */
 

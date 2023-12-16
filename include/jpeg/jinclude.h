@@ -43,10 +43,11 @@
 #define free(p) jpeg_turbo_free((j_common_ptr)cinfo, p)
 #define fwrite(b, s) jpeg_turbo_write((j_common_ptr)cinfo, b, s)
 #else
-#define malloc rpMalloc
-#define free rpFree
-void *rpMalloc(size_t size);
-void rpFree(void* ptr);
+typedef struct jpeg_common_struct *j_common_ptr;
+#define malloc(s) rpMalloc((j_common_ptr)cinfo, s)
+#define free(p) rpFree((j_common_ptr)cinfo, p)
+void *rpMalloc(j_common_ptr cinfo, size_t size);
+void rpFree(j_common_ptr cinfo, void* ptr);
 #endif
 
 /*

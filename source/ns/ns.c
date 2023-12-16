@@ -37,12 +37,6 @@ void tje_log(char* str) {
 #define RP_MODE_BOT_ONLY 6
 #define RP_MODE_3D 10
 
-u8* rpAllocBuff = 0;
-struct {
-	u32 Offset;
-	u32 RemainSize;
-} rpAllocStats, rpAllocStats_Qual, rpAllocStats_Comps, rpAllocStats_Scan;
-
 int rpAllocDebug = 0;
 
 struct jpeg_compress_struct cinfo_top, cinfo_bot;
@@ -55,23 +49,25 @@ u64 rpMinIntervalBetweenPacketsInTick = 0;
 
 
 
-void*  rpMalloc( u32 size)
+void*  rpMalloc(j_common_ptr cinfo, u32 size)
 
 {
-	void* ret = rpAllocBuff + rpAllocStats.Offset;
+	void* ret = cinfo->alloc.buf + cinfo->alloc.stats.offset;
 	u32 totalSize = size;
-	if (totalSize % 4 != 0) {
-		totalSize += 4 - (totalSize % 4);
+	/* min align is 4
+	   32 for cache line size */
+	if (totalSize % 32 != 0) {
+		totalSize += 32 - (totalSize % 32);
 	}
-	if (rpAllocStats.RemainSize < totalSize) {
+	if (cinfo->alloc.stats.remaining < totalSize) {
 		nsDbgPrint("bad alloc,  size: %d\n", size);
 		if (rpAllocDebug) {
 			showDbg("bad alloc,  size: %d\n", size, 0);
 		}
 		return 0;
 	}
-	rpAllocStats.Offset += totalSize;
-	rpAllocStats.RemainSize -= totalSize;
+	cinfo->alloc.stats.offset += totalSize;
+	cinfo->alloc.stats.remaining -= totalSize;
 	// memset(ret, 0, totalSize);
 	// nsDbgPrint("alloc size: %d, ptr: %08x\n", size, ret);
 	// if (rpAllocDebug) {
@@ -80,7 +76,7 @@ void*  rpMalloc( u32 size)
 	return ret;
 }
 
-void  rpFree(void* ptr)
+void  rpFree(j_common_ptr cinfo, void* ptr)
 {
 	nsDbgPrint("free: %08x\n", ptr);
 	return;
@@ -304,6 +300,9 @@ typedef struct _BLIT_CONTEXT {
 
 	int directCompress;
 	j_compress_ptr cinfo;
+	struct rp_alloc_stats_check {
+		struct rp_alloc_stats qual, comp, scan;
+	} alloc_check;
 } BLIT_CONTEXT;
 
 
@@ -323,8 +322,8 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 	ctx->blankInColumn = src_pitch - ctx->bytesInColumn;
 	if (ctx->format != format) {
 		if (ctx->cinfo->global_state != JPEG_CSTATE_START) {
-			memcpy(&rpAllocStats, &rpAllocStats_Comps, sizeof(rpAllocStats));
-			cinfo_bot.global_state = cinfo_top.global_state = JPEG_CSTATE_START;
+			memcpy(&ctx->cinfo->alloc.stats, &ctx->alloc_check.comp, sizeof(struct rp_alloc_state));
+			ctx->cinfo->global_state = JPEG_CSTATE_START;
 		}
 	}
 	ctx->format = format;
@@ -429,11 +428,19 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 
 
 
-void rpInitJpegCompress() {
+int rpInitJpegCompress() {
 	j_compress_ptr cinfos[] = {&cinfo_top, &cinfo_bot};
 
 	for (int i = 0; i < sizeof(cinfos) / sizeof(*cinfos); ++i) {
 		j_compress_ptr cinfo = cinfos[i];
+
+		cinfo->alloc.buf = plgRequestMemorySpecifyRegion(0x00100000, 1);
+		if (cinfo->alloc.buf) {
+			cinfo->alloc.stats.offset = 0;
+			cinfo->alloc.stats.remaining = 0x00100000;
+		} else {
+			return -1;
+		}
 
 		cinfo->err = jpeg_std_error(&jerr);
 		cinfo->mem_pool_manual = TRUE;
@@ -453,6 +460,8 @@ void rpInitJpegCompress() {
 		cinfo_bot.dc_huff_tbl_ptrs[i] = cinfo_top.dc_huff_tbl_ptrs[i];
 		cinfo_bot.ac_huff_tbl_ptrs[i] = cinfo_top.ac_huff_tbl_ptrs[i];
 	}
+
+	return 0;
 }
 
 void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
@@ -502,7 +511,7 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 		cinfo->next_scanline = 0;
 	}
 
-	memcpy(&rpAllocStats_Scan, &rpAllocStats, sizeof(rpAllocStats));
+	memcpy(&ctx->alloc_check.scan, &cinfo->alloc.stats, sizeof(struct rp_alloc_state));
 
 	jpeg_write_file_header(cinfo);
 	jpeg_write_frame_header(cinfo);
@@ -537,7 +546,7 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	jpeg_write_file_trailer(cinfo);
 	jpeg_term_destination(cinfo);
 
-	memcpy(&rpAllocStats, &rpAllocStats_Scan, sizeof(rpAllocStats));
+	memcpy(&cinfo->alloc.stats, &ctx->alloc_check.scan, sizeof(struct rp_alloc_state));
 }
 
 
@@ -746,6 +755,7 @@ void rpCaptureScreen(int isTop) {
 
 
 void remotePlaySendFrames() {
+	BLIT_CONTEXT topContext = { .cinfo = &cinfo_top }, botContext = { .cinfo = &cinfo_bot };
 
 #define rpCurrentMode (g_nsConfig->rpConfig.currentMode)
 #define rpQuality (g_nsConfig->rpConfig.quality)
@@ -764,10 +774,14 @@ void remotePlaySendFrames() {
 	for (int i = 0; i < NUM_QUANT_TBLS; ++i)
 		cinfo_bot.quant_tbl_ptrs[i] = cinfo_top.quant_tbl_ptrs[i];
 
-	if (!rpAllocStats_Qual.Offset) {
-		memcpy(&rpAllocStats_Qual, &rpAllocStats, sizeof(rpAllocStats));
-	} else {
-		memcpy(&rpAllocStats, &rpAllocStats_Qual, sizeof(rpAllocStats));
+	BLIT_CONTEXT *ctxs[] = {&topContext, &botContext};
+
+	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i) {
+		if (!ctxs[i]->alloc_check.qual.offset) {
+			memcpy(&ctxs[i]->alloc_check.qual, &ctxs[i]->cinfo->alloc.stats, sizeof(struct rp_alloc_state));
+		} else {
+			memcpy(&ctxs[i]->cinfo->alloc.stats, &ctxs[i]->alloc_check.qual, sizeof(struct rp_alloc_state));
+		}
 	}
 
 	jpeg_jinit_forward_dct(&cinfo_top);
@@ -787,7 +801,18 @@ void remotePlaySendFrames() {
 	}
 	priorityFactor = factor;
 
-	memcpy(&rpAllocStats_Comps, &rpAllocStats, sizeof(rpAllocStats));
+	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i)
+		memcpy(&ctxs[i]->alloc_check.comp, &ctxs[i]->cinfo->alloc.stats, sizeof(struct rp_alloc_state));
+
+	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i) {
+		ctxs[i]->cinfo->image_width = 240;
+		ctxs[i]->cinfo->image_height = i == 0 ? 400 : 320;
+		ctxs[i]->cinfo->input_components = 3;
+		ctxs[i]->cinfo->in_color_space = JCS_RGB;
+
+		jpeg_start_compress(ctxs[i]->cinfo, TRUE); /* alloc buffers */
+		ctxs[i]->cinfo->global_state == JPEG_CSTATE_START;
+	};
 
 #undef rpCurrentMode
 #undef rpQuality
@@ -797,7 +822,6 @@ void remotePlaySendFrames() {
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
 	u8 cnt;
-	BLIT_CONTEXT topContext = { .cinfo = &cinfo_top }, botContext = { .cinfo = &cinfo_bot };
 
 	while (1) {
 		currentUpdating = isPriorityTop;
@@ -848,17 +872,9 @@ void remotePlayThreadStart() {
 
 	imgBuffer = plgRequestMemorySpecifyRegion(0x00200000, 1);
 
-	rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
-	if (rpAllocBuff) {
-		rpAllocStats.Offset = 0;
-		rpAllocStats.RemainSize = 0x00100000;
-
-		memset(&rpAllocStats_Qual, 0, sizeof(rpAllocStats_Qual));
-	}
-	else {
+	if (rpInitJpegCompress() != 0) {
 		goto final;
 	}
-	rpInitJpegCompress();
 
 	nsDbgPrint("imgBuffer: %08x\n", imgBuffer);
 	if (!imgBuffer) {
