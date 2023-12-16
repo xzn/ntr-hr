@@ -471,7 +471,8 @@ prepare_for_pass(j_compress_ptr cinfo)
     select_scan_parameters(cinfo);
     per_scan_setup(cinfo);
     if (!cinfo->raw_data_in) {
-      (*cinfo->cconvert->start_pass) (cinfo);
+      if (!cinfo->color_reuse)
+        (*cinfo->cconvert->start_pass) (cinfo);
       (*cinfo->downsample->start_pass) (cinfo);
       (*cinfo->prep->start_pass) (cinfo, JBUF_PASS_THRU);
     }
@@ -519,9 +520,11 @@ prepare_for_pass(j_compress_ptr cinfo)
     (*cinfo->entropy->start_pass) (cinfo, FALSE);
     (*cinfo->coef->start_pass) (cinfo, JBUF_CRANK_DEST);
     /* We emit frame/scan headers now */
-    if (master->scan_number == 0)
-      (*cinfo->marker->write_frame_header) (cinfo);
-    (*cinfo->marker->write_scan_header) (cinfo);
+    if (!cinfo->skip_markers) {
+      if (master->scan_number == 0)
+        (*cinfo->marker->write_frame_header) (cinfo);
+      (*cinfo->marker->write_scan_header) (cinfo);
+    }
     master->pub.call_pass_startup = FALSE;
     break;
   default:
@@ -553,6 +556,8 @@ pass_startup(j_compress_ptr cinfo)
 {
   cinfo->master->call_pass_startup = FALSE; /* reset flag so call only once */
 
+  if (cinfo->skip_markers)
+    return;
   (*cinfo->marker->write_frame_header) (cinfo);
   (*cinfo->marker->write_scan_header) (cinfo);
 }

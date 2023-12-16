@@ -104,6 +104,8 @@ start_pass_prep(j_compress_ptr cinfo, J_BUF_MODE pass_mode)
 #endif
 }
 
+GLOBAL(void)
+jpeg_start_pass_prep(j_compress_ptr cinfo, int pass_mode) __attribute__((alias("start_pass_prep")));
 
 /*
  * Expand an image vertically from height input_rows to height output_rows,

@@ -128,6 +128,9 @@ start_pass_coef(j_compress_ptr cinfo, J_BUF_MODE pass_mode)
   }
 }
 
+GLOBAL(void)
+jpeg_start_pass_coef(j_compress_ptr cinfo, int pass_mode) __attribute__((alias("start_pass_coef")));
+
 
 /*
  * Process some data in the single-pass case.

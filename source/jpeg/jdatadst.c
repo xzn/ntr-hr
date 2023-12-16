@@ -104,6 +104,8 @@ init_mem_destination(j_compress_ptr cinfo)
  * write it out when emptying the buffer externally.
  */
 
+#include "3dstypes.h"
+
 EXTERN(void)
 rpSendBuffer(u8* buf, u32 size, u32 flag);
 
@@ -287,3 +289,9 @@ jpeg_mem_dest(j_compress_ptr cinfo, unsigned char **outbuffer,
   dest->pub.next_output_byte = dest->buffer = *outbuffer;
   dest->pub.free_in_buffer = dest->bufsize = *outsize;
 }
+
+GLOBAL(void)
+jpeg_init_destination(j_compress_ptr cinfo) __attribute__((alias("init_destination")));
+
+GLOBAL(void)
+jpeg_term_destination(j_compress_ptr cinfo) __attribute__((alias("term_destination")));

@@ -248,6 +248,16 @@ start_pass_huff(j_compress_ptr cinfo, boolean gather_statistics)
   entropy->next_restart_num = 0;
 }
 
+GLOBAL(void)
+jpeg_start_pass_huff(j_compress_ptr cinfo) {
+  huff_entropy_ptr entropy = (huff_entropy_ptr)cinfo->entropy;
+  int ci;
+  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+    entropy->saved.last_dc_val[ci] = 0;
+  }
+  entropy->saved.put_buffer.c = 0;
+  entropy->saved.free_bits = BIT_BUF_SIZE;
+}
 
 /*
  * Compute the derived values for a Huffman table.
@@ -795,6 +805,8 @@ finish_pass_huff(j_compress_ptr cinfo)
   entropy->saved = state.cur;
 }
 
+GLOBAL(void)
+jpeg_finish_pass_huff(j_compress_ptr cinfo) __attribute__((alias("finish_pass_huff")));
 
 /*
  * Huffman coding optimization.

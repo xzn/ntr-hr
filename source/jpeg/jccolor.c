@@ -30,6 +30,8 @@ typedef struct {
 #if BITS_IN_JSAMPLE != 16
   /* Private state for RGB->YCC conversion */
   JLONG *rgb_ycc_tab;           /* => table for RGB to YCbCr conversion */
+  JSAMPLE rb_5_tab[1 << 5];
+  JSAMPLE g_6_tab[1 << 6];
 #endif
 } my_color_converter;
 
@@ -240,11 +242,65 @@ rgb_ycc_start(j_compress_ptr cinfo)
     rgb_ycc_tab[i + G_CR_OFF] = (-FIX(0.41869)) * i;
     rgb_ycc_tab[i + B_CR_OFF] = (-FIX(0.08131)) * i;
   }
+
+  for (i = 0; i < (1 << 5); ++i) {
+    cconvert->rb_5_tab[i] = FIX(i * (double)((1 << 8) - 1) / (double)((1 << 5) - 1)) >> SCALEBITS;
+  }
+  for (i = 0; i < (1 << 6); ++i) {
+    cconvert->g_6_tab[i] = FIX(i * (double)((1 << 8) - 1) / (double)((1 << 6) - 1)) >> SCALEBITS;
+  }
 #else
   ERREXIT(cinfo, JERR_CONVERSION_NOTIMPL);
 #endif
 }
 
+INLINE
+LOCAL(void)
+rgb565_ycc_convert(j_compress_ptr cinfo, _JSAMPARRAY input_buf,
+                   _JSAMPIMAGE output_buf, JDIMENSION output_row,
+                   int num_rows)
+{
+#if BITS_IN_JSAMPLE != 16
+  my_cconvert_ptr cconvert = (my_cconvert_ptr)cinfo->cconvert;
+  register int r, g, b;
+  register JLONG *ctab = cconvert->rgb_ycc_tab;
+  register _JSAMPROW inptr;
+  register _JSAMPROW outptr0, outptr1, outptr2;
+  register JDIMENSION col;
+  JDIMENSION num_cols = cinfo->image_width;
+
+  while (--num_rows >= 0) {
+    inptr = *input_buf++;
+    outptr0 = output_buf[0][output_row];
+    outptr1 = output_buf[1][output_row];
+    outptr2 = output_buf[2][output_row];
+    output_row++;
+    for (col = 0; col < num_cols; col++) {
+      short in = *(short *)inptr;
+      r = cconvert->rb_5_tab[((in >> 11) & 0x1f)];
+      g = cconvert->g_6_tab[((in >> 5) & 0x3f)];
+      b = cconvert->rb_5_tab[in & 0x1f];
+      inptr += 2;
+      /* If the inputs are 0.._MAXJSAMPLE, the outputs of these equations
+       * must be too; we do not need an explicit range-limiting operation.
+       * Hence the value being shifted is never negative, and we don't
+       * need the general RIGHT_SHIFT macro.
+       */
+      /* Y */
+      outptr0[col] = (_JSAMPLE)((ctab[r + R_Y_OFF] + ctab[g + G_Y_OFF] +
+                                 ctab[b + B_Y_OFF]) >> SCALEBITS);
+      /* Cb */
+      outptr1[col] = (_JSAMPLE)((ctab[r + R_CB_OFF] + ctab[g + G_CB_OFF] +
+                                 ctab[b + B_CB_OFF]) >> SCALEBITS);
+      /* Cr */
+      outptr2[col] = (_JSAMPLE)((ctab[r + R_CR_OFF] + ctab[g + G_CR_OFF] +
+                                 ctab[b + B_CR_OFF]) >> SCALEBITS);
+    }
+  }
+#else
+  ERREXIT(cinfo, JERR_CONVERSION_NOTIMPL);
+#endif
+}
 
 /*
  * Convert some rows of samples to the JPEG colorspace.
@@ -282,6 +338,10 @@ rgb_ycc_convert(j_compress_ptr cinfo, _JSAMPARRAY input_buf,
   case JCS_EXT_ARGB:
     extxrgb_ycc_convert_internal(cinfo, input_buf, output_buf, output_row,
                                  num_rows);
+    break;
+  case JCS_RGB565:
+    rgb565_ycc_convert(cinfo, input_buf, output_buf, output_row,
+                       num_rows);
     break;
   default:
     rgb_ycc_convert_internal(cinfo, input_buf, output_buf, output_row,
@@ -584,6 +644,7 @@ _jinit_color_converter(j_compress_ptr cinfo)
       ERREXIT(cinfo, JERR_BAD_IN_COLORSPACE);
     break;
 
+  case JCS_RGB565:
   case JCS_YCbCr:
     if (cinfo->input_components != 3)
       ERREXIT(cinfo, JERR_BAD_IN_COLORSPACE);
@@ -657,9 +718,9 @@ _jinit_color_converter(j_compress_ptr cinfo)
       ERREXIT(cinfo, JERR_CONVERSION_NOTIMPL);
     if (cinfo->num_components != 3)
       ERREXIT(cinfo, JERR_BAD_J_COLORSPACE);
-    if (IsExtRGB(cinfo->in_color_space)) {
+    if (IsExtRGB(cinfo->in_color_space) || cinfo->in_color_space == JCS_RGB565) {
 #ifdef WITH_SIMD
-      if (jsimd_can_rgb_ycc())
+      if (jsimd_can_rgb_ycc() && cinfo->in_color_space != JCS_RGB565)
         cconvert->pub._color_convert = jsimd_rgb_ycc_convert;
       else
 #endif

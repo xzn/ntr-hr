@@ -668,3 +668,8 @@ jinit_marker_writer(j_compress_ptr cinfo)
   /* Initialize private state */
   marker->last_restart_interval = 0;
 }
+
+GLOBAL(void) jpeg_write_file_header(j_compress_ptr cinfo) __attribute__((alias("write_file_header")));
+GLOBAL(void) jpeg_write_frame_header(j_compress_ptr cinfo) __attribute__((alias("write_frame_header")));
+GLOBAL(void) jpeg_write_scan_header(j_compress_ptr cinfo) __attribute__((alias("write_scan_header")));
+GLOBAL(void) jpeg_write_file_trailer(j_compress_ptr cinfo) __attribute__((alias("write_file_trailer")));

@@ -214,7 +214,8 @@ jpeg_finish_compress(j_compress_ptr cinfo)
     (*cinfo->master->finish_pass) (cinfo);
   }
   /* Write EOI, do final cleanup */
-  (*cinfo->marker->write_file_trailer) (cinfo);
+  if (!cinfo->skip_markers)
+    (*cinfo->marker->write_file_trailer) (cinfo);
   (*cinfo->dest->term_destination) (cinfo);
   /* We can use jpeg_abort to release memory and reset global_state */
   jpeg_abort((j_common_ptr)cinfo);

@@ -7,7 +7,8 @@
 #include <errno.h>
 #include "fastlz.h"
 #include "jpeglib.h"
-#include "gen.h"
+/* CSTATE_START from jpegint.h */
+#define JPEG_CSTATE_START 100
 
 NS_CONTEXT* g_nsCtx = 0;
 NS_CONFIG* g_nsConfig;
@@ -37,15 +38,14 @@ void tje_log(char* str) {
 #define RP_MODE_3D 10
 
 u8* rpAllocBuff = 0;
-u32 rpAllocBuffOffset = 0;
-u32 rpAllocBuffRemainSize = 0;
-
-u32 rpAllocBuffOffset_start_pass = 0;
-u32 rpAllocBuffRemainSize_start_pass = 0;
+struct {
+	u32 Offset;
+	u32 RemainSize;
+} rpAllocStats, rpAllocStats_Qual, rpAllocStats_Comps, rpAllocStats_Scan;
 
 int rpAllocDebug = 0;
 
-struct jpeg_compress_struct cinfo;
+struct jpeg_compress_struct cinfo_top, cinfo_bot;
 struct jpeg_error_mgr jerr;
 
 u64 rpMinIntervalBetweenPacketsInTick = 0;
@@ -58,20 +58,20 @@ u64 rpMinIntervalBetweenPacketsInTick = 0;
 void*  rpMalloc( u32 size)
 
 {
-	void* ret = rpAllocBuff + rpAllocBuffOffset;
+	void* ret = rpAllocBuff + rpAllocStats.Offset;
 	u32 totalSize = size;
 	if (totalSize % 4 != 0) {
 		totalSize += 4 - (totalSize % 4);
 	}
-	if (rpAllocBuffRemainSize < totalSize) {
+	if (rpAllocStats.RemainSize < totalSize) {
 		nsDbgPrint("bad alloc,  size: %d\n", size);
 		if (rpAllocDebug) {
 			showDbg("bad alloc,  size: %d\n", size, 0);
 		}
 		return 0;
 	}
-	rpAllocBuffOffset += totalSize;
-	rpAllocBuffRemainSize -= totalSize;
+	rpAllocStats.Offset += totalSize;
+	rpAllocStats.RemainSize -= totalSize;
 	// memset(ret, 0, totalSize);
 	// nsDbgPrint("alloc size: %d, ptr: %08x\n", size, ret);
 	// if (rpAllocDebug) {
@@ -292,21 +292,18 @@ typedef struct _BLIT_CONTEXT {
 	int width, height, format, src_pitch;
 	int x, y;
 	u8* src;
-	int outformat, bpp;
+	int bpp;
 	u32 bytesInColumn ;
 	u32 blankInColumn;
 
 	u8* transformDst;
-	u8* compressDst;
-	u32 compressedSize;
 
 	u8 id;
 	u8 isTop;
 	u8 frameCount;
-	u32 lastSize;
 
-	int reset;
 	int directCompress;
+	j_compress_ptr cinfo;
 } BLIT_CONTEXT;
 
 
@@ -324,6 +321,12 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 	}
 	ctx->bytesInColumn = ctx->bpp * height;
 	ctx->blankInColumn = src_pitch - ctx->bytesInColumn;
+	if (ctx->format != format) {
+		if (ctx->cinfo->global_state != JPEG_CSTATE_START) {
+			memcpy(&rpAllocStats, &rpAllocStats_Comps, sizeof(rpAllocStats));
+			cinfo_bot.global_state = cinfo_top.global_state = JPEG_CSTATE_START;
+		}
+	}
 	ctx->format = format;
 	ctx->width = width;
 	ctx->height = height;
@@ -331,16 +334,7 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 	ctx->src = src;
 	ctx->x = 0;
 	ctx->y = 0;
-	if (ctx->bpp == 2) {
-		ctx->outformat = format;
-	}
-	else {
-		ctx->outformat = GL_RGB565_LE;
-	}
-	ctx->compressDst = 0;
-	ctx->compressedSize;
 	ctx->frameCount = 0;
-	ctx->lastSize = 0;
 }
 
 
@@ -411,6 +405,7 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 		*/
 	}
 	else {
+		/*
 		svc_sleepThread(500000);
 		for (x = 0; x < width; x++) {
 			for (y = 0; y < height; y++) {
@@ -423,7 +418,7 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 			}
 			sp += ctx->blankInColumn;
 		}
-
+		*/
 	}
 
 	//ctx->compressedSize = fastlz_compress_level(2, ctx->transformDst, (ctx->width) * (ctx->height) * 2, ctx->compressDst);
@@ -435,89 +430,114 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 
 
 void rpInitJpegCompress() {
-#ifdef HAS_JPEG
-	cinfo.err = jpeg_std_error(&jerr);
-	cinfo.mem_pool_manual = TRUE;
-	cinfo.client_data = dataBuf + 4;
-	jpeg_create_compress(&cinfo);
-	jpeg_stdio_dest(&cinfo, 0);
+	j_compress_ptr cinfos[] = {&cinfo_top, &cinfo_bot};
 
-	cinfo.in_color_space = JCS_RGB;
-	jpeg_set_defaults(&cinfo);
-	cinfo.dct_method = JDCT_IFAST;
-#else
-	return;
-#endif
+	for (int i = 0; i < sizeof(cinfos) / sizeof(*cinfos); ++i) {
+		j_compress_ptr cinfo = cinfos[i];
 
+		cinfo->err = jpeg_std_error(&jerr);
+		cinfo->mem_pool_manual = TRUE;
+		cinfo->client_data = dataBuf + 4;
+		jpeg_create_compress(cinfo);
+		jpeg_stdio_dest(cinfo, 0);
+
+		cinfo->in_color_space = JCS_RGB;
+		cinfo->defaults_skip_tables = TRUE;
+		jpeg_set_defaults(cinfo);
+		cinfo->dct_method = JDCT_IFAST;
+		cinfo->skip_markers = TRUE;
+	}
+
+	jpeg_std_huff_tables((j_common_ptr)&cinfo_top);
+	for (int i = 0; i < NUM_HUFF_TBLS; ++i) {
+		cinfo_bot.dc_huff_tbl_ptrs[i] = cinfo_top.dc_huff_tbl_ptrs[i];
+		cinfo_bot.ac_huff_tbl_ptrs[i] = cinfo_top.ac_huff_tbl_ptrs[i];
+	}
 }
 
 void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
-#ifdef HAS_JPEG
 	u8* srcBuff;
 	u32 row_stride, i;
 	u8* row_pointer[400];
+
+	/* !directCompress */
+	u8* sp = ctx->src;
+	j_compress_ptr cinfo = ctx->cinfo;
 
 	dataBuf[0] = ctx->id;
 	dataBuf[1] = ctx->isTop;
 	dataBuf[2] = 2;
 	dataBuf[3] = 0;
 
-	cinfo.image_width = ctx->height;      /* image width and height, in pixels */
-	cinfo.image_height = ctx->width;
-	cinfo.input_components = 3;
-	cinfo.in_color_space = JCS_RGB;
+	cinfo->image_width = ctx->height;      /* image width and height, in pixels */
+	cinfo->image_height = ctx->width;
+	cinfo->input_components = 3;
+	cinfo->in_color_space = JCS_RGB565;
 
-	row_stride = cinfo.image_width * 3; /* JSAMPLEs per row in image_buffer */
-	srcBuff = ctx->transformDst;
+	row_stride = ctx->src_pitch;
+	srcBuff = ctx->src;
+	// row_stride = cinfo->image_width * 3; /* JSAMPLEs per row in image_buffer */
+	// srcBuff = ctx->transformDst;
 	if (ctx->directCompress) {
-		row_stride = ctx->src_pitch;
-		srcBuff = ctx->src;
-		cinfo.input_components = ctx->bpp;
+		// row_stride = ctx->src_pitch;
+		// srcBuff = ctx->src;
+		cinfo->input_components = ctx->bpp;
 		if (ctx->bpp == 3) {
-			cinfo.in_color_space = JCS_EXT_BGR;
+			cinfo->in_color_space = JCS_EXT_BGR;
 		}
 		else {
-			cinfo.in_color_space = JCS_EXT_BGRX;
+			cinfo->in_color_space = JCS_EXT_BGRX;
 		}
 	}
 
-	u32 bakAllocOffset;
-	u32 bakAllocRemainSize;
-
-	if (!cinfo.fdct_reuse) {
-		if (!rpAllocBuffOffset_start_pass) {
-			rpAllocBuffOffset_start_pass = rpAllocBuffOffset;
-			rpAllocBuffRemainSize_start_pass = rpAllocBuffRemainSize;
-		} else {
-			rpAllocBuffOffset = rpAllocBuffOffset_start_pass;
-			rpAllocBuffRemainSize = rpAllocBuffRemainSize_start_pass;
-		}
-
-		jpeg_start_compress(&cinfo, TRUE);
-		cinfo.fdct_reuse = TRUE;
-
-		bakAllocOffset = rpAllocBuffOffset;
-		bakAllocRemainSize = rpAllocBuffRemainSize;
+	if (cinfo->global_state == JPEG_CSTATE_START) {
+		jpeg_start_compress(cinfo, TRUE);
 	} else {
-		bakAllocOffset = rpAllocBuffOffset;
-		bakAllocRemainSize = rpAllocBuffRemainSize;
-
-		jpeg_start_compress(&cinfo, TRUE);
+		jpeg_suppress_tables(cinfo, FALSE);
+		jpeg_init_destination(cinfo);
+		jpeg_start_pass_prep(cinfo, 0);
+		jpeg_start_pass_huff(cinfo);
+		jpeg_start_pass_coef(cinfo, 0);
+		jpeg_start_pass_main(cinfo, 0);
+		cinfo->next_scanline = 0;
 	}
 
-	for (i = 0; i < cinfo.image_height; i++) {
-		row_pointer[i] = &(srcBuff[i * row_stride]);
-	}
-	jpeg_write_scanlines(&cinfo, row_pointer, cinfo.image_height);
+	memcpy(&rpAllocStats_Scan, &rpAllocStats, sizeof(rpAllocStats));
 
+	jpeg_write_file_header(cinfo);
+	jpeg_write_frame_header(cinfo);
+	jpeg_write_scan_header(cinfo);
 
-	jpeg_finish_compress(&cinfo);
+	// if (ctx->directCompress) {
+		for (i = 0; i < cinfo->image_height; i++) {
+			row_pointer[i] = &(srcBuff[i * row_stride]);
+		}
+		jpeg_write_scanlines(cinfo, row_pointer, cinfo->image_height);
+	// } else {
+	// 	for (i = 0; i < cinfo->image_height;) {
+	// 		for (int j = 0; j < 16; ++j, ++i) {
+	// 			u8 *dp = row_pointer[j] = &(srcBuff[i * row_stride]);
 
-	rpAllocBuffOffset = bakAllocOffset;
-	rpAllocBuffRemainSize = bakAllocRemainSize;
-#else
-	return;
-#endif
+	// 			for (int y = 0; y < ctx->height; y++) {
+	// 				u16 pix = *(u16*)sp;
+	// 				dp[0] = ((pix >> 11) & 0x1f) << 3;
+	// 				dp[1] = ((pix >> 5) & 0x3f) << 2;
+	// 				dp[2] = (pix & 0x1f) << 3;
+	// 				dp += 3;
+	// 				sp += ctx->bpp;
+	// 			}
+	// 			sp += ctx->blankInColumn;
+	// 		}
+	// 		jpeg_write_scanlines(cinfo, row_pointer, 16);
+	// 	}
+	// }
+
+	// jpeg_finish_compress(cinfo);
+	jpeg_finish_pass_huff(cinfo);
+	jpeg_write_file_trailer(cinfo);
+	jpeg_term_destination(cinfo);
+
+	memcpy(&rpAllocStats, &rpAllocStats_Scan, sizeof(rpAllocStats));
 }
 
 
@@ -738,8 +758,25 @@ void remotePlaySendFrames() {
 		rpQosValueInBytes = 2 * 1024 * 1024;
 	}
 	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpQosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
-	jpeg_set_quality(&cinfo, rpQuality, TRUE);
-	cinfo.fdct_reuse = FALSE;
+
+	cinfo_bot.global_state = cinfo_top.global_state = JPEG_CSTATE_START;
+	jpeg_set_quality(&cinfo_top, rpQuality, TRUE);
+	for (int i = 0; i < NUM_QUANT_TBLS; ++i)
+		cinfo_bot.quant_tbl_ptrs[i] = cinfo_top.quant_tbl_ptrs[i];
+
+	if (!rpAllocStats_Qual.Offset) {
+		memcpy(&rpAllocStats_Qual, &rpAllocStats, sizeof(rpAllocStats));
+	} else {
+		memcpy(&rpAllocStats, &rpAllocStats_Qual, sizeof(rpAllocStats));
+	}
+
+	jpeg_jinit_forward_dct(&cinfo_top);
+	cinfo_top.fdct_reuse = TRUE;
+
+	cinfo_bot.fdct = cinfo_top.fdct;
+	cinfo_bot.fdct_reuse = TRUE;
+
+	jpeg_start_pass_fdctmgr(&cinfo_top);
 
 	u32 isPriorityTop = 1;
 	u32 priorityFactor = 0;
@@ -750,6 +787,8 @@ void remotePlaySendFrames() {
 	}
 	priorityFactor = factor;
 
+	memcpy(&rpAllocStats_Comps, &rpAllocStats, sizeof(rpAllocStats));
+
 #undef rpCurrentMode
 #undef rpQuality
 #undef rpQosValueInBytes
@@ -758,7 +797,7 @@ void remotePlaySendFrames() {
 	u32 currentUpdating = isPriorityTop;
 	u32 frameCount = 0;
 	u8 cnt;
-	BLIT_CONTEXT topContext = { 0 }, botContext = { 0 };
+	BLIT_CONTEXT topContext = { .cinfo = &cinfo_top }, botContext = { .cinfo = &cinfo_bot };
 
 	while (1) {
 		currentUpdating = isPriorityTop;
@@ -777,9 +816,7 @@ void remotePlaySendFrames() {
 			rpCaptureScreen(1);
 			currentTopId += 1;
 			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer);
-			topContext.compressDst = 0;
 			topContext.transformDst = imgBuffer + 0x00150000;
-			topContext.reset = 1;
 			topContext.id = (u8)currentTopId;
 			topContext.isTop = 1;
 			remotePlayBlitCompressed(&topContext);
@@ -790,9 +827,7 @@ void remotePlaySendFrames() {
 			rpCaptureScreen(0);
 			currentBottomId += 1;
 			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer);
-			botContext.compressDst = 0;
 			botContext.transformDst = imgBuffer + 0x00150000;
-			botContext.reset = 1;
 			botContext.id = (u8)currentBottomId;
 			botContext.isTop = 0;
 			remotePlayBlitCompressed(&botContext);
@@ -815,7 +850,10 @@ void remotePlayThreadStart() {
 
 	rpAllocBuff = plgRequestMemorySpecifyRegion(0x00100000, 1);
 	if (rpAllocBuff) {
-		rpAllocBuffRemainSize = 0x00100000;
+		rpAllocStats.Offset = 0;
+		rpAllocStats.RemainSize = 0x00100000;
+
+		memset(&rpAllocStats_Qual, 0, sizeof(rpAllocStats_Qual));
 	}
 	else {
 		goto final;

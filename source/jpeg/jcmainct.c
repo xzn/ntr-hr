@@ -73,6 +73,8 @@ start_pass_main(j_compress_ptr cinfo, J_BUF_MODE pass_mode)
   main_ptr->pub._process_data = process_data_simple_main;
 }
 
+GLOBAL(void)
+jpeg_start_pass_main(j_compress_ptr cinfo, int pass_mode) __attribute__((alias("start_pass_main")));
 
 /*
  * Process some data.

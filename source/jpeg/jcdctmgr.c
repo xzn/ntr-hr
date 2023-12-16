@@ -626,7 +626,6 @@ forward_DCT_float(j_compress_ptr cinfo, jpeg_component_info *compptr,
 /*
  * Initialize FDCT manager.
  */
-
 GLOBAL(void)
 _jinit_forward_dct(j_compress_ptr cinfo)
 {
@@ -746,3 +745,9 @@ _jinit_forward_dct(j_compress_ptr cinfo)
 #endif
   }
 }
+
+GLOBAL(void)
+jpeg_jinit_forward_dct(j_compress_ptr cinfo) __attribute__((alias("jinit_forward_dct")));
+
+GLOBAL(void)
+jpeg_start_pass_fdctmgr(j_compress_ptr cinfo) __attribute__((alias("start_pass_fdctmgr")));

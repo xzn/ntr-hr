@@ -21,6 +21,8 @@
 #include "jpeglib.h"
 #include "jstdhuff.h"
 
+GLOBAL(void)
+jpeg_std_huff_tables(j_common_ptr cinfo) __attribute__((alias("std_huff_tables")));
 
 /*
  * Quantization table setup routines
@@ -204,10 +206,12 @@ jpeg_set_defaults(j_compress_ptr cinfo)
   cinfo->scale_num = 1;         /* 1:1 scaling */
   cinfo->scale_denom = 1;
 #endif
-  /* Set up two quantization tables using default quality of 75 */
-  jpeg_set_quality(cinfo, 75, TRUE);
-  /* Set up two Huffman tables */
-  std_huff_tables((j_common_ptr)cinfo);
+  if (!cinfo->defaults_skip_tables) {
+    /* Set up two quantization tables using default quality of 75 */
+    jpeg_set_quality(cinfo, 75, TRUE);
+    /* Set up two Huffman tables */
+    std_huff_tables((j_common_ptr)cinfo);
+  }
 
   /* Initialize default arithmetic coding conditioning */
   for (i = 0; i < NUM_ARITH_TBLS; i++) {
@@ -297,6 +301,7 @@ jpeg_default_colorspace(j_compress_ptr cinfo)
   case JCS_EXT_BGRA:
   case JCS_EXT_ABGR:
   case JCS_EXT_ARGB:
+  case JCS_RGB565:
     if (cinfo->master->lossless)
       jpeg_set_colorspace(cinfo, JCS_RGB);
     else

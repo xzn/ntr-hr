@@ -508,6 +508,9 @@ struct jpeg_compress_struct {
   jpeg_scan_info *script_space; /* workspace for jpeg_simple_progression */
   int script_space_size;
   boolean fdct_reuse;
+  boolean color_reuse;
+  boolean defaults_skip_tables;
+  boolean skip_markers;
 };
 
 
@@ -1207,13 +1210,32 @@ struct jpeg_color_quantizer { long dummy; };
 #include "jerror.h"             /* fetch error codes too */
 #endif
 
-#include "3dstypes.h"
+// #include "3dstypes.h"
 
 #if 0
 int jpeg_turbo_write(j_common_ptr cinfo, const u8 *buf, u32 size);
 void *jpeg_turbo_malloc(j_common_ptr cinfo, size_t size);
 void jpeg_turbo_free(j_common_ptr cinfo, void *ptr);
 #endif
+
+EXTERN(void) jpeg_std_huff_tables(j_common_ptr cinfo);
+EXTERN(void) jpeg_jinit_forward_dct(j_compress_ptr cinfo);
+EXTERN(void) jpeg_start_pass_fdctmgr(j_compress_ptr cinfo);
+
+EXTERN(void) jpeg_write_file_header(j_compress_ptr cinfo);
+EXTERN(void) jpeg_write_frame_header(j_compress_ptr cinfo);
+EXTERN(void) jpeg_write_scan_header(j_compress_ptr cinfo);
+EXTERN(void) jpeg_write_file_trailer(j_compress_ptr cinfo);
+
+EXTERN(void) jpeg_init_destination(j_compress_ptr cinfo);
+EXTERN(void) jpeg_term_destination(j_compress_ptr cinfo);
+
+EXTERN(void) jpeg_start_pass_prep(j_compress_ptr cinfo, int pass_mode);
+EXTERN(void) jpeg_start_pass_huff(j_compress_ptr cinfo);
+EXTERN(void) jpeg_start_pass_coef(j_compress_ptr cinfo, int pass_mode);
+EXTERN(void) jpeg_start_pass_main(j_compress_ptr cinfo, int pass_mode);
+
+EXTERN(void) jpeg_finish_pass_huff(j_compress_ptr cinfo);
 
 #ifdef __cplusplus
 #ifndef DONT_USE_EXTERN_C

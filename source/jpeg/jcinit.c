@@ -55,7 +55,8 @@ jinit_compress_master(j_compress_ptr cinfo)
 //       j12init_c_prep_controller(cinfo,
 //                                 FALSE /* never need full buffer here */);
 //     } else {
-      jinit_color_converter(cinfo);
+      if (!cinfo->color_reuse)
+        jinit_color_converter(cinfo);
       jinit_downsampler(cinfo);
       jinit_c_prep_controller(cinfo, FALSE /* never need full buffer here */);
     // }
@@ -146,5 +147,6 @@ jinit_compress_master(j_compress_ptr cinfo)
    * Frame and scan headers are postponed till later.
    * This lets application insert special markers after the SOI.
    */
-  (*cinfo->marker->write_file_header) (cinfo);
+  if (!cinfo->skip_markers)
+    (*cinfo->marker->write_file_header) (cinfo);
 }
