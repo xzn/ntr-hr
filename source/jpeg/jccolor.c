@@ -244,10 +244,10 @@ rgb_ycc_start(j_compress_ptr cinfo)
   }
 
   for (i = 0; i < (1 << 5); ++i) {
-    cconvert->rb_5_tab[i] = FIX(i * (double)((1 << 8) - 1) / (double)((1 << 5) - 1)) >> SCALEBITS;
+    cconvert->rb_5_tab[i] = (FIX((double)((1 << 8) - 1) / (double)((1 << 5) - 1)) * i + ONE_HALF) >> SCALEBITS;
   }
   for (i = 0; i < (1 << 6); ++i) {
-    cconvert->g_6_tab[i] = FIX(i * (double)((1 << 8) - 1) / (double)((1 << 6) - 1)) >> SCALEBITS;
+    cconvert->g_6_tab[i] = (FIX((double)((1 << 8) - 1) / (double)((1 << 6) - 1)) * i + ONE_HALF) >> SCALEBITS;
   }
 #else
   ERREXIT(cinfo, JERR_CONVERSION_NOTIMPL);
