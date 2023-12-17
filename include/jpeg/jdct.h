@@ -34,10 +34,15 @@
 
 #if BITS_IN_JSAMPLE == 8
 #ifndef WITH_SIMD
-// typedef int DCTELEM;            /* 16 or 32 bits is fine */
-typedef short DCTELEM;            /* 16 or 32 bits is fine */
+#if 0
+typedef int DCTELEM;            /* 16 or 32 bits is fine */
 typedef unsigned int UDCTELEM;
 typedef unsigned long long UDCTELEM2;
+#else
+typedef short DCTELEM;
+typedef unsigned short UDCTELEM;
+typedef unsigned int UDCTELEM2;
+#endif
 #else
 typedef short DCTELEM;          /* prefer 16 bit with SIMD for parellelism */
 typedef unsigned short UDCTELEM;

@@ -40,6 +40,9 @@ void tje_log(char* str) {
 int rpAllocDebug = 0;
 
 struct jpeg_compress_struct cinfo_top, cinfo_bot;
+struct rp_alloc_stats_check {
+	struct rp_alloc_stats qual, comp, scan;
+} alloc_stats_top, alloc_stats_bot;
 struct jpeg_error_mgr jerr;
 
 u64 rpMinIntervalBetweenPacketsInTick = 0;
@@ -300,9 +303,7 @@ typedef struct _BLIT_CONTEXT {
 
 	int directCompress;
 	j_compress_ptr cinfo;
-	struct rp_alloc_stats_check {
-		struct rp_alloc_stats qual, comp, scan;
-	} alloc_check;
+	struct rp_alloc_stats_check *alloc_stats;
 } BLIT_CONTEXT;
 
 
@@ -322,7 +323,7 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 	ctx->blankInColumn = src_pitch - ctx->bytesInColumn;
 	if (ctx->format != format) {
 		if (ctx->cinfo->global_state != JPEG_CSTATE_START) {
-			memcpy(&ctx->cinfo->alloc.stats, &ctx->alloc_check.comp, sizeof(struct rp_alloc_state));
+			memcpy(&ctx->cinfo->alloc.stats, &ctx->alloc_stats->comp, sizeof(struct rp_alloc_stats));
 			ctx->cinfo->global_state = JPEG_CSTATE_START;
 		}
 	}
@@ -500,6 +501,7 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	}
 
 	if (cinfo->global_state == JPEG_CSTATE_START) {
+		// memcpy(&ctx->alloc_stats->scan, &cinfo->alloc.stats, sizeof(struct rp_alloc_stats));
 		jpeg_start_compress(cinfo, TRUE);
 	} else {
 		jpeg_suppress_tables(cinfo, FALSE);
@@ -511,7 +513,7 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 		cinfo->next_scanline = 0;
 	}
 
-	memcpy(&ctx->alloc_check.scan, &cinfo->alloc.stats, sizeof(struct rp_alloc_state));
+	memcpy(&ctx->alloc_stats->scan, &cinfo->alloc.stats, sizeof(struct rp_alloc_stats));
 
 	jpeg_write_file_header(cinfo);
 	jpeg_write_frame_header(cinfo);
@@ -545,8 +547,9 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	jpeg_finish_pass_huff(cinfo);
 	jpeg_write_file_trailer(cinfo);
 	jpeg_term_destination(cinfo);
+	// cinfo->global_state = JPEG_CSTATE_START;
 
-	memcpy(&cinfo->alloc.stats, &ctx->alloc_check.scan, sizeof(struct rp_alloc_state));
+	memcpy(&cinfo->alloc.stats, &ctx->alloc_stats->scan, sizeof(struct rp_alloc_stats));
 }
 
 
@@ -755,7 +758,9 @@ void rpCaptureScreen(int isTop) {
 
 
 void remotePlaySendFrames() {
-	BLIT_CONTEXT topContext = { .cinfo = &cinfo_top }, botContext = { .cinfo = &cinfo_bot };
+	BLIT_CONTEXT
+		topContext = { .cinfo = &cinfo_top, .alloc_stats = &alloc_stats_top },
+		botContext = { .cinfo = &cinfo_bot, .alloc_stats = &alloc_stats_bot };
 
 #define rpCurrentMode (g_nsConfig->rpConfig.currentMode)
 #define rpQuality (g_nsConfig->rpConfig.quality)
@@ -777,10 +782,10 @@ void remotePlaySendFrames() {
 	BLIT_CONTEXT *ctxs[] = {&topContext, &botContext};
 
 	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i) {
-		if (!ctxs[i]->alloc_check.qual.offset) {
-			memcpy(&ctxs[i]->alloc_check.qual, &ctxs[i]->cinfo->alloc.stats, sizeof(struct rp_alloc_state));
+		if (!ctxs[i]->alloc_stats->qual.offset) {
+			memcpy(&ctxs[i]->alloc_stats->qual, &ctxs[i]->cinfo->alloc.stats, sizeof(struct rp_alloc_stats));
 		} else {
-			memcpy(&ctxs[i]->cinfo->alloc.stats, &ctxs[i]->alloc_check.qual, sizeof(struct rp_alloc_state));
+			memcpy(&ctxs[i]->cinfo->alloc.stats, &ctxs[i]->alloc_stats->qual, sizeof(struct rp_alloc_stats));
 		}
 	}
 
@@ -802,7 +807,7 @@ void remotePlaySendFrames() {
 	priorityFactor = factor;
 
 	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i)
-		memcpy(&ctxs[i]->alloc_check.comp, &ctxs[i]->cinfo->alloc.stats, sizeof(struct rp_alloc_state));
+		memcpy(&ctxs[i]->alloc_stats->comp, &ctxs[i]->cinfo->alloc.stats, sizeof(struct rp_alloc_stats));
 
 	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i) {
 		ctxs[i]->cinfo->image_width = 240;
