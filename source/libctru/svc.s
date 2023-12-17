@@ -75,14 +75,23 @@ svc_releaseMutex:
 	svc 0x14
 	bx lr
 
+.global svc_createSemaphore
+.type svc_createSemaphore, %function
+svc_createSemaphore:
+	push {r0}
+	svc 0x15
+	pop {r3}
+	str r1, [r3]
+	bx  lr
+
 .global svc_releaseSemaphore
 .type svc_releaseSemaphore, %function
 svc_releaseSemaphore:
-        str r0, [sp,#-4]!
-        svc 0x16
-        ldr r2, [sp], #4
-        str r1, [r2]
-        bx lr
+	str r0, [sp,#-4]!
+	svc 0x16
+	ldr r2, [sp], #4
+	str r1, [r2]
+	bx lr
 
 .global svc_createEvent
 .type svc_createEvent, %function

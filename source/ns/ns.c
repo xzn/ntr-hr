@@ -46,6 +46,7 @@ struct rp_alloc_stats_check {
 struct jpeg_error_mgr jerr;
 
 u64 rpMinIntervalBetweenPacketsInTick = 0;
+static u32 rpThreadStackSize = 0x10000;
 
 #define SYSTICK_PER_US (268);
 
@@ -466,21 +467,433 @@ int rpInitJpegCompress() {
 	return 0;
 }
 
-#define rp_pre_proc_buffer_count (3)
+#define rp_jpeg_samp_factor (2)
+
+#define rp_prep_buffer_count (3)
 #define rp_thread_count (2)
 #define rp_mcu_buffer_count (4)
 
-JSAMPARRAY pre_proc_buffers[rp_pre_proc_buffer_count][MAX_COMPONENTS];
-JSAMPARRAY color_buffers[rp_thread_count][MAX_COMPONENTS];
-JBLOCKROW MCU_buffers[rp_mcu_buffer_count][C_MAX_BLOCKS_IN_MCU];
+typedef JSAMPARRAY pre_proc_buffer_t[MAX_COMPONENTS];
+typedef JSAMPARRAY color_buffer_t[MAX_COMPONENTS];
+typedef JBLOCKROW MCU_buffer_t[C_MAX_BLOCKS_IN_MCU];
+
+pre_proc_buffer_t prep_buffers[rp_prep_buffer_count];
+color_buffer_t color_buffers[rp_thread_count];
+MCU_buffer_t MCU_buffers[rp_mcu_buffer_count];
+
+struct rp_work_syn_t {
+	Handle mutex;
+	Handle sem_read, sem_write, sem_ready;
+	int sem_count;
+} *rp_work_syn;
+
+struct rp_work_t {
+	j_compress_ptr cinfo;
+	u8 *src;
+	u32 pitch;
+
+	JDIMENSION mcu_row;
+	JDIMENSION in_rows_blk;
+	JDIMENSION in_rows_blk_half;
+	JDIMENSION in_rows_blk_n;
+	int prep_reading_done_state;
+
+	enum rp_nwm_state_t {
+		rp_nwm_ready,
+		rp_nwm_sending,
+	} nwm;
+
+	enum rp_mcu_state_t {
+		rp_mcu_empty,
+		rp_mcu_writing,
+		rp_mcu_full,
+		rp_mcu_reading,
+	} mcu[rp_mcu_buffer_count];
+	int mcu_write, mcu_read;
+
+	enum rp_prep_state_t {
+		rp_prep_empty,
+		rp_prep_writing = rp_prep_empty + rp_thread_count,
+		rp_prep_reading,
+	} prep[rp_prep_buffer_count];
+	int prep_mcu[rp_prep_buffer_count][240 / rp_jpeg_samp_factor / DCTSIZE];
+	int prep_write, prep_read, prep_mcu_empty[rp_prep_buffer_count];
+
+	int in_prep[rp_prep_buffer_count];
+	int in_read;
+} *rp_work;
+
+struct rp_task_t {
+	enum rp_task_which_t {
+		rp_task_which_nwm,
+		rp_task_which_mcu,
+		rp_task_which_prep,
+	} which;
+	union {
+		struct rp_task_nwm_t {
+			int mcu;
+		} nwm;
+		struct rp_task_mcu_t {
+			int mcu;
+			int prep;
+			int prep_mcu;
+		} mcu;
+		struct rp_task_prep_t {
+			int prep;
+			int in;
+		} prep;
+	};
+};
+
+#define RP_ERR_SYNC (-1)
+#define RP_ERR_AGAIN (-10)
+#define RP_ERR_DONE (-2)
+#define RP_ERR_ARG (-5)
+
+int rpJpegTryAcquireTask(struct rp_task_t *task) {
+	int ret = 0;
+
+	// nwm
+	if (rp_work->nwm == rp_nwm_ready) {
+		if (rp_work->mcu[rp_work->mcu_read] == rp_mcu_full) {
+			task->which = rp_task_which_nwm;
+			// mcu read index
+			task->nwm.mcu = rp_work->mcu_read;
+
+			// nwm sending
+			rp_work->nwm = rp_nwm_sending;
+			// mcu reading
+			rp_work->mcu[rp_work->mcu_read] = rp_mcu_reading;
+			// mcu read index inc
+			rp_work->mcu_read = (rp_work->mcu_read + 1) % rp_mcu_buffer_count;
+
+			goto final;
+		}
+	}
+
+	// mcu
+	if (rp_work->mcu[rp_work->mcu_write] == rp_mcu_empty) {
+		if (
+			rp_work->prep[rp_work->prep_read] >= rp_prep_reading &&
+			rp_work->prep[rp_work->prep_read] < rp_work->prep_reading_done_state
+		) {
+			int prep_mcu = rp_work->prep[rp_work->prep_read] - rp_prep_reading;
+
+			task->which = rp_task_which_mcu;
+			// mcu write index
+			task->mcu.mcu = rp_work->mcu_write;
+			// prep read index
+			task->mcu.prep = rp_work->prep_read;
+			// prep read sub index
+			task->mcu.prep_mcu = prep_mcu;
+
+			// mcu writing
+			rp_work->mcu[rp_work->mcu_write] = rp_mcu_writing;
+			// mcu write index inc
+			rp_work->mcu_write = (rp_work->mcu_write + 1) % rp_mcu_buffer_count;
+			// prep read sub index inc
+			++rp_work->prep[rp_work->prep_read];
+			// prep read sub index check
+			if (rp_work->prep[rp_work->prep_read] == rp_work->prep_reading_done_state) {
+				// prep read index inc
+				rp_work->prep_read = (rp_work->prep_read + 1) % rp_prep_buffer_count;
+			}
+
+			goto final;
+		}
+	}
+
+	// prep
+	if (rp_work->prep[rp_work->prep_write] < rp_prep_writing) {
+		if (rp_work->in_read < rp_work->in_rows_blk_n) {
+			task->which = rp_task_which_prep;
+			// prep write index
+			task->prep.prep = rp_work->prep_write;
+			// in read index
+			task->prep.in = rp_work->in_read;
+
+			// prep write sub index inc
+			++rp_work->prep[rp_work->prep_write];
+			// prep write sub index check
+			if (rp_work->prep[rp_work->prep_write] == rp_prep_writing) {
+				// prep write index inc
+				rp_work->prep_write = (rp_work->prep_write + 1) % rp_prep_buffer_count;
+			}
+			// in read index inc
+			++rp_work->in_read;
+
+			goto final;
+		}
+	}
+
+	if (rp_work->in_read < rp_work->in_rows_blk_n)
+		ret = RP_ERR_AGAIN;
+	else
+		ret = RP_ERR_DONE;
+
+final:
+	return ret;
+}
+
+int rpJpegAcquireTask(struct rp_task_t *task) {
+	int ret = 0, res;
+
+	if ((res = svc_waitSynchronization1(rp_work_syn->mutex, 1000000000))) {
+		nsDbgPrint("rpJpegAcquireTask mutex wait failed: %d\n", res);
+		return RP_ERR_SYNC;
+	}
+
+	ret = rpJpegTryAcquireTask(task);
+
+	if (res = svc_releaseMutex(rp_work_syn->mutex)) {
+		nsDbgPrint("rpJpegAcquireTask mutex release failed: %d\n", res);
+		return RP_ERR_SYNC;
+	}
+	return ret;
+}
+
+int rpJpegReleaseTask(struct rp_task_t *task) {
+	int ret = 0, res;
+
+	if ((res = svc_waitSynchronization1(rp_work_syn->mutex, 1000000000))) {
+		nsDbgPrint("rpJpegReleaseTask mutex wait failed: %d\n", res);
+		return RP_ERR_SYNC;
+	}
+
+	switch (task->which) {
+		case rp_task_which_nwm: {
+			struct rp_task_nwm_t *nwm = &task->nwm;
+
+			// nwm ready
+			rp_work->nwm = rp_nwm_ready;
+			// mcu read done
+			rp_work->mcu[nwm->mcu] = rp_mcu_empty;
+		} break;
+
+		case rp_task_which_mcu: {
+			struct rp_task_mcu_t *mcu = &task->mcu;
+
+			// mcu read ready
+			rp_work->mcu[mcu->mcu] = rp_mcu_full;
+			int prep_mcu = mcu->prep_mcu;
+			// prep read sub done
+			rp_work->prep_mcu[mcu->prep][prep_mcu] = 1;
+			// prep read sub done base check
+			if (rp_work->prep_mcu_empty[mcu->prep] == prep_mcu) {
+				// prep read sub done next check
+				do {
+					++prep_mcu;
+					if (prep_mcu == rp_work->mcu_row) {
+						// prep read done
+						rp_work->prep[mcu->prep] = rp_prep_empty;
+						// in prep ready
+						rp_work->in_prep[mcu->prep] = 0;
+
+						break;
+					}
+				} while (rp_work->prep_mcu[mcu->prep][prep_mcu]);
+				// prep read sub done inc
+				rp_work->prep_mcu_empty[mcu->prep] = prep_mcu;
+			}
+		} break;
+
+		case rp_task_which_prep: {
+			struct rp_task_prep_t *prep = &task->prep;
+
+			// in prep inc
+			++rp_work->in_prep[prep->prep];
+			// in prep check
+			if (rp_work->in_prep[prep->prep] == rp_thread_count) {
+				// prep read ready
+				rp_work->prep[prep->prep] = rp_prep_reading;
+				// prep read sub ready
+				memset(rp_work->prep_mcu[prep->prep], 0, sizeof(rp_work->prep_mcu[prep->prep]));
+				// prep read sub base ready
+				rp_work->prep_mcu_empty[prep->prep] = 0;
+			}
+		} break;
+
+		default:
+			ret = RP_ERR_ARG;
+			break;
+	}
+
+	if (ret == 0) {
+		ret = rpJpegTryAcquireTask(task);
+		if (ret == 0)
+			ret = RP_ERR_AGAIN;
+		else
+			ret = 0;
+	}
+
+final:
+	if (res = svc_releaseMutex(rp_work_syn->mutex)) {
+		nsDbgPrint("rpJpegReleaseTask mutex release failed: %d\n", res);
+		return RP_ERR_SYNC;
+	}
+	return ret;
+}
+
+int rpJpegRunTask(struct rp_task_t *task, int thread_id) {
+	int ret = 0;
+
+	switch (task->which) {
+		case rp_task_which_nwm: {
+			struct rp_task_nwm_t *nwm = &task->nwm;
+
+			jpeg_encode_mcu_huff(rp_work->cinfo, MCU_buffers[nwm->mcu]);
+			// nsDbgPrint("%d nwm: mcu %d\n", thread_id, nwm->mcu);
+		} break;
+
+		case rp_task_which_mcu: {
+			struct rp_task_mcu_t *mcu = &task->mcu;
+
+			jpeg_compress_data(rp_work->cinfo, prep_buffers[mcu->prep], MCU_buffers[mcu->mcu], mcu->prep_mcu);
+			// nsDbgPrint("%d mcu: mcu %d, prep %d, prep_mcu %d\n", thread_id, mcu->mcu, mcu->prep, mcu->prep_mcu);
+		} break;
+
+		case rp_task_which_prep: {
+			struct rp_task_prep_t *prep = &task->prep;
+
+			JSAMPROW input_buf[rp_work->in_rows_blk_half];
+			for (int i = 0, j = rp_work->in_rows_blk_half * prep->in; i < rp_work->in_rows_blk_half; ++i, ++j)
+				input_buf[i] = rp_work->src + j * rp_work->pitch;
+			jpeg_pre_process(rp_work->cinfo, input_buf, color_buffers[thread_id], prep_buffers[prep->prep], prep->in % 2);
+			// nsDbgPrint("%d prep: prep %d, in %d\n", thread_id, prep->prep, prep->in);
+		} break;
+
+		default:
+			ret = RP_ERR_ARG;
+			break;
+	}
+
+final:
+	return ret;
+}
+
+void rpJPEGCompressInner(int thread_id) {
+	while (1) {
+		struct rp_task_t task;
+		int ret;
+		if ((ret = rpJpegAcquireTask(&task))) {
+			if (ret == RP_ERR_AGAIN) {
+				break;
+			}
+			if (ret != RP_ERR_DONE)
+				nsDbgPrint("rpJpegAcquireTask failed\n");
+			break;
+		}
+again:
+		if (rpJpegRunTask(&task, thread_id)) {
+			nsDbgPrint("rpJpegRunTask failed\n");
+			break;
+		}
+		if ((ret = rpJpegReleaseTask(&task))) {
+			if (ret == RP_ERR_AGAIN)
+				goto again;
+			nsDbgPrint("rpJpegReleaseTask failed\n");
+			break;
+		}
+		// svc_sleepThread(10000000);
+	}
+
+	if (__atomic_add_fetch(&rp_work_syn->sem_count, 1, __ATOMIC_RELAXED) >= rp_thread_count) {
+		__atomic_store_n(&rp_work_syn->sem_count, 0, __ATOMIC_RELAXED);
+		s32 count;
+		int res = svc_releaseSemaphore(&count, rp_work_syn->sem_ready, 1);
+		if (res) {
+			nsDbgPrint("svc_releaseSemaphore sem_ready failed\n");
+		}
+	}
+}
 
 void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
+#if 1
+	int res;
+	res = svc_waitSynchronization1(rp_work_syn->sem_write, 1000000000);
+	if (res) {
+		nsDbgPrint("svc_waitSynchronization1 sem_write failed\n");
+		return;
+	}
+
+	memset(rp_work, 0, sizeof(struct rp_work_t));
+	rp_work->cinfo = cinfo;
+	rp_work->src = src;
+	rp_work->pitch = pitch;
+
+	rp_work->mcu_row = cinfo->MCUs_per_row;
+	rp_work->prep_reading_done_state = rp_prep_reading + rp_work->mcu_row;
+	rp_work->in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
+	rp_work->in_rows_blk_half = rp_work->in_rows_blk / 2;
+	rp_work->in_rows_blk_n = cinfo->image_height / rp_work->in_rows_blk_half;
+
+	s32 count;
+	res = svc_releaseSemaphore(&count, rp_work_syn->sem_read, 1);
+	if (res) {
+		nsDbgPrint("svc_releaseSemaphore sem_read failed\n");
+		return;
+	}
+
+	rpJPEGCompressInner(0);
+
+	res = svc_waitSynchronization1(rp_work_syn->sem_ready, 1000000000);
+	if (res) {
+		nsDbgPrint("svc_waitSynchronization1 sem_ready failed\n");
+		return;
+	}
+
+	// if (rp_work->in_read < rp_work->in_rows_blk_n) {
+		// nsDbgPrint(
+		// 	"nwm %d\n"
+		// 	"mcu[0] %d mcu[1] %d mcu[2] %d mcu[3] %d mcu_write %d mcu_read %d\n"
+		// 	"prep[0] %d prep[1] %d prep[2] %d prep_write %d prep_read %d\n"
+		// 	"in_prep[0] %d in_prep[1] %d in_prep[2] %d in_read %d\n",
+		// 	rp_work->nwm,
+		// 	rp_work->mcu[0],
+		// 	rp_work->mcu[1],
+		// 	rp_work->mcu[2],
+		// 	rp_work->mcu[3],
+		// 	rp_work->mcu_write,
+		// 	rp_work->mcu_read,
+		// 	rp_work->prep[0],
+		// 	rp_work->prep[1],
+		// 	rp_work->prep[2],
+		// 	rp_work->prep_write,
+		// 	rp_work->prep_read,
+		// 	rp_work->in_prep[0],
+		// 	rp_work->in_prep[1],
+		// 	rp_work->in_prep[2],
+		// 	rp_work->in_read
+		// );
+	// 	for (int i = 0; i < rp_prep_buffer_count; ++i) {
+	// 		if (
+	// 			rp_work->prep[i] == rp_work->prep_reading_done_state &&
+	// 			rp_work->in_prep[i] == rp_thread_count &&
+	// 			rp_work->prep_write == i &&
+	// 			rp_work->prep_read == i 
+	// 		) {
+	// 			nsDbgPrint("%d %d\n", i, rp_work->prep_mcu_empty[i]);
+	// 			for (int j = 0; j < 15; ++j) {
+	// 				nsDbgPrint("%d ", rp_work->prep_mcu[i][j]);
+	// 			}
+	// 			nsDbgPrint("\n");
+	// 			break;
+	// 		}
+	// 	}
+	// }
+
+	res = svc_releaseSemaphore(&count, rp_work_syn->sem_write, 1);
+	if (res) {
+		nsDbgPrint("svc_releaseSemaphore sem_write failed\n");
+	}
+
+#else
 	JDIMENSION in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
 	JDIMENSION in_rows_blk_half = in_rows_blk / 2;
 
 	// JSAMPIMAGE output_buf = jpeg_get_process_buf(cinfo);
 	// JSAMPIMAGE color_buf = jpeg_get_pre_process_buf(cinfo);
-	JSAMPIMAGE output_buf = pre_proc_buffers[0];
+	JSAMPIMAGE output_buf = prep_buffers[0];
 	JSAMPIMAGE color_buf = color_buffers[0];
 
 	JSAMPROW input_buf[in_rows_blk_half];
@@ -503,6 +916,7 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 			jpeg_encode_mcu_huff(cinfo, MCU_buffer);
 		}
 	}
+#endif
 }
 
 void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
@@ -847,9 +1261,9 @@ void remotePlaySendFrames() {
 	}
 	priorityFactor = factor;
 
-	for (int i = 0; i < rp_pre_proc_buffer_count; ++i) {
+	for (int i = 0; i < rp_prep_buffer_count; ++i) {
 		for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
-			pre_proc_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_top, JPOOL_IMAGE,
+			prep_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_top, JPOOL_IMAGE,
 				240, (JDIMENSION)(MAX_SAMP_FACTOR * DCTSIZE));
 		}
 	}
@@ -930,7 +1344,21 @@ void remotePlaySendFrames() {
 	}
 }
 
-void remotePlayThreadStart() {
+void remotePlayAuxThreadStart(void *arg) {
+	while (1) {
+		int res;
+		res = svc_waitSynchronization1(rp_work_syn->sem_read, 1000000000);
+		if (res) {
+			nsDbgPrint("svc_waitSynchronization1 sem_read failed\n");
+			continue;
+		}
+
+		rpJPEGCompressInner(1);
+	}
+	svc_exitThread();
+}
+
+void remotePlayThreadStart(void *arg) {
 	u32 i, ret;
 	u8* dataBuf = remotePlayBuffer + 0x2a + 8;
 	u32 remainSize;
@@ -938,6 +1366,7 @@ void remotePlayThreadStart() {
 	imgBuffer = plgRequestMemorySpecifyRegion(0x00200000, 1);
 
 	if (rpInitJpegCompress() != 0) {
+		nsDbgPrint("rpInitJpegCompress failed\n");
 		goto final;
 	}
 
@@ -945,8 +1374,45 @@ void remotePlayThreadStart() {
 	if (!imgBuffer) {
 		goto final;
 	}
+
+	rp_work = imgBuffer + 0x001e0000;
+	rp_work_syn = imgBuffer + 0x001f0000;
+
 	rpInitDmaHome();
+
 	// kRemotePlayCallback();
+
+	ret = svc_createMutex(&rp_work_syn->mutex, 0);
+	if (ret != 0) {
+		nsDbgPrint("svc_createMutex failed: %08x\n", ret);
+		goto final;
+	}
+
+	ret = svc_createSemaphore(&rp_work_syn->sem_read, 0, 1);
+	if (ret != 0) {
+		nsDbgPrint("svc_createSemaphore sem_read failed: %08x\n", ret);
+		goto final;
+	}
+	ret = svc_createSemaphore(&rp_work_syn->sem_write, 1, 1);
+	if (ret != 0) {
+		nsDbgPrint("svc_createSemaphore sem_write failed: %08x\n", ret);
+		goto final;
+	}
+	ret = svc_createSemaphore(&rp_work_syn->sem_ready, 0, 1);
+	if (ret != 0) {
+		nsDbgPrint("svc_createSemaphore sem_ready failed: %08x\n", ret);
+		goto final;
+	}
+	rp_work_syn->sem_count = 0;
+
+	Handle hThreadAux;
+	u32 *threadStack = plgRequestMemory(rpThreadStackSize);
+	ret = svc_createThread(&hThreadAux, (void*)remotePlayAuxThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 3);
+	if (ret != 0) {
+		nsDbgPrint("Create RemotePlay Aux Thread Failed: %08x\n", ret);
+		goto final;
+	}
+
 	while (1) {
 		remotePlaySendFrames();
 	}
@@ -958,7 +1424,6 @@ int nwmValParamCallback(u8* buf, int buflen) {
 	//rtDisableHook(&nwmValParamHook);
 	int i;
 	u32* threadStack;
-	int stackSize = 0x10000;
 	int ret;
 	Handle hThread;
 	/*
@@ -978,8 +1443,9 @@ int nwmValParamCallback(u8* buf, int buflen) {
 			rtDisableHook(&nwmValParamHook);
 			memcpy(remotePlayBuffer, buf, 0x22 + 8);
 			packetLen = initUDPPacket(PACKET_SIZE);
-			threadStack = plgRequestMemory(stackSize);
-			ret = svc_createThread(&hThread, (void*)remotePlayThreadStart, 0, &threadStack[(stackSize / 4) - 10], 0x10, 2);
+
+			threadStack = plgRequestMemory(rpThreadStackSize);
+			ret = svc_createThread(&hThread, (void*)remotePlayThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 2);
 			if (ret != 0) {
 				nsDbgPrint("Create RemotePlay Thread Failed: %08x\n", ret);
 			}
