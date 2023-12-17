@@ -42,6 +42,12 @@ typedef struct {
 
 typedef my_main_controller *my_main_ptr;
 
+GLOBAL(_JSAMPIMAGE)
+jpeg_get_process_buf(j_compress_ptr cinfo)
+{
+  my_main_ptr main_ptr = (my_main_ptr)cinfo->main;
+  return main_ptr->buffer;
+}
 
 /* Forward declarations */
 METHODDEF(void) process_data_simple_main(j_compress_ptr cinfo,

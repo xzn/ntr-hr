@@ -1239,6 +1239,13 @@ EXTERN(void) jpeg_start_pass_main(j_compress_ptr cinfo, int pass_mode);
 
 EXTERN(void) jpeg_finish_pass_huff(j_compress_ptr cinfo);
 
+EXTERN(void) jpeg_pre_process(j_compress_ptr cinfo, JSAMPARRAY input_buf, JSAMPIMAGE color_buf, JSAMPIMAGE output_buf, int output_rows_which_half);
+EXTERN(JSAMPIMAGE) jpeg_get_pre_process_buf(j_compress_ptr cinfo);
+EXTERN(JSAMPIMAGE) jpeg_get_process_buf(j_compress_ptr cinfo);
+EXTERN(JBLOCKROW *) jpeg_get_compress_data_buf(j_compress_ptr cinfo);
+EXTERN(void) jpeg_compress_data(j_compress_ptr cinfo, JSAMPIMAGE input_buf, JBLOCKROW *MCU_buffer, JDIMENSION MCU_col_num);
+EXTERN(boolean) jpeg_encode_mcu_huff(j_compress_ptr cinfo, JBLOCKROW *MCU_data);
+
 #ifdef __cplusplus
 #ifndef DONT_USE_EXTERN_C
 }

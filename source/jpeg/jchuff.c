@@ -777,6 +777,8 @@ encode_mcu_huff(j_compress_ptr cinfo, JBLOCKROW *MCU_data)
   return TRUE;
 }
 
+GLOBAL(boolean)
+jpeg_encode_mcu_huff(j_compress_ptr cinfo, JBLOCKROW *MCU_data) __attribute__((alias("encode_mcu_huff")));
 
 /*
  * Finish up at the end of a Huffman-compressed scan.

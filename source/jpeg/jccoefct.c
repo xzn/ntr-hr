@@ -131,6 +131,31 @@ start_pass_coef(j_compress_ptr cinfo, J_BUF_MODE pass_mode)
 GLOBAL(void)
 jpeg_start_pass_coef(j_compress_ptr cinfo, int pass_mode) __attribute__((alias("start_pass_coef")));
 
+GLOBAL(JBLOCKROW *)
+jpeg_get_compress_data_buf(j_compress_ptr cinfo)
+{
+  my_coef_ptr coef = (my_coef_ptr)cinfo->coef;
+  return coef->MCU_buffer;
+}
+
+GLOBAL(void)
+jpeg_compress_data(j_compress_ptr cinfo, _JSAMPIMAGE input_buf, JBLOCKROW *MCU_buffer, JDIMENSION MCU_col_num)
+{
+  my_coef_ptr coef = (my_coef_ptr)cinfo->coef;
+  int yoffset = 0, blkn = 0;
+  for (int ci = 0; ci < cinfo->comps_in_scan; ci++) {
+    jpeg_component_info *compptr = cinfo->cur_comp_info[ci];
+    int blockcnt = compptr->MCU_width;
+    int xpos = MCU_col_num * compptr->MCU_sample_width;
+    int ypos = yoffset * DCTSIZE;
+    for (int yindex = 0; yindex < compptr->MCU_height; yindex++, blkn += compptr->MCU_width, ypos += DCTSIZE) {
+      (*cinfo->fdct->_forward_DCT) (cinfo, compptr,
+                                    input_buf[compptr->component_index],
+                                    MCU_buffer[blkn],
+                                    ypos, xpos, (JDIMENSION)blockcnt);
+    }
+  }
+}
 
 /*
  * Process some data in the single-pass case.

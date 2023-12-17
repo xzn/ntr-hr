@@ -134,6 +134,36 @@ expand_bottom_edge(_JSAMPARRAY image_data, JDIMENSION num_cols, int input_rows,
  * input rows.
  */
 
+GLOBAL(_JSAMPIMAGE)
+jpeg_get_pre_process_buf(j_compress_ptr cinfo)
+{
+  my_prep_ptr prep = (my_prep_ptr)cinfo->prep;
+  return prep->color_buf;
+}
+
+GLOBAL(void)
+jpeg_pre_process(j_compress_ptr cinfo, _JSAMPARRAY input_buf, _JSAMPIMAGE color_buf, _JSAMPIMAGE output_buf, int output_rows_which_half)
+{
+  JDIMENSION in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
+  JDIMENSION in_rows_blk_half = in_rows_blk / 2;
+
+  JDIMENSION output_rows_base = output_rows_which_half == 0 ? 0 : DCTSIZE / 2;
+
+  JDIMENSION in_rows_total = in_rows_blk_half;
+  JDIMENSION in_rows = 0;
+  JDIMENSION rows_step = cinfo->max_v_samp_factor;
+
+  while (in_rows < in_rows_total) {
+    (*cinfo->cconvert->_color_convert) (cinfo, input_buf + in_rows,
+                                        color_buf,
+                                        0,
+                                        rows_step);
+    in_rows += rows_step;
+
+    (*cinfo->downsample->_downsample) (cinfo, color_buf, 0, output_buf, output_rows_base++);
+  }
+}
+
 METHODDEF(void)
 pre_process_data(j_compress_ptr cinfo, _JSAMPARRAY input_buf,
                  JDIMENSION *in_row_ctr, JDIMENSION in_rows_avail,

@@ -465,6 +465,34 @@ int rpInitJpegCompress() {
 	return 0;
 }
 
+void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
+	JDIMENSION in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
+	JDIMENSION in_rows_blk_half = in_rows_blk / 2;
+
+	JSAMPIMAGE output_buf = jpeg_get_process_buf(cinfo);
+	JSAMPIMAGE color_buf = jpeg_get_pre_process_buf(cinfo);
+
+	JSAMPROW input_buf[in_rows_blk_half];
+
+	int j = 0;
+	for (j = 0; j < cinfo->image_height;) {
+		for (int i = 0; i < in_rows_blk_half; ++i, ++j)
+			input_buf[i] = src + j * pitch;
+		jpeg_pre_process(cinfo, input_buf, color_buf, output_buf, 0);
+
+		for (int i = 0; i < in_rows_blk_half; ++i, ++j)
+			input_buf[i] = src + j * pitch;
+		jpeg_pre_process(cinfo, input_buf, color_buf, output_buf, 1);
+
+		JBLOCKROW *MCU_buffer = jpeg_get_compress_data_buf(cinfo);
+
+		for (int k = 0; k < cinfo->MCUs_per_row; ++k) {
+			jpeg_compress_data(cinfo, output_buf, MCU_buffer, k);
+			jpeg_encode_mcu_huff(cinfo, MCU_buffer);
+		}
+	}
+}
+
 void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	u8* srcBuff;
 	u32 row_stride, i;
@@ -519,11 +547,12 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	jpeg_write_frame_header(cinfo);
 	jpeg_write_scan_header(cinfo);
 
+	rpJPEGCompress(cinfo, srcBuff, row_stride);
 	// if (ctx->directCompress) {
-		for (i = 0; i < cinfo->image_height; i++) {
-			row_pointer[i] = &(srcBuff[i * row_stride]);
-		}
-		jpeg_write_scanlines(cinfo, row_pointer, cinfo->image_height);
+		// for (i = 0; i < cinfo->image_height; i++) {
+		// 	row_pointer[i] = &(srcBuff[i * row_stride]);
+		// }
+		// jpeg_write_scanlines(cinfo, row_pointer, cinfo->image_height);
 	// } else {
 	// 	for (i = 0; i < cinfo->image_height;) {
 	// 		for (int j = 0; j < 16; ++j, ++i) {
@@ -809,15 +838,15 @@ void remotePlaySendFrames() {
 	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i)
 		memcpy(&ctxs[i]->alloc_stats->comp, &ctxs[i]->cinfo->alloc.stats, sizeof(struct rp_alloc_stats));
 
-	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i) {
-		ctxs[i]->cinfo->image_width = 240;
-		ctxs[i]->cinfo->image_height = i == 0 ? 400 : 320;
-		ctxs[i]->cinfo->input_components = 3;
-		ctxs[i]->cinfo->in_color_space = JCS_RGB;
+	// for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i) {
+	// 	ctxs[i]->cinfo->image_width = 240;
+	// 	ctxs[i]->cinfo->image_height = i == 0 ? 400 : 320;
+	// 	ctxs[i]->cinfo->input_components = 3;
+	// 	ctxs[i]->cinfo->in_color_space = JCS_RGB;
 
-		jpeg_start_compress(ctxs[i]->cinfo, TRUE); /* alloc buffers */
-		ctxs[i]->cinfo->global_state == JPEG_CSTATE_START;
-	};
+	// 	jpeg_start_compress(ctxs[i]->cinfo, TRUE); /* alloc buffers */
+	// 	ctxs[i]->cinfo->global_state == JPEG_CSTATE_START;
+	// };
 
 #undef rpCurrentMode
 #undef rpQuality
