@@ -454,6 +454,7 @@ int rpInitJpegCompress() {
 		jpeg_set_defaults(cinfo);
 		cinfo->dct_method = JDCT_IFAST;
 		cinfo->skip_markers = TRUE;
+		cinfo->skip_buffers = TRUE;
 	}
 
 	jpeg_std_huff_tables((j_common_ptr)&cinfo_top);
@@ -465,12 +466,20 @@ int rpInitJpegCompress() {
 	return 0;
 }
 
+#define rp_work_buffer_count (3)
+
+JSAMPARRAY pre_proc_buffers[rp_work_buffer_count][MAX_COMPONENTS];
+JSAMPARRAY color_buffers[rp_work_buffer_count][MAX_COMPONENTS];
+JBLOCKROW MCU_buffers[rp_work_buffer_count][C_MAX_BLOCKS_IN_MCU];
+
 void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 	JDIMENSION in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
 	JDIMENSION in_rows_blk_half = in_rows_blk / 2;
 
-	JSAMPIMAGE output_buf = jpeg_get_process_buf(cinfo);
-	JSAMPIMAGE color_buf = jpeg_get_pre_process_buf(cinfo);
+	// JSAMPIMAGE output_buf = jpeg_get_process_buf(cinfo);
+	// JSAMPIMAGE color_buf = jpeg_get_pre_process_buf(cinfo);
+	JSAMPIMAGE output_buf = pre_proc_buffers[0];
+	JSAMPIMAGE color_buf = color_buffers[0];
 
 	JSAMPROW input_buf[in_rows_blk_half];
 
@@ -484,7 +493,8 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 			input_buf[i] = src + j * pitch;
 		jpeg_pre_process(cinfo, input_buf, color_buf, output_buf, 1);
 
-		JBLOCKROW *MCU_buffer = jpeg_get_compress_data_buf(cinfo);
+		// JBLOCKROW *MCU_buffer = jpeg_get_compress_data_buf(cinfo);
+		JBLOCKROW *MCU_buffer = MCU_buffers[0];
 
 		for (int k = 0; k < cinfo->MCUs_per_row; ++k) {
 			jpeg_compress_data(cinfo, output_buf, MCU_buffer, k);
@@ -834,6 +844,21 @@ void remotePlaySendFrames() {
 		isPriorityTop = 0;
 	}
 	priorityFactor = factor;
+
+	for (int i = 0; i < rp_work_buffer_count; ++i) {
+		for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
+			pre_proc_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_top, JPOOL_IMAGE,
+				240, (JDIMENSION)(MAX_SAMP_FACTOR * DCTSIZE));
+
+			color_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_top, JPOOL_IMAGE,
+				240, (JDIMENSION)MAX_SAMP_FACTOR);
+		}
+
+		JBLOCKROW buffer = (JBLOCKROW)jpeg_alloc_large((j_common_ptr)&cinfo_top, JPOOL_IMAGE, C_MAX_BLOCKS_IN_MCU * sizeof(JBLOCK));
+		for (int b = 0; b < C_MAX_BLOCKS_IN_MCU; b++) {
+			MCU_buffers[i][b] = buffer + b;
+		}
+	}
 
 	for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i)
 		memcpy(&ctxs[i]->alloc_stats->comp, &ctxs[i]->cinfo->alloc.stats, sizeof(struct rp_alloc_stats));

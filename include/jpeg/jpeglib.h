@@ -53,11 +53,17 @@ extern "C" {
 
 #define DCTSIZE             8   /* The basic DCT block is 8x8 samples */
 #define DCTSIZE2            64  /* DCTSIZE squared; # of elements in a block */
-#define NUM_QUANT_TBLS      4   /* Quantization tables are numbered 0..3 */
-#define NUM_HUFF_TBLS       4   /* Huffman tables are numbered 0..3 */
-#define NUM_ARITH_TBLS      16  /* Arith-coding tables are numbered 0..15 */
-#define MAX_COMPS_IN_SCAN   4   /* JPEG limit on # of components in one scan */
-#define MAX_SAMP_FACTOR     4   /* JPEG limit on sampling factors */
+// #define NUM_QUANT_TBLS      4   /* Quantization tables are numbered 0..3 */
+// #define NUM_HUFF_TBLS       4   /* Huffman tables are numbered 0..3 */
+// #define NUM_ARITH_TBLS      16  /* Arith-coding tables are numbered 0..15 */
+// #define MAX_COMPS_IN_SCAN   4   /* JPEG limit on # of components in one scan */
+// #define MAX_SAMP_FACTOR     4   /* JPEG limit on sampling factors */
+#define NUM_QUANT_TBLS      2   /* Quantization tables are numbered 0..3 */
+#define NUM_HUFF_TBLS       2   /* Huffman tables are numbered 0..3 */
+// #define NUM_ARITH_TBLS      16  /* Arith-coding tables are numbered 0..15 */
+// #define MAX_COMPS_IN_SCAN   4   /* JPEG limit on # of components in one scan */
+#define MAX_COMPS_IN_SCAN 3
+#define MAX_SAMP_FACTOR     2   /* JPEG limit on sampling factors */
 /* Unfortunately, some bozo at Adobe saw no reason to be bound by the standard;
  * the PostScript DCT filter can emit files with many more than 10 blocks/MCU.
  * If you happen to run across such a file, you can up D_MAX_BLOCKS_IN_MCU
@@ -395,9 +401,9 @@ struct jpeg_compress_struct {
   JHUFF_TBL *ac_huff_tbl_ptrs[NUM_HUFF_TBLS];
   /* ptrs to Huffman coding tables, or NULL if not defined */
 
-  UINT8 arith_dc_L[NUM_ARITH_TBLS]; /* L values for DC arith-coding tables */
-  UINT8 arith_dc_U[NUM_ARITH_TBLS]; /* U values for DC arith-coding tables */
-  UINT8 arith_ac_K[NUM_ARITH_TBLS]; /* Kx values for AC arith-coding tables */
+  // UINT8 arith_dc_L[NUM_ARITH_TBLS]; /* L values for DC arith-coding tables */
+  // UINT8 arith_dc_U[NUM_ARITH_TBLS]; /* U values for DC arith-coding tables */
+  // UINT8 arith_ac_K[NUM_ARITH_TBLS]; /* Kx values for AC arith-coding tables */
 
   int num_scans;                /* # of entries in scan_info array */
   const jpeg_scan_info *scan_info; /* script for multi-scan file, or NULL */
@@ -513,6 +519,7 @@ struct jpeg_compress_struct {
   boolean color_reuse;
   boolean defaults_skip_tables;
   boolean skip_markers;
+  boolean skip_buffers;
 };
 
 
@@ -656,9 +663,9 @@ struct jpeg_decompress_struct {
   boolean progressive_mode;     /* TRUE if SOFn specifies progressive mode */
   boolean arith_code;           /* TRUE=arithmetic coding, FALSE=Huffman */
 
-  UINT8 arith_dc_L[NUM_ARITH_TBLS]; /* L values for DC arith-coding tables */
-  UINT8 arith_dc_U[NUM_ARITH_TBLS]; /* U values for DC arith-coding tables */
-  UINT8 arith_ac_K[NUM_ARITH_TBLS]; /* Kx values for AC arith-coding tables */
+  // UINT8 arith_dc_L[NUM_ARITH_TBLS]; /* L values for DC arith-coding tables */
+  // UINT8 arith_dc_U[NUM_ARITH_TBLS]; /* U values for DC arith-coding tables */
+  // UINT8 arith_ac_K[NUM_ARITH_TBLS]; /* Kx values for AC arith-coding tables */
 
   unsigned int restart_interval; /* MCUs per restart interval, or 0 for no restart */
 
@@ -1245,6 +1252,9 @@ EXTERN(JSAMPIMAGE) jpeg_get_process_buf(j_compress_ptr cinfo);
 EXTERN(JBLOCKROW *) jpeg_get_compress_data_buf(j_compress_ptr cinfo);
 EXTERN(void) jpeg_compress_data(j_compress_ptr cinfo, JSAMPIMAGE input_buf, JBLOCKROW *MCU_buffer, JDIMENSION MCU_col_num);
 EXTERN(boolean) jpeg_encode_mcu_huff(j_compress_ptr cinfo, JBLOCKROW *MCU_data);
+
+EXTERN(JSAMPARRAY) jpeg_alloc_sarray(j_common_ptr cinfo, int pool_id, JDIMENSION samplesperrow, JDIMENSION numrows);
+EXTERN(void *) jpeg_alloc_large(j_common_ptr cinfo, int pool_id, size_t sizeofobject);
 
 #ifdef __cplusplus
 #ifndef DONT_USE_EXTERN_C

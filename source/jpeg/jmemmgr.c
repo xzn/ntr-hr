@@ -421,6 +421,8 @@ alloc_large(j_common_ptr cinfo, int pool_id, size_t sizeofobject)
   return (void *)data_ptr;
 }
 
+GLOBAL(void *)
+jpeg_alloc_large(j_common_ptr cinfo, int pool_id, size_t sizeofobject) __attribute__((alias("alloc_large")));
 
 /*
  * Creation of 2-D sample arrays.
@@ -548,6 +550,9 @@ alloc_sarray(j_common_ptr cinfo, int pool_id, JDIMENSION samplesperrow,
     return result;
   }
 }
+
+GLOBAL(JSAMPARRAY)
+jpeg_alloc_sarray(j_common_ptr cinfo, int pool_id, JDIMENSION samplesperrow, JDIMENSION numrows) __attribute__((alias("alloc_sarray")));
 
 
 /*

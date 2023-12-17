@@ -170,6 +170,10 @@ _jinit_c_main_controller(j_compress_ptr cinfo, boolean need_full_buffer)
     /* Allocate a strip buffer for each component */
     for (ci = 0, compptr = cinfo->comp_info; ci < cinfo->num_components;
          ci++, compptr++) {
+      if (cinfo->skip_buffers) {
+        main_ptr->buffer[ci] = 0;
+        continue;
+      }
       main_ptr->buffer[ci] = (_JSAMPARRAY)(*cinfo->mem->alloc_sarray)
         ((j_common_ptr)cinfo, JPOOL_IMAGE,
          compptr->width_in_blocks * data_unit,

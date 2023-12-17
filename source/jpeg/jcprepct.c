@@ -385,6 +385,10 @@ _jinit_c_prep_controller(j_compress_ptr cinfo, boolean need_full_buffer)
     prep->pub._pre_process_data = pre_process_data;
     for (ci = 0, compptr = cinfo->comp_info; ci < cinfo->num_components;
          ci++, compptr++) {
+      if (cinfo->skip_buffers) {
+        prep->color_buf[ci] = 0;
+        continue;
+      }
       prep->color_buf[ci] = (_JSAMPARRAY)(*cinfo->mem->alloc_sarray)
         ((j_common_ptr)cinfo, JPOOL_IMAGE,
          (JDIMENSION)(((long)compptr->width_in_blocks * data_unit *

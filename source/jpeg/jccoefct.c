@@ -471,11 +471,17 @@ _jinit_c_coef_controller(j_compress_ptr cinfo, boolean need_full_buffer)
     JBLOCKROW buffer;
     int i;
 
-    buffer = (JBLOCKROW)
-      (*cinfo->mem->alloc_large) ((j_common_ptr)cinfo, JPOOL_IMAGE,
-                                  C_MAX_BLOCKS_IN_MCU * sizeof(JBLOCK));
-    for (i = 0; i < C_MAX_BLOCKS_IN_MCU; i++) {
-      coef->MCU_buffer[i] = buffer + i;
+    if (cinfo->skip_buffers) {
+      for (i = 0; i < C_MAX_BLOCKS_IN_MCU; i++) {
+        coef->MCU_buffer[i] = 0;
+      }
+    } else {
+      buffer = (JBLOCKROW)
+        (*cinfo->mem->alloc_large) ((j_common_ptr)cinfo, JPOOL_IMAGE,
+                                    C_MAX_BLOCKS_IN_MCU * sizeof(JBLOCK));
+      for (i = 0; i < C_MAX_BLOCKS_IN_MCU; i++) {
+        coef->MCU_buffer[i] = buffer + i;
+      }
     }
     coef->whole_image[0] = NULL; /* flag for no virtual arrays */
   }

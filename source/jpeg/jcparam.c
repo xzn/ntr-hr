@@ -214,11 +214,11 @@ jpeg_set_defaults(j_compress_ptr cinfo)
   }
 
   /* Initialize default arithmetic coding conditioning */
-  for (i = 0; i < NUM_ARITH_TBLS; i++) {
-    cinfo->arith_dc_L[i] = 0;
-    cinfo->arith_dc_U[i] = 1;
-    cinfo->arith_ac_K[i] = 5;
-  }
+  // for (i = 0; i < NUM_ARITH_TBLS; i++) {
+  //   cinfo->arith_dc_L[i] = 0;
+  //   cinfo->arith_dc_U[i] = 1;
+  //   cinfo->arith_ac_K[i] = 5;
+  // }
 
   /* Default is no multiple-scan output */
   cinfo->scan_info = NULL;
