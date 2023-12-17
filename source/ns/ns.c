@@ -850,11 +850,11 @@ void remotePlaySendFrames() {
 			pre_proc_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_top, JPOOL_IMAGE,
 				240, (JDIMENSION)(MAX_SAMP_FACTOR * DCTSIZE));
 
-			color_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_top, JPOOL_IMAGE,
+			color_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_bot, JPOOL_IMAGE,
 				240, (JDIMENSION)MAX_SAMP_FACTOR);
 		}
 
-		JBLOCKROW buffer = (JBLOCKROW)jpeg_alloc_large((j_common_ptr)&cinfo_top, JPOOL_IMAGE, C_MAX_BLOCKS_IN_MCU * sizeof(JBLOCK));
+		JBLOCKROW buffer = (JBLOCKROW)jpeg_alloc_large((j_common_ptr)&cinfo_bot, JPOOL_IMAGE, C_MAX_BLOCKS_IN_MCU * sizeof(JBLOCK));
 		for (int b = 0; b < C_MAX_BLOCKS_IN_MCU; b++) {
 			MCU_buffers[i][b] = buffer + b;
 		}
