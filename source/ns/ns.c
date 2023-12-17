@@ -484,6 +484,7 @@ MCU_buffer_t MCU_buffers[rp_mcu_buffer_count];
 struct rp_work_syn_t {
 	Handle mutex;
 	Handle sem_read, sem_write, sem_ready;
+	Handle event;
 	int sem_count;
 } *rp_work_syn;
 
@@ -644,6 +645,13 @@ int rpJpegAcquireTask(struct rp_task_t *task) {
 	}
 
 	ret = rpJpegTryAcquireTask(task);
+	if (ret == RP_ERR_AGAIN) {
+		res = svc_clearEvent(rp_work_syn->event);
+		if (res) {
+			nsDbgPrint("svc_clearEvent failed: %d\n", res);
+			ret = RP_ERR_SYNC;
+		}
+	}
 
 	if (res = svc_releaseMutex(rp_work_syn->mutex)) {
 		nsDbgPrint("rpJpegAcquireTask mutex release failed: %d\n", res);
@@ -724,6 +732,12 @@ int rpJpegReleaseTask(struct rp_task_t *task) {
 			ret = RP_ERR_AGAIN;
 		else
 			ret = 0;
+
+		res = svc_signalEvent(rp_work_syn->event);
+		if (res) {
+			nsDbgPrint("svc_signalEvent failed: %d\n", res);
+			ret = RP_ERR_SYNC;
+		}
 	}
 
 final:
@@ -731,6 +745,7 @@ final:
 		nsDbgPrint("rpJpegReleaseTask mutex release failed: %d\n", res);
 		return RP_ERR_SYNC;
 	}
+
 	return ret;
 }
 
@@ -777,7 +792,12 @@ void rpJPEGCompressInner(int thread_id) {
 		int ret;
 		if ((ret = rpJpegAcquireTask(&task))) {
 			if (ret == RP_ERR_AGAIN) {
-				break;
+				int res = svc_waitSynchronization1(rp_work_syn->event, 1000000000);
+				if (res) {
+					nsDbgPrint("svc_waitSynchronization1 event failed: %d\n", res);
+					break;
+				}
+				continue;
 			}
 			if (ret != RP_ERR_DONE)
 				nsDbgPrint("rpJpegAcquireTask failed\n");
@@ -870,7 +890,7 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 	// 			rp_work->prep[i] == rp_work->prep_reading_done_state &&
 	// 			rp_work->in_prep[i] == rp_thread_count &&
 	// 			rp_work->prep_write == i &&
-	// 			rp_work->prep_read == i 
+	// 			rp_work->prep_read == i
 	// 		) {
 	// 			nsDbgPrint("%d %d\n", i, rp_work->prep_mcu_empty[i]);
 	// 			for (int j = 0; j < 15; ++j) {
@@ -1401,6 +1421,11 @@ void remotePlayThreadStart(void *arg) {
 	ret = svc_createSemaphore(&rp_work_syn->sem_ready, 0, 1);
 	if (ret != 0) {
 		nsDbgPrint("svc_createSemaphore sem_ready failed: %08x\n", ret);
+		goto final;
+	}
+	ret = svc_createEvent(&rp_work_syn->event, 0);
+	if (ret != 0) {
+		nsDbgPrint("svc_createEvent failed: %08x\n", ret);
 		goto final;
 	}
 	rp_work_syn->sem_count = 0;
