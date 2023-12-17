@@ -466,11 +466,13 @@ int rpInitJpegCompress() {
 	return 0;
 }
 
-#define rp_work_buffer_count (3)
+#define rp_pre_proc_buffer_count (3)
+#define rp_thread_count (2)
+#define rp_mcu_buffer_count (4)
 
-JSAMPARRAY pre_proc_buffers[rp_work_buffer_count][MAX_COMPONENTS];
-JSAMPARRAY color_buffers[rp_work_buffer_count][MAX_COMPONENTS];
-JBLOCKROW MCU_buffers[rp_work_buffer_count][C_MAX_BLOCKS_IN_MCU];
+JSAMPARRAY pre_proc_buffers[rp_pre_proc_buffer_count][MAX_COMPONENTS];
+JSAMPARRAY color_buffers[rp_thread_count][MAX_COMPONENTS];
+JBLOCKROW MCU_buffers[rp_mcu_buffer_count][C_MAX_BLOCKS_IN_MCU];
 
 void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 	JDIMENSION in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
@@ -845,15 +847,19 @@ void remotePlaySendFrames() {
 	}
 	priorityFactor = factor;
 
-	for (int i = 0; i < rp_work_buffer_count; ++i) {
+	for (int i = 0; i < rp_pre_proc_buffer_count; ++i) {
 		for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
 			pre_proc_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_top, JPOOL_IMAGE,
 				240, (JDIMENSION)(MAX_SAMP_FACTOR * DCTSIZE));
-
+		}
+	}
+	for (int i = 0; i < rp_thread_count; ++i) {
+		for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
 			color_buffers[i][ci] = jpeg_alloc_sarray((j_common_ptr)&cinfo_bot, JPOOL_IMAGE,
 				240, (JDIMENSION)MAX_SAMP_FACTOR);
 		}
-
+	}
+	for (int i = 0; i < rp_mcu_buffer_count; ++i) {
 		JBLOCKROW buffer = (JBLOCKROW)jpeg_alloc_large((j_common_ptr)&cinfo_bot, JPOOL_IMAGE, C_MAX_BLOCKS_IN_MCU * sizeof(JBLOCK));
 		for (int b = 0; b < C_MAX_BLOCKS_IN_MCU; b++) {
 			MCU_buffers[i][b] = buffer + b;
