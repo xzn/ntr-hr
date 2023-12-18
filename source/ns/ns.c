@@ -296,7 +296,7 @@ typedef struct _BLIT_CONTEXT {
 	u32 bytesInColumn ;
 	u32 blankInColumn;
 
-	u8* transformDst;
+	// u8* transformDst;
 
 	u8 id;
 	u8 isTop;
@@ -382,7 +382,7 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u16 tmp;
 	u8* blitBuffer = ctx->src;
 	u8* sp = ctx->src;
-	u8* dp = ctx->transformDst;
+	// u8* dp = ctx->transformDst;
 	int x = 0, y = 0, i, j;
 	u8* rowp = ctx->src;
 	u8* blkp;
@@ -521,7 +521,7 @@ struct rp_work_t {
 	int prep_write, prep_read, prep_mcu_empty[rp_prep_buffer_count];
 
 	int in_prep[rp_prep_buffer_count];
-	int in_read;
+	int in_read, in_done;
 } *rp_work;
 
 struct rp_task_t {
@@ -660,7 +660,8 @@ int rpJpegAcquireTask(struct rp_task_t *task) {
 	return ret;
 }
 
-int rpJpegReleaseTask(struct rp_task_t *task) {
+void rpCaptureNextScreen();
+int rpJpegReleaseTask(struct rp_task_t *task, int thread_id) {
 	int ret = 0, res;
 
 	if ((res = svc_waitSynchronization1(rp_work_syn->mutex, 1000000000))) {
@@ -719,6 +720,8 @@ int rpJpegReleaseTask(struct rp_task_t *task) {
 				// prep read sub base ready
 				rp_work->prep_mcu_empty[prep->prep] = 0;
 			}
+			// signal for capturing next frame
+			++rp_work->in_done;
 		} break;
 
 		default:
@@ -741,9 +744,20 @@ int rpJpegReleaseTask(struct rp_task_t *task) {
 	}
 
 final:
+	/* only thread on core 2 access graphics registers */
+	int capture_next = thread_id == 0 && rp_work->in_done == rp_work->in_rows_blk_n;
+	if (capture_next)
+		++rp_work->in_done; /* capture only once */
+
 	if (res = svc_releaseMutex(rp_work_syn->mutex)) {
 		nsDbgPrint("rpJpegReleaseTask mutex release failed: %d\n", res);
 		return RP_ERR_SYNC;
+	}
+
+	/* early capture next frame to avoid left side of screen glitching due to running ahead of dma
+	   (at the cost of slightly increased latency) */
+	if (capture_next) {
+		rpCaptureNextScreen();
 	}
 
 	return ret;
@@ -808,7 +822,7 @@ again:
 			nsDbgPrint("rpJpegRunTask failed\n");
 			break;
 		}
-		if ((ret = rpJpegReleaseTask(&task))) {
+		if ((ret = rpJpegReleaseTask(&task, thread_id))) {
 			if (ret == RP_ERR_AGAIN)
 				goto again;
 			nsDbgPrint("rpJpegReleaseTask failed\n");
@@ -856,6 +870,10 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 		nsDbgPrint("svc_waitSynchronization1 sem_write failed\n");
 		return;
 	}
+
+	/* fail safe in case of (impossibly) horrible thread scheduling */
+	if (rp_work->in_done == rp_work->in_rows_blk_n)
+		rpCaptureNextScreen();
 
 	// if (rp_work->in_read < rp_work->in_rows_blk_n) {
 		// nsDbgPrint(
@@ -917,6 +935,9 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 		for (int i = 0; i < in_rows_blk_half; ++i, ++j)
 			input_buf[i] = src + j * pitch;
 		jpeg_pre_process(cinfo, input_buf, color_buf, output_buf, 1);
+
+		if (j == cinfo->image_height)
+			rpCaptureNextScreen();
 
 		// JBLOCKROW *MCU_buffer = jpeg_get_compress_data_buf(cinfo);
 		JBLOCKROW *MCU_buffer = MCU_buffers[0];
@@ -1221,11 +1242,29 @@ void rpCaptureScreen(int isTop) {
 }
 
 
+static u32 currentUpdating;
+static u32 frameCount;
+static u32 isPriorityTop;
+static u32 priorityFactor;
+
+BLIT_CONTEXT
+	topContext = { .cinfo = &cinfo_top, .alloc_stats = &alloc_stats_top },
+	botContext = { .cinfo = &cinfo_bot, .alloc_stats = &alloc_stats_bot };
+
+void rpCaptureNextScreen() {
+	currentUpdating = isPriorityTop;
+	frameCount += 1;
+	if (priorityFactor != 0) {
+		if (frameCount % (priorityFactor + 1) == 0) {
+			currentUpdating = !isPriorityTop;
+		}
+	}
+
+	remotePlayKernelCallback();
+	rpCaptureScreen(currentUpdating);
+}
 
 void remotePlaySendFrames() {
-	BLIT_CONTEXT
-		topContext = { .cinfo = &cinfo_top, .alloc_stats = &alloc_stats_top },
-		botContext = { .cinfo = &cinfo_bot, .alloc_stats = &alloc_stats_bot };
 
 #define rpCurrentMode (g_nsConfig->rpConfig.currentMode)
 #define rpQuality (g_nsConfig->rpConfig.quality)
@@ -1262,8 +1301,8 @@ void remotePlaySendFrames() {
 
 	jpeg_start_pass_fdctmgr(&cinfo_top);
 
-	u32 isPriorityTop = 1;
-	u32 priorityFactor = 0;
+	isPriorityTop = 1;
+	priorityFactor = 0;
 	u32 mode = (rpCurrentMode & 0xff00) >> 8;
 	u32 factor = (rpCurrentMode & 0xff);
 	if (mode == 0) {
@@ -1308,28 +1347,19 @@ void remotePlaySendFrames() {
 #undef rpQosValueInBytes
 	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELEASE);
 
-	u32 currentUpdating = isPriorityTop;
-	u32 frameCount = 0;
-	u8 cnt;
+	currentUpdating = isPriorityTop;
+	frameCount = 0;
+	rpCaptureNextScreen();
+	/* subsequent rpCaptureNextScreen() are called (indirectly) in rpCompressAndSendPacket();
+	   reason explained above in that function's call site */
 
 	while (1) {
-		currentUpdating = isPriorityTop;
-		frameCount += 1;
-		if (priorityFactor != 0) {
-			if (frameCount % (priorityFactor + 1) == 0) {
-				currentUpdating = !isPriorityTop;
-			}
-		}
-
-		remotePlayKernelCallback();
-
-
 		if (currentUpdating) {
 			// send top
-			rpCaptureScreen(1);
+			// rpCaptureScreen(1);
 			currentTopId += 1;
 			remotePlayBlitInit(&topContext, 400, 240, tl_format, tl_pitch, imgBuffer);
-			topContext.transformDst = imgBuffer + 0x00150000;
+			// topContext.transformDst = imgBuffer + 0x00150000;
 			topContext.id = (u8)currentTopId;
 			topContext.isTop = 1;
 			remotePlayBlitCompressed(&topContext);
@@ -1337,10 +1367,10 @@ void remotePlaySendFrames() {
 		}
 		else {
 			// send bottom
-			rpCaptureScreen(0);
+			// rpCaptureScreen(0);
 			currentBottomId += 1;
 			remotePlayBlitInit(&botContext, 320, 240, bl_format, bl_pitch, imgBuffer);
-			botContext.transformDst = imgBuffer + 0x00150000;
+			// botContext.transformDst = imgBuffer + 0x00150000;
 			botContext.id = (u8)currentBottomId;
 			botContext.isTop = 0;
 			remotePlayBlitCompressed(&botContext);
