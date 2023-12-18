@@ -107,7 +107,7 @@ init_mem_destination(j_compress_ptr cinfo)
 #include "3dstypes.h"
 
 EXTERN(void)
-rpSendBuffer(u8* buf, u32 size, u32 flag);
+rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag);
 
 METHODDEF(boolean)
 empty_output_buffer(j_compress_ptr cinfo)
@@ -119,7 +119,8 @@ empty_output_buffer(j_compress_ptr cinfo)
   //   ERREXIT(cinfo, JERR_FILE_WRITE);
 
   // fwrite(dest->buffer, OUTPUT_BUF_SIZE);
-  rpSendBuffer(dest->buffer, OUTPUT_BUF_SIZE, 0);
+  rpSendBuffer(cinfo, dest->buffer, OUTPUT_BUF_SIZE, 0);
+  dest->buffer = cinfo->client_data;
 
   dest->pub.next_output_byte = dest->buffer;
   dest->pub.free_in_buffer = OUTPUT_BUF_SIZE;
@@ -176,10 +177,10 @@ term_destination(j_compress_ptr cinfo)
   if (datacount > 0) {
     // if (fwrite(dest->buffer, 1, datacount, dest->outfile) != datacount)
     // fwrite(dest->buffer, datacount);
-    rpSendBuffer(dest->buffer, datacount, 0x10);
+    rpSendBuffer(cinfo, dest->buffer, datacount, 0x10);
       // ERREXIT(cinfo, JERR_FILE_WRITE);
   } else {
-    rpSendBuffer(NULL, 0, 0x10);
+    rpSendBuffer(cinfo, NULL, 0, 0x10);
   }
   // fflush(dest->outfile);
   /* Make sure we wrote the output file OK */

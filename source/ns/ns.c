@@ -186,12 +186,23 @@ return ret;
 return cmdbuf[1];
 }*/
 
+struct rp_work_syn_t {
+	Handle mutex;
+	Handle sem_read, sem_write;
+	Handle event;
+	int sem_count;
+
+	Handle nwm_mutex;
+} *rp_work_syn;
+
 RT_HOOK nwmValParamHook;
 
-int packetLen = 0;
+#define rp_nwm_send_buffer_count (4)
+int packetLen[rp_nwm_send_buffer_count];
 int remotePlayInited = 0;
-u8 remotePlayBuffer[2000] = { 0 };
-u8* dataBuf = remotePlayBuffer + 0x2a + 8;
+u8 remotePlayBuffer[rp_nwm_send_buffer_count][2000];
+u8 *dataBuf[rp_nwm_send_buffer_count];
+
 u8* imgBuffer = 0;
 int topFormat = 0, bottomFormat = 0;
 int frameSkipA = 1, frameSkipB = 1;
@@ -241,23 +252,23 @@ uint16_t ip_checksum(void* vdata, size_t length) {
 	return htons(~acc);
 }
 
-int	initUDPPacket(int dataLen) {
+int	initUDPPacket(u8 *remotePlayBufferCur, int dataLen) {
 	dataLen += 8;
-	*(u16*)(remotePlayBuffer + 0x22 + 8) = htons(8000); // src port
-	*(u16*)(remotePlayBuffer + 0x24 + 8) = htons(8001); // dest port
-	*(u16*)(remotePlayBuffer + 0x26 + 8) = htons(dataLen);
-	*(u16*)(remotePlayBuffer + 0x28 + 8) = 0; // no checksum
+	*(u16*)(remotePlayBufferCur + 0x22 + 8) = htons(8000); // src port
+	*(u16*)(remotePlayBufferCur + 0x24 + 8) = htons(8001); // dest port
+	*(u16*)(remotePlayBufferCur + 0x26 + 8) = htons(dataLen);
+	*(u16*)(remotePlayBufferCur + 0x28 + 8) = 0; // no checksum
 	dataLen += 20;
 
-	*(u16*)(remotePlayBuffer + 0x10 + 8) = htons(dataLen);
-	*(u16*)(remotePlayBuffer + 0x12 + 8) = 0xaf01; // packet id is a random value since we won't use the fragment
-	*(u16*)(remotePlayBuffer + 0x14 + 8) = 0x0040; // no fragment
-	*(u16*)(remotePlayBuffer + 0x16 + 8) = 0x1140; // ttl 64, udp
-	*(u16*)(remotePlayBuffer + 0x18 + 8) = 0;
-	*(u16*)(remotePlayBuffer + 0x18 + 8) = ip_checksum(remotePlayBuffer + 0xE + 8, 0x14);
+	*(u16*)(remotePlayBufferCur + 0x10 + 8) = htons(dataLen);
+	*(u16*)(remotePlayBufferCur + 0x12 + 8) = 0xaf01; // packet id is a random value since we won't use the fragment
+	*(u16*)(remotePlayBufferCur + 0x14 + 8) = 0x0040; // no fragment
+	*(u16*)(remotePlayBufferCur + 0x16 + 8) = 0x1140; // ttl 64, udp
+	*(u16*)(remotePlayBufferCur + 0x18 + 8) = 0;
+	*(u16*)(remotePlayBufferCur + 0x18 + 8) = ip_checksum(remotePlayBufferCur + 0xE + 8, 0x14);
 
 	dataLen += 22;
-	*(u16*)(remotePlayBuffer + 12) = htons(dataLen);
+	*(u16*)(remotePlayBufferCur + 12) = htons(dataLen);
 
 	return dataLen;
 }
@@ -343,30 +354,65 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 
 vu64 rpLastSendTick = 0;
 
-void rpSendBuffer(u8* buf, u32 size, u32 flag) {
+static int dataBufFilled, dataBufSendPos, dataBufPos;
+static u8 dataBuf3;
+
+void rpSendNextBuffer(u64 nextTick) {
+	nwmSendPacket(remotePlayBuffer[dataBufSendPos], packetLen[dataBufSendPos]);
+	--dataBufFilled;
+	dataBufSendPos = (dataBufSendPos + 1) % rp_nwm_send_buffer_count;
+	rpLastSendTick = nextTick;
+}
+
+/* flag is only set when called from term_destination (jpeg_term_destination)
+   which is outside of the main encoding loop, so make sure to not queue up send buffers */
+void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 	if (rpAllocDebug) {
 		showDbg("sendbuf: %08x, %d", buf, size);
 		return;
 	}
-	vu64 tickDiff;
-	vu64 sleepValue;
+	u64 tickDiff, nextTick;
+	u64 sleepValue;
+	s32 res;
+	if (!flag && (res = svc_waitSynchronization1(rp_work_syn->nwm_mutex, 1000000000))) {
+		nsDbgPrint("nwm_mutex wait failed: %d\n", res);
+		return;
+	}
+
+	u8 *dataBufCur = dataBuf[dataBufPos];
 	{
-		tickDiff = svc_getSystemTick() - rpLastSendTick;
-		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
-			sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
-			svc_sleepThread(sleepValue);
-		}
 		if (flag) {
-			dataBuf[1] |= flag;
+			dataBufCur[1] |= flag;
 		}
 		if (size == 0) {
-			dataBuf[4] = 0;
+			dataBufCur[4] = 0;
 			size = 1;
 		}
-		packetLen = initUDPPacket(size + 4);
-		nwmSendPacket(remotePlayBuffer, packetLen);
-		dataBuf[3] += 1;
-		rpLastSendTick = svc_getSystemTick();
+		packetLen[dataBufPos] = initUDPPacket(remotePlayBuffer[dataBufPos], size + 4);
+		dataBufCur[3] = dataBuf3;
+		++dataBuf3;
+
+		++dataBufFilled;
+		nextTick = svc_getSystemTick();
+		tickDiff = nextTick - rpLastSendTick;
+		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
+			if (flag || dataBufFilled == rp_nwm_send_buffer_count) {
+				sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
+				svc_sleepThread(sleepValue);
+				rpSendNextBuffer(nextTick);
+			}
+		} else {
+			rpSendNextBuffer(nextTick);
+		}
+
+		dataBufPos = (dataBufPos + 1) % rp_nwm_send_buffer_count;
+		dataBufCur = dataBuf[dataBufPos];
+
+		cinfo->client_data = dataBufCur + 4;
+	}
+
+	if (!flag && (res = svc_releaseMutex(rp_work_syn->nwm_mutex))) {
+		nsDbgPrint("nwm_mutex release failed: %d\n", res);
 	}
 }
 
@@ -446,7 +492,6 @@ int rpInitJpegCompress() {
 
 		cinfo->err = jpeg_std_error(&jerr);
 		cinfo->mem_pool_manual = TRUE;
-		cinfo->client_data = dataBuf + 4;
 		jpeg_create_compress(cinfo);
 		jpeg_stdio_dest(cinfo, 0);
 
@@ -480,13 +525,6 @@ typedef JBLOCKROW MCU_buffer_t[C_MAX_BLOCKS_IN_MCU];
 pre_proc_buffer_t prep_buffers[rp_prep_buffer_count];
 color_buffer_t color_buffers[rp_thread_count];
 MCU_buffer_t MCU_buffers[rp_mcu_buffer_count];
-
-struct rp_work_syn_t {
-	Handle mutex;
-	Handle sem_read, sem_write;
-	Handle event;
-	int sem_count;
-} *rp_work_syn;
 
 struct rp_work_t {
 	j_compress_ptr cinfo;
@@ -760,6 +798,24 @@ final:
 		rpCaptureNextScreen();
 	}
 
+	if (__atomic_load_n(&dataBufFilled, __ATOMIC_RELAXED)) {
+		if ((res = svc_waitSynchronization1(rp_work_syn->nwm_mutex, 0))) {
+			if (((res) & 0x3ff) != 0x3ff - 1)
+				nsDbgPrint("nwm_mutex wait failed: %d\n", res);
+			return ret;
+		}
+
+		if (dataBufFilled) {
+			u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
+			if (tickDiff >= rpMinIntervalBetweenPacketsInTick)
+				rpSendNextBuffer(nextTick);
+		}
+
+		if (res = svc_releaseMutex(rp_work_syn->nwm_mutex)) {
+			nsDbgPrint("nwm_mutex release failed: %d\n", res);
+		}
+	}
+
 	return ret;
 }
 
@@ -875,6 +931,15 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 	if (rp_work->in_done == rp_work->in_rows_blk_n)
 		rpCaptureNextScreen();
 
+	while (dataBufFilled) {
+		u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
+		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
+			u64 sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
+			svc_sleepThread(sleepValue);
+		}
+		rpSendNextBuffer(nextTick);
+	}
+
 	// if (rp_work->in_read < rp_work->in_rows_blk_n) {
 		// nsDbgPrint(
 		// 	"nwm %d\n"
@@ -959,10 +1024,14 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	u8* sp = ctx->src;
 	j_compress_ptr cinfo = ctx->cinfo;
 
-	dataBuf[0] = ctx->id;
-	dataBuf[1] = ctx->isTop;
-	dataBuf[2] = 2;
-	dataBuf[3] = 0;
+	for (i = 0; i < rp_nwm_send_buffer_count; ++i) {
+		dataBuf[i][0] = ctx->id;
+		dataBuf[i][1] = ctx->isTop;
+		dataBuf[i][2] = 2;
+		dataBuf[i][3] = 0;
+	}
+	dataBuf3 = 0;
+	u8 *dataBufCur = dataBuf[dataBufPos];
 
 	cinfo->image_width = ctx->height;      /* image width and height, in pixels */
 	cinfo->image_height = ctx->width;
@@ -985,6 +1054,7 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 		}
 	}
 
+	cinfo->client_data = dataBufCur + 4;
 	if (cinfo->global_state == JPEG_CSTATE_START) {
 		// memcpy(&ctx->alloc_stats->scan, &cinfo->alloc.stats, sizeof(struct rp_alloc_stats));
 		jpeg_start_compress(cinfo, TRUE);
@@ -1400,9 +1470,10 @@ void remotePlayAuxThreadStart(void *arg) {
 
 void remotePlayThreadStart(void *arg) {
 	u32 i, ret;
-	u8* dataBuf = remotePlayBuffer + 0x2a + 8;
 	u32 remainSize;
 
+	for (i = 0; i < rp_nwm_send_buffer_count; ++i)
+		dataBuf[i] = remotePlayBuffer[i] + 0x2a + 8;
 	imgBuffer = plgRequestMemorySpecifyRegion(0x00200000, 1);
 
 	if (rpInitJpegCompress() != 0) {
@@ -1425,6 +1496,11 @@ void remotePlayThreadStart(void *arg) {
 	ret = svc_createMutex(&rp_work_syn->mutex, 0);
 	if (ret != 0) {
 		nsDbgPrint("svc_createMutex failed: %08x\n", ret);
+		goto final;
+	}
+	ret = svc_createMutex(&rp_work_syn->nwm_mutex, 0);
+	if (ret != 0) {
+		nsDbgPrint("svc_createMutex nwm_mutex failed: %08x\n", ret);
 		goto final;
 	}
 
@@ -1481,8 +1557,11 @@ int nwmValParamCallback(u8* buf, int buflen) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
 			remotePlayInited = 1;
 			rtDisableHook(&nwmValParamHook);
-			memcpy(remotePlayBuffer, buf, 0x22 + 8);
-			packetLen = initUDPPacket(PACKET_SIZE);
+
+			for (i = 0; i < rp_nwm_send_buffer_count; ++i) {
+				memcpy(remotePlayBuffer[i], buf, 0x22 + 8);
+				packetLen[i] = initUDPPacket(remotePlayBuffer[i], PACKET_SIZE);
+			}
 
 			threadStack = plgRequestMemory(rpThreadStackSize);
 			ret = svc_createThread(&hThread, (void*)remotePlayThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 2);
