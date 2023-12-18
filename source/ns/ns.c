@@ -483,7 +483,7 @@ MCU_buffer_t MCU_buffers[rp_mcu_buffer_count];
 
 struct rp_work_syn_t {
 	Handle mutex;
-	Handle sem_read, sem_write, sem_ready;
+	Handle sem_read, sem_write;
 	Handle event;
 	int sem_count;
 } *rp_work_syn;
@@ -820,9 +820,9 @@ again:
 	if (__atomic_add_fetch(&rp_work_syn->sem_count, 1, __ATOMIC_RELAXED) >= rp_thread_count) {
 		__atomic_store_n(&rp_work_syn->sem_count, 0, __ATOMIC_RELAXED);
 		s32 count;
-		int res = svc_releaseSemaphore(&count, rp_work_syn->sem_ready, 1);
+		int res = svc_releaseSemaphore(&count, rp_work_syn->sem_write, 1);
 		if (res) {
-			nsDbgPrint("svc_releaseSemaphore sem_ready failed\n");
+			nsDbgPrint("svc_releaseSemaphore sem_write failed\n");
 		}
 	}
 }
@@ -830,11 +830,6 @@ again:
 void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 #if 1
 	int res;
-	res = svc_waitSynchronization1(rp_work_syn->sem_write, 1000000000);
-	if (res) {
-		nsDbgPrint("svc_waitSynchronization1 sem_write failed\n");
-		return;
-	}
 
 	memset(rp_work, 0, sizeof(struct rp_work_t));
 	rp_work->cinfo = cinfo;
@@ -856,9 +851,9 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 
 	rpJPEGCompressInner(0);
 
-	res = svc_waitSynchronization1(rp_work_syn->sem_ready, 1000000000);
+	res = svc_waitSynchronization1(rp_work_syn->sem_write, 1000000000);
 	if (res) {
-		nsDbgPrint("svc_waitSynchronization1 sem_ready failed\n");
+		nsDbgPrint("svc_waitSynchronization1 sem_write failed\n");
 		return;
 	}
 
@@ -901,11 +896,6 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 	// 		}
 	// 	}
 	// }
-
-	res = svc_releaseSemaphore(&count, rp_work_syn->sem_write, 1);
-	if (res) {
-		nsDbgPrint("svc_releaseSemaphore sem_write failed\n");
-	}
 
 #else
 	JDIMENSION in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
@@ -1413,14 +1403,9 @@ void remotePlayThreadStart(void *arg) {
 		nsDbgPrint("svc_createSemaphore sem_read failed: %08x\n", ret);
 		goto final;
 	}
-	ret = svc_createSemaphore(&rp_work_syn->sem_write, 1, 1);
+	ret = svc_createSemaphore(&rp_work_syn->sem_write, 0, 1);
 	if (ret != 0) {
 		nsDbgPrint("svc_createSemaphore sem_write failed: %08x\n", ret);
-		goto final;
-	}
-	ret = svc_createSemaphore(&rp_work_syn->sem_ready, 0, 1);
-	if (ret != 0) {
-		nsDbgPrint("svc_createSemaphore sem_ready failed: %08x\n", ret);
 		goto final;
 	}
 	ret = svc_createEvent(&rp_work_syn->event, 0);
