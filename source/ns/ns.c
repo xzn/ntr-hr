@@ -352,7 +352,7 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 
 
 
-vu64 rpLastSendTick = 0;
+static u64 rpLastSendTick = 0;
 
 static int dataBufFilled, dataBufSendPos, dataBufPos;
 static u8 dataBufHdr[4];
@@ -364,8 +364,7 @@ void rpSendNextBuffer(u64 nextTick) {
 	rpLastSendTick = nextTick;
 }
 
-/* flag is only set when called from term_destination (jpeg_term_destination)
-   which is outside of the main encoding loop, so make sure to not queue up send buffers */
+/* flag is only set when called from term_destination (jpeg_term_destination) */
 void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 	if (rpAllocDebug) {
 		showDbg("sendbuf: %08x, %d", buf, size);
