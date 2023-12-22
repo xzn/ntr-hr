@@ -192,7 +192,7 @@ struct rp_work_syn_t {
 	Handle event;
 	int sem_count;
 
-	Handle nwm_mutex;
+	// Handle nwm_mutex;
 } *rp_work_syn;
 
 RT_HOOK nwmValParamHook;
@@ -355,7 +355,7 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 vu64 rpLastSendTick = 0;
 
 static int dataBufFilled, dataBufSendPos, dataBufPos;
-static u8 dataBuf3;
+static u8 dataBufHdr[4];
 
 void rpSendNextBuffer(u64 nextTick) {
 	nwmSendPacket(remotePlayBuffer[dataBufSendPos], packetLen[dataBufSendPos]);
@@ -374,29 +374,29 @@ void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 	u64 tickDiff, nextTick;
 	u64 sleepValue;
 	s32 res;
-	if (!flag && (res = svc_waitSynchronization1(rp_work_syn->nwm_mutex, 1000000000))) {
-		nsDbgPrint("nwm_mutex wait failed: %d\n", res);
-		return;
-	}
+	// if (!flag && (res = svc_waitSynchronization1(rp_work_syn->nwm_mutex, 1000000000))) {
+	// 	nsDbgPrint("nwm_mutex wait failed: %d\n", res);
+	// 	return;
+	// }
 
 	u8 *dataBufCur = dataBuf[dataBufPos];
 	{
 		if (flag) {
-			dataBufCur[1] |= flag;
+			dataBufHdr[1] |= flag;
 		}
 		if (size == 0) {
 			dataBufCur[4] = 0;
 			size = 1;
 		}
 		packetLen[dataBufPos] = initUDPPacket(remotePlayBuffer[dataBufPos], size + 4);
-		dataBufCur[3] = dataBuf3;
-		++dataBuf3;
+		*(u32 *)dataBufCur = *(u32 *)dataBufHdr;
+		++dataBufHdr[3];
 
 		++dataBufFilled;
 		nextTick = svc_getSystemTick();
 		tickDiff = nextTick - rpLastSendTick;
 		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
-			if (flag || dataBufFilled == rp_nwm_send_buffer_count) {
+			if (dataBufFilled == rp_nwm_send_buffer_count) {
 				sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
 				svc_sleepThread(sleepValue);
 				rpSendNextBuffer(nextTick);
@@ -411,9 +411,9 @@ void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 		cinfo->client_data = dataBufCur + 4;
 	}
 
-	if (!flag && (res = svc_releaseMutex(rp_work_syn->nwm_mutex))) {
-		nsDbgPrint("nwm_mutex release failed: %d\n", res);
-	}
+	// if (!flag && (res = svc_releaseMutex(rp_work_syn->nwm_mutex))) {
+	// 	nsDbgPrint("nwm_mutex release failed: %d\n", res);
+	// }
 }
 
 
@@ -516,7 +516,7 @@ int rpInitJpegCompress() {
 
 #define rp_prep_buffer_count (3)
 #define rp_thread_count (2)
-#define rp_mcu_buffer_count (4)
+#define rp_mcu_buffer_count (6)
 
 typedef JSAMPARRAY pre_proc_buffer_t[MAX_COMPONENTS];
 typedef JSAMPARRAY color_buffer_t[MAX_COMPONENTS];
@@ -534,13 +534,15 @@ struct rp_work_t {
 	JDIMENSION mcu_row;
 	JDIMENSION in_rows_blk;
 	JDIMENSION in_rows_blk_half;
-	JDIMENSION in_rows_blk_n;
+	JDIMENSION in_rows_blk_half_n;
+	JDIMENSION mcu_n;
 	int prep_reading_done_state;
 
-	enum rp_nwm_state_t {
-		rp_nwm_ready,
-		rp_nwm_sending,
-	} nwm;
+	// enum rp_nwm_state_t {
+	// 	rp_nwm_ready,
+	// 	rp_nwm_sending,
+	// } nwm;
+	int nwm_done_total;
 
 	enum rp_mcu_state_t {
 		rp_mcu_empty,
@@ -549,6 +551,7 @@ struct rp_work_t {
 		rp_mcu_reading,
 	} mcu[rp_mcu_buffer_count];
 	int mcu_write, mcu_read;
+	int mcu_done_total;
 
 	enum rp_prep_state_t {
 		rp_prep_empty,
@@ -589,23 +592,26 @@ struct rp_task_t {
 #define RP_ERR_DONE (-2)
 #define RP_ERR_ARG (-5)
 
-int rpJpegTryAcquireTask(struct rp_task_t *task) {
+int rpJpegTryAcquireTask(struct rp_task_t *task, int thread_id) {
 	int ret = 0;
 
 	// nwm
-	if (rp_work->nwm == rp_nwm_ready) {
+	// if (rp_work->nwm == rp_nwm_ready) {
+	if (thread_id == 0) {
 		if (rp_work->mcu[rp_work->mcu_read] == rp_mcu_full) {
 			task->which = rp_task_which_nwm;
 			// mcu read index
 			task->nwm.mcu = rp_work->mcu_read;
 
 			// nwm sending
-			rp_work->nwm = rp_nwm_sending;
+			// rp_work->nwm = rp_nwm_sending;
 			// mcu reading
 			rp_work->mcu[rp_work->mcu_read] = rp_mcu_reading;
 			// mcu read index inc
 			rp_work->mcu_read = (rp_work->mcu_read + 1) % rp_mcu_buffer_count;
 
+			// nwm done cond tracking
+			++rp_work->nwm_done_total;
 			goto final;
 		}
 	}
@@ -638,13 +644,15 @@ int rpJpegTryAcquireTask(struct rp_task_t *task) {
 				rp_work->prep_read = (rp_work->prep_read + 1) % rp_prep_buffer_count;
 			}
 
+			// mcu done cond tracking
+			++rp_work->mcu_done_total;
 			goto final;
 		}
 	}
 
 	// prep
 	if (rp_work->prep[rp_work->prep_write] < rp_prep_writing) {
-		if (rp_work->in_read < rp_work->in_rows_blk_n) {
+		if (rp_work->in_read < rp_work->in_rows_blk_half_n) {
 			task->which = rp_task_which_prep;
 			// prep write index
 			task->prep.prep = rp_work->prep_write;
@@ -665,7 +673,8 @@ int rpJpegTryAcquireTask(struct rp_task_t *task) {
 		}
 	}
 
-	if (rp_work->in_read < rp_work->in_rows_blk_n)
+	if (rp_work->in_read < rp_work->in_rows_blk_half_n || rp_work->mcu_done_total < rp_work->mcu_n ||
+		(thread_id == 0 && rp_work->nwm_done_total < rp_work->mcu_n))
 		ret = RP_ERR_AGAIN;
 	else
 		ret = RP_ERR_DONE;
@@ -674,7 +683,7 @@ final:
 	return ret;
 }
 
-int rpJpegAcquireTask(struct rp_task_t *task) {
+int rpJpegAcquireTask(struct rp_task_t *task, int thread_id) {
 	int ret = 0, res;
 
 	if ((res = svc_waitSynchronization1(rp_work_syn->mutex, 1000000000))) {
@@ -682,7 +691,7 @@ int rpJpegAcquireTask(struct rp_task_t *task) {
 		return RP_ERR_SYNC;
 	}
 
-	ret = rpJpegTryAcquireTask(task);
+	ret = rpJpegTryAcquireTask(task, thread_id);
 	if (ret == RP_ERR_AGAIN) {
 		res = svc_clearEvent(rp_work_syn->event);
 		if (res) {
@@ -712,7 +721,7 @@ int rpJpegReleaseTask(struct rp_task_t *task, int thread_id) {
 			struct rp_task_nwm_t *nwm = &task->nwm;
 
 			// nwm ready
-			rp_work->nwm = rp_nwm_ready;
+			// rp_work->nwm = rp_nwm_ready;
 			// mcu read done
 			rp_work->mcu[nwm->mcu] = rp_mcu_empty;
 		} break;
@@ -768,7 +777,7 @@ int rpJpegReleaseTask(struct rp_task_t *task, int thread_id) {
 	}
 
 	if (ret == 0) {
-		ret = rpJpegTryAcquireTask(task);
+		ret = rpJpegTryAcquireTask(task, thread_id);
 		if (ret == 0)
 			ret = RP_ERR_AGAIN;
 		else
@@ -783,7 +792,7 @@ int rpJpegReleaseTask(struct rp_task_t *task, int thread_id) {
 
 final:
 	/* only thread on core 2 access graphics registers */
-	int capture_next = thread_id == 0 && rp_work->in_done == rp_work->in_rows_blk_n;
+	int capture_next = thread_id == 0 && rp_work->in_done == rp_work->in_rows_blk_half_n;
 	if (capture_next)
 		++rp_work->in_done; /* capture only once */
 
@@ -798,23 +807,23 @@ final:
 		rpCaptureNextScreen();
 	}
 
-	if (__atomic_load_n(&dataBufFilled, __ATOMIC_RELAXED)) {
-		if ((res = svc_waitSynchronization1(rp_work_syn->nwm_mutex, 0))) {
-			if (((res) & 0x3ff) != 0x3ff - 1)
-				nsDbgPrint("nwm_mutex wait failed: %d\n", res);
-			return ret;
-		}
+	// if (__atomic_load_n(&dataBufFilled, __ATOMIC_RELAXED)) {
+	// 	if ((res = svc_waitSynchronization1(rp_work_syn->nwm_mutex, 0))) {
+	// 		if (((res) & 0x3ff) != 0x3ff - 1)
+	// 			nsDbgPrint("nwm_mutex wait failed: %d\n", res);
+	// 		return ret;
+	// 	}
 
-		if (dataBufFilled) {
-			u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
-			if (tickDiff >= rpMinIntervalBetweenPacketsInTick)
-				rpSendNextBuffer(nextTick);
-		}
+	// 	if (dataBufFilled) {
+	// 		u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
+	// 		if (tickDiff >= rpMinIntervalBetweenPacketsInTick)
+	// 			rpSendNextBuffer(nextTick);
+	// 	}
 
-		if (res = svc_releaseMutex(rp_work_syn->nwm_mutex)) {
-			nsDbgPrint("nwm_mutex release failed: %d\n", res);
-		}
-	}
+	// 	if (res = svc_releaseMutex(rp_work_syn->nwm_mutex)) {
+	// 		nsDbgPrint("nwm_mutex release failed: %d\n", res);
+	// 	}
+	// }
 
 	return ret;
 }
@@ -860,7 +869,7 @@ void rpJPEGCompressInner(int thread_id) {
 	while (1) {
 		struct rp_task_t task;
 		int ret;
-		if ((ret = rpJpegAcquireTask(&task))) {
+		if ((ret = rpJpegAcquireTask(&task, thread_id))) {
 			if (ret == RP_ERR_AGAIN) {
 				int res = svc_waitSynchronization1(rp_work_syn->event, 1000000000);
 				if (res) {
@@ -874,6 +883,12 @@ void rpJPEGCompressInner(int thread_id) {
 			break;
 		}
 again:
+		if (thread_id == 0 && dataBufFilled) {
+			u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
+			if (tickDiff >= rpMinIntervalBetweenPacketsInTick)
+				rpSendNextBuffer(nextTick);
+		}
+
 		if (rpJpegRunTask(&task, thread_id)) {
 			nsDbgPrint("rpJpegRunTask failed\n");
 			break;
@@ -910,7 +925,8 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 	rp_work->prep_reading_done_state = rp_prep_reading + rp_work->mcu_row;
 	rp_work->in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
 	rp_work->in_rows_blk_half = rp_work->in_rows_blk / 2;
-	rp_work->in_rows_blk_n = cinfo->image_height / rp_work->in_rows_blk_half;
+	rp_work->in_rows_blk_half_n = cinfo->image_height / rp_work->in_rows_blk_half;
+	rp_work->mcu_n = rp_work->mcu_row * (cinfo->image_height / rp_work->in_rows_blk);
 
 	s32 count;
 	res = svc_releaseSemaphore(&count, rp_work_syn->sem_read, 1);
@@ -928,19 +944,19 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 	}
 
 	/* fail safe in case of (impossibly) horrible thread scheduling */
-	if (rp_work->in_done == rp_work->in_rows_blk_n)
+	if (rp_work->in_done == rp_work->in_rows_blk_half_n)
 		rpCaptureNextScreen();
 
-	while (dataBufFilled) {
-		u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
-		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
-			u64 sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
-			svc_sleepThread(sleepValue);
-		}
-		rpSendNextBuffer(nextTick);
-	}
+	// while (dataBufFilled) {
+	// 	u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
+	// 	if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
+	// 		u64 sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
+	// 		svc_sleepThread(sleepValue);
+	// 	}
+	// 	rpSendNextBuffer(nextTick);
+	// }
 
-	// if (rp_work->in_read < rp_work->in_rows_blk_n) {
+	// if (rp_work->in_read < rp_work->in_rows_blk_half_n) {
 		// nsDbgPrint(
 		// 	"nwm %d\n"
 		// 	"mcu[0] %d mcu[1] %d mcu[2] %d mcu[3] %d mcu_write %d mcu_read %d\n"
@@ -1024,13 +1040,10 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	u8* sp = ctx->src;
 	j_compress_ptr cinfo = ctx->cinfo;
 
-	for (i = 0; i < rp_nwm_send_buffer_count; ++i) {
-		dataBuf[i][0] = ctx->id;
-		dataBuf[i][1] = ctx->isTop;
-		dataBuf[i][2] = 2;
-		dataBuf[i][3] = 0;
-	}
-	dataBuf3 = 0;
+	dataBufHdr[0] = ctx->id;
+	dataBufHdr[1] = ctx->isTop;
+	dataBufHdr[2] = 2;
+	dataBufHdr[3] = 0;
 	u8 *dataBufCur = dataBuf[dataBufPos];
 
 	cinfo->image_width = ctx->height;      /* image width and height, in pixels */
@@ -1498,11 +1511,11 @@ void remotePlayThreadStart(void *arg) {
 		nsDbgPrint("svc_createMutex failed: %08x\n", ret);
 		goto final;
 	}
-	ret = svc_createMutex(&rp_work_syn->nwm_mutex, 0);
-	if (ret != 0) {
-		nsDbgPrint("svc_createMutex nwm_mutex failed: %08x\n", ret);
-		goto final;
-	}
+	// ret = svc_createMutex(&rp_work_syn->nwm_mutex, 0);
+	// if (ret != 0) {
+	// 	nsDbgPrint("svc_createMutex nwm_mutex failed: %08x\n", ret);
+	// 	goto final;
+	// }
 
 	ret = svc_createSemaphore(&rp_work_syn->sem_read, 0, 1);
 	if (ret != 0) {
