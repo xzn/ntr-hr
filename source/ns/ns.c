@@ -1298,7 +1298,7 @@ int isInFCRAM(u32 phys) {
 	return 0;
 }
 
-void rpCaptureScreen(int isTop) {
+int rpCaptureScreen(int isTop) {
 	u8 dmaConfig[80] = { 0, 0, 4 };
 	u32 bufSize = isTop? (tl_pitch * 400) : (bl_pitch * 320);
 	u32 phys = isTop ? tl_current : bl_current;
@@ -1306,6 +1306,7 @@ void rpCaptureScreen(int isTop) {
 	Handle hProcess = rpHandleHome;
 
 	int ret;
+	s32 res;
 
 	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, dest, bufSize);
 	svc_closeHandle(rpHDma[isTop]);
@@ -1313,23 +1314,30 @@ void rpCaptureScreen(int isTop) {
 
 	if (isInVRAM(phys)) {
 		rpCloseGameHandle();
-		svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE,
+		res = svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE,
 			dest, hProcess, 0x1F000000 + (phys - 0x18000000), bufSize, dmaConfig);
-		return;
+		if (res < 0) {
+			nsDbgPrint("svc_startInterProcessDma home failed: %08x\n", res);
+			goto final;
+		}
+		return 0;
 	}
 	else if (isInFCRAM(phys)) {
 		hProcess = rpGetGameHandle();
 		if (hProcess) {
-			ret = svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE,
+			res = svc_startInterProcessDma(&rpHDma[isTop], CURRENT_PROCESS_HANDLE,
 				dest, hProcess, rpGameFCRAMBase + (phys - 0x20000000), bufSize, dmaConfig);
-
+			if (res < 0) {
+				nsDbgPrint("svc_startInterProcessDma home failed: %08x\n", res);
+				goto final;
+			}
+			return 0;
 		}
-
-		return;
 	}
+final:
 	svc_sleepThread(1000000000);
-
-
+	rpHDma[isTop] = 0;
+	return -1;
 }
 
 
@@ -1337,6 +1345,7 @@ static u32 currentUpdating;
 static u32 frameCount;
 static u32 isPriorityTop;
 static u32 priorityFactor;
+static int nextScreenCaptured;
 
 BLIT_CONTEXT
 	topContext = { .cinfo = &cinfo_top, .alloc_stats = &alloc_stats_top },
@@ -1352,7 +1361,7 @@ void rpCaptureNextScreen() {
 	}
 
 	remotePlayKernelCallback();
-	rpCaptureScreen(currentUpdating);
+	nextScreenCaptured = rpCaptureScreen(currentUpdating) == 0;
 }
 
 void remotePlaySendFrames() {
@@ -1445,6 +1454,11 @@ void remotePlaySendFrames() {
 	   reason explained above in that function's call site */
 
 	while (1) {
+		if (!nextScreenCaptured) {
+			rpCaptureNextScreen();
+			continue;
+		}
+
 		if (currentUpdating) {
 			// send top
 			// rpCaptureScreen(1);
