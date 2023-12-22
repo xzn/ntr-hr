@@ -1256,6 +1256,9 @@ EXTERN(boolean) jpeg_encode_mcu_huff(j_compress_ptr cinfo, JBLOCKROW *MCU_data);
 EXTERN(JSAMPARRAY) jpeg_alloc_sarray(j_common_ptr cinfo, int pool_id, JDIMENSION samplesperrow, JDIMENSION numrows);
 EXTERN(void *) jpeg_alloc_large(j_common_ptr cinfo, int pool_id, size_t sizeofobject);
 
+EXTERN(void) jpeg_jinit_color_converter(j_compress_ptr cinfo);
+EXTERN(void) jpeg_rgb_ycc_start(j_compress_ptr cinfo);
+
 #ifdef __cplusplus
 #ifndef DONT_USE_EXTERN_C
 }

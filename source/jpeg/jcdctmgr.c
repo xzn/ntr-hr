@@ -506,7 +506,7 @@ forward_DCT(j_compress_ptr cinfo, jpeg_component_info *compptr,
   /* This routine is heavily used, so it's worth coding it tightly. */
   my_fdct_ptr fdct = (my_fdct_ptr)cinfo->fdct;
   DCTELEM *divisors = fdct->divisors[compptr->quant_tbl_no];
-  DCTELEM *workspace;
+  DCTELEM *workspace = fdct->workspace;
   JDIMENSION bi;
 
   /* Make sure the compiler doesn't look up these every pass */
@@ -517,12 +517,8 @@ forward_DCT(j_compress_ptr cinfo, jpeg_component_info *compptr,
   sample_data += start_row;     /* fold in the vertical offset once */
 
   for (bi = 0; bi < num_blocks; bi++, start_col += DCTSIZE) {
-    workspace = fdct->workspace;
-    if (!workspace) {
-      if (sizeof(*workspace) != sizeof(*coef_blocks[bi]))
-        return;
-      workspace = coef_blocks[bi];
-    }
+    if (sizeof(*workspace) == sizeof(*coef_blocks[bi]))
+      workspace = coef_blocks[bi];;
 
     /* Load data into workspace, applying unsigned->signed conversion */
     (*do_convsamp) (sample_data, start_col, workspace);

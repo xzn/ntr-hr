@@ -501,6 +501,11 @@ int rpInitJpegCompress() {
 		cinfo->dct_method = JDCT_IFAST;
 		cinfo->skip_markers = TRUE;
 		cinfo->skip_buffers = TRUE;
+
+		cinfo->input_components = 3;
+		cinfo->jpeg_color_space = JCS_YCbCr;
+		cinfo->num_components = 3;
+		cinfo->color_reuse = TRUE;
 	}
 
 	jpeg_std_huff_tables((j_common_ptr)&cinfo_top);
@@ -508,6 +513,10 @@ int rpInitJpegCompress() {
 		cinfo_bot.dc_huff_tbl_ptrs[i] = cinfo_top.dc_huff_tbl_ptrs[i];
 		cinfo_bot.ac_huff_tbl_ptrs[i] = cinfo_top.ac_huff_tbl_ptrs[i];
 	}
+
+	jpeg_jinit_color_converter(&cinfo_top);
+	cinfo_bot.cconvert = cinfo_top.cconvert;
+	jpeg_rgb_ycc_start(&cinfo_top);
 
 	return 0;
 }

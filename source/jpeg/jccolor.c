@@ -791,3 +791,9 @@ _jinit_color_converter(j_compress_ptr cinfo)
 }
 
 #endif /* BITS_IN_JSAMPLE != 16 || defined(C_LOSSLESS_SUPPORTED) */
+
+GLOBAL(void)
+jpeg_jinit_color_converter(j_compress_ptr cinfo) __attribute__((alias("jinit_color_converter")));
+
+GLOBAL(void)
+jpeg_rgb_ycc_start(j_compress_ptr cinfo) __attribute__((alias("rgb_ycc_start")));
