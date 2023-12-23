@@ -40,11 +40,11 @@ Especially thanks to cell9 for releasing the source of NTR 3.6 making this mod p
 
 ### Connecting 3DS to your PC
 
-A WiFi dongle dedicated to host a hotspot for the 3DS is recommended. You can go to device manager and disable 5GHz mode for the WiFi dongle you are using for hotspot to maximize connection stability and connection speed for 3DS. If you have sometine like a Raspberry Pi you can connect the RPI to PC with Ethernet and run the hotspot off the RPI instead (with bridged connection). This should guarantee a connection speed up to 12Mbps without dropping packets.
+A WiFi dongle dedicated to host a hotspot for the 3DS is recommended. You can go to device manager and disable 5GHz mode for the WiFi dongle you are using for hotspot to maximize connection stability and connection speed for 3DS. If you have something like a Raspberry Pi you can connect the RPI to PC with Ethernet and run the hotspot off the RPI instead (with bridged connection). This should guarantee a connection speed up to 12Mbps without dropping packets.
 
 ### Viewer settings
 
-Quality is recommended to be between 75 and 90. At 75 you'd get between 55 to 75 fps. 40 to 60 fps for quality 90. (Assuming good WiFi connection, which you can have if you use a dedicated 2.4GHz only hotspot)
+Quality is recommended to be between 75 and 90. At 75 you'd get between 55 to 75 fps. 40 to 60 fps for quality 90. (Tested on N2DS. N3DS seems to have 10% to 15% lower streaming performance) (Assuming good WiFi connection, which you can have if you use a dedicated 2.4GHz only hotspot)
 
 QoS should be 12 for around 12Mbps.
 
