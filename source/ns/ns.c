@@ -45,7 +45,7 @@ struct rp_alloc_stats_check {
 } alloc_stats_top, alloc_stats_bot;
 struct jpeg_error_mgr jerr;
 
-u64 rpMinIntervalBetweenPacketsInTick = 0;
+u32 rpMinIntervalBetweenPacketsInTick = 0;
 static u32 rpThreadStackSize = 0x10000;
 
 #define SYSTICK_PER_US (268);
@@ -352,12 +352,12 @@ void remotePlayBlitInit(BLIT_CONTEXT* ctx, int width, int height, int format, in
 
 
 
-static u64 rpLastSendTick = 0;
+static u32 rpLastSendTick = 0;
 
 static int dataBufFilled, dataBufSendPos, dataBufPos;
 static u8 dataBufHdr[4];
 
-void rpSendNextBuffer(u64 nextTick) {
+void rpSendNextBuffer(u32 nextTick) {
 	nwmSendPacket(remotePlayBuffer[dataBufSendPos], packetLen[dataBufSendPos]);
 	--dataBufFilled;
 	dataBufSendPos = (dataBufSendPos + 1) % rp_nwm_send_buffer_count;
@@ -370,8 +370,9 @@ void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 		showDbg("sendbuf: %08x, %d", buf, size);
 		return;
 	}
-	u64 tickDiff, nextTick;
-	u64 sleepValue;
+	s32 tickDiff;
+	u32 nextTick;
+	u32 sleepValue;
 	s32 res;
 	// if (!flag && (res = svc_waitSynchronization1(rp_work_syn->nwm_mutex, 1000000000))) {
 	// 	nsDbgPrint("nwm_mutex wait failed: %d\n", res);
@@ -393,12 +394,12 @@ void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 
 		++dataBufFilled;
 		nextTick = svc_getSystemTick();
-		tickDiff = nextTick - rpLastSendTick;
-		if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
+		tickDiff = (s32)nextTick - (s32)rpLastSendTick;
+		if (tickDiff < (s32)rpMinIntervalBetweenPacketsInTick) {
 			if (dataBufFilled == rp_nwm_send_buffer_count) {
-				sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
+				sleepValue = (((s32)rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
 				svc_sleepThread(sleepValue);
-				rpSendNextBuffer(rpLastSendTick + rpMinIntervalBetweenPacketsInTick);
+				rpSendNextBuffer(svc_getSystemTick());
 			}
 		} else {
 			rpSendNextBuffer(nextTick);
@@ -823,8 +824,8 @@ final:
 	// 	}
 
 	// 	if (dataBufFilled) {
-	// 		u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
-	// 		if (tickDiff >= rpMinIntervalBetweenPacketsInTick)
+	// 		u32 nextTick = svc_getSystemTick(); s32 tickDiff = (s32)nextTick - (s32)rpLastSendTick;
+	// 		if (tickDiff >= (s32)rpMinIntervalBetweenPacketsInTick)
 	// 			rpSendNextBuffer(nextTick);
 	// 	}
 
@@ -894,8 +895,9 @@ void rpJPEGCompressInner(int thread_id) {
 		task_was_nwm = task.which == rp_task_which_nwm;
 again:
 		if (thread_id == 0 && !task_was_nwm && dataBufFilled) {
-			u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
-			if (tickDiff >= rpMinIntervalBetweenPacketsInTick)
+			u32 nextTick = svc_getSystemTick();
+			s32 tickDiff = (s32)nextTick - (s32)rpLastSendTick;
+			if (tickDiff >= (s32)rpMinIntervalBetweenPacketsInTick)
 				rpSendNextBuffer(nextTick);
 		}
 
@@ -959,12 +961,12 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 		rpCaptureNextScreen();
 
 	// while (dataBufFilled) {
-	// 	u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
-	// 	if (tickDiff < rpMinIntervalBetweenPacketsInTick) {
-	// 		u64 sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
+	// 	u32 nextTick = svc_getSystemTick(); s32 tickDiff = (s32)nextTick - (s32)rpLastSendTick;
+	// 	if (tickDiff < (s32)rpMinIntervalBetweenPacketsInTick) {
+	// 		u32 sleepValue = (((s32)rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
 	// 		svc_sleepThread(sleepValue);
 	// 	}
-	// 	rpSendNextBuffer(nextTick);
+	// 	rpSendNextBuffer(svc_getSystemTick());
 	// }
 
 	// if (rp_work->in_read < rp_work->in_rows_blk_half_n) {
