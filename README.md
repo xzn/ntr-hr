@@ -24,7 +24,8 @@ Features unrelated to streaming are unchanged and should continues to work with 
 ## Known issues
 
 - Crash/failed to initialize when starting NTR, or when starting remote play.
-- Some apps are not compatible with streaming.
+- Some games are not compatible with streaming.
+- [UWPStreamer](https://github.com/toolboc/UWPStreamer) flickers and crashes sometimes.
 
 The issues were present in 3.6 also and I don't really know how to fix them..
 
@@ -46,6 +47,6 @@ A WiFi dongle dedicated to host a hotspot for the 3DS is recommended. You can go
 
 Quality is recommended to be between 75 and 90. At 75 you'd get between 55 to 75 fps. 40 to 60 fps for quality 90. (Tested on N2DS. N3DS seems to have 10% to 15% lower streaming performance) (Assuming good WiFi connection, which you can have if you use a dedicated 2.4GHz only hotspot)
 
-QoS should be 12 for around 12Mbps.
+QoS can be 12 for around 12Mbps. Can be up to 18 (for 18 Mbps) without issue.
 
 Priority settings is up to your personal preference.
