@@ -313,7 +313,7 @@ typedef struct _BLIT_CONTEXT {
 	u8 isTop;
 	u8 frameCount;
 
-	int directCompress;
+	// int directCompress;
 	j_compress_ptr cinfo;
 	struct rp_alloc_stats_check *alloc_stats;
 } BLIT_CONTEXT;
@@ -398,7 +398,7 @@ void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 			if (dataBufFilled == rp_nwm_send_buffer_count) {
 				sleepValue = ((rpMinIntervalBetweenPacketsInTick - tickDiff) * 1000) / SYSTICK_PER_US;
 				svc_sleepThread(sleepValue);
-				rpSendNextBuffer(nextTick);
+				rpSendNextBuffer(rpLastSendTick + rpMinIntervalBetweenPacketsInTick);
 			}
 		} else {
 			rpSendNextBuffer(nextTick);
@@ -433,9 +433,9 @@ int remotePlayBlitCompressed(BLIT_CONTEXT* ctx) {
 	u8* blkp;
 	u8* pixp;
 
-	ctx->directCompress = 0;
+	// ctx->directCompress = 0;
 	if ((bpp == 3) || (bpp == 4)){
-		ctx->directCompress = 1;
+		// ctx->directCompress = 1;
 		return 0;
 		/*
 		for (x = 0; x < width; x++) {
@@ -876,6 +876,7 @@ final:
 void rpJPEGCompressInner(int thread_id) {
 	while (1) {
 		struct rp_task_t task;
+		int task_was_nwm = 0;
 		int ret;
 		if ((ret = rpJpegAcquireTask(&task, thread_id))) {
 			if (ret == RP_ERR_AGAIN) {
@@ -890,8 +891,9 @@ void rpJPEGCompressInner(int thread_id) {
 				nsDbgPrint("rpJpegAcquireTask failed\n");
 			break;
 		}
+		task_was_nwm = task.which == rp_task_which_nwm;
 again:
-		if (thread_id == 0 && dataBufFilled) {
+		if (thread_id == 0 && !task_was_nwm && dataBufFilled) {
 			u64 nextTick = svc_getSystemTick(), tickDiff = nextTick - rpLastSendTick;
 			if (tickDiff >= rpMinIntervalBetweenPacketsInTick)
 				rpSendNextBuffer(nextTick);
@@ -901,6 +903,7 @@ again:
 			nsDbgPrint("rpJpegRunTask failed\n");
 			break;
 		}
+		task_was_nwm = task.which == rp_task_which_nwm;
 		if ((ret = rpJpegReleaseTask(&task, thread_id))) {
 			if (ret == RP_ERR_AGAIN)
 				goto again;
@@ -1040,6 +1043,11 @@ void rpJPEGCompress(j_compress_ptr cinfo, u8 *src, u32 pitch) {
 }
 
 void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
+	if (ctx->format != 1 && ctx->format != 2) {
+		svc_sleepThread(1000000000);
+		return;
+	}
+
 	u8* srcBuff;
 	u32 row_stride, i;
 	u8* row_pointer[400];
@@ -1057,23 +1065,23 @@ void rpCompressAndSendPacket(BLIT_CONTEXT* ctx) {
 	cinfo->image_width = ctx->height;      /* image width and height, in pixels */
 	cinfo->image_height = ctx->width;
 	cinfo->input_components = 3;
-	cinfo->in_color_space = JCS_RGB565;
+	cinfo->in_color_space = ctx->format == 1 ? JCS_EXT_BGR : JCS_RGB565;
 
 	row_stride = ctx->src_pitch;
 	srcBuff = ctx->src;
 	// row_stride = cinfo->image_width * 3; /* JSAMPLEs per row in image_buffer */
 	// srcBuff = ctx->transformDst;
-	if (ctx->directCompress) {
-		// row_stride = ctx->src_pitch;
-		// srcBuff = ctx->src;
-		cinfo->input_components = ctx->bpp;
-		if (ctx->bpp == 3) {
-			cinfo->in_color_space = JCS_EXT_BGR;
-		}
-		else {
-			cinfo->in_color_space = JCS_EXT_BGRX;
-		}
-	}
+	// if (ctx->directCompress) {
+	// 	// row_stride = ctx->src_pitch;
+	// 	// srcBuff = ctx->src;
+	// 	cinfo->input_components = ctx->bpp;
+	// 	if (ctx->bpp == 3) {
+	// 		cinfo->in_color_space = JCS_EXT_BGR;
+	// 	}
+	// 	else {
+	// 		cinfo->in_color_space = JCS_EXT_BGRX;
+	// 	}
+	// }
 
 	cinfo->client_data = dataBufCur + 4;
 	if (cinfo->global_state == JPEG_CSTATE_START) {
@@ -1467,7 +1475,7 @@ void remotePlaySendFrames() {
 			// topContext.transformDst = imgBuffer + 0x00150000;
 			topContext.id = (u8)currentTopId;
 			topContext.isTop = 1;
-			remotePlayBlitCompressed(&topContext);
+			// remotePlayBlitCompressed(&topContext);
 			rpCompressAndSendPacket(&topContext);
 		}
 		else {
@@ -1478,7 +1486,7 @@ void remotePlaySendFrames() {
 			// botContext.transformDst = imgBuffer + 0x00150000;
 			botContext.id = (u8)currentBottomId;
 			botContext.isTop = 0;
-			remotePlayBlitCompressed(&botContext);
+			// remotePlayBlitCompressed(&botContext);
 			rpCompressAndSendPacket(&botContext);
 		}
 
