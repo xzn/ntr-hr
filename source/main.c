@@ -447,7 +447,7 @@ void initParamsFromInject() {
 }
 
 void initFromSoc() {
-	remotePlayMain();
+	rpMain();
 }
 
 int main() {
@@ -521,7 +521,7 @@ int main() {
 
 		if (currentPid == 0x1a) {
 			disp(100, 0x1ff00ff);
-			remotePlayMain();
+			rpMain();
 		}
 
 		if (currentPid == ntrConfig->HomeMenuPid) {

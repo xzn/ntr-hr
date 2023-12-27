@@ -51,7 +51,8 @@ jpeg_start_compress(j_compress_ptr cinfo, boolean write_all_tables)
 
   /* (Re)initialize error mgr and destination modules */
   (*cinfo->err->reset_error_mgr) ((j_common_ptr)cinfo);
-  (*cinfo->dest->init_destination) (cinfo);
+  if (!cinfo->skip_init_dest)
+    (*cinfo->dest->init_destination) (cinfo);
   /* Perform master selection of active modules */
   jinit_compress_master(cinfo);
   /* Set up for the first pass */

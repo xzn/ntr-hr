@@ -518,7 +518,7 @@ forward_DCT(j_compress_ptr cinfo, jpeg_component_info *compptr,
 
   for (bi = 0; bi < num_blocks; bi++, start_col += DCTSIZE) {
     if (sizeof(*workspace) == sizeof(*coef_blocks[bi]))
-      workspace = coef_blocks[bi];;
+      workspace = coef_blocks[bi];
 
     /* Load data into workspace, applying unsigned->signed conversion */
     (*do_convsamp) (sample_data, start_col, workspace);

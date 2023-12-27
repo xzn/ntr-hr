@@ -137,7 +137,7 @@ void keDoKernelHax() {
 
 
 
-void remotePlayKernelCallback();
+void rpKernelCallback();
 
 void kernelCallback(u32 msr) {
 	typedef (*keRefHandleType)(u32, u32);
@@ -185,7 +185,7 @@ void kernelCallback(u32 msr) {
 	}
 
 	if (t == 7) {
-		remotePlayKernelCallback();
+		rpKernelCallback();
 	}
 }
 

@@ -520,6 +520,7 @@ struct jpeg_compress_struct {
   boolean defaults_skip_tables;
   boolean skip_markers;
   boolean skip_buffers;
+  boolean skip_init_dest;
 };
 
 
