@@ -42,6 +42,11 @@ struct rp_alloc_stats_check {
 	struct rp_alloc_stats qual, comp /* , scan */ ;
 } alloc_stats_top[rp_work_count][rp_thread_count], alloc_stats_bot[rp_work_count][rp_thread_count];
 struct jpeg_error_mgr jerr;
+static int jpeg_rows[rp_work_count];
+static int jpeg_rows_last[rp_work_count];
+static int jpeg_adjusted_rows[rp_work_count];
+static int jpeg_adjusted_rows_last[rp_work_count];
+static int jpeg_progress[rp_work_count][rp_thread_count];
 
 u32 rpMinIntervalBetweenPacketsInTick = 0;
 static u32 rpThreadStackSize = 0x10000;
@@ -709,13 +714,6 @@ int rpInitJpegCompress() {
 
 		cinfo->user_work_next = (i / rp_thread_count) % rp_work_count;
 		cinfo->user_thread_id = i % rp_thread_count;
-
-		int isTop = (i / (rp_work_count * rp_thread_count)) == 0;
-		int mcu_size = DCTSIZE * rp_jpeg_samp_factor;
-		int mcu_row = 240 / mcu_size;
-		int mcu_col_per_thread = ((isTop ? 400 : 320) / mcu_size + (rp_thread_count - 1)) / rp_thread_count;
-		cinfo->restart_in_rows = mcu_col_per_thread;
-		cinfo->restart_interval = mcu_col_per_thread * mcu_row;
 	}
 
 	jpeg_std_huff_tables((j_common_ptr)cinfos[0]);
@@ -1186,7 +1184,7 @@ void rpJPEGCompress0(j_compress_ptr cinfo,
 	if (need_capture_next)
 		rpCaptureNextScreen((work_next + 1) % rp_work_count);
 
-	for (int j = in_rows_blk * irow_start; j < j_max;) {
+	for (int j = in_rows_blk * irow_start, progress = 0; j < j_max;) {
 		for (int i = 0; i < in_rows_blk_half; ++i, ++j)
 			input_buf[i] = src + j * pitch;
 		jpeg_pre_process(cinfo, input_buf, color_buf, output_buf, 0);
@@ -1204,6 +1202,8 @@ void rpJPEGCompress0(j_compress_ptr cinfo,
 				rpTrySendNextBuffer(0);
 			}
 		}
+
+		__atomic_store_n(&jpeg_progress[work_next][thread_id], ++progress, __ATOMIC_RELAXED);
 	}
 }
 
@@ -1211,7 +1211,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 	// nsDbgPrint("rpReadyWork %d\n", work_next);
 	u8* src;
 	u32 pitch, i;
-	j_compress_ptr cinfo;
+	j_compress_ptr cinfo = ctx->cinfos[0];
 	pitch = ctx->src_pitch;
 	src = ctx->src;
 
@@ -1220,12 +1220,58 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		return;
 	}
 
+	int work_prev = work_next == 0 ? rp_work_count - 1 : work_next - 1;
+	int progress[rp_thread_count];
+	for (int j = 0; j < rp_thread_count; ++j) {
+		progress[j] = __atomic_load_n(&jpeg_progress[work_prev][j], __ATOMIC_RELAXED);
+	}
+
+	int mcu_size_h = DCTSIZE * cinfo->max_v_samp_factor;
+	int mcus_per_row = cinfo->MCUs_per_row;
+	int mcu_rows = cinfo->image_height / mcu_size_h;
+	int mcu_rows_per_thread = (mcu_rows + (rp_thread_count - 1)) / rp_thread_count;
+	jpeg_rows[work_next] = mcu_rows_per_thread;
+	jpeg_rows_last[work_next] = mcu_rows - jpeg_rows[work_next] * (rp_thread_count - 1);
+
+	if (jpeg_rows[work_prev]) {
+		int rows = jpeg_rows[work_next];
+		int rows_last = jpeg_rows_last[work_next];
+		int progress_last = progress[rp_thread_count - 1];
+		if (progress_last < jpeg_adjusted_rows_last[work_prev]) {
+			rows_last = (rows_last * (1 << 16) *
+				progress_last / jpeg_rows_last[work_prev] + (1 << 15)) >> 16;
+			if (rows_last > jpeg_rows_last[work_next])
+				rows_last = jpeg_rows_last[work_next];
+			if (rows_last == 0)
+				rows_last = 1;
+			rows = (mcu_rows - rows_last) / (rp_thread_count - 1);
+		} else {
+			int progress_rest = 0;
+			for (int j = 0; j < rp_thread_count - 1; ++j) {
+				progress_rest += progress[j];
+			}
+			rows = (rows * (1 << 16) *
+				progress_rest / jpeg_rows[work_prev] / (rp_thread_count - 1) + (1 << 15)) >> 16;
+			if (rows < jpeg_rows[work_next])
+				rows = jpeg_rows[work_next];
+		}
+		jpeg_adjusted_rows[work_next] = rows;
+		jpeg_adjusted_rows_last[work_next] = mcu_rows - rows * (rp_thread_count - 1);
+	} else {
+		jpeg_adjusted_rows[work_next] = jpeg_rows[work_next];
+		jpeg_adjusted_rows_last[work_next] = jpeg_rows_last[work_next];
+	}
+
 	for (int j = 0; j < rp_thread_count; ++j) {
 		cinfo = ctx->cinfos[j];
 		cinfo->image_width = ctx->height;
 		cinfo->image_height = ctx->width;
 		cinfo->input_components = 3;
 		cinfo->in_color_space = ctx->format == 1 ? JCS_EXT_BGR : JCS_RGB565;
+
+		cinfo->restart_in_rows = jpeg_adjusted_rows[work_next];
+		cinfo->restart_interval = cinfo->restart_in_rows * mcus_per_row;
+
 		if (cinfo->global_state == JPEG_CSTATE_START) {
 			jpeg_start_compress(cinfo, TRUE);
 		} else {
@@ -1238,7 +1284,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		}
 
 		ctx->irow_start[j] = cinfo->restart_in_rows * j;
-		ctx->irow_count[j] = cinfo->restart_in_rows;
+		ctx->irow_count[j] = j == rp_thread_count - 1 ? jpeg_adjusted_rows_last[work_next] : cinfo->restart_in_rows;
 	}
 	ctx->capture_next = 0;
 
