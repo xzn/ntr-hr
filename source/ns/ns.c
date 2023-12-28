@@ -357,10 +357,13 @@ void rpCtxInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pit
 static u32 rpLastSendTick = 0;
 
 static int rp_nwm_work_next, rp_nwm_thread_next;
-static u8 *rpDataBufSendPos[rp_work_count][rp_thread_count], *rpDataBufPos[rp_work_count][rp_thread_count];
-static int rpDataBufFilled[rp_work_count][rp_thread_count];
-static u32 rpDataBufFlag[rp_work_count][rp_thread_count];
 static u8 rpDataBufHdr[rp_work_count][rp_data_hdr_size];
+
+static struct rpDataBufInfo_t {
+	u8 *sendPos, *pos;
+	int filled;
+	int flag;
+} rpDataBufInfo[rp_work_count][rp_thread_count];
 
 void rpReadyNwm(int work_next, int id, int isTop) {
 	s32 res = svc_waitSynchronization1(rp_work_syn[work_next]->sem_nwm, 1000000000);
@@ -370,9 +373,10 @@ void rpReadyNwm(int work_next, int id, int isTop) {
 	}
 
 	for (int j = 0; j < rp_thread_count; ++j) {
-		rpDataBufSendPos[work_next][j] = rpDataBufPos[work_next][j] = rpDataBuf[work_next][j] + rp_data_hdr_size;
-		rpDataBufFilled[work_next][j] = 0;
-		rpDataBufFlag[work_next][j] = 0;
+		struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][j];
+		info->sendPos = info->pos = rpDataBuf[work_next][j] + rp_data_hdr_size;
+		info->filled = 0;
+		info->flag = 0;
 	}
 
 	rpDataBufHdr[work_next][0] = id;
@@ -389,18 +393,19 @@ void rpSendNextBuffer(u32 nextTick) {
 	u32 packet_len, size;
 
 	u8 rp_nwm_buf_tmp[2000];
+	struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][thread_id];
 
-	rp_data_buf = rpDataBufSendPos[work_next][thread_id];
+	rp_data_buf = info->sendPos;
 	rp_nwm_packet_buf = rp_data_buf - rp_data_hdr_size;
 	rp_nwm_buf = rp_nwm_packet_buf - rp_nwm_hdr_size;
 
-	u8 *data_buf_pos = __atomic_load_n(&rpDataBufPos[work_next][thread_id], __ATOMIC_RELAXED);
-	int data_buf_flag = __atomic_load_n(&rpDataBufFlag[work_next][thread_id], __ATOMIC_RELAXED);
+	int data_buf_flag = __atomic_load_n(&info->flag, __ATOMIC_SEQ_CST);
+	u8 *data_buf_pos = __atomic_load_n(&info->pos, __ATOMIC_SEQ_CST);
 
-	size = data_buf_pos - rpDataBufSendPos[work_next][thread_id];
+	size = data_buf_pos - info->sendPos;
 	size = size < rp_packet_data_size ? size : rp_packet_data_size;
 
-	int thread_emptied = rpDataBufSendPos[work_next][thread_id] + size == data_buf_pos;
+	int thread_emptied = info->sendPos + size == data_buf_pos;
 	int thread_done = thread_emptied && data_buf_flag;
 
 	if (size < rp_packet_data_size && thread_id != rp_thread_count - 1) {
@@ -418,46 +423,52 @@ void rpSendNextBuffer(u32 nextTick) {
 		u8 *data_buf_pos_next;
 		int data_buf_flag_next;
 
-		memcpy(rp_data_buf, rpDataBufSendPos[work_next][thread_id], size);
+		memcpy(rp_data_buf, info->sendPos, size);
 		total_size += size;
 		remaining_size -= size;
 
 		sizes[thread_id] = size;
-		rpDataBufSendPos[work_next][thread_id] += size;
-		__atomic_store_n(&rpDataBufFilled[work_next][thread_id], 0, __ATOMIC_RELAXED);
+		info->sendPos += size;
+		__atomic_store_n(&info->filled, 0, __ATOMIC_SEQ_CST);
 
 		int thread_next = (thread_id + 1) % rp_thread_count;
 		while (1) {
-			if (!__atomic_load_n(&rpDataBufFilled[work_next][thread_next], __ATOMIC_ACQUIRE)) {
+			struct rpDataBufInfo_t *info_next = &rpDataBufInfo[work_next][thread_next];
+
+			if (!__atomic_load_n(&info_next->filled, __ATOMIC_CONSUME)) {
 				// rewind sizes
 				for (int j = thread_id; j < thread_next; ++j) {
-					rpDataBufSendPos[work_next][j] -= sizes[j];
-					__atomic_store_n(&rpDataBufFilled[work_next][j], 1, __ATOMIC_RELEASE);
+					struct rpDataBufInfo_t *info_prev = &rpDataBufInfo[work_next][j];
+					info_prev->sendPos -= sizes[j];
+					__atomic_store_n(&info_prev->filled, 1, __ATOMIC_RELAXED);
 				}
 				return;
 			}
 
-			data_buf_pos_next = __atomic_load_n(&rpDataBufPos[work_next][thread_next], __ATOMIC_RELAXED);
-			data_buf_flag_next = __atomic_load_n(&rpDataBufFlag[work_next][thread_next], __ATOMIC_RELAXED);
+			data_buf_flag_next = __atomic_load_n(&info_next->flag, __ATOMIC_SEQ_CST);
+			data_buf_pos_next = __atomic_load_n(&info_next->pos, __ATOMIC_SEQ_CST);
 
-			int next_size = data_buf_pos_next - rpDataBufSendPos[work_next][thread_next];
+			int next_size = data_buf_pos_next - info_next->sendPos;
 			next_size = next_size < remaining_size ? next_size : remaining_size;
 
-			int thread_next_emptied = rpDataBufSendPos[work_next][thread_next] + next_size == data_buf_pos_next;
+			int thread_next_emptied = info_next->sendPos + next_size == data_buf_pos_next;
 			/* thread_next_done should be equal to thread_next_emptied;
 			   test the condition just because */
 			int thread_next_done = thread_next_emptied && data_buf_flag_next;
 
-			memcpy(rp_data_buf + total_size, rpDataBufSendPos[work_next][thread_next], next_size);
+			memcpy(rp_data_buf + total_size, info_next->sendPos, next_size);
 			total_size += next_size;
 			remaining_size -= next_size;
 
 			sizes[thread_next] = next_size;
-			rpDataBufSendPos[work_next][thread_next] += next_size;
+			info_next->sendPos += next_size;
 			if (thread_next_emptied) {
-				__atomic_store_n(&rpDataBufFilled[work_next][thread_next], 0, __ATOMIC_RELAXED);
-				if (data_buf_pos_next < __atomic_load_n(&rpDataBufPos[work_next][thread_next], __ATOMIC_ACQUIRE)) {
-					__atomic_store_n(&rpDataBufFilled[work_next][thread_next], 1, __ATOMIC_RELEASE);
+				__atomic_store_n(&info_next->filled, 0, __ATOMIC_SEQ_CST);
+				if (
+					data_buf_flag_next != __atomic_load_n(&info_next->flag, __ATOMIC_SEQ_CST) ||
+					data_buf_pos_next < __atomic_load_n(&info_next->pos, __ATOMIC_SEQ_CST)
+				) {
+					__atomic_store_n(&info_next->filled, 1, __ATOMIC_RELAXED);
 
 					thread_next_done = thread_next_emptied = 0;
 				}
@@ -510,11 +521,14 @@ void rpSendNextBuffer(u32 nextTick) {
 	nwmSendPacket(rp_nwm_buf, packet_len);
 	rpLastSendTick = nextTick;
 
-	rpDataBufSendPos[work_next][thread_id] += size;
+	info->sendPos += size;
 	if (thread_emptied) {
-		__atomic_store_n(&rpDataBufFilled[work_next][thread_id], 0, __ATOMIC_RELAXED);
-		if (data_buf_pos < __atomic_load_n(&rpDataBufPos[work_next][thread_id], __ATOMIC_ACQUIRE)) {
-			__atomic_store_n(&rpDataBufFilled[work_next][thread_id], 1, __ATOMIC_RELEASE);
+		__atomic_store_n(&info->filled, 0, __ATOMIC_SEQ_CST);
+		if (
+			data_buf_flag != __atomic_load_n(&info->flag, __ATOMIC_SEQ_CST) ||
+			data_buf_pos < __atomic_load_n(&info->pos, __ATOMIC_SEQ_CST)
+		) {
+			__atomic_store_n(&info->filled, 1, __ATOMIC_RELAXED);
 
 			thread_done = thread_emptied = 0; /* looks redundant; clear just in case */
 		}
@@ -542,7 +556,9 @@ void rpTrySendNextBuffer(int work_flush) {
 	int thread_id = rp_nwm_thread_next;
 
 flush:
-	if (!__atomic_load_n(&rpDataBufFilled[work_next][thread_id], __ATOMIC_ACQUIRE))
+	struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][thread_id];
+
+	if (!__atomic_load_n(&info->filled, __ATOMIC_CONSUME))
 		return;
 
 	u32 nextTick = svc_getSystemTick();
@@ -571,19 +587,21 @@ void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 	int work_next = cinfo->user_work_next;
 	int thread_id = cinfo->user_thread_id;
 
-	u8 *data_buf_pos_next = rpDataBufPos[work_next][thread_id] + size;
+	struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][thread_id];
+
+	u8 *data_buf_pos_next = info->pos + size;
 	if (data_buf_pos_next > rpPacketBufLast[work_next][thread_id]) {
 		nsDbgPrint("rpSendBuffer overrun\n");
 		data_buf_pos_next = rpPacketBufLast[work_next][thread_id];
 	}
 	cinfo->client_data = data_buf_pos_next;
 
-	__atomic_store_n(&rpDataBufPos[work_next][thread_id], data_buf_pos_next, __ATOMIC_RELAXED);
+	__atomic_store_n(&info->pos, data_buf_pos_next, __ATOMIC_SEQ_CST);
 	if (flag) {
-		__atomic_store_n(&rpDataBufFlag[work_next][thread_id], flag, __ATOMIC_RELAXED);
+		__atomic_store_n(&info->flag, flag, __ATOMIC_SEQ_CST);
 	}
 
-	__atomic_store_n(&rpDataBufFilled[work_next][thread_id], 1, __ATOMIC_RELEASE);
+	__atomic_store_n(&info->filled, 1, __ATOMIC_RELEASE);
 }
 
 #if 0
@@ -1231,7 +1249,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 void rpSendFramesBody(int thread_id, BLIT_CONTEXT* ctx, int work_next) {
 	j_compress_ptr cinfo = ctx->cinfos[thread_id];
 
-	cinfo->client_data = rpDataBufPos[work_next][thread_id];
+	cinfo->client_data = rpDataBufInfo[work_next][thread_id].pos;
 	jpeg_init_destination(cinfo);
 
 	if (thread_id == 0) {
