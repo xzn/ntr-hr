@@ -399,8 +399,8 @@ void rpSendNextBuffer(u32 nextTick) {
 	rp_nwm_packet_buf = rp_data_buf - rp_data_hdr_size;
 	rp_nwm_buf = rp_nwm_packet_buf - rp_nwm_hdr_size;
 
-	int data_buf_flag = __atomic_load_n(&info->flag, __ATOMIC_SEQ_CST);
-	u8 *data_buf_pos = __atomic_load_n(&info->pos, __ATOMIC_SEQ_CST);
+	int data_buf_flag = __atomic_load_n(&info->flag, __ATOMIC_CONSUME);
+	u8 *data_buf_pos = __atomic_load_n(&info->pos, __ATOMIC_CONSUME);
 
 	size = data_buf_pos - info->sendPos;
 	size = size < rp_packet_data_size ? size : rp_packet_data_size;
@@ -429,7 +429,7 @@ void rpSendNextBuffer(u32 nextTick) {
 
 		sizes[thread_id] = size;
 		info->sendPos += size;
-		__atomic_store_n(&info->filled, 0, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&info->filled, 0, __ATOMIC_RELAXED);
 
 		int thread_next = (thread_id + 1) % rp_thread_count;
 		while (1) {
@@ -445,8 +445,8 @@ void rpSendNextBuffer(u32 nextTick) {
 				return;
 			}
 
-			data_buf_flag_next = __atomic_load_n(&info_next->flag, __ATOMIC_SEQ_CST);
-			data_buf_pos_next = __atomic_load_n(&info_next->pos, __ATOMIC_SEQ_CST);
+			data_buf_flag_next = __atomic_load_n(&info_next->flag, __ATOMIC_CONSUME);
+			data_buf_pos_next = __atomic_load_n(&info_next->pos, __ATOMIC_CONSUME);
 
 			int next_size = data_buf_pos_next - info_next->sendPos;
 			next_size = next_size < remaining_size ? next_size : remaining_size;
@@ -463,10 +463,10 @@ void rpSendNextBuffer(u32 nextTick) {
 			sizes[thread_next] = next_size;
 			info_next->sendPos += next_size;
 			if (thread_next_emptied) {
-				__atomic_store_n(&info_next->filled, 0, __ATOMIC_SEQ_CST);
+				__atomic_store_n(&info_next->filled, 0, __ATOMIC_RELAXED);
 				if (
-					data_buf_flag_next != __atomic_load_n(&info_next->flag, __ATOMIC_SEQ_CST) ||
-					data_buf_pos_next < __atomic_load_n(&info_next->pos, __ATOMIC_SEQ_CST)
+					data_buf_flag_next != __atomic_load_n(&info_next->flag, __ATOMIC_CONSUME) ||
+					data_buf_pos_next < __atomic_load_n(&info_next->pos, __ATOMIC_CONSUME)
 				) {
 					__atomic_store_n(&info_next->filled, 1, __ATOMIC_RELAXED);
 
@@ -523,10 +523,10 @@ void rpSendNextBuffer(u32 nextTick) {
 
 	info->sendPos += size;
 	if (thread_emptied) {
-		__atomic_store_n(&info->filled, 0, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&info->filled, 0, __ATOMIC_RELAXED);
 		if (
-			data_buf_flag != __atomic_load_n(&info->flag, __ATOMIC_SEQ_CST) ||
-			data_buf_pos < __atomic_load_n(&info->pos, __ATOMIC_SEQ_CST)
+			data_buf_flag != __atomic_load_n(&info->flag, __ATOMIC_CONSUME) ||
+			data_buf_pos < __atomic_load_n(&info->pos, __ATOMIC_CONSUME)
 		) {
 			__atomic_store_n(&info->filled, 1, __ATOMIC_RELAXED);
 
@@ -596,9 +596,9 @@ void rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag) {
 	}
 	cinfo->client_data = data_buf_pos_next;
 
-	__atomic_store_n(&info->pos, data_buf_pos_next, __ATOMIC_SEQ_CST);
+	__atomic_store_n(&info->pos, data_buf_pos_next, __ATOMIC_RELEASE);
 	if (flag) {
-		__atomic_store_n(&info->flag, flag, __ATOMIC_SEQ_CST);
+		__atomic_store_n(&info->flag, flag, __ATOMIC_RELEASE);
 	}
 
 	__atomic_store_n(&info->filled, 1, __ATOMIC_RELEASE);
@@ -1451,9 +1451,8 @@ void rpCaptureNextScreen(int work_next) {
 	int captured = rpCaptureScreen(work_next, currentUpdating) == 0;
 	if (captured) {
 		nextScreenCaptured[work_next] = captured;
-		__atomic_clear(&syn->sem_set, __ATOMIC_RELEASE);
-
 		nextScreenSynced[work_next] = 0;
+		__atomic_clear(&syn->sem_set, __ATOMIC_RELAXED);
 
 		s32 count;
 		res = svc_releaseSemaphore(&count, syn->sem_start, rp_thread_count - 1);
@@ -1474,7 +1473,7 @@ void rpSendFramesStart(int thread_id, int work_next) {
 		rpTrySendNextBuffer(1);
 	}
 
-	if (!__atomic_test_and_set(&syn->sem_set, __ATOMIC_ACQUIRE)) {
+	if (!__atomic_test_and_set(&syn->sem_set, __ATOMIC_RELAXED)) {
 		if (currentUpdating) {
 			// send top
 			for (int j = 0; j < rp_thread_count; ++j) {
@@ -1523,7 +1522,7 @@ void rpSendFramesStart(int thread_id, int work_next) {
 	rpSendFramesBody(thread_id, ctx, work_next);
 
 final:
-	if (__atomic_add_fetch(&syn->sem_count, 1, __ATOMIC_ACQUIRE) == rp_thread_count) {
+	if (__atomic_add_fetch(&syn->sem_count, 1, __ATOMIC_CONSUME) == rp_thread_count) {
 		__atomic_store_n(&syn->sem_count, 0, __ATOMIC_RELEASE);
 		s32 count;
 		// nsDbgPrint("(%d) svc_releaseSemaphore sem_end (%d):\n", thread_id, work_next);
