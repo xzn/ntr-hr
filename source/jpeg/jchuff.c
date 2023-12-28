@@ -249,7 +249,7 @@ start_pass_huff(j_compress_ptr cinfo, boolean gather_statistics)
 }
 
 GLOBAL(void)
-jpeg_start_pass_huff(j_compress_ptr cinfo) {
+jpeg_start_pass_huff(j_compress_ptr cinfo, int next_restart_num) {
   huff_entropy_ptr entropy = (huff_entropy_ptr)cinfo->entropy;
   int ci;
   for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
@@ -257,6 +257,9 @@ jpeg_start_pass_huff(j_compress_ptr cinfo) {
   }
   entropy->saved.put_buffer.c = 0;
   entropy->saved.free_bits = BIT_BUF_SIZE;
+
+  entropy->restarts_to_go = cinfo->restart_interval;
+  entropy->next_restart_num = next_restart_num;
 }
 
 /*

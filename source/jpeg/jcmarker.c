@@ -673,3 +673,4 @@ GLOBAL(void) jpeg_write_file_header(j_compress_ptr cinfo) __attribute__((alias("
 GLOBAL(void) jpeg_write_frame_header(j_compress_ptr cinfo) __attribute__((alias("write_frame_header")));
 GLOBAL(void) jpeg_write_scan_header(j_compress_ptr cinfo) __attribute__((alias("write_scan_header")));
 GLOBAL(void) jpeg_write_file_trailer(j_compress_ptr cinfo) __attribute__((alias("write_file_trailer")));
+GLOBAL(void) jpeg_emit_marker(j_compress_ptr cinfo, int marker) __attribute__((alias("emit_marker")));

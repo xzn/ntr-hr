@@ -312,6 +312,7 @@ struct rp_alloc_stats {
 struct rp_alloc_state {
   uint8_t* buf;
   struct rp_alloc_stats stats;
+  uint32_t max_offset;
 };
 
 #define jpeg_common_fields \
@@ -515,6 +516,9 @@ struct jpeg_compress_struct {
   struct jpeg_entropy_encoder *entropy;
   jpeg_scan_info *script_space; /* workspace for jpeg_simple_progression */
   int script_space_size;
+
+  int user_work_next;
+  int user_thread_id;
   boolean fdct_reuse;
   boolean color_reuse;
   boolean defaults_skip_tables;
@@ -1236,12 +1240,13 @@ EXTERN(void) jpeg_write_file_header(j_compress_ptr cinfo);
 EXTERN(void) jpeg_write_frame_header(j_compress_ptr cinfo);
 EXTERN(void) jpeg_write_scan_header(j_compress_ptr cinfo);
 EXTERN(void) jpeg_write_file_trailer(j_compress_ptr cinfo);
+EXTERN(void) jpeg_emit_marker(j_compress_ptr cinfo, int marker);
 
 EXTERN(void) jpeg_init_destination(j_compress_ptr cinfo);
 EXTERN(void) jpeg_term_destination(j_compress_ptr cinfo);
 
 EXTERN(void) jpeg_start_pass_prep(j_compress_ptr cinfo, int pass_mode);
-EXTERN(void) jpeg_start_pass_huff(j_compress_ptr cinfo);
+EXTERN(void) jpeg_start_pass_huff(j_compress_ptr cinfo, int next_restart_num);
 EXTERN(void) jpeg_start_pass_coef(j_compress_ptr cinfo, int pass_mode);
 EXTERN(void) jpeg_start_pass_main(j_compress_ptr cinfo, int pass_mode);
 
