@@ -1211,7 +1211,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 	// nsDbgPrint("rpReadyWork %d\n", work_next);
 	u8* src;
 	u32 pitch, i;
-	j_compress_ptr cinfo = ctx->cinfos[0];
+	j_compress_ptr cinfo;
 	pitch = ctx->src_pitch;
 	src = ctx->src;
 
@@ -1223,12 +1223,14 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 	int work_prev = work_next == 0 ? rp_work_count - 1 : work_next - 1;
 	int progress[rp_thread_count];
 	for (int j = 0; j < rp_thread_count; ++j) {
+		__atomic_store_n(&jpeg_progress[work_next][j], 0, __ATOMIC_RELAXED);
+
 		progress[j] = __atomic_load_n(&jpeg_progress[work_prev][j], __ATOMIC_RELAXED);
 	}
 
-	int mcu_size_h = DCTSIZE * cinfo->max_v_samp_factor;
-	int mcus_per_row = cinfo->MCUs_per_row;
-	int mcu_rows = cinfo->image_height / mcu_size_h;
+	int mcu_size = DCTSIZE * rp_jpeg_samp_factor;
+	int mcus_per_row = ctx->height / mcu_size;
+	int mcu_rows = ctx->width / mcu_size;
 	int mcu_rows_per_thread = (mcu_rows + (rp_thread_count - 1)) / rp_thread_count;
 	jpeg_rows[work_next] = mcu_rows_per_thread;
 	jpeg_rows_last[work_next] = mcu_rows - jpeg_rows[work_next] * (rp_thread_count - 1);
@@ -1239,7 +1241,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		int progress_last = progress[rp_thread_count - 1];
 		if (progress_last < jpeg_adjusted_rows_last[work_prev]) {
 			rows_last = (rows_last * (1 << 16) *
-				progress_last / jpeg_rows_last[work_prev] + (1 << 15)) >> 16;
+				progress_last / jpeg_adjusted_rows_last[work_prev] + (1 << 15)) >> 16;
 			if (rows_last > jpeg_rows_last[work_next])
 				rows_last = jpeg_rows_last[work_next];
 			if (rows_last == 0)
@@ -1251,9 +1253,12 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 				progress_rest += progress[j];
 			}
 			rows = (rows * (1 << 16) *
-				progress_rest / jpeg_rows[work_prev] / (rp_thread_count - 1) + (1 << 15)) >> 16;
+				progress_rest / jpeg_adjusted_rows[work_prev] / (rp_thread_count - 1) + (1 << 15)) >> 16;
 			if (rows < jpeg_rows[work_next])
 				rows = jpeg_rows[work_next];
+			int rows_max = (mcu_rows - 1) / (rp_thread_count - 1);
+			if (rows > rows_max)
+				rows = rows_max;
 		}
 		jpeg_adjusted_rows[work_next] = rows;
 		jpeg_adjusted_rows_last[work_next] = mcu_rows - rows * (rp_thread_count - 1);
