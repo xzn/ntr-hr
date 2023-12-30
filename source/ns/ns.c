@@ -1241,7 +1241,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		int progress_last = progress[rp_thread_count - 1];
 		if (progress_last < jpeg_adjusted_rows_last[work_prev]) {
 			rows_last = (rows_last * (1 << 16) *
-				progress_last / jpeg_adjusted_rows_last[work_prev] + (1 << 15)) >> 16;
+				progress_last / jpeg_rows_last[work_prev] + (1 << 15)) >> 16;
 			if (rows_last > jpeg_rows_last[work_next])
 				rows_last = jpeg_rows_last[work_next];
 			if (rows_last == 0)
@@ -1253,7 +1253,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 				progress_rest += progress[j];
 			}
 			rows = (rows * (1 << 16) *
-				progress_rest / jpeg_adjusted_rows[work_prev] / (rp_thread_count - 1) + (1 << 15)) >> 16;
+				progress_rest / jpeg_rows[work_prev] / (rp_thread_count - 1) + (1 << 15)) >> 16;
 			if (rows < jpeg_rows[work_next])
 				rows = jpeg_rows[work_next];
 			int rows_max = (mcu_rows - 1) / (rp_thread_count - 1);
