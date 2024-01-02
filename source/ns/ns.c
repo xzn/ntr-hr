@@ -1163,6 +1163,15 @@ next:
 }
 #endif
 
+static void rpTryCaptureNextScreen(int *need_capture_next, int *capture_next, int work_next) {
+	if (*need_capture_next) {
+		if (__atomic_load_n(capture_next, __ATOMIC_RELAXED)) {
+			*need_capture_next = 0;
+			rpCaptureNextScreen((work_next + 1) % rp_work_count);
+		}
+	}
+}
+
 void rpJPEGCompress0(j_compress_ptr cinfo,
 	u8* src, u32 pitch,
 	int irow_start, int irow_count,
@@ -1180,11 +1189,15 @@ void rpJPEGCompress0(j_compress_ptr cinfo,
 
 	int j_max = in_rows_blk * (irow_start + irow_count);
 	j_max = j_max < cinfo->image_height ? j_max : cinfo->image_height;
+	int j_max_half = in_rows_blk * (irow_start + irow_count / 2);
+	j_max_half = j_max_half < cinfo->image_height ? j_max_half : cinfo->image_height;
 
-	if (need_capture_next)
-		rpCaptureNextScreen((work_next + 1) % rp_work_count);
+	int j_start = in_rows_blk * irow_start;
+	if (j_max_half == j_start)
+		__atomic_store_n(capture_next, 1, __ATOMIC_RELAXED);
+	rpTryCaptureNextScreen(&need_capture_next, capture_next, work_next);
 
-	for (int j = in_rows_blk * irow_start, progress = 0; j < j_max;) {
+	for (int j = j_start, progress = 0; j < j_max;) {
 		for (int i = 0; i < in_rows_blk_half; ++i, ++j)
 			input_buf[i] = src + j * pitch;
 		jpeg_pre_process(cinfo, input_buf, color_buf, output_buf, 0);
@@ -1192,6 +1205,10 @@ void rpJPEGCompress0(j_compress_ptr cinfo,
 		for (int i = 0; i < in_rows_blk_half; ++i, ++j)
 			input_buf[i] = src + j * pitch;
 		jpeg_pre_process(cinfo, input_buf, color_buf, output_buf, 1);
+
+		if (j_max_half == j)
+			__atomic_store_n(capture_next, 1, __ATOMIC_RELAXED);
+		rpTryCaptureNextScreen(&need_capture_next, capture_next, work_next);
 
 		JBLOCKROW *MCU_buffer = MCU_buffers[work_next][thread_id];
 		for (int k = 0; k < cinfo->MCUs_per_row; ++k) {
