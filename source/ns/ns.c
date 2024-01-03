@@ -308,8 +308,8 @@ typedef struct _BLIT_CONTEXT {
 	int x, y;
 	u8* src;
 	int bpp;
-	u32 bytesInColumn ;
-	u32 blankInColumn;
+	// u32 bytesInColumn;
+	// u32 blankInColumn;
 
 	// u8* transformDst;
 
@@ -339,8 +339,8 @@ void rpCtxInit(BLIT_CONTEXT* ctx, int width, int height, int format, int src_pit
 	else{
 		ctx->bpp = 2;
 	}
-	ctx->bytesInColumn = ctx->bpp * height;
-	ctx->blankInColumn = src_pitch - ctx->bytesInColumn;
+	// ctx->bytesInColumn = ctx->bpp * height;
+	// ctx->blankInColumn = src_pitch - ctx->bytesInColumn;
 	if (ctx->format != format) {
 		for (int j = 0; j < rp_thread_count; ++j) {
 			if (ctx->cinfos[j]->global_state != JPEG_CSTATE_START) {
@@ -1232,7 +1232,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 	pitch = ctx->src_pitch;
 	src = ctx->src;
 
-	if (ctx->format != 1 && ctx->format != 2) {
+	if (ctx->format >= 3) {
 		svc_sleepThread(1000000000);
 		return;
 	}
@@ -1288,8 +1288,8 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		cinfo = ctx->cinfos[j];
 		cinfo->image_width = ctx->height;
 		cinfo->image_height = ctx->width;
-		cinfo->input_components = 3;
-		cinfo->in_color_space = ctx->format == 1 ? JCS_EXT_BGR : JCS_RGB565;
+		cinfo->input_components = ctx->format == 0 ? 4 : 3;
+		cinfo->in_color_space = ctx->format == 0 ? JCS_EXT_XBGR : ctx->format == 1 ? JCS_EXT_BGR : JCS_RGB565;
 
 		cinfo->restart_in_rows = jpeg_adjusted_rows[work_next];
 		cinfo->restart_interval = cinfo->restart_in_rows * mcus_per_row;
