@@ -208,8 +208,8 @@ static u8 rpNwmHdr[rp_nwm_hdr_size];
 static u8 *rpDataBuf[rp_work_count][rp_thread_count];
 static u8 *rpPacketBufLast[rp_work_count][rp_thread_count];
 
-#define rp_img_buffer_size (0x60000)
-#define rp_nwm_buffer_size (0x30000)
+#define rp_img_buffer_size (0xc0000)
+#define rp_nwm_buffer_size (0x60000)
 static u8* imgBuffer[rp_work_count];
 static u32 currentTopId = 0, currentBottomId = 0;
 
@@ -1368,6 +1368,10 @@ void rpKernelCallback(int isTop) {
 		current_fb = REG(IoBasePdc + 0x478);
 		current_fb &= 1;
 		tl_current = tl_fbaddr[current_fb];
+
+		int full_width = !(tl_format & (7 << 4));
+		if (full_width)
+			tl_pitch *= 2;
 	} else {
 		bl_fbaddr[0] = REG(IoBasePdc + 0x568);
 		bl_fbaddr[1] = REG(IoBasePdc + 0x56c);
