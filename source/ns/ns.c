@@ -1401,9 +1401,12 @@ void rpCloseGameHandle(void) {
 }
 
 Handle rpGetGameHandle() {
-	int i;
+	int i, res;
 	Handle hProcess;
+	u32 pids[100];
+	u32 pidCount;
 	if (rpHandleGame == 0) {
+#if 0
 		for (i = 0x28; i < 0x38; i++) {
 			int ret = svc_openProcess(&hProcess, i);
 			if (ret == 0) {
@@ -1412,18 +1415,35 @@ Handle rpGetGameHandle() {
 				break;
 			}
 		}
+#endif
+		res = svc_getProcessList(&pidCount, pids, 100);
+		if (res == 0) {
+			for (i = 0; i < pidCount; ++i) {
+				if (pids[i] < 0x28)
+					continue;
+
+				res = svc_openProcess(&hProcess, pids[i]);
+				if (res == 0) {
+					nsDbgPrint("game process: %x\n", pids[i]);
+					rpHandleGame = hProcess;
+					break;
+				}
+			}
+		}
 		if (rpHandleGame == 0) {
 			return 0;
 		}
 	}
 	if (rpGameFCRAMBase == 0) {
-		if (svc_flushProcessDataCache(hProcess, 0x14000000, 0x1000) == 0) {
+		if (svc_flushProcessDataCache(rpHandleGame, 0x14000000, 0x1000) == 0) {
 			rpGameFCRAMBase = 0x14000000;
 		}
-		else if (svc_flushProcessDataCache(hProcess, 0x30000000, 0x1000) == 0) {
+		else if (svc_flushProcessDataCache(rpHandleGame, 0x30000000, 0x1000) == 0) {
 			rpGameFCRAMBase = 0x30000000;
 		}
 		else {
+			svc_closeHandle(rpHandleGame);
+			rpHandleGame = 0;
 			return 0;
 		}
 	}
@@ -1485,13 +1505,23 @@ int rpCaptureScreen(int work_next, int isTop) {
 			res = svc_startInterProcessDma(&rpHDma[work_next], CURRENT_PROCESS_HANDLE,
 				dest, hProcess, rpGameFCRAMBase + (phys - 0x20000000), bufSize, dmaConfig);
 			if (res < 0) {
-				nsDbgPrint("svc_startInterProcessDma home failed: %08x\n", res);
-				goto final;
+				// nsDbgPrint("svc_startInterProcessDma game failed: %08x\n", res);
+				rpCloseGameHandle();
+
+				svc_sleepThread(50000000);
+				rpHDma[work_next] = 0;
+				return -1;
 			}
 			return 0;
 		}
+		// nsDbgPrint("capture game screen failed: phys %08x\n", phys);
+		svc_sleepThread(50000000);
+		return -1;
 	}
 final:
+	u32 pid = 0;
+	svc_getProcessId(&pid, hProcess);
+	nsDbgPrint("capture screen failed: phys %08x, hProc %08x, pid %04x\n", phys, hProcess, pid);
 	svc_sleepThread(1000000000);
 	rpHDma[work_next] = 0;
 	return -1;
