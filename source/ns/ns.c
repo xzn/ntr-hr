@@ -1252,6 +1252,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 	jpeg_rows[work_next] = mcu_rows_per_thread;
 	jpeg_rows_last[work_next] = mcu_rows - jpeg_rows[work_next] * (rp_thread_count - 1);
 
+#if rp_thread_count > 1
 	if (jpeg_rows[work_prev]) {
 		int rows = jpeg_rows[work_next];
 		int rows_last = jpeg_rows_last[work_next];
@@ -1283,6 +1284,10 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		jpeg_adjusted_rows[work_next] = jpeg_rows[work_next];
 		jpeg_adjusted_rows_last[work_next] = jpeg_rows_last[work_next];
 	}
+#else
+	jpeg_adjusted_rows[work_next] = jpeg_rows[work_next];
+	jpeg_adjusted_rows_last[work_next] = jpeg_rows_last[work_next];
+#endif
 
 	for (int j = 0; j < rp_thread_count; ++j) {
 		cinfo = ctx->cinfos[j];
@@ -1405,6 +1410,16 @@ Handle rpGetGameHandle() {
 	Handle hProcess;
 	u32 pids[100];
 	u32 pidCount;
+
+	int lock;
+	if ((lock = __atomic_load_n(&g_nsConfig->rpGameLock, __ATOMIC_CONSUME))) {
+		__atomic_store_n(&g_nsConfig->rpGameLock, 0, __ATOMIC_RELAXED);
+		rpCloseGameHandle();
+		if (lock < 0) {
+			svc_sleepThread(1000000000);
+		}
+	}
+
 	if (rpHandleGame == 0) {
 #if 0
 		for (i = 0x28; i < 0x38; i++) {
@@ -1415,7 +1430,7 @@ Handle rpGetGameHandle() {
 				break;
 			}
 		}
-#endif
+#else
 		res = svc_getProcessList(&pidCount, pids, 100);
 		if (res == 0) {
 			for (i = 0; i < pidCount; ++i) {
@@ -1424,12 +1439,12 @@ Handle rpGetGameHandle() {
 
 				res = svc_openProcess(&hProcess, pids[i]);
 				if (res == 0) {
-					nsDbgPrint("game process: %x\n", pids[i]);
 					rpHandleGame = hProcess;
-					break;
 				}
+				break;
 			}
 		}
+#endif
 		if (rpHandleGame == 0) {
 			return 0;
 		}
@@ -1446,6 +1461,8 @@ Handle rpGetGameHandle() {
 			rpHandleGame = 0;
 			return 0;
 		}
+
+		nsDbgPrint("game process: pid 0x%04x, fcram 0x%08x\n", pids[i], rpGameFCRAMBase);
 	}
 	return rpHandleGame;
 }
@@ -1752,7 +1769,7 @@ static void rpSendFrames() {
 #undef rpQuality
 #undef rpQosValueInBytes
 	rpConfigChanged = 0;
-	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELEASE);
+	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELAXED);
 
 	currentUpdating = isPriorityTop;
 	frameCount = 0;
@@ -1970,6 +1987,31 @@ void rpMain() {
 }
 
 static int nsIsRemotePlayStarted = 0;
+
+void rpResetGameHandle(int status) {
+	if (!nsIsRemotePlayStarted)
+		return;
+
+	Handle hProcess;
+	u32 pid = 0x1a;
+	int ret = svc_openProcess(&hProcess, pid);
+	if (ret != 0) {
+		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
+		return;
+	}
+
+	ret = copyRemoteMemory(
+		hProcess,
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpGameLock),
+		0xffff8001,
+		&status,
+		sizeof(status));
+	if (ret != 0) {
+		nsDbgPrint("copyRemoteMemory rpGameLock failed: %08x\n", ret, 0);
+	}
+
+	svc_closeHandle(hProcess);
+}
 
 static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 	Handle hProcess;

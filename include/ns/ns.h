@@ -82,6 +82,7 @@ typedef struct _NS_CONFIG {
 	NTR_CONFIG ntrConfig;
 	RP_CONFIG rpConfig;
 	u32 rpConfigLock;
+	s32 rpGameLock;
 } NS_CONFIG;
 
 #define NS_INITMODE_FROMBOOT	0

@@ -633,6 +633,7 @@ u32 plgLoadPluginsFromDirectory(u8* dir) {
 RT_HOOK	aptPrepareToStartApplicationHook;
 typedef u32(*aptPrepareToStartApplicationTypeDef) (u32 a1, u32 a2, u32 a3);
 
+void rpResetGameHandle(int status);
 u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	u32* tid = (u32*)a1;
 	nsDbgPrint("starting app: %08x%08x\n", tid[1], tid[0]);
@@ -647,7 +648,13 @@ u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	g_plgInfo->gamePluginMenuAddr = 0;
 	lastGamePluginMenuSelect = 0;
 
-	return ((aptPrepareToStartApplicationTypeDef)((void*)(aptPrepareToStartApplicationHook.callCode)))(a1, a2, a3);
+	s32 res = ((aptPrepareToStartApplicationTypeDef)((void*)(aptPrepareToStartApplicationHook.callCode)))(a1, a2, a3);
+	if (res == 0) {
+		rpResetGameHandle(1);
+	} else {
+		rpResetGameHandle(-1);
+	}
+	return res;
 }
 
 void injectPM() {
