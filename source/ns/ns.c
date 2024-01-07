@@ -208,8 +208,8 @@ static u8 rpNwmHdr[rp_nwm_hdr_size];
 static u8 *rpDataBuf[rp_work_count][rp_thread_count];
 static u8 *rpPacketBufLast[rp_work_count][rp_thread_count];
 
-#define rp_img_buffer_size (0xc0000)
-#define rp_nwm_buffer_size (0x60000)
+#define rp_img_buffer_size (0x60000)
+#define rp_nwm_buffer_size (0x28000)
 static u8* imgBuffer[rp_work_count];
 static u32 currentTopId = 0, currentBottomId = 0;
 
@@ -1226,11 +1226,8 @@ void rpJPEGCompress0(j_compress_ptr cinfo,
 
 void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 	// nsDbgPrint("rpReadyWork %d\n", work_next);
-	u8* src;
-	u32 pitch, i;
+	u32 i;
 	j_compress_ptr cinfo;
-	pitch = ctx->src_pitch;
-	src = ctx->src;
 
 	if (ctx->format >= 3) {
 		svc_sleepThread(1000000000);
@@ -1347,7 +1344,7 @@ void rpSendFramesBody(int thread_id, BLIT_CONTEXT* ctx, int work_next) {
 	}
 
 	rpJPEGCompress0(cinfo,
-		ctx->src, ctx->src_pitch,
+		ctx->src, ctx->bpp * 240,
 		ctx->irow_start[thread_id], ctx->irow_count[thread_id],
 		work_next, thread_id, &ctx->capture_next);
 	jpeg_finish_pass_huff(cinfo);
@@ -1486,11 +1483,46 @@ int isInFCRAM(u32 phys) {
 }
 
 int rpCaptureScreen(int work_next, int isTop) {
-	u8 dmaConfig[80] = { 0, 0, 4 };
-	u32 bufSize = isTop? (tl_pitch * 400) : (bl_pitch * 320);
 	u32 phys = isTop ? tl_current : bl_current;
 	u32 dest = imgBuffer[work_next];
 	Handle hProcess = rpHandleHome;
+
+	u32 format = (isTop ? tl_format : bl_format) & 0x0f;
+	u32 bpp; /* bytes per pixel */
+	u32 burstSize = 16;
+	if (format == 0){
+		bpp = 4;
+		burstSize *= bpp;
+	}
+	else if (format == 1){
+		bpp = 3;
+	}
+	else{
+		bpp = 2;
+		burstSize *= bpp;
+	}
+	u32 transferSize = 240 * bpp;
+
+	DmaConfig dmaConfig = {
+		.channelId = -1,
+		.flags = DMACFG_WAIT_AVAILABLE | DMACFG_USE_DST_CONFIG | DMACFG_USE_SRC_CONFIG,
+		.dstCfg = {
+			.allowedAlignments = 15,
+			.burstSize = burstSize,
+			.burstStride = burstSize,
+			.transferSize = transferSize,
+			.transferStride = transferSize,
+		},
+		.srcCfg = {
+			.allowedAlignments = 15,
+			.burstSize = burstSize,
+			.burstStride = burstSize,
+			.transferSize = transferSize,
+			.transferStride = (isTop ? tl_pitch : bl_pitch),
+		},
+	};
+
+	u32 bufSize = transferSize * (isTop ? 400 : 320);
 
 	int ret;
 	s32 res;
@@ -1509,7 +1541,7 @@ int rpCaptureScreen(int work_next, int isTop) {
 	if (isInVRAM(phys)) {
 		rpCloseGameHandle();
 		res = svc_startInterProcessDma(&rpHDma[work_next], CURRENT_PROCESS_HANDLE,
-			dest, hProcess, 0x1F000000 + (phys - 0x18000000), bufSize, dmaConfig);
+			dest, hProcess, 0x1F000000 + (phys - 0x18000000), bufSize, &dmaConfig);
 		if (res < 0) {
 			nsDbgPrint("svc_startInterProcessDma home failed: %08x\n", res);
 			goto final;
@@ -1520,7 +1552,7 @@ int rpCaptureScreen(int work_next, int isTop) {
 		hProcess = rpGetGameHandle();
 		if (hProcess) {
 			res = svc_startInterProcessDma(&rpHDma[work_next], CURRENT_PROCESS_HANDLE,
-				dest, hProcess, rpGameFCRAMBase + (phys - 0x20000000), bufSize, dmaConfig);
+				dest, hProcess, rpGameFCRAMBase + (phys - 0x20000000), bufSize, &dmaConfig);
 			if (res < 0) {
 				// nsDbgPrint("svc_startInterProcessDma game failed: %08x\n", res);
 				rpCloseGameHandle();
