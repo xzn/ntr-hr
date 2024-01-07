@@ -1385,6 +1385,7 @@ void rpKernelCallback(int isTop) {
 		tl_current = tl_fbaddr[current_fb];
 
 		int full_width = !(tl_format & (7 << 4));
+		/* for full-width top screen (800x240), output every other column */
 		if (full_width)
 			tl_pitch *= 2;
 	} else {
@@ -1502,7 +1503,8 @@ int rpCaptureScreen(int work_next, int isTop) {
 
 	u32 format = (isTop ? tl_format : bl_format) & 0x0f;
 	u32 bpp; /* bytes per pixel */
-	u32 burstSize = 16;
+	u32 burstSize = 16; /* highest power-of-2 factor of 240 */
+	/* burstSize should be a power-of-2 (?), try making it as big as possible */
 	if (format == 0){
 		bpp = 4;
 		burstSize *= bpp;
@@ -1520,9 +1522,9 @@ int rpCaptureScreen(int work_next, int isTop) {
 	u32 bufSize = transferSize * (isTop ? 400 : 320);
 
 	if (transferSize == pitch) {
-		u32 mul = isTop ? 16 : 64;
+		u32 mul = isTop ? 16 : 64; /* highest power-of-2 factor of either 400 or 320 */
 		transferSize *= mul;
-		while (transferSize >= (1 << 15)) {
+		while (transferSize >= (1 << 15)) { /* avoid overflow (transferSize is s16) */
 			transferSize /= 2;
 			mul /= 2;
 		}
