@@ -1502,6 +1502,20 @@ int rpCaptureScreen(int work_next, int isTop) {
 		burstSize *= bpp;
 	}
 	u32 transferSize = 240 * bpp;
+	u32 pitch = isTop ? tl_pitch : bl_pitch;
+
+	u32 bufSize = transferSize * (isTop ? 400 : 320);
+
+	if (transferSize == pitch) {
+		u32 mul = isTop ? 16 : 64;
+		transferSize *= mul;
+		while (transferSize >= (1 << 15)) {
+			transferSize /= 2;
+			mul /= 2;
+		}
+		burstSize *= mul;
+		pitch = transferSize;
+	}
 
 	DmaConfig dmaConfig = {
 		.channelId = -1,
@@ -1518,11 +1532,9 @@ int rpCaptureScreen(int work_next, int isTop) {
 			.burstSize = burstSize,
 			.burstStride = burstSize,
 			.transferSize = transferSize,
-			.transferStride = (isTop ? tl_pitch : bl_pitch),
+			.transferStride = pitch,
 		},
 	};
-
-	u32 bufSize = transferSize * (isTop ? 400 : 320);
 
 	int ret;
 	s32 res;
