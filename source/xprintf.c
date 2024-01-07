@@ -15,24 +15,26 @@
 
 
 #if _USE_XFUNC_OUT
-#include <stdarg.h>
-void (*xfunc_out)(unsigned char);	/* Pointer to the output stream */
-static char *outptr;
+// void (*xfunc_out)(unsigned char);	/* Pointer to the output stream */
+// static char *outptr;
 
 /*----------------------------------------------*/
 /* Put a character                              */
 /*----------------------------------------------*/
 
-void xputc (char c)
+void xputc (char c, char **outptr, void (*out_func)(unsigned char))
 {
-	if (_CR_CRLF && c == '\n') xputc('\r');		/* CR -> CRLF */
+	if (_CR_CRLF && c == '\n') xputc('\r', outptr, out_func);		/* CR -> CRLF */
 
 	if (outptr) {
-		*outptr++ = (unsigned char)c;
-		return;
+		if (*outptr) {
+			*(*outptr)++ = (unsigned char)c;
+			return;
+		}
 	}
 
-	if (xfunc_out) xfunc_out((unsigned char)c);
+	if (out_func) out_func((unsigned char)c);
+	// else if (xfunc_out) xfunc_out((unsigned char)c);
 }
 
 
@@ -41,11 +43,12 @@ void xputc (char c)
 /*----------------------------------------------*/
 
 void xputs (					/* Put a string to the default device */
-	const char* str				/* Pointer to the string */
+	const char* str,			/* Pointer to the string */
+	char **outptr, void (*out_func)(unsigned char)
 )
 {
 	while (*str)
-		xputc(*str++);
+		xputc(*str++, outptr, out_func);
 }
 
 
@@ -54,14 +57,14 @@ void xfputs (					/* Put a string to the specified device */
 	const char*	str				/* Pointer to the string */
 )
 {
-	void (*pf)(unsigned char);
+	// void (*pf)(unsigned char);
 
 
-	pf = xfunc_out;		/* Save current output device */
-	xfunc_out = func;	/* Switch output to specified device */
+	// pf = xfunc_out;		/* Save current output device */
+	// xfunc_out = func;	/* Switch output to specified device */
 	while (*str)		/* Put the string */
-		xputc(*str++);
-	xfunc_out = pf;		/* Restore output device */
+		xputc(*str++, 0, func);
+	// xfunc_out = pf;		/* Restore output device */
 }
 
 
@@ -84,6 +87,7 @@ void xfputs (					/* Put a string to the specified device */
 */
 
 void xvprintf (
+	char **outptr, void (*out_func)(unsigned char),
 	const char*	fmt,	/* Pointer to the format string */
 	va_list arp			/* Pointer to arguments */
 )
@@ -97,7 +101,7 @@ void xvprintf (
 		c = *fmt++;					/* Get a char */
 		if (!c) break;				/* End of format? */
 		if (c != '%') {				/* Pass through it if not a % sequense */
-			xputc(c); continue;
+			xputc(c, outptr, out_func); continue;
 		}
 		f = 0;
 		c = *fmt++;					/* Get first char of the sequense */
@@ -120,12 +124,12 @@ void xvprintf (
 		case 'S' :					/* String */
 			p = va_arg(arp, char*);
 			for (j = 0; p[j]; j++) ;
-			while (!(f & 2) && j++ < w) xputc(' ');
-			xputs(p);
-			while (j++ < w) xputc(' ');
+			while (!(f & 2) && j++ < w) xputc(' ', outptr, out_func);
+			xputs(p, outptr, out_func);
+			while (j++ < w) xputc(' ', outptr, out_func);
 			continue;
 		case 'C' :					/* Character */
-			xputc((char)va_arg(arp, int)); continue;
+			xputc((char)va_arg(arp, int), outptr, out_func); continue;
 		case 'B' :					/* Binary */
 			r = 2; break;
 		case 'O' :					/* Octal */
@@ -136,7 +140,7 @@ void xvprintf (
 		case 'X' :					/* Hexdecimal */
 			r = 16; break;
 		default:					/* Unknown type (passthrough) */
-			xputc(c); continue;
+			xputc(c, outptr, out_func); continue;
 		}
 
 		/* Get an argument and put it in numeral */
@@ -153,9 +157,9 @@ void xvprintf (
 		} while (v && i < sizeof(s));
 		if (f & 8) s[i++] = '-';
 		j = i; d = (f & 1) ? '0' : ' ';
-		while (!(f & 2) && j++ < w) xputc(d);
-		do xputc(s[--i]); while(i);
-		while (j++ < w) xputc(' ');
+		while (!(f & 2) && j++ < w) xputc(d, outptr, out_func);
+		do xputc(s[--i], outptr, out_func); while(i);
+		while (j++ < w) xputc(' ', outptr, out_func);
 	}
 }
 
@@ -169,7 +173,7 @@ void xprintf (			/* Put a formatted string to the default device */
 
 
 	va_start(arp, fmt);
-	xvprintf(fmt, arp);
+	xvprintf(0, 0, fmt, arp);
 	va_end(arp);
 }
 
@@ -183,14 +187,16 @@ void xsprintf (			/* Put a formatted string to the memory */
 	va_list arp;
 
 
-	outptr = buff;		/* Switch destination for memory */
+	// outptr = buff;		/* Switch destination for memory */
 
 	va_start(arp, fmt);
-	xvprintf(fmt, arp);
+	xvprintf(&buff, 0, fmt, arp);
 	va_end(arp);
 
-	*outptr = 0;		/* Terminate output string with a \0 */
-	outptr = 0;			/* Switch destination for device */
+	*buff = 0;
+
+	// *outptr = 0;		/* Terminate output string with a \0 */
+	// outptr = 0;			/* Switch destination for device */
 }
 
 
@@ -201,17 +207,17 @@ void xfprintf (					/* Put a formatted string to the specified device */
 )
 {
 	va_list arp;
-	void (*pf)(unsigned char);
+	// void (*pf)(unsigned char);
 
 
-	pf = xfunc_out;		/* Save current output device */
-	xfunc_out = func;	/* Switch output to specified device */
+	// pf = xfunc_out;		/* Save current output device */
+	// xfunc_out = func;	/* Switch output to specified device */
 
 	va_start(arp, fmt);
-	xvprintf(fmt, arp);
+	xvprintf(0, func, fmt, arp);
 	va_end(arp);
 
-	xfunc_out = pf;		/* Restore output device */
+	// xfunc_out = pf;		/* Restore output device */
 }
 
 
@@ -240,9 +246,9 @@ void put_dump (
 		bp = buff;
 		for (i = 0; i < len; i++)		/* Hexdecimal dump */
 			xprintf(" %02X", bp[i]);
-		xputc(' ');
+		xputc(' ', 0, 0);
 		for (i = 0; i < len; i++)		/* ASCII dump */
-			xputc((bp[i] >= ' ' && bp[i] <= '~') ? bp[i] : '.');
+			xputc((bp[i] >= ' ' && bp[i] <= '~') ? bp[i] : '.', 0, 0);
 		break;
 	case DW_SHORT:
 		sp = buff;
@@ -258,7 +264,7 @@ void put_dump (
 		break;
 	}
 
-	xputc('\n');
+	xputc('\n', 0, 0);
 }
 
 #endif /* _USE_XFUNC_OUT */
@@ -289,16 +295,16 @@ int xgets (		/* 0:End of stream, 1:A line arrived */
 		if (c == '\r') break;		/* End of line? */
 		if (c == '\b' && i) {		/* Back space? */
 			i--;
-			if (_LINE_ECHO) xputc(c);
+			if (_LINE_ECHO) xputc(c, 0, 0);
 			continue;
 		}
 		if (c >= ' ' && i < len - 1) {	/* Visible chars */
 			buff[i++] = c;
-			if (_LINE_ECHO) xputc(c);
+			if (_LINE_ECHO) xputc(c, 0, 0);
 		}
 	}
 	buff[i] = 0;	/* Terminate with a \0 */
-	if (_LINE_ECHO) xputc('\n');
+	if (_LINE_ECHO) xputc('\n', 0, 0);
 	return 1;
 }
 

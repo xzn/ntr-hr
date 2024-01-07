@@ -13,14 +13,16 @@
 
 
 #if _USE_XFUNC_OUT
-#define xdev_out(func) xfunc_out = (void(*)(unsigned char))(func)
-extern void (*xfunc_out)(unsigned char);
-void xputc (char c);
-void xputs (const char* str);
+#include <stdarg.h>
+// #define xdev_out(func) xfunc_out = (void(*)(unsigned char))(func)
+// extern void (*xfunc_out)(unsigned char);
+void xputc (char c, char **outptr, void (*out_func)(unsigned char));
+void xputs (const char* str, char **outptr, void (*out_func)(unsigned char));
 void xfputs (void (*func)(unsigned char), const char* str);
 void xprintf (const char* fmt, ...);
 void xsprintf (char* buff, const char* fmt, ...);
 void xfprintf (void (*func)(unsigned char), const char*	fmt, ...);
+void xvprintf (char **outptr, void (*out_func)(unsigned char), const char*	fmt, va_list arp);
 void put_dump (const void* buff, unsigned long addr, int len, int width);
 #define DW_CHAR		sizeof(char)
 #define DW_SHORT	sizeof(short)

@@ -267,18 +267,22 @@ int plgUpdateGamePluginMenuState() {
 	return ret;
 }
 
+int remotePlayMenu(void);
+
 void plgShowMainMenu() {
 	typedef u32(*funcType)();
 	u8* entries[70];
 	u32 entid[70];
 	u32 pos = 0, i;
-	u32 mainEntries = 3;
+	u32 mainEntries;
 	u8 requestUpdateState = 0;
 
 	debounceKey();
 	entries[0] = plgTranslate("Process Manager");
 	entries[1] = plgTranslate("Enable Debugger");
 	entries[2] = plgTranslate("Set Hotkey");
+	entries[3] = plgTranslate("Remote Play");
+	mainEntries = 4;
 
 
 	pos = mainEntries;
@@ -316,6 +320,12 @@ void plgShowMainMenu() {
 		}
 		if (r == 2) {
 			plgSetHotkeyUi();
+		}
+		if (r == 3) {
+			int ret = remotePlayMenu();
+			if (ret) {
+				break;
+			}
 		}
 		if (r >= mainEntries) {
 			if (r - mainEntries >= pluginEntryCount) {

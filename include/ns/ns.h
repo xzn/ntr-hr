@@ -60,6 +60,7 @@ typedef struct _RP_CONFIG {
 	u32 currentMode;
 	u32 quality;
 	u32 qosValueInBytes;
+	u16 dstPort;
 } RP_CONFIG;
 
 typedef struct _NS_CONFIG {

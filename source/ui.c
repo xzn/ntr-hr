@@ -92,24 +92,27 @@ u32 controlVideo(u32 cmd, u32 arg1, u32 arg2, u32 arg3) {
 
 
 void debounceKey() {
-	vu32 t;
-	for (t = 0; t < 0x00100000; t++) {
-	}
+	// vu32 t;
+	// for (t = 0; t < 0x00100000; t++) {
+	// }
+	svc_sleepThread(0x00100000);
 }
 
 void delayUi() {
-	vu32 t;
-	for (t = 0; t < 0x03000000; t++) {
-	}
+	// vu32 t;
+	// for (t = 0; t < 0x03000000; t++) {
+	// }
+	svc_sleepThread(0x03000000);
 }
 
 void mdelay(u32 m) {
-	vu32 t;
-	vu32 i;
-	for (i = 0; i < m; i++) {
-		for (t = 0; t < 0x00100000; t++) {
-		}
-	}
+	// vu32 t;
+	// vu32 i;
+	// for (i = 0; i < m; i++) {
+	// 	for (t = 0; t < 0x00100000; t++) {
+	// 	}
+	// }
+	svc_sleepThread(0x00100000 * m);
 }
 
 void updateScreen() {
@@ -127,6 +130,10 @@ s32 showMenu(u8* title, u32 entryCount, u8* captions[]) {
 }
 
 s32 showMenuEx(u8* title, u32 entryCount, u8* captions[], u8* descriptions[],  u32 selectOn) {
+	return showMenuEx2(title, entryCount, captions, descriptions, selectOn, NULL);
+}
+
+s32 showMenuEx2(u8* title, u32 entryCount, u8* captions[], u8* descriptions[],  u32 selectOn, u32 *keyPressed) {
 	u32 maxCaptions = 10;
 	u32 i;
 	s32 select = 0;
@@ -174,6 +181,10 @@ s32 showMenuEx(u8* title, u32 entryCount, u8* captions[], u8* descriptions[],  u
 			if (select < 0) {
 				select = entryCount - 1;
 			}
+		}
+		if (keyPressed) {
+			*keyPressed = key;
+			return select;
 		}
 		if (key == BUTTON_A) {
 			return select;
@@ -304,10 +315,9 @@ int confirmKey(int keyCode, int time) {
 }
 
 u32 waitKey() {
-	u32 key;
+	u32 key = 0;
 	while (1) {
-		key = getKey();
-		if (key == 0) {
+		if (getKey() == 0) {
 			if (confirmKey(0, 0x1000)) {
 				break;
 			}
@@ -321,6 +331,13 @@ u32 waitKey() {
 			}
 		}
 	}
+	while (1) {
+		if (getKey() == 0) {
+			if (confirmKey(0, 0x1000)) {
+				break;
+			}
+		}
+	}
 
 	return key;
 }
@@ -329,9 +346,11 @@ u32 waitKey() {
 void blinkColor(u32 c){
 	vu32 t;
 	*(vu32*)(IoBaseLcd + 0x204) = c;
-	for (t = 0; t < 100000; t++) {
-	}
+	// for (t = 0; t < 100000; t++) {
+	// }
+	svc_sleepThread(100000);
 	*(vu32*)(IoBaseLcd + 0x204) = 0;
-	for (t = 0; t < 100000; t++) {
-	}
+	// for (t = 0; t < 100000; t++) {
+	// }
+	svc_sleepThread(100000);
 }

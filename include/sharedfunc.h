@@ -44,6 +44,8 @@ u32 controlVideo(u32 cmd, u32 arg1, u32 arg2, u32 arg3);
 
 s32 showMenuEx(u8* title, u32 entryCount, u8* captions[], u8* descriptions[], u32 selectOn);
 
+s32 showMenuEx2(u8* title, u32 entryCount, u8* captions[], u8* descriptions[], u32 selectOn, u32 *keyPressed);
+
 u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 size);
 
 #endif

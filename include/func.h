@@ -28,6 +28,7 @@ void debounceKey();
 void updateScreen();
 s32 showMenu(u8* title, u32 entryCount, u8* captions[]);
 s32 showMenuEx(u8* title, u32 entryCount, u8* captions[], u8* descriptions[], u32 selectOn);
+s32 showMenuEx2(u8* title, u32 entryCount, u8* captions[], u8* descriptions[], u32 selectOn, u32 *keyPressed);
 int showMsg(u8* msg);
 int showMsgNoPause(u8* msg);
 void acquireVideo() ;

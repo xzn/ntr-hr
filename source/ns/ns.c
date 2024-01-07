@@ -109,7 +109,7 @@ void nsDbgPrint(			/* Put a formatted string to the default device */
 	if (g_nsConfig) {
 		if (g_nsConfig->debugReady) {
 			rtAcquireLock(&(g_nsConfig->debugBufferLock));
-			xvprintf(fmt, arp);
+			xvprintf(0, nsDbgPutc, fmt, arp);
 			rtReleaseLock(&(g_nsConfig->debugBufferLock));
 		}
 	}
@@ -203,7 +203,9 @@ RT_HOOK nwmValParamHook;
 #define rp_nwm_hdr_size (0x2a + 8)
 #define rp_data_hdr_size (4)
 
+#define RP_DST_PORT_DEFAULT (8001)
 static int rpInited = 0;
+static RP_CONFIG rpConfig;
 static u8 rpNwmHdr[rp_nwm_hdr_size];
 static u8 *rpDataBuf[rp_work_count][rp_thread_count];
 static u8 *rpPacketBufLast[rp_work_count][rp_thread_count];
@@ -258,7 +260,7 @@ uint16_t ip_checksum(void* vdata, size_t length) {
 int	initUDPPacket(u8 *rpNwmBufferCur, int dataLen) {
 	dataLen += 8;
 	*(u16*)(rpNwmBufferCur + 0x22 + 8) = htons(8000); // src port
-	*(u16*)(rpNwmBufferCur + 0x24 + 8) = htons(8001); // dest port
+	*(u16*)(rpNwmBufferCur + 0x24 + 8) = htons(rpConfig.dstPort); // dest port
 	*(u16*)(rpNwmBufferCur + 0x26 + 8) = htons(dataLen);
 	*(u16*)(rpNwmBufferCur + 0x28 + 8) = 0; // no checksum
 	dataLen += 20;
@@ -377,10 +379,13 @@ int rpDataBufFilled(struct rpDataBufInfo_t *info, u8 **pos, int *flag) {
 }
 
 void rpReadyNwm(int work_next, int id, int isTop) {
-	s32 res = svc_waitSynchronization1(rp_work_syn[work_next]->sem_nwm, 1000000000);
-	if (res) {
-		nsDbgPrint("svc_waitSynchronization1 sem_nwm (%d) failed: %d\n", work_next, res);
-		return;
+	while (1) {
+		s32 res = svc_waitSynchronization1(rp_work_syn[work_next]->sem_nwm, 1000000000);
+		if (res) {
+			nsDbgPrint("svc_waitSynchronization1 sem_nwm (%d) failed: %d\n", work_next, res);
+			continue;
+		}
+		break;
 	}
 
 	for (int j = 0; j < rp_thread_count; ++j) {
@@ -1697,10 +1702,13 @@ void rpSendFramesStart(int thread_id, int work_next) {
 			goto final;
 		}
 	} else {
-		s32 res = svc_waitSynchronization1(syn->sem_work, 1000000000);
-		if (res) {
-			nsDbgPrint("(%d) svc_waitSynchronization1 sem_work (%d) failed: %d\n", thread_id, work_next, res);
-			goto final;
+		while (1) {
+			s32 res = svc_waitSynchronization1(syn->sem_work, 1000000000);
+			if (res) {
+				nsDbgPrint("(%d) svc_waitSynchronization1 sem_work (%d) failed: %d\n", thread_id, work_next, res);
+				continue;
+			}
+			break;
 		}
 	}
 
@@ -1726,99 +1734,115 @@ static void rpSendFrames() {
 #define rpCurrentMode (g_nsConfig->rpConfig.currentMode)
 #define rpQuality (g_nsConfig->rpConfig.quality)
 #define rpQosValueInBytes (g_nsConfig->rpConfig.qosValueInBytes)
+#define rpDstPort (g_nsConfig->rpConfig.dstPort)
 
 	// rpCurrentMode = g_nsConfig->startupInfo[8];
 	// rpQuality = g_nsConfig->startupInfo[9];
 	// rpQosValueInBytes = g_nsConfig->startupInfo[10];
+
+	if (rpDstPort) {
+		rpConfig.dstPort = rpDstPort;
+	} else {
+		if (rpConfig.dstPort == 0)
+			rpConfig.dstPort = RP_DST_PORT_DEFAULT;
+	}
+
 	if (rpQosValueInBytes < 500 * 1024) {
 		rpQosValueInBytes = 2 * 1024 * 1024;
 	}
 	rpMinIntervalBetweenPacketsInTick = (1000000 / (rpQosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
 
-	for (int j = 0; j < rp_cinfos_count; ++j)
-		cinfos[j]->global_state = JPEG_CSTATE_START;
-	jpeg_set_quality(cinfos[0], rpQuality, TRUE);
-	for (int j = 1; j < rp_cinfos_count; ++j)
-		for (int i = 0; i < NUM_QUANT_TBLS; ++i)
-			cinfos[j]->quant_tbl_ptrs[i] = cinfos[0]->quant_tbl_ptrs[i];
-
-	for (int i = 0; i < rp_work_count; ++i) {
-		for (int j = 0; j < rp_thread_count; ++j) {
-			if (!alloc_stats_top[i][j].qual.offset) {
-				memcpy(&alloc_stats_top[i][j].qual, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
-			} else {
-				memcpy(&cinfos_top[i][j].alloc.stats, &alloc_stats_top[i][j].qual, sizeof(struct rp_alloc_stats));
-			}
-
-			if (!alloc_stats_bot[i][j].qual.offset) {
-				memcpy(&alloc_stats_bot[i][j].qual, &cinfos_bot[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
-			} else {
-				memcpy(&cinfos_bot[i][j].alloc.stats, &alloc_stats_bot[i][j].qual, sizeof(struct rp_alloc_stats));
-			}
+	{
+		isPriorityTop = 1;
+		priorityFactor = 0;
+		u32 mode = (rpCurrentMode & 0xff00) >> 8;
+		u32 factor = (rpCurrentMode & 0xff);
+		if (mode == 0) {
+			isPriorityTop = 0;
 		}
+		priorityFactor = factor;
 	}
 
-	jpeg_jinit_forward_dct(cinfos[0]);
-	cinfos[0]->fdct_reuse = TRUE;
+	if (rpConfig.quality != rpQuality) {
+		rpConfig.quality = rpQuality;
 
-	for (int j = 1; j < rp_cinfos_count; ++j) {
-		cinfos[j]->fdct = cinfos[0]->fdct;
-		cinfos[j]->fdct_reuse = TRUE;
-	}
+		for (int j = 0; j < rp_cinfos_count; ++j)
+			cinfos[j]->global_state = JPEG_CSTATE_START;
+		jpeg_set_quality(cinfos[0], rpQuality, TRUE);
+		for (int j = 1; j < rp_cinfos_count; ++j)
+			for (int i = 0; i < NUM_QUANT_TBLS; ++i)
+				cinfos[j]->quant_tbl_ptrs[i] = cinfos[0]->quant_tbl_ptrs[i];
 
-	jpeg_start_pass_fdctmgr(cinfos[0]);
+		for (int i = 0; i < rp_work_count; ++i) {
+			for (int j = 0; j < rp_thread_count; ++j) {
+				if (!alloc_stats_top[i][j].qual.offset) {
+					memcpy(&alloc_stats_top[i][j].qual, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
+				} else {
+					memcpy(&cinfos_top[i][j].alloc.stats, &alloc_stats_top[i][j].qual, sizeof(struct rp_alloc_stats));
+				}
 
-	isPriorityTop = 1;
-	priorityFactor = 0;
-	u32 mode = (rpCurrentMode & 0xff00) >> 8;
-	u32 factor = (rpCurrentMode & 0xff);
-	if (mode == 0) {
-		isPriorityTop = 0;
-	}
-	priorityFactor = factor;
-
-	for (int h = 0; h < rp_work_count; ++h) {
-		for (int i = 0; i < sizeof(*prep_buffers) / sizeof(**prep_buffers); ++i) {
-			for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
-				prep_buffers[h][i][ci] = jpeg_alloc_sarray((j_common_ptr)cinfos[h], JPOOL_IMAGE,
-					240, (JDIMENSION)(MAX_SAMP_FACTOR * DCTSIZE));
+				if (!alloc_stats_bot[i][j].qual.offset) {
+					memcpy(&alloc_stats_bot[i][j].qual, &cinfos_bot[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
+				} else {
+					memcpy(&cinfos_bot[i][j].alloc.stats, &alloc_stats_bot[i][j].qual, sizeof(struct rp_alloc_stats));
+				}
 			}
 		}
-		for (int i = 0; i < sizeof(*color_buffers) / sizeof(**color_buffers); ++i) {
-			for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
-				color_buffers[h][i][ci] = jpeg_alloc_sarray((j_common_ptr)cinfos[h], JPOOL_IMAGE,
-					240, (JDIMENSION)MAX_SAMP_FACTOR);
+
+		jpeg_jinit_forward_dct(cinfos[0]);
+		cinfos[0]->fdct_reuse = TRUE;
+
+		for (int j = 1; j < rp_cinfos_count; ++j) {
+			cinfos[j]->fdct = cinfos[0]->fdct;
+			cinfos[j]->fdct_reuse = TRUE;
+		}
+
+		jpeg_start_pass_fdctmgr(cinfos[0]);
+
+		for (int h = 0; h < rp_work_count; ++h) {
+			for (int i = 0; i < sizeof(*prep_buffers) / sizeof(**prep_buffers); ++i) {
+				for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
+					prep_buffers[h][i][ci] = jpeg_alloc_sarray((j_common_ptr)cinfos[h], JPOOL_IMAGE,
+						240, (JDIMENSION)(MAX_SAMP_FACTOR * DCTSIZE));
+				}
+			}
+			for (int i = 0; i < sizeof(*color_buffers) / sizeof(**color_buffers); ++i) {
+				for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
+					color_buffers[h][i][ci] = jpeg_alloc_sarray((j_common_ptr)cinfos[h], JPOOL_IMAGE,
+						240, (JDIMENSION)MAX_SAMP_FACTOR);
+				}
+			}
+			for (int i = 0; i < sizeof(*MCU_buffers) / sizeof(**MCU_buffers); ++i) {
+				JBLOCKROW buffer = (JBLOCKROW)jpeg_alloc_large((j_common_ptr)cinfos[h], JPOOL_IMAGE, C_MAX_BLOCKS_IN_MCU * sizeof(JBLOCK));
+				for (int b = 0; b < C_MAX_BLOCKS_IN_MCU; b++) {
+					MCU_buffers[h][i][b] = buffer + b;
+				}
 			}
 		}
-		for (int i = 0; i < sizeof(*MCU_buffers) / sizeof(**MCU_buffers); ++i) {
-			JBLOCKROW buffer = (JBLOCKROW)jpeg_alloc_large((j_common_ptr)cinfos[h], JPOOL_IMAGE, C_MAX_BLOCKS_IN_MCU * sizeof(JBLOCK));
-			for (int b = 0; b < C_MAX_BLOCKS_IN_MCU; b++) {
-				MCU_buffers[h][i][b] = buffer + b;
+
+		for (int i = 0; i < rp_work_count; ++i) {
+			for (int j = 0; j < rp_thread_count; ++j) {
+				memcpy(&alloc_stats_top[i][j].comp, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
+
+				memcpy(&alloc_stats_bot[i][j].comp, &cinfos_bot[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
 			}
 		}
+
+		// for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i) {
+		// 	ctxs[i]->cinfo->image_width = 240;
+		// 	ctxs[i]->cinfo->image_height = i == 0 ? 400 : 320;
+		// 	ctxs[i]->cinfo->input_components = 3;
+		// 	ctxs[i]->cinfo->in_color_space = JCS_RGB;
+
+		// 	jpeg_start_compress(ctxs[i]->cinfo, TRUE); /* alloc buffers */
+		// 	ctxs[i]->cinfo->global_state == JPEG_CSTATE_START;
+		// };
 	}
-
-	for (int i = 0; i < rp_work_count; ++i) {
-		for (int j = 0; j < rp_thread_count; ++j) {
-			memcpy(&alloc_stats_top[i][j].comp, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
-
-			memcpy(&alloc_stats_bot[i][j].comp, &cinfos_bot[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
-		}
-	}
-
-	// for (int i = 0; i < sizeof(ctxs) / sizeof(*ctxs); ++i) {
-	// 	ctxs[i]->cinfo->image_width = 240;
-	// 	ctxs[i]->cinfo->image_height = i == 0 ? 400 : 320;
-	// 	ctxs[i]->cinfo->input_components = 3;
-	// 	ctxs[i]->cinfo->in_color_space = JCS_RGB;
-
-	// 	jpeg_start_compress(ctxs[i]->cinfo, TRUE); /* alloc buffers */
-	// 	ctxs[i]->cinfo->global_state == JPEG_CSTATE_START;
-	// };
 
 #undef rpCurrentMode
 #undef rpQuality
 #undef rpQosValueInBytes
+#undef rpDstPort
 	rpConfigChanged = 0;
 	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELAXED);
 
@@ -1847,17 +1871,21 @@ static void rpSendFrames() {
 	}
 
 	for (int i = 0; i < rp_work_count; ++i) {
-		s32 res = svc_waitSynchronization1(rp_work_syn[i]->sem_end, 1000000000);
-		if (res) {
-			nsDbgPrint("svc_waitSynchronization1 sem_end (%d) join failed: %d\n", i, res);
-			return;
+		s32 res;
+		while (1) {
+			res = svc_waitSynchronization1(rp_work_syn[i]->sem_end, 1000000000);
+			if (res) {
+				nsDbgPrint("svc_waitSynchronization1 sem_end (%d) join failed: %d\n", i, res);
+				continue;
+			}
+			break;
 		}
 
 		s32 count;
 		res = svc_releaseSemaphore(&count, rp_work_syn[i]->sem_end, 1);
 		if (res) {
 			nsDbgPrint("svc_releaseSemaphore sem_end (%d) join failed: %d\n", i, res);
-			return;
+			// return;
 		}
 	}
 }
@@ -1877,8 +1905,9 @@ static void rpAuxThreadStart(u32 thread_id) {
 
 		rpSendFramesStart(thread_id, work_next);
 		work_next = (work_next + 1) % rp_work_count;
+
+		checkExitFlag();
 	}
-	svc_exitThread();
 }
 
 static void rpThreadStart(void *arg) {
@@ -1991,6 +2020,8 @@ static void rpThreadStart(void *arg) {
 
 	while (1) {
 		rpSendFrames();
+
+		checkExitFlag();
 	}
 	final:
 	svc_exitThread();
@@ -2037,10 +2068,10 @@ void rpMain() {
 
 }
 
-static int nsIsRemotePlayStarted = 0;
+static u8 nsIsRemotePlayStarted = 0;
 
 void rpResetGameHandle(int status) {
-	if (!nsIsRemotePlayStarted)
+	if (!__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED))
 		return;
 
 	Handle hProcess;
@@ -2064,7 +2095,7 @@ void rpResetGameHandle(int status) {
 	svc_closeHandle(hProcess);
 }
 
-static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
+static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPort) {
 	Handle hProcess;
 	u32 pid = 0x1a;
 	int ret = svc_openProcess(&hProcess, pid);
@@ -2098,18 +2129,18 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 		}
 	} while (1);
 
-	RP_CONFIG rp = {
-		.currentMode = mode,
-		.quality = quality,
-		.qosValueInBytes = qos,
-	};
+	rpConfig.currentMode = mode;
+	rpConfig.quality = quality;
+	rpConfig.qosValueInBytes = qos;
+	if (dstPort != 0)
+		rpConfig.dstPort = dstPort;
 
 	ret = copyRemoteMemory(
 		hProcess,
 		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig),
 		0xffff8001,
-		&rp,
-		sizeof(rp));
+		&rpConfig,
+		sizeof(rpConfig));
 	if (ret != 0) {
 		nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
 		svc_closeHandle(hProcess);
@@ -2130,24 +2161,17 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos) {
 	svc_closeHandle(hProcess);
 }
 
-void nsHandleRemotePlay(void) {
-
-	NS_PACKET* pac = &(g_nsCtx->packetBuf);
-	u32 mode = pac->args[0];
-	u32 quality = pac->args[1];
-	u32 qosValue = pac->args[2];
-
+static void nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
 	if (!((quality >= 10) && (quality <= 100))) {
 		nsDbgPrint("illegal quality\n");
 		return;
 	}
 
-	if (nsIsRemotePlayStarted) {
+	if (__atomic_test_and_set(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
 		nsDbgPrint("remote play already started, updating params\n");
-		nsRemotePlayControl(mode, quality, qosValue);
+		nsRemotePlayControl(mode, quality, qosValue, dstPort);
 		return;
 	}
-	nsIsRemotePlayStarted = 1;
 
 	Handle hProcess;
 	u32 ret;
@@ -2160,9 +2184,12 @@ void nsHandleRemotePlay(void) {
 	// cfg.startupInfo[8] = mode;
 	// cfg.startupInfo[9] = quality;
 	// cfg.startupInfo[10] = qosValue;
-	cfg.rpConfig.currentMode = mode;
-	cfg.rpConfig.quality = quality;
-	cfg.rpConfig.qosValueInBytes = qosValue;
+	rpConfig.currentMode = cfg.rpConfig.currentMode = mode;
+	rpConfig.quality = cfg.rpConfig.quality = quality;
+	rpConfig.qosValueInBytes = cfg.rpConfig.qosValueInBytes = qosValue;
+	rpConfig.dstPort = dstPort == 0 ? RP_DST_PORT_DEFAULT : dstPort;
+	cfg.rpConfig.dstPort = rpConfig.dstPort;
+
 	ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
@@ -2211,6 +2238,177 @@ void nsHandleRemotePlay(void) {
 	final:
 	if (hProcess != 0) {
 		svc_closeHandle(hProcess);
+	}
+}
+
+void nsHandleRemotePlay(void) {
+	NS_PACKET* pac = &(g_nsCtx->packetBuf);
+	u32 mode = pac->args[0];
+	u32 quality = pac->args[1];
+	u32 qosValue = pac->args[2];
+	nsInitRemotePlay(mode, quality, qosValue, 0);
+}
+
+static int menu_adjust_value_with_key(int *val, u32 key) {
+	int ret = 0;
+	if (key == BUTTON_DL)
+		ret = -1;
+	else if (key == BUTTON_DR)
+		ret = 1;
+	else if (key == BUTTON_Y)
+		ret = -5;
+	else if (key == BUTTON_A)
+		ret = 5;
+	else if (key == BUTTON_L)
+		ret = -10;
+	else if (key == BUTTON_R)
+		ret = 10;
+
+	if (ret)
+		*val += ret;
+	return ret;
+}
+
+int remotePlayMenu(void) {
+	u32 select = 0;
+	RP_CONFIG config = rpConfig;
+
+	while (1) {
+		u8 *title = "Remote Play";
+
+		if (!nsIsRemotePlayStarted) {
+			title = "Remote Play (Not Started)";
+		}
+
+		if (config.quality == 0) {
+			/* default values */
+			config.currentMode = 0x0103;
+			config.quality = 75;
+			config.qosValueInBytes = 2 * 1024 * 1024;
+			config.dstPort = RP_DST_PORT_DEFAULT;
+		}
+
+		u8 priorityScreenCaption[50];
+		xsprintf(priorityScreenCaption, "Priority Screen: %s", (config.currentMode & 0xff00) == 0 ? "Bottom" : "Top");
+
+		u8 priorityFactorCaption[50];
+		xsprintf(priorityFactorCaption, "Priority Factor: %d", (int)(config.currentMode & 0xff));
+
+		u8 qualityCaption[50];
+		xsprintf(qualityCaption, "JPEG Quality: %d", (int)config.quality);
+
+		u8 qosCaption[50];
+		u32 qosMB = config.qosValueInBytes / 1024 / 1024;
+		u32 qosKB = config.qosValueInBytes / 1024 % 1024 * 125 / 128;
+		xsprintf(qosCaption, "Bandwidth Limit (QoS): %d.%d MBps", (int)qosMB, (int)qosKB);
+
+		u8 dstPortCaption[50];
+		xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
+
+		u8 *captions[] = {
+			priorityScreenCaption,
+			priorityFactorCaption,
+			qualityCaption,
+			qosCaption,
+			dstPortCaption,
+			"Apply"
+		};
+		u32 entryCount = sizeof(captions) / sizeof(*captions);
+
+		u32 key;
+		select = showMenuEx2(title, entryCount, captions, NULL, select, &key);
+
+		if (key == BUTTON_B) {
+			return 0;
+		}
+
+		else if (select == 0 && key == BUTTON_A) { /* screen priority */
+			u32 mode = !(config.currentMode & 0xff00);
+			u32 factor = config.currentMode & 0xff;
+			config.currentMode = (mode << 8) | factor;
+		}
+
+		else if (select == 1) { /* priority factor */
+			int factor = config.currentMode & 0xff;
+			if (key == BUTTON_X)
+				factor = rpConfig.currentMode & 0xff;
+			else
+				menu_adjust_value_with_key(&factor, key);
+
+			if (factor < 0)
+				factor = 0;
+			else if (factor > 0xff)
+				factor = 0xff;
+
+			if (factor != (config.currentMode & 0xff)) {
+				u32 mode = config.currentMode & 0xff00;
+				config.currentMode = mode | factor;
+			}
+		}
+
+		else if (select == 2) { /* quality */
+			int quality = config.quality;
+			if (key == BUTTON_X)
+				quality = rpConfig.quality;
+			else
+				menu_adjust_value_with_key(&quality, key);
+
+			if (quality < 10)
+				quality = 10;
+			else if (quality > 100)
+				quality = 100;
+
+			if (quality != config.quality) {
+				config.quality = quality;
+			}
+		}
+
+		else if (select == 3) { /* qos */
+			int qos_factor = 128 * 1024;
+			int qos = config.qosValueInBytes;
+			int qos_remainder = qos % qos_factor;
+			qos /= qos_factor;
+
+			if (key == BUTTON_X)
+				qos = rpConfig.qosValueInBytes;
+			else {
+				int ret = menu_adjust_value_with_key(&qos, key);
+				if (ret < 0 && qos_remainder > 0) {
+					++qos;
+				}
+				if (qos < 4)
+					qos = 4;
+				else if (qos > 20)
+					qos = 20;
+				qos *= qos_factor;
+			}
+
+			if (qos != config.qosValueInBytes) {
+				config.qosValueInBytes = qos;
+			}
+		}
+
+		else if (select == 4) { /* dst port */
+			int dstPort = config.dstPort;
+			if (key == BUTTON_X)
+				dstPort = rpConfig.dstPort;
+			else
+				menu_adjust_value_with_key(&dstPort, key);
+
+			if (dstPort < 1024)
+				dstPort = 1024;
+			else if (dstPort > 65535)
+				dstPort = 65535;
+
+			if (dstPort != config.dstPort) {
+				config.dstPort = dstPort;
+			}
+		}
+
+		else if (select == 5 && key == BUTTON_A) { /* apply */
+			nsInitRemotePlay(config.currentMode, config.quality, config.qosValueInBytes, config.dstPort);
+			return 1;
+		}
 	}
 }
 
@@ -3101,7 +3299,7 @@ void nsThreadStart() {
 #define STACK_SIZE 0x4000
 
 void nsInitDebug() {
-	xfunc_out = (void*)nsDbgPutc;
+	// xfunc_out = (void*)nsDbgPutc;
 	rtInitLock(&(g_nsConfig->debugBufferLock));
 	g_nsConfig->debugBuf = (u8*)(NS_CONFIGURE_ADDR + 0x0900);
 	g_nsConfig->debugBufSize = 0xf0;
