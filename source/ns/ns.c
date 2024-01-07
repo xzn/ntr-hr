@@ -741,16 +741,26 @@ typedef JSAMPARRAY color_buffer_t[MAX_COMPONENTS];
 typedef JBLOCKROW MCU_buffer_t[C_MAX_BLOCKS_IN_MCU];
 
 #if 0
-pre_proc_buffer_t prep_buffers[rp_work_count][rp_prep_buffer_count];
-color_buffer_t color_buffers[rp_work_count][rp_thread_count];
-MCU_buffer_t MCU_buffers[rp_work_count][rp_mcu_buffer_count];
+static pre_proc_buffer_t prep_buffers[rp_work_count][rp_prep_buffer_count];
+static color_buffer_t color_buffers[rp_work_count][rp_thread_count];
+static MCU_buffer_t MCU_buffers[rp_work_count][rp_mcu_buffer_count];
 #else
-pre_proc_buffer_t prep_buffers[rp_work_count][rp_thread_count];
-color_buffer_t color_buffers[rp_work_count][rp_thread_count];
-MCU_buffer_t MCU_buffers[rp_work_count][rp_thread_count];
+static pre_proc_buffer_t prep_buffers[rp_work_count][rp_thread_count];
+static color_buffer_t color_buffers[rp_work_count][rp_thread_count];
+static MCU_buffer_t MCU_buffers[rp_work_count][rp_thread_count];
 #endif
 
-void rpCaptureNextScreen(int work_next);
+static u32 currentUpdating;
+static u32 frameCount;
+static u32 isPriorityTop;
+static u32 priorityFactor;
+static int nextScreenCaptured[rp_work_count];
+static int nextScreenSynced[rp_work_count] = { 0 };
+
+static BLIT_CONTEXT blit_context[rp_work_count];
+static int rpConfigChanged;
+
+void rpCaptureNextScreen(int work_next, int wait_sync);
 
 #if 0
 struct rp_work_t {
@@ -1166,8 +1176,11 @@ next:
 static void rpTryCaptureNextScreen(int *need_capture_next, int *capture_next, int work_next) {
 	if (*need_capture_next) {
 		if (__atomic_load_n(capture_next, __ATOMIC_RELAXED)) {
-			*need_capture_next = 0;
-			rpCaptureNextScreen((work_next + 1) % rp_work_count);
+			work_next = (work_next + 1) % rp_work_count;
+			rpCaptureNextScreen(work_next, 0);
+			if (nextScreenCaptured[work_next]) {
+				*need_capture_next = 0;
+			}
 		}
 	}
 }
@@ -1588,18 +1601,7 @@ final:
 	return -1;
 }
 
-
-static u32 currentUpdating;
-static u32 frameCount;
-static u32 isPriorityTop;
-static u32 priorityFactor;
-static int nextScreenCaptured[rp_work_count];
-static int nextScreenSynced[rp_work_count] = { 0 };
-
-static BLIT_CONTEXT blit_context[rp_work_count];
-static int rpConfigChanged;
-
-void rpCaptureNextScreen(int work_next) {
+void rpCaptureNextScreen(int work_next, int wait_sync) {
 	if (__atomic_load_n(&g_nsConfig->rpConfigLock, __ATOMIC_CONSUME)) {
 		rpConfigChanged = 1;
 		return;
@@ -1616,9 +1618,10 @@ void rpCaptureNextScreen(int work_next) {
 	struct rp_work_syn_t *syn = rp_work_syn[work_next];
 	s32 res;
 	if (!nextScreenSynced[work_next]) {
-		res = svc_waitSynchronization1(syn->sem_end, 1000000000);
+		res = svc_waitSynchronization1(syn->sem_end, wait_sync ? 1000000000 : 0);
 		if (res) {
-			nsDbgPrint("svc_waitSynchronization1 sem_end (%d) failed: %d\n", work_next, res);
+			if (wait_sync || res < 0)
+				nsDbgPrint("svc_waitSynchronization1 sem_end (%d) failed: %d\n", work_next, res);
 			return;
 		}
 
@@ -1829,7 +1832,7 @@ static void rpSendFrames() {
 		}
 
 		if (!nextScreenCaptured[rp_work_next]) {
-			rpCaptureNextScreen(rp_work_next);
+			rpCaptureNextScreen(rp_work_next, 1);
 			continue;
 		}
 		nextScreenCaptured[rp_work_next] = 0;
