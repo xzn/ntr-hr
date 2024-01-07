@@ -18,8 +18,8 @@ typedef enum{
 
 /// Configuration flags for \ref DmaConfig.
 enum {
-	DMACFG_SRC_IS_DEVICE = BIT(0), ///< DMA source is a device/peripheral. Address will not auto-increment.
-	DMACFG_DST_IS_DEVICE = BIT(1), ///< DMA destination is a device/peripheral. Address will not auto-increment.
+	DMACFG_DST_IS_DEVICE = BIT(0), ///< DMA destination is a device/peripheral. Address will not auto-increment.
+	DMACFG_SRC_IS_DEVICE = BIT(1), ///< DMA source is a device/peripheral. Address will not auto-increment.
 	DMACFG_WAIT_AVAILABLE = BIT(2), ///< Make \ref svcStartInterProcessDma wait for the channel to be unlocked.
 	DMACFG_KEEP_LOCKED = BIT(3), ///< Keep the channel locked after the transfer. Required for \ref svcRestartDma.
 	DMACFG_USE_DST_CONFIG = BIT(6), ///< Use the provided destination device configuration even if the DMA destination is not a device.

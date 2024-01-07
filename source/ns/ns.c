@@ -1534,6 +1534,7 @@ int rpCaptureScreen(int work_next, int isTop) {
 		.channelId = -1,
 		.flags = DMACFG_WAIT_AVAILABLE | DMACFG_USE_DST_CONFIG | DMACFG_USE_SRC_CONFIG,
 		.dstCfg = {
+			.deviceId = -1,
 			.allowedAlignments = 15,
 			.burstSize = burstSize,
 			.burstStride = burstSize,
@@ -1541,6 +1542,7 @@ int rpCaptureScreen(int work_next, int isTop) {
 			.transferStride = transferSize,
 		},
 		.srcCfg = {
+			.deviceId = -1,
 			.allowedAlignments = 15,
 			.burstSize = burstSize,
 			.burstStride = burstSize,
