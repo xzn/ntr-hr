@@ -109,7 +109,7 @@ void nsDbgPrint(			/* Put a formatted string to the default device */
 	if (g_nsConfig) {
 		if (g_nsConfig->debugReady) {
 			rtAcquireLock(&(g_nsConfig->debugBufferLock));
-			xvprintf(0, nsDbgPutc, fmt, arp);
+			xfvprintf(nsDbgPutc, fmt, arp);
 			rtReleaseLock(&(g_nsConfig->debugBufferLock));
 		}
 	}
