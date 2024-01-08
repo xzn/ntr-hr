@@ -101,7 +101,7 @@ u32 protectMemory(void* addr, u32 size) {
 }
 
 u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 size) {
-	u8 dmaConfig[80] = {0, 0, 4};
+	u8 dmaConfig[80] = {-1, 0, 4};
 	u32 hdma = 0;
 	u32 state, i, ret;
 
@@ -120,6 +120,7 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 	if (ret != 0) {
 		return ret;
 	}
+#if 0
 	for (i = 0; i < 10000; i++ ) {
 		state = 0;
 		ret = svc_getDmaState(&state, hdma);
@@ -142,6 +143,14 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 		svc_closeHandle(hdma);
 		return 1;
 	}
+#else
+	ret = svc_waitSynchronization1(hdma, 10000000000LL);
+	if (ret != 0) {
+		showDbg("readRemoteMemory time out (or error) %08x", ret, 0);
+		svc_closeHandle(hdma);
+		return 1;
+	}
+#endif
 
 	svc_closeHandle(hdma);
 	ret = svc_invalidateProcessDataCache(hDst, (u32)ptrDst, size);
@@ -233,7 +242,7 @@ void dumpRemoteProcess(u32 pid, u8* fileName, u32 startAddr) {
 		if (ret != 0) {
 			showDbg("readRemoteMemory failed: %08x", ret, 0);
 		}
-		FSFILE_Write(hFile, &t, off, (u32*)buf, 0x1000, 0);	
+		FSFILE_Write(hFile, &t, off, (u32*)buf, 0x1000, 0);
 		off += 0x1000;
 	}
 
@@ -280,7 +289,7 @@ void dumpRemoteProcess2(u32 pid, u8* fileName) {
 			showDbg("readmemory addr = %08x, ret = %08x", base + off, ret);
 			goto final;
 		}
-		FSFILE_Write(hfile, &t, off, (u32*)buf, 0x1000, 0);	
+		FSFILE_Write(hfile, &t, off, (u32*)buf, 0x1000, 0);
 		off += 0x1000;
 	}
 	final:
@@ -312,7 +321,7 @@ void dumpCode(u32 base, u32 size, u8* fileName) {
 	}
 
 	while(off < size) {
-		
+
 		xsprintf(buf, "addr: %08x", base + off);
 		showMsgNoPause(buf);
 		for (i = 0; i < 1000000; i++) {

@@ -383,6 +383,7 @@ void rpReadyNwm(int work_next, int id, int isTop) {
 		s32 res = svc_waitSynchronization1(rp_work_syn[work_next]->sem_nwm, 1000000000);
 		if (res) {
 			nsDbgPrint("svc_waitSynchronization1 sem_nwm (%d) failed: %d\n", work_next, res);
+			checkExitFlag();
 			continue;
 		}
 		break;
@@ -1706,6 +1707,7 @@ void rpSendFramesStart(int thread_id, int work_next) {
 			s32 res = svc_waitSynchronization1(syn->sem_work, 1000000000);
 			if (res) {
 				nsDbgPrint("(%d) svc_waitSynchronization1 sem_work (%d) failed: %d\n", thread_id, work_next, res);
+				checkExitFlag();
 				continue;
 			}
 			break;
@@ -1855,6 +1857,8 @@ static void rpSendFrames() {
 	rpLastSendTick = svc_getSystemTick();
 
 	while (1) {
+		checkExitFlag();
+
 		if (rpConfigChanged) {
 			break;
 		}
@@ -1876,6 +1880,7 @@ static void rpSendFrames() {
 			res = svc_waitSynchronization1(rp_work_syn[i]->sem_end, 1000000000);
 			if (res) {
 				nsDbgPrint("svc_waitSynchronization1 sem_end (%d) join failed: %d\n", i, res);
+				checkExitFlag();
 				continue;
 			}
 			break;
@@ -2068,7 +2073,36 @@ void rpMain() {
 
 }
 
-static u8 nsIsRemotePlayStarted = 0;
+u8 nsIsRemotePlayStarted = 0;
+
+void rpSetExitFlag(void) {
+	if (!__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED))
+		return;
+
+	Handle hProcess;
+	u32 pid = 0x1a;
+	int ret = svc_openProcess(&hProcess, pid);
+	if (ret != 0) {
+		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
+		return -1;
+	}
+
+	u32 exitFlag = 1;
+	ret = copyRemoteMemory(
+		hProcess,
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, exitFlag),
+		0xffff8001,
+		&exitFlag,
+		sizeof(exitFlag));
+	if (ret != 0) {
+		nsDbgPrint("copyRemoteMemory (2) failed: %08x\n", ret, 0);
+		svc_closeHandle(hProcess);
+		return -1;
+	}
+
+	svc_closeHandle(hProcess);
+	return 0;
+}
 
 void rpResetGameHandle(int status) {
 	if (!__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED))
@@ -2095,13 +2129,13 @@ void rpResetGameHandle(int status) {
 	svc_closeHandle(hProcess);
 }
 
-static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPort) {
+static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPort) {
 	Handle hProcess;
 	u32 pid = 0x1a;
 	int ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
-		return;
+		return -1;
 	}
 
 	u32 control, controlCount = 1000;
@@ -2113,15 +2147,15 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPo
 			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfigLock),
 			sizeof(control));
 		if (ret != 0) {
-			nsDbgPrint("copyRemoteMemory (0) failed: %08x\n", ret, 0);
+			showDbg("copyRemoteMemory (0) failed: %08x\n", ret, 0);
 			svc_closeHandle(hProcess);
-			return;
+			return -1;
 		}
 		if (control) {
 			if (!--controlCount) {
-				nsDbgPrint("rpConfigLock wait timed out\n", 0, 0);
+				showDbg("rpConfigLock wait timed out\n", 0, 0);
 				svc_closeHandle(hProcess);
-				return;
+				return -1;
 			}
 			svc_sleepThread(1000000);
 		} else {
@@ -2144,7 +2178,7 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPo
 	if (ret != 0) {
 		nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
 		svc_closeHandle(hProcess);
-		return;
+		return -1;
 	}
 
 	control = 1;
@@ -2156,25 +2190,27 @@ static inline void nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPo
 		sizeof(control));
 	if (ret != 0) {
 		nsDbgPrint("copyRemoteMemory (2) failed: %08x\n", ret, 0);
+		svc_closeHandle(hProcess);
+		return -1;
 	}
 
 	svc_closeHandle(hProcess);
+	return 0;
 }
 
-static void nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
+static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
 	if (!((quality >= 10) && (quality <= 100))) {
 		nsDbgPrint("illegal quality\n");
-		return;
+		return -1;
 	}
 
 	if (__atomic_test_and_set(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
 		nsDbgPrint("remote play already started, updating params\n");
-		nsRemotePlayControl(mode, quality, qosValue, dstPort);
-		return;
+		return nsRemotePlayControl(mode, quality, qosValue, dstPort);
 	}
 
 	Handle hProcess;
-	u32 ret;
+	u32 ret = 0;
 	u32 pid = 0x1a;
 	u32 remotePC = 0x001231d0;
 	NS_CONFIG	cfg;
@@ -2187,7 +2223,13 @@ static void nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
 	rpConfig.currentMode = cfg.rpConfig.currentMode = mode;
 	rpConfig.quality = cfg.rpConfig.quality = quality;
 	rpConfig.qosValueInBytes = cfg.rpConfig.qosValueInBytes = qosValue;
-	rpConfig.dstPort = dstPort == 0 ? RP_DST_PORT_DEFAULT : dstPort;
+
+	if (dstPort) {
+		rpConfig.dstPort = dstPort;
+	} else {
+		if (rpConfig.dstPort == 0)
+			rpConfig.dstPort = RP_DST_PORT_DEFAULT;
+	}
 	cfg.rpConfig.dstPort = rpConfig.dstPort;
 
 	ret = svc_openProcess(&hProcess, pid);
@@ -2202,6 +2244,7 @@ static void nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
 	u8 buf[16] = { 0 };
 	if (!(ntrConfig->isNew3DS)) {
 		nsDbgPrint("remoteplay is available on new3ds only\n");
+		ret = -1;
 		goto final;
 	}
 
@@ -2228,17 +2271,20 @@ static void nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
 	}
 	if (!isFirmwareSupported) {
 		nsDbgPrint("remoteplay is not supported on current firmware\n");
+		ret = -1;
 		goto final;
 	}
 	setCpuClockLock(3);
 	nsDbgPrint("cpu was locked on 804MHz, L2 Enabled\n");
 	nsDbgPrint("starting remoteplay...\n");
 	nsAttachProcess(hProcess, remotePC, &cfg, 1);
+	ret = 0;
 
 	final:
 	if (hProcess != 0) {
 		svc_closeHandle(hProcess);
 	}
+	return ret;
 }
 
 void nsHandleRemotePlay(void) {
@@ -2249,20 +2295,20 @@ void nsHandleRemotePlay(void) {
 	nsInitRemotePlay(mode, quality, qosValue, 0);
 }
 
-static int menu_adjust_value_with_key(int *val, u32 key) {
+static int menu_adjust_value_with_key(int *val, u32 key, int step_1, int step_2) {
 	int ret = 0;
 	if (key == BUTTON_DL)
 		ret = -1;
 	else if (key == BUTTON_DR)
 		ret = 1;
 	else if (key == BUTTON_Y)
-		ret = -5;
+		ret = -step_1;
 	else if (key == BUTTON_A)
-		ret = 5;
+		ret = step_1;
 	else if (key == BUTTON_L)
-		ret = -10;
+		ret = -step_2;
 	else if (key == BUTTON_R)
-		ret = 10;
+		ret = step_2;
 
 	if (ret)
 		*val += ret;
@@ -2273,19 +2319,54 @@ int remotePlayMenu(void) {
 	u32 select = 0;
 	RP_CONFIG config = rpConfig;
 
+	if (config.dstPort == 0) {
+		/* default values */
+		rpConfig.dstPort = config.dstPort = RP_DST_PORT_DEFAULT;
+	}
+
 	while (1) {
 		u8 *title = "Remote Play";
 
-		if (!nsIsRemotePlayStarted) {
+		u8 rpStarted = __atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED);
+		if (!rpStarted) {
 			title = "Remote Play (Not Started)";
-		}
 
-		if (config.quality == 0) {
-			/* default values */
-			config.currentMode = 0x0103;
-			config.quality = 75;
-			config.qosValueInBytes = 2 * 1024 * 1024;
-			config.dstPort = RP_DST_PORT_DEFAULT;
+			u8 dstPortCaption[50];
+			xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
+
+			u8 *captions[] = {
+				dstPortCaption,
+				"Apply"
+			};
+
+			u32 entryCount = sizeof(captions) / sizeof(*captions);
+
+			u32 key;
+			select = showMenuEx2(title, entryCount, captions, NULL, select, &key);
+
+			if (select == 0) { /* dst port */
+				int dstPort = config.dstPort;
+				if (key == BUTTON_X)
+					dstPort = rpConfig.dstPort;
+				else
+					menu_adjust_value_with_key(&dstPort, key, 10, 100);
+
+				if (dstPort < 1024)
+					dstPort = 1024;
+				else if (dstPort > 65535)
+					dstPort = 65535;
+
+				if (dstPort != config.dstPort) {
+					config.dstPort = dstPort;
+				}
+			}
+
+			else if (select == 1 && key == BUTTON_A) { /* apply */
+				rpConfig.dstPort = config.dstPort;
+				return 0;
+			}
+
+			continue;
 		}
 
 		u8 priorityScreenCaption[50];
@@ -2333,7 +2414,7 @@ int remotePlayMenu(void) {
 			if (key == BUTTON_X)
 				factor = rpConfig.currentMode & 0xff;
 			else
-				menu_adjust_value_with_key(&factor, key);
+				menu_adjust_value_with_key(&factor, key, 5, 10);
 
 			if (factor < 0)
 				factor = 0;
@@ -2351,7 +2432,7 @@ int remotePlayMenu(void) {
 			if (key == BUTTON_X)
 				quality = rpConfig.quality;
 			else
-				menu_adjust_value_with_key(&quality, key);
+				menu_adjust_value_with_key(&quality, key, 5, 10);
 
 			if (quality < 10)
 				quality = 10;
@@ -2372,7 +2453,7 @@ int remotePlayMenu(void) {
 			if (key == BUTTON_X)
 				qos = rpConfig.qosValueInBytes;
 			else {
-				int ret = menu_adjust_value_with_key(&qos, key);
+				int ret = menu_adjust_value_with_key(&qos, key, 4, 8);
 				if (ret < 0 && qos_remainder > 0) {
 					++qos;
 				}
@@ -2393,7 +2474,7 @@ int remotePlayMenu(void) {
 			if (key == BUTTON_X)
 				dstPort = rpConfig.dstPort;
 			else
-				menu_adjust_value_with_key(&dstPort, key);
+				menu_adjust_value_with_key(&dstPort, key, 10, 100);
 
 			if (dstPort < 1024)
 				dstPort = 1024;

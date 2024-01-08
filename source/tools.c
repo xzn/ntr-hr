@@ -617,14 +617,14 @@ u32 powerMenu() {
 			break;
 		}
 		if (r == 0) {
-			for (i = 0; i < 0x05000000; i++) {
-			}
+			// for (i = 0; i < 0x05000000; i++) {
+			// }
 			plgDoReboot();
 			break;
 		}
 		if (r == 1) {
-			for (i = 0; i < 0x05000000; i++) {
-			}
+			// for (i = 0; i < 0x05000000; i++) {
+			// }
 			plgDoPowerOff();
 			break;
 		}

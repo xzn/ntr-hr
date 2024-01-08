@@ -181,7 +181,7 @@ int plgTryLoadGamePluginMenu() {
 
 void plgShowGamePluginMenu() {
 	u8* entries[70], ret;
-	u8* description[70]; 
+	u8* description[70];
 		u8* buf;
 
 	int i, j;
@@ -202,7 +202,7 @@ void plgShowGamePluginMenu() {
 			}
 		}
 		int r;
-		r = showMenuEx(plgTranslate("Game Plugin Config"), plgCurrentGamePluginMenu.count, entries, description, 
+		r = showMenuEx(plgTranslate("Game Plugin Config"), plgCurrentGamePluginMenu.count, entries, description,
 				lastGamePluginMenuSelect);
 		if (r == -1) {
 			return;
@@ -267,6 +267,7 @@ int plgUpdateGamePluginMenuState() {
 	return ret;
 }
 
+extern u8 nsIsRemotePlayStarted;
 int remotePlayMenu(void);
 
 void plgShowMainMenu() {
@@ -281,8 +282,12 @@ void plgShowMainMenu() {
 	entries[0] = plgTranslate("Process Manager");
 	entries[1] = plgTranslate("Enable Debugger");
 	entries[2] = plgTranslate("Set Hotkey");
-	entries[3] = plgTranslate("Remote Play");
-	mainEntries = 4;
+	mainEntries = 3;
+
+	// if (__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
+		entries[3] = plgTranslate("Remote Play");
+		mainEntries = 4;
+	// }
 
 
 	pos = mainEntries;
@@ -305,6 +310,18 @@ void plgShowMainMenu() {
 		if (r == -1) {
 			break;
 		}
+		if (r >= mainEntries) {
+			if (r - mainEntries >= pluginEntryCount) {
+				plgShowGamePluginMenu();
+				break;
+			}
+			else {
+				u32 ret = ((funcType)((void*)(pluginEntry[entid[r]][2])))();
+				if (ret) {
+					break;
+				}
+			}
+		}
 		if (r == 0) {
 			processManager();
 		}
@@ -325,18 +342,6 @@ void plgShowMainMenu() {
 			int ret = remotePlayMenu();
 			if (ret) {
 				break;
-			}
-		}
-		if (r >= mainEntries) {
-			if (r - mainEntries >= pluginEntryCount) {
-				plgShowGamePluginMenu();
-				break;
-			}
-			else {
-				u32 ret = ((funcType)((void*)(pluginEntry[entid[r]][2])))();
-				if (ret) {
-					break;
-				}
 			}
 		}
 
@@ -468,7 +473,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	u32 hPMProcess = getCurrentProcessHandle();
 
 	ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize);
-	
+
 	if (ret != 0) {
 		nsDbgPrint("alloc plugin memory failed: %08x\n", ret);
 		return ret;
@@ -863,7 +868,7 @@ u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 wi
 			goto final;
 		}
 	}
-	
+
 	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addr, width * height);
 	if ((isDisplay1 == 0) && (addrB) && (addrB != addr)) {
 		svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addrB, width * height);
@@ -886,11 +891,11 @@ u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 wi
 			svc_flushProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addrB, width * height);
 		}
 	}
-	
+
 
 final:
 	ret = ((SetBufferSwapTypedef)((void*)SetBufferSwapHook.callCode))(isDisplay1, a2, addr, addrB, width, format, a7);
-	
+
 
 	return ret;
 }
@@ -920,9 +925,9 @@ void plgInitScreenOverlay() {
 		fp = plgSearchReverse(addr, addr - 0x400, 0xe92d47f0);
 	}
 	nsDbgPrint("overlay addr: %08x, %08x\n", addr, fp);
-	
+
 	if (!fp) {
-		
+
 		return;
 	}
 	rtInitHook(&SetBufferSwapHook, fp, plgSetBufferSwapCallback);
@@ -937,7 +942,7 @@ void initFromInjectGame() {
 
 	initSharedFunc();
 
-	
+
 
 	g_plgInfo = (PLGLOADER_INFO*)plgPoolStart;
 	if (g_plgInfo->nightShiftLevel) {
