@@ -537,7 +537,7 @@ u32 plgListPlugins(u32* entries, u8* buf, u8* path)  {
 
 	ret = FSUSER_OpenDirectory(fsUserHandle, &dirHandle, plgSdmcArchive, dirPath);
 	if (ret != 0) {
-		nsDbgPrint("FSUSER_OpenDirectory failed, ret=%08x", ret);
+		nsDbgPrint("FSUSER_OpenDirectory failed, ret=%08x\n", ret);
 		return 0;
 	}
 	while (1) {
@@ -663,7 +663,10 @@ u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	g_plgInfo->gamePluginMenuAddr = 0;
 	lastGamePluginMenuSelect = 0;
 
+	if (g_plgInfo->plgCount)
+		nsDbgPrint("plugins loaded: %d (total size %08x)\n", g_plgInfo->plgCount, plgNextLoadAddr);
 	s32 res = ((aptPrepareToStartApplicationTypeDef)((void*)(aptPrepareToStartApplicationHook.callCode)))(a1, a2, a3);
+	// nsDbgPrint("app started: 0x%08x\n", res);
 	if (res == 0) {
 		rpResetGameHandle(1);
 	} else {
