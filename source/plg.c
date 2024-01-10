@@ -689,6 +689,7 @@ void injectPM() {
 		hProcess = 0;
 		goto final;
 	}
+	cfg.debugMore = g_nsConfig->debugMore;
 	nsAttachProcess(hProcess, remotePC, &cfg, 1);
 	final:
 	if (hProcess != 0) {

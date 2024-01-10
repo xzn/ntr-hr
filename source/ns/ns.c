@@ -102,8 +102,6 @@ void nsDbgPrint(			/* Put a formatted string to the default device */
 	va_end(arp);
 }
 
-#define nsDbgPrint(n, ...) nsDbgPrint("(%d) " n, (u32)(svc_getSystemTick() / SYSTICK_PER_US / 1000), ## __VA_ARGS__)
-
 int nsSendPacketHeader() {
 
 	g_nsCtx->remainDataLen = g_nsCtx->packetBuf.dataLen;
@@ -218,8 +216,26 @@ uint16_t ip_checksum(void* vdata, size_t length) {
 	char* data = (char*)vdata;
 	size_t i;
 	// Initialise the accumulator.
-	uint32_t acc = 0xffff;
+	uint32_t acc = 0;
 
+	if (length % 2) {
+		data[length] = 0;
+		++length;
+	}
+	length /= 2;
+	u16 *sdata = data;
+
+#if 1
+	// Handle complete 16-bit blocks.
+	for (i = 0; i < length; ++i) {
+		acc += ntohs(sdata[i]);
+		// if (acc > 0xffff) {
+		// 	acc -= 0xffff;
+		// }
+	}
+	acc = (acc & 0xffff) + (acc >> 16);
+	acc += (acc >> 16);
+#else
 	// Handle complete 16-bit blocks.
 	for (i = 0; i + 1 < length; i += 2) {
 		uint16_t word;
@@ -239,6 +255,7 @@ uint16_t ip_checksum(void* vdata, size_t length) {
 			acc -= 0xffff;
 		}
 	}
+#endif
 
 	// Return the checksum in network byte order.
 	return htons(~acc);
@@ -573,7 +590,7 @@ int rpTrySendNextBuffer(int work_flush) {
 		work_next = (work_next + 1) % rp_work_count;
 		rp_nwm_work_next = work_next;
 
-		return;
+		return 0;
 	}
 #endif
 
@@ -2068,11 +2085,23 @@ static void rpThreadStart(void *arg) {
 	svc_exitThread();
 }
 
+// static u8 rp_hdr_tmp[22];
+
+// void printNwMHdr(void) {
+// 	u8 *buf = rpNwmHdr;
+// 	nsDbgPrint("nwm hdr: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x .. .. %02x %02x %02x %02x %02x %02x %02x %02x\n",
+// 		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11],
+// 		buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20], buf[21]
+// 	);
+// }
+
 int nwmValParamCallback(u8* buf, int buflen) {
 	int i;
 	u32* threadStack;
 	int ret;
 	Handle hThread;
+	// u8 buf_tmp[22];
+
 	/*
 	if (buf[31] != 6) {
 	nsDbgPrint("buflen: %d\n", buflen);
@@ -2086,10 +2115,23 @@ int nwmValParamCallback(u8* buf, int buflen) {
 	}
 	if (buf[0x17 + 0x8] == 6) {
 		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
+			// if (rpInited) {
+			// 	memcpy(buf_tmp, buf, 22);
+			// 	*(u16*)(buf_tmp + 12) = 0;
+			// 	if (memcmp(rp_hdr_tmp, buf_tmp, 22) != 0) {
+			// 		memcpy(rp_hdr_tmp, buf_tmp, 22);
+			// 		printNwMHdr();
+			// 	}
+			// 	return 0;
+			// }
+
 			rpInited = 1;
 			rtDisableHook(&nwmValParamHook);
 
 			memcpy(rpNwmHdr, buf, 0x22 + 8);
+			// *(u16*)(rpNwmHdr + 12) = 0;
+			// memcpy(rp_hdr_tmp, rpNwmHdr, 22);
+			// printNwMHdr();
 			initUDPPacket(rpNwmHdr, PACKET_SIZE);
 
 			threadStack = plgRequestMemory(rpThreadStackSize);
@@ -2111,9 +2153,9 @@ void rpMain() {
 
 u8 nsIsRemotePlayStarted = 0;
 
-void rpSetExitFlag(void) {
+int rpSetExitFlag(void) {
 	if (!__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED))
-		return;
+		return 0;
 
 	Handle hProcess;
 	u32 pid = 0x1a;
@@ -3345,66 +3387,66 @@ void nsHandlePacket() {
 
 
 void nsMainLoop() {
-	s32 listen_sock, ret, tmp, sockfd;
-	struct sockaddr_in addr;
-
-
 	while (1) {
-		checkExitFlag();
-		listen_sock = socket(AF_INET, SOCK_STREAM, 0);
-		if (listen_sock > 0) {
-			break;
-		}
-		svc_sleepThread(1000000000);
-	}
+		s32 listen_sock, ret, tmp, sockfd;
+		struct sockaddr_in addr;
 
-	g_nsCtx->hListenSocket = listen_sock;
-
-
-
-	addr.sin_family = AF_INET;
-	addr.sin_port = rtIntToPortNumber(g_nsCtx->listenPort);
-	addr.sin_addr.s_addr = INADDR_ANY;
-
-	ret = bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr));
-	if (ret < 0) {
-		showDbg("bind failed: %08x", ret, 0);
-		return;
-	}
-	ret = listen(listen_sock, 1);
-	if (ret < 0) {
-		showDbg("listen failed: %08x", ret, 0);
-		return;
-	}
-
-	while (1) {
-		checkExitFlag();
-		sockfd = accept(listen_sock, NULL, NULL);
-		g_nsCtx->hSocket = sockfd;
-		if (sockfd < 0) {
-			svc_sleepThread(1000000000);
-			continue;
-		}
-		/*
-		tmp = fcntl(sockfd, F_GETFL);
-		fcntl(sockfd, F_SETFL, tmp | O_NONBLOCK);
-		*/
 		while (1) {
-			ret = rtRecvSocket(sockfd, (u8*)&(g_nsCtx->packetBuf), sizeof(NS_PACKET));
-			if (ret != sizeof(NS_PACKET)) {
-				nsDbgPrint("rtRecvSocket failed: %08x", ret, 0);
+			checkExitFlag();
+			listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+			if (listen_sock > 0) {
 				break;
 			}
-			NS_PACKET* pac = &(g_nsCtx->packetBuf);
-			if (pac->magic != 0x12345678) {
-				nsDbgPrint("broken protocol: %08x, %08x", pac->magic, pac->seq);
-				break;
-			}
-			nsUpdateDebugStatus();
-			nsHandlePacket();
-			pac->magic = 0;
+			svc_sleepThread(1000000000);
 		}
-		closesocket(sockfd);
+		g_nsCtx->hListenSocket = listen_sock;
+
+		addr.sin_family = AF_INET;
+		addr.sin_port = rtIntToPortNumber(g_nsCtx->listenPort);
+		addr.sin_addr.s_addr = INADDR_ANY;
+
+		ret = bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr));
+		if (ret < 0) {
+			showDbg("bind failed: %08x", ret, 0);
+			goto end_listen;
+		}
+		ret = listen(listen_sock, 1);
+		if (ret < 0) {
+			showDbg("listen failed: %08x", ret, 0);
+			goto end_listen;
+		}
+
+		while (1) {
+			checkExitFlag();
+			sockfd = accept(listen_sock, NULL, NULL);
+			g_nsCtx->hSocket = sockfd;
+			if (sockfd < 0) {
+				break;
+			}
+			/*
+			tmp = fcntl(sockfd, F_GETFL);
+			fcntl(sockfd, F_SETFL, tmp | O_NONBLOCK);
+			*/
+			while (1) {
+				ret = rtRecvSocket(sockfd, (u8*)&(g_nsCtx->packetBuf), sizeof(NS_PACKET));
+				if (ret != sizeof(NS_PACKET)) {
+					nsDbgPrint("rtRecvSocket failed: %08x", ret, 0);
+					break;
+				}
+				NS_PACKET* pac = &(g_nsCtx->packetBuf);
+				if (pac->magic != 0x12345678) {
+					nsDbgPrint("broken protocol: %08x, %08x", pac->magic, pac->seq);
+					break;
+				}
+				nsUpdateDebugStatus();
+				nsHandlePacket();
+				pac->magic = 0;
+			}
+			closesocket(sockfd);
+		}
+
+end_listen:
+		closesocket(listen_sock);
 	}
 }
 

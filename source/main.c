@@ -74,7 +74,7 @@ u32 initValuesFromHomeMenu() {
 		ntrConfig->HomeFSUHandleAddr = 0x002F0EFC;
 		ntrConfig->HomeAptStartAppletAddr = 0x00131C98;
 
-	} 
+	}
 	if (t == 0xE28DD008) {
 		ntrConfig->HomeMenuVersion = 91;
 		ntrConfig->HomeMenuInjectAddr = 0x00131208;
@@ -141,7 +141,7 @@ void viewFile(FS_archive arc, u8 * path) {
 	u32 ret;
 	ret = FSUSER_OpenDirectory(fsUserHandle, &dirHandle, arc, dirPath);
 	if (ret != 0) {
-		xsprintf(buf, "FSUSER_OpenDirectory failed, ret=%08x\n", ret);
+		xsprintf(buf, "FSUSER_OpenDirectory failed, ret=%08x", ret);
 		showMsg(buf);
 		return;
 	}
@@ -329,22 +329,22 @@ void threadStart() {
 void initConfigureMemory() {
 	u32 ret;
 	u32 outAddr;
-	
+
 	g_nsConfig = (void*) NS_CONFIGURE_ADDR;
 	ret = protectMemory((void*)NS_CONFIGURE_ADDR, 0x1000);
-	if (ret != 0) {
+	// if (ret != 0) {
 
-		ret = svc_controlMemory(&outAddr, NS_CONFIGURE_ADDR, 0, 0x1000, 3, 3);
+	// 	ret = svc_controlMemory(&outAddr, NS_CONFIGURE_ADDR, 0, 0x1000, 3, 3);
 		if (ret != 0) {
 			showMsg("init cfg memory failed");
-			return; 
+			return;
 		}
-		
-		memset(g_nsConfig, 0, sizeof(NS_CONFIG));
-		g_nsConfig->initMode = 0;
-		return;
-	}
-	
+
+	// 	memset(g_nsConfig, 0, sizeof(NS_CONFIG));
+	// 	g_nsConfig->initMode = 0;
+	// 	return;
+	// }
+
 }
 
 
@@ -369,6 +369,10 @@ void injectToHomeMenu() {
 
 	u32* bootArgs = arm11BinStart + 4;
 	bootArgs[0] = 1;
+	cfg.debugMore = isInDebugMode();
+	if (cfg.debugMore) {
+		disp(100, 0x17f7f7f);
+	}
 
 	nsAttachProcess(hProcess, ntrConfig->HomeMenuInjectAddr, &cfg, 1);
 	svc_closeHandle(hProcess);
@@ -495,7 +499,7 @@ int main() {
 			showDbg("homemenu ver: %08x", ntrConfig->HomeMenuVersion, 0);
 			injectToHomeMenu();
 		}
-		
+
 		//dumpRemoteProcess(0xf, "/pidf");
 		//dumpCode(0xdff80000, 0x80000, "/axiwram");
 
@@ -519,11 +523,6 @@ int main() {
 		u32 currentPid = getCurrentProcessId();
 		Handle handle;
 
-		if (currentPid == 0x1a) {
-			disp(100, 0x1ff00ff);
-			rpMain();
-		}
-
 		if (currentPid == ntrConfig->HomeMenuPid) {
 			// load from HomeMenu
 			threadStack = (u32*)((u32)NS_CONFIGURE_ADDR + 0x1000);
@@ -533,19 +532,26 @@ int main() {
 
 
 			threadStack = (u32*)((u32)NS_CONFIGURE_ADDR + 0x1000);
-			if ((isInDebugMode()) || (g_nsConfig->startupCommand == NS_STARTCMD_DEBUG)) {
+			if (
+				(g_nsConfig->debugMore && currentPid == ntrConfig->PMPid) ||
+				isInDebugMode() ||
+				(g_nsConfig->startupCommand == NS_STARTCMD_DEBUG)
+			) {
 				svc_createThread(&handle, (void*)startupFromInject, 0, &threadStack[(STACK_SIZE / 4) - 10], 0x3f, 0xFFFFFFFE);
 				svc_sleepThread(1000000000);
 			}
-			if (currentPid == ntrConfig->PMPid) {
+
+			if (currentPid == 0x1a) {
+				disp(100, 0x1ff00ff);
+				rpMain();
+			}
+			else if (currentPid == ntrConfig->PMPid) {
 				// load from pm
 				initFromInjectPM();
 			}
-			else {
-				if (g_nsConfig->startupCommand == NS_STARTCMD_INJECTGAME) {
-					disp(100, 0x100ff00);
-					initFromInjectGame();
-				}
+			else if (g_nsConfig->startupCommand == NS_STARTCMD_INJECTGAME) {
+				disp(100, 0x100ff00);
+				initFromInjectGame();
 			}
 		}
 	}
