@@ -116,7 +116,7 @@ void mdelay(u32 m) {
 }
 
 void updateScreen() {
-	
+
 	*(vu32*)(IoBasePdc + 0x568) = getPhysAddr(bottomFrameBuffer);
 	*(vu32*)(IoBasePdc + 0x56C) = getPhysAddr(bottomFrameBuffer);
 	*(vu32*)(IoBasePdc + 0x570) = 0x00080301;
@@ -204,6 +204,13 @@ int showMsgNoPause(u8* msg) {
 }
 
 int showMsgExtra(u8* msg, const u8 *file_name, int line_number, const u8 *func_name) {
+	if (ShowDbgFunc) {
+		typedef void(*funcType)(char*);
+		((funcType)(ShowDbgFunc))(msg);
+		svc_sleepThread(1000000000);
+		return 0;
+	}
+
 	if (!allowDirectScreenAccess) {
 		return 0;
 	}
@@ -243,7 +250,6 @@ int showMsgDirect(u8* msg) {
 	}
 	acquireVideo();
 
-
 	while(1) {
 		blank(0, 0, 320, 240);
 		print(msg, 10, 10, 255, 0, 0);
@@ -260,7 +266,7 @@ int showMsgDirect(u8* msg) {
 
 void showDbgShared(u8* fmt, u32 v1, u32 v2) {
 	u8 buf[400];
-	
+
 	nsDbgPrintShared(fmt, v1, v2);
 	xsprintf(buf, fmt, v1, v2);
 	showMsgDirect(buf);
@@ -268,7 +274,7 @@ void showDbgShared(u8* fmt, u32 v1, u32 v2) {
 
 extern PLGLOADER_INFO *g_plgInfo;
 u32 decideBottomFrameBufferAddr() {
-	
+
 	if (g_plgInfo) {
 		u32 tidLow = g_plgInfo->tid[0];
 		if ((tidLow == 0x00125500) || (tidLow == 0x000D6E00) || (tidLow == 0x00125600)) {
