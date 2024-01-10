@@ -476,7 +476,10 @@ u32 instantSave(int id, int isLoad) {
 		}
 		offsetInFile += regionSize;
 	}
-	showDbg(isLoad ? "Load %d OK, GamePID: %08x." : "Save %d OK, GamePID: %08x.", id, gamePid);
+	if (isLoad)
+		showDbg("Load %d OK, GamePID: %08x.", id, gamePid);
+	else
+		showDbg("Save %d OK, GamePID: %08x.", id, gamePid);
 	final:
 	if (fd > 0) {
 		sdf_close(fd);
@@ -617,14 +620,14 @@ u32 powerMenu() {
 			break;
 		}
 		if (r == 0) {
-			// for (i = 0; i < 0x05000000; i++) {
-			// }
+			for (i = 0; i < 0x05000000; i++) {
+			}
 			plgDoReboot();
 			break;
 		}
 		if (r == 1) {
-			// for (i = 0; i < 0x05000000; i++) {
-			// }
+			for (i = 0; i < 0x05000000; i++) {
+			}
 			plgDoPowerOff();
 			break;
 		}

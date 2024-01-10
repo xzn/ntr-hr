@@ -203,7 +203,35 @@ int showMsgNoPause(u8* msg) {
 	}
 }
 
-int showMsg(u8* msg) {
+int showMsgExtra(u8* msg, const u8 *file_name, int line_number, const u8 *func_name) {
+	if (!allowDirectScreenAccess) {
+		return 0;
+	}
+
+	u64 ticks = svc_getSystemTick();
+	u64 mono_us = ticks / SYSTICK_PER_US;
+	u32 pid = getCurrentProcessId();
+	u8 extra[0x100];
+	xsprintf(extra, "[%d.%d][%x]%s:%d:%s", (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+
+	acquireVideo();
+
+	while(1) {
+		blank(0, 0, 320, 240);
+		print(extra, 10, 10, 255, 0, 255);
+		print(msg, 10, 44, 255, 0, 0);
+		print(plgTranslate("Press [B] to close."), 10, 220, 0, 0, 255);
+		updateScreen();
+		u32 key = waitKey();
+		if (key == BUTTON_B) {
+			break;
+		}
+	}
+	releaseVideo();
+	return 0;
+}
+
+int showMsgDirect(u8* msg) {
 	if (ShowDbgFunc) {
 		typedef void(*funcType)(char*);
 		((funcType)(ShowDbgFunc))(msg);
@@ -230,12 +258,12 @@ int showMsg(u8* msg) {
 	return 0;
 }
 
-void showDbg(u8* fmt, u32 v1, u32 v2) {
+void showDbgShared(u8* fmt, u32 v1, u32 v2) {
 	u8 buf[400];
 	
-	nsDbgPrint(fmt, v1, v2);
+	nsDbgPrintShared(fmt, v1, v2);
 	xsprintf(buf, fmt, v1, v2);
-	showMsg(buf);
+	showMsgDirect(buf);
 }
 
 extern PLGLOADER_INFO *g_plgInfo;

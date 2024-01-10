@@ -31,9 +31,22 @@ u32 plgGetIoBase(u32 IoType);
 
 u32 plgSetValue(u32 index, u32 value);
 
+#define nsDbgPrint(fmt, ...) do { \
+    u64 nsDbgPrint_ticks__ = svc_getSystemTick(); \
+	u64 nsDbgPrint_mono_us__ = nsDbgPrint_ticks__ / SYSTICK_PER_US; \
+	u32 nsDbgPrint_pid__ = getCurrentProcessId(); \
+    nsDbgPrintShared("[%d.%d][%x]%s:%d:%s " fmt, (u32)(nsDbgPrint_mono_us__ / 1000000), (u32)(nsDbgPrint_mono_us__ % 1000000), nsDbgPrint_pid__, __FILE__, __LINE__, __func__, ## __VA_ARGS__); \
+} while (0)
+void nsDbgPrintShared(const char* fmt, ...);
 
-void showDbg(u8* fmt, u32 v1, u32 v2);
-void nsDbgPrint (const char*	fmt,	...	);
+#define showDbg(fmt, v1, v2) do { \
+	u8 showDbg_buf__[400]; \
+ \
+	nsDbgPrint(fmt, v1, v2); \
+	xsprintf(showDbg_buf__, fmt, v1, v2); \
+	showMsgExtra(showDbg_buf__, __FILE__, __LINE__, __func__); \
+} while (0)
+void showDbgShared(u8* fmt, u32 v1, u32 v2);
 
 u32 controlVideo(u32 cmd, u32 arg1, u32 arg2, u32 arg3);
 #define CONTROLVIDEO_ACQUIREVIDEO 1

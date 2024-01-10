@@ -36,8 +36,6 @@ static int jpeg_progress[rp_work_count][rp_thread_count];
 u32 rpMinIntervalBetweenPacketsInTick = 0;
 static u32 rpThreadStackSize = 0x10000;
 
-#define SYSTICK_PER_US (268)
-
 void*  rpMalloc(j_common_ptr cinfo, u32 size)
 {
 	void* ret = cinfo->alloc.buf + cinfo->alloc.stats.offset;
@@ -81,20 +79,24 @@ void nsDbgPutc(char ch) {
 	g_nsConfig->debugPtr++;
 }
 
-void nsDbgPrint(			/* Put a formatted string to the default device */
-	const char*	fmt,	/* Pointer to the format string */
-	...					/* Optional arguments */
-	)
-{
+void nsDbgPrintShared(const char* fmt, ...) {
 	va_list arp;
-
-
 
 	va_start(arp, fmt);
 	if (g_nsConfig) {
 		if (g_nsConfig->debugReady) {
 			rtAcquireLock(&(g_nsConfig->debugBufferLock));
 			xfvprintf(nsDbgPutc, fmt, arp);
+			if (g_nsConfig->debugPtr >= g_nsConfig->debugBufSize) {
+				if ((g_nsConfig->debugBuf)[g_nsConfig->debugBufSize - 1] != '\n') {
+					(g_nsConfig->debugBuf)[g_nsConfig->debugBufSize - 1] = '\n';
+				}
+			} else {
+				if ((g_nsConfig->debugBuf)[g_nsConfig->debugPtr - 1] != '\n') {
+					(g_nsConfig->debugBuf)[g_nsConfig->debugPtr] = '\n';
+					g_nsConfig->debugPtr++;
+				}
+			}
 			rtReleaseLock(&(g_nsConfig->debugBufferLock));
 		}
 	}
@@ -2481,10 +2483,22 @@ int remotePlayMenu(void) {
 			return 0;
 		}
 
-		else if (select == 0 && key == BUTTON_A) { /* screen priority */
-			u32 mode = !(config.currentMode & 0xff00);
-			u32 factor = config.currentMode & 0xff;
-			config.currentMode = (mode << 8) | factor;
+		else if (select == 0) { /* screen priority */
+			u32 mode = !!(config.currentMode & 0xff00);
+			if (key == BUTTON_X)
+				mode = !!(rpConfig.currentMode & 0xff00);
+			else {
+				int dummy = 0;
+				dummy = menu_adjust_value_with_key(&dummy, key, 1, 1);
+				if (dummy) {
+					mode = !mode;
+				}
+			}
+
+			if (mode != !!(config.currentMode & 0xff00)) {
+				u32 factor = config.currentMode & 0xff;
+				config.currentMode = (mode << 8) | factor;
+			}
 		}
 
 		else if (select == 1) { /* priority factor */

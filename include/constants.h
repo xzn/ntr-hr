@@ -14,4 +14,6 @@
 #define BUTTON_X     0x00000400
 #define BUTTON_Y     0x00000800
 
+#define SYSTICK_PER_US (268)
+
 #endif
