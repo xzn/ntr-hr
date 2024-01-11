@@ -5,6 +5,7 @@
 	#include <stdbool.h>
 
 	#define U64_MAX	UINT64_MAX
+	#define S64_MAX	INT64_MAX
 
 	typedef uint8_t u8;
 	typedef uint16_t u16;

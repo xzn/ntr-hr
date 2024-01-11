@@ -6,7 +6,7 @@ OBJCOPY := $(DEV_BIN_DIR)/arm-none-eabi-objcopy
 LD := $(DEV_BIN_DIR)/arm-none-eabi-ld
 CP := cp
 
-CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard
+CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing
 CPPFLAGS := -Iinclude
 LDFLAGS := -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
 LDLIBS := -L. -lc -lm -lgcc -nostdlib
