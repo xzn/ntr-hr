@@ -2630,14 +2630,16 @@ defaultDstAddr:
 	}
 currentDstAddr:
 
-	u8 title[50];
+	u8 title[50], titleNotStarted[50];
 	u8 *localaddr4 = &localaddr;
 	xsprintf(title, "Remote Play: %d.%d.%d.%d", (int)localaddr4[0], (int)localaddr4[1], (int)localaddr4[2], (int)localaddr4[3]);
+	xsprintf(titleNotStarted, "Remote Play (Not Started): %d.%d.%d.%d", (int)localaddr4[0], (int)localaddr4[1], (int)localaddr4[2], (int)localaddr4[3]);
 
 	while (1) {
 		u8 rpStarted = __atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED);
-		// if (!rpStarted) {
-			// title = "Remote Play (Not Started)";
+		u8 *titleCurrent = title;
+		if (!rpStarted) {
+			titleCurrent = titleNotStarted;
 
 			// u8 dstPortCaption[50];
 			// xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
@@ -2650,7 +2652,7 @@ currentDstAddr:
 			// u32 entryCount = sizeof(captions) / sizeof(*captions);
 
 			// u32 key;
-			// select = showMenuEx2(title, entryCount, captions, NULL, select, &key);
+			// select = showMenuEx2(titleCurrent, entryCount, captions, NULL, select, &key);
 
 			// if (select == 0) { /* dst port */
 			// 	int dstPort = config.dstPort;
@@ -2675,7 +2677,7 @@ currentDstAddr:
 			// }
 
 			// continue;
-		// }
+		}
 
 		u8 priorityScreenCaption[50];
 		xsprintf(priorityScreenCaption, "Priority Screen: %s", (config.currentMode & 0xff00) == 0 ? "Bottom" : "Top");
@@ -2709,7 +2711,7 @@ currentDstAddr:
 		u32 entryCount = sizeof(captions) / sizeof(*captions);
 
 		u32 key;
-		select = showMenuEx2(title, entryCount, captions, NULL, select, &key);
+		select = showMenuEx2(titleCurrent, entryCount, captions, NULL, select, &key);
 
 		if (key == BUTTON_B) {
 			return 0;
