@@ -273,7 +273,7 @@ int	initUDPPacket(u8 *rpNwmBufferCur, int dataLen) {
 	*(u16*)(rpNwmBufferCur + 0x12 + 8) = 0xaf01; // packet id is a random value since we won't use the fragment
 	*(u16*)(rpNwmBufferCur + 0x14 + 8) = 0x0040; // no fragment
 	*(u16*)(rpNwmBufferCur + 0x16 + 8) = 0x1140; // ttl 64, udp
-	*(u32*)(rpNwmBufferCur + 0x1e + 8) = __atomic_load_n(&rpConfig.dstAddr, __ATOMIC_RELAXED);
+	// *(u32*)(rpNwmBufferCur + 0x1e + 8) = __atomic_load_n(&rpConfig.dstAddr, __ATOMIC_RELAXED);
 
 	*(u16*)(rpNwmBufferCur + 0x18 + 8) = 0;
 	*(u16*)(rpNwmBufferCur + 0x18 + 8) = ip_checksum(rpNwmBufferCur + 0xE + 8, 0x14);
@@ -1905,9 +1905,9 @@ static void rpSendFrames() {
 	while (1) {
 		checkExitFlag();
 
-		if (g_nsConfig->rpConfig.dstAddr == 0) {
-			g_nsConfig->rpConfig.dstAddr = rpConfig.dstAddr;
-		}
+		// if (g_nsConfig->rpConfig.dstAddr == 0) {
+		// 	g_nsConfig->rpConfig.dstAddr = rpConfig.dstAddr;
+		// }
 
 		if (rpConfigChanged) {
 			break;
@@ -2164,23 +2164,28 @@ int nwmValParamCallback(u8* buf, int buflen) {
 		u32 saddr = *(u32 *)&buf[0x1a + 0x8];
 		u32 daddr = *(u32 *)&buf[0x1e + 0x8];
 		if (rpInited) {
+			u8 needUpdate = 0;
 
 			if ((tcp_hit && g_nsConfig->rpConfig.dstAddr == 0) || udp_hit) {
 				g_nsConfig->rpConfig.dstAddr = daddr;
-				if (daddr != __atomic_load_n(&rpConfig.dstAddr, __ATOMIC_RELAXED)) {
-					__atomic_store_n(&rpConfig.dstAddr, daddr, __ATOMIC_RELAXED);
+				if (daddr != rpConfig.dstAddr) {
+					rpConfig.dstAddr = daddr;
 
 					u8 *daddr4 = &daddr;
 					nsDbgPrint("remote play updated dst IP: %d.%d.%d.%d\n",
 						(int)daddr4[0], (int)daddr4[1], (int)daddr4[2], (int)daddr4[3]
 					);
-					memcpy(rpNwmHdr, buf, 22);
+
+					needUpdate = 1;
 				}
 			}
 			if (current_nwm_src_addr != saddr) {
 				current_nwm_src_addr = saddr;
-				memcpy(rpNwmHdr, buf, 22);
+				needUpdate = 1;
 			}
+
+			if (needUpdate)
+				memcpy(rpNwmHdr, buf, 0x22 + 8);
 
 			return 0;
 		}
