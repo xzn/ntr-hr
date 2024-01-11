@@ -279,16 +279,11 @@ void plgShowMainMenu() {
 	u8 requestUpdateState = 0;
 
 	debounceKey();
-	entries[0] = plgTranslate("Process Manager");
-	entries[1] = plgTranslate("Enable Debugger");
-	entries[2] = plgTranslate("Set Hotkey");
-	mainEntries = 3;
-
-	// if (__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
-		entries[3] = plgTranslate("Remote Play");
-		mainEntries = 4;
-	// }
-
+	entries[0] = plgTranslate("Remote Play");
+	entries[1] = plgTranslate("Process Manager");
+	entries[2] = plgTranslate("Enable Debugger");
+	entries[3] = plgTranslate("Set Hotkey");
+	mainEntries = 4;
 
 	pos = mainEntries;
 	for (i = 0; i < pluginEntryCount; i++) {
@@ -322,10 +317,16 @@ void plgShowMainMenu() {
 				}
 			}
 		}
-		if (r == 0) {
+		else if (r == 0) {
+			int ret = remotePlayMenu();
+			if (ret) {
+				break;
+			}
+		}
+		else if (r == 1) {
 			processManager();
 		}
-		if (r == 1) {
+		else if (r == 2) {
 			if (g_nsConfig->hSOCU) {
 				showMsg(plgTranslate("Debugger has already been enabled."));
 				break;
@@ -335,16 +336,9 @@ void plgShowMainMenu() {
 				break;
 			}
 		}
-		if (r == 2) {
+		else if (r == 3) {
 			plgSetHotkeyUi();
 		}
-		if (r == 3) {
-			int ret = remotePlayMenu();
-			if (ret) {
-				break;
-			}
-		}
-
 	}
 
 	releaseVideo();

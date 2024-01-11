@@ -2555,6 +2555,54 @@ socket_exit:
 	closesocket(fd);
 }
 
+static void rpDoNFCPatch(void) {
+	int pid = 0x1a;
+	Handle hProcess;
+	int ret;
+	if ((ret = svc_openProcess(&hProcess, pid))) {
+		showMsg("Failed to open nwm process");
+		return;
+	}
+
+	u32 addr = 0x0105AE4;
+	u16 buf;
+	if ((ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, addr, sizeof(buf)))) {
+		showMsg("Failed to protect nwm memory");
+		svc_closeHandle(hProcess);
+		return;
+	}
+
+	if ((ret = copyRemoteMemory(CURRENT_PROCESS_HANDLE, &buf, hProcess, addr, sizeof(buf)))) {
+		showMsg("Failed to read nwm memory");
+		svc_closeHandle(hProcess);
+		return;
+	}
+
+	if (buf == 0x4620) {
+		nsDbgPrint("patching NFC (11.4) firm\n");
+		addr = 0x0105B00;
+	} else {
+		nsDbgPrint("patching NFC (<= 11.3) firm\n");
+	}
+
+	if ((ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, addr, sizeof(buf)))) {
+		showMsg("Failed to protect nwm memory for write");
+		svc_closeHandle(hProcess);
+		return;
+	}
+
+	buf = 0x4770;
+	if ((ret = copyRemoteMemory(hProcess, addr, CURRENT_PROCESS_HANDLE, &buf, sizeof(buf)))) {
+		showMsg("Failed to write nwm memory");
+		svc_closeHandle(hProcess);
+		return;
+	}
+
+	showMsg("NFC patch success");
+	svc_closeHandle(hProcess);
+	return;
+}
+
 static int menu_adjust_value_with_key(int *val, u32 key, int step_1, int step_2) {
 	int ret = 0;
 	if (key == BUTTON_DL)
@@ -2696,7 +2744,7 @@ someCurrentConfig:
 	u8 title[50], titleNotStarted[50];
 	u8 *localaddr4 = &localaddr;
 	xsprintf(title, "Remote Play: %d.%d.%d.%d", (int)localaddr4[0], (int)localaddr4[1], (int)localaddr4[2], (int)localaddr4[3]);
-	xsprintf(titleNotStarted, "Remote Play (Not Started): %d.%d.%d.%d", (int)localaddr4[0], (int)localaddr4[1], (int)localaddr4[2], (int)localaddr4[3]);
+	xsprintf(titleNotStarted, "Remote Play (Standby): %d.%d.%d.%d", (int)localaddr4[0], (int)localaddr4[1], (int)localaddr4[2], (int)localaddr4[3]);
 
 	while (1) {
 		u8 rpStarted = __atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED);
@@ -2752,12 +2800,12 @@ someCurrentConfig:
 		xsprintf(priorityFactorCaption, "Priority Factor: %d", (int)(config.currentMode & 0xff));
 
 		u8 qualityCaption[50];
-		xsprintf(qualityCaption, "JPEG Quality: %d", (int)config.quality);
+		xsprintf(qualityCaption, "Quality: %d", (int)config.quality);
 
 		u8 qosCaption[50];
 		u32 qosMB = config.qosValueInBytes / 1024 / 1024;
 		u32 qosKB = config.qosValueInBytes / 1024 % 1024 * 125 / 128;
-		xsprintf(qosCaption, "Bandwidth Limit (QoS): %d.%d MBps", (int)qosMB, (int)qosKB);
+		xsprintf(qosCaption, "QoS: %d.%d MBps", (int)qosMB, (int)qosKB);
 
 		u8 dstAddrCaption[50];
 		xsprintf(dstAddrCaption, "Viewer IP: %d.%d.%d.%d", (int)dstAddr4[0], (int)dstAddr4[1], (int)dstAddr4[2], (int)dstAddr4[3]);
@@ -2773,7 +2821,8 @@ someCurrentConfig:
 			qosCaption,
 			dstAddrCaption,
 			dstPortCaption,
-			"Apply"
+			"Apply",
+			"NFC Patch"
 		};
 		u32 entryCount = sizeof(captions) / sizeof(*captions);
 
@@ -2922,6 +2971,10 @@ someCurrentConfig:
 			}
 
 			return 1;
+		}
+
+		else if (select == 8 && key == BUTTON_A) { /* nfc patch */
+			rpDoNFCPatch();
 		}
 	}
 }
