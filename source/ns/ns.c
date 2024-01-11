@@ -35,7 +35,6 @@ static int jpeg_progress[rp_work_count][rp_thread_count];
 
 u32 rpMinIntervalBetweenPacketsInTick = 0;
 static u32 rpThreadStackSize = 0x10000;
-static u32 rpThreadCountCurrent = rp_thread_count;
 static u8 rpResetThreads = 0;
 
 void*  rpMalloc(j_common_ptr cinfo, u32 size)
@@ -343,7 +342,7 @@ int rpCtxInit(BLIT_CONTEXT* ctx, int width, int height, int format, u8* src) {
 	// ctx->blankInColumn = src_pitch - ctx->bytesInColumn;
 	if (ctx->format != format) {
 		ret = 1;
-		for (int j = 0; j < rpThreadCountCurrent; ++j) {
+		for (int j = 0; j < rpConfig.coreCount; ++j) {
 			if (ctx->cinfos[j]->global_state != JPEG_CSTATE_START) {
 				memcpy(&ctx->cinfos[j]->alloc.stats, &ctx->cinfos_alloc_stats[j]->comp, sizeof(struct rp_alloc_stats));
 				ctx->cinfos[j]->global_state = JPEG_CSTATE_START;
@@ -390,7 +389,7 @@ void rpReadyNwm(int thread_id, int work_next, int id, int isTop) {
 		break;
 	}
 
-	for (int j = 0; j < rpThreadCountCurrent; ++j) {
+	for (int j = 0; j < rpConfig.coreCount; ++j) {
 		struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][j];
 		info->sendPos = info->pos = rpDataBuf[work_next][j] + rp_data_hdr_size;
 		// info->filled = 0;
@@ -429,9 +428,9 @@ void rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 	if (size < rp_packet_data_size && !thread_done)
 		return;
 
-	if (size < rp_packet_data_size && thread_id != rpThreadCountCurrent - 1) {
+	if (size < rp_packet_data_size && thread_id != rpConfig.coreCount - 1) {
 		int total_size = 0, remaining_size = rp_packet_data_size;
-		int sizes[rpThreadCountCurrent];
+		int sizes[rpConfig.coreCount];
 
 		rp_nwm_buf = rp_nwm_buf_tmp;
 		rp_nwm_packet_buf = rp_nwm_buf + rp_nwm_hdr_size;
@@ -449,7 +448,7 @@ void rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 		// __atomic_store_n(&info->filled, 0, __ATOMIC_RELAXED);
 		__atomic_store_n(&info->flag, 0, __ATOMIC_RELAXED);
 
-		int thread_next = (thread_id + 1) % rpThreadCountCurrent;
+		int thread_next = (thread_id + 1) % rpConfig.coreCount;
 		while (1) {
 			struct rpDataBufInfo_t *info_next = &rpDataBufInfo[work_next][thread_next];
 
@@ -496,7 +495,7 @@ void rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 
 			if (thread_next_done) {
 				__atomic_store_n(&info_next->flag, 0, __ATOMIC_RELAXED);
-				thread_next = (thread_next + 1) % rpThreadCountCurrent;
+				thread_next = (thread_next + 1) % rpConfig.coreCount;
 				if (thread_next == 0)
 					break;
 			}
@@ -534,7 +533,7 @@ void rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 	memcpy(rp_nwm_buf, rpNwmHdr, rp_nwm_hdr_size);
 	packet_len = initUDPPacket(rp_nwm_buf, size + rp_data_hdr_size);
 	memcpy(rp_nwm_packet_buf, rpDataBufHdr[work_next], rp_data_hdr_size);
-	if (thread_done && thread_id == rpThreadCountCurrent - 1) {
+	if (thread_done && thread_id == rpConfig.coreCount - 1) {
 		rp_nwm_packet_buf[1] |= data_buf_flag;
 	}
 	++rpDataBufHdr[work_next][3];
@@ -557,7 +556,7 @@ void rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 
 	if (thread_done) {
 		__atomic_store_n(&info->flag, 0, __ATOMIC_RELAXED);
-		thread_id = (thread_id + 1) % rpThreadCountCurrent;
+		thread_id = (thread_id + 1) % rpConfig.coreCount;
 		rp_nwm_thread_next = thread_id;
 
 		if (rp_nwm_thread_next == 0) {
@@ -786,6 +785,7 @@ static int nextScreenSynced[rp_work_count] = { 0 };
 
 static BLIT_CONTEXT blit_context[rp_work_count];
 static int rpConfigChanged;
+static int rpDstAddrChanged;
 
 void rpCaptureNextScreen(int work_next, int wait_sync);
 
@@ -1275,8 +1275,8 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 	}
 
 	int work_prev = work_next == 0 ? rp_work_count - 1 : work_next - 1;
-	int progress[rpThreadCountCurrent];
-	for (int j = 0; j < rpThreadCountCurrent; ++j) {
+	int progress[rpConfig.coreCount];
+	for (int j = 0; j < rpConfig.coreCount; ++j) {
 		__atomic_store_n(&jpeg_progress[work_next][j], 0, __ATOMIC_RELAXED);
 
 		progress[j] = __atomic_load_n(&jpeg_progress[work_prev][j], __ATOMIC_RELAXED);
@@ -1285,15 +1285,15 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 	int mcu_size = DCTSIZE * rp_jpeg_samp_factor;
 	int mcus_per_row = ctx->height / mcu_size;
 	int mcu_rows = ctx->width / mcu_size;
-	int mcu_rows_per_thread = (mcu_rows + (rpThreadCountCurrent - 1)) / rpThreadCountCurrent;
+	int mcu_rows_per_thread = (mcu_rows + (rpConfig.coreCount - 1)) / rpConfig.coreCount;
 	jpeg_rows[work_next] = mcu_rows_per_thread;
-	jpeg_rows_last[work_next] = mcu_rows - jpeg_rows[work_next] * (rpThreadCountCurrent - 1);
+	jpeg_rows_last[work_next] = mcu_rows - jpeg_rows[work_next] * (rpConfig.coreCount - 1);
 
-	if (rpThreadCountCurrent > 1) {
+	if (rpConfig.coreCount > 1) {
 		if (jpeg_rows[work_prev]) {
 			int rows = jpeg_rows[work_next];
 			int rows_last = jpeg_rows_last[work_next];
-			int progress_last = progress[rpThreadCountCurrent - 1];
+			int progress_last = progress[rpConfig.coreCount - 1];
 			if (progress_last < jpeg_adjusted_rows_last[work_prev]) {
 				rows_last = (rows_last * (1 << 16) *
 					progress_last / jpeg_rows_last[work_prev] + (1 << 15)) >> 16;
@@ -1301,22 +1301,22 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 					rows_last = jpeg_rows_last[work_next];
 				if (rows_last == 0)
 					rows_last = 1;
-				rows = (mcu_rows - rows_last) / (rpThreadCountCurrent - 1);
+				rows = (mcu_rows - rows_last) / (rpConfig.coreCount - 1);
 			} else {
 				int progress_rest = 0;
-				for (int j = 0; j < rpThreadCountCurrent - 1; ++j) {
+				for (int j = 0; j < rpConfig.coreCount - 1; ++j) {
 					progress_rest += progress[j];
 				}
 				rows = (rows * (1 << 16) *
-					progress_rest / jpeg_rows[work_prev] / (rpThreadCountCurrent - 1) + (1 << 15)) >> 16;
+					progress_rest / jpeg_rows[work_prev] / (rpConfig.coreCount - 1) + (1 << 15)) >> 16;
 				if (rows < jpeg_rows[work_next])
 					rows = jpeg_rows[work_next];
-				int rows_max = (mcu_rows - 1) / (rpThreadCountCurrent - 1);
+				int rows_max = (mcu_rows - 1) / (rpConfig.coreCount - 1);
 				if (rows > rows_max)
 					rows = rows_max;
 			}
 			jpeg_adjusted_rows[work_next] = rows;
-			jpeg_adjusted_rows_last[work_next] = mcu_rows - rows * (rpThreadCountCurrent - 1);
+			jpeg_adjusted_rows_last[work_next] = mcu_rows - rows * (rpConfig.coreCount - 1);
 		} else {
 			jpeg_adjusted_rows[work_next] = jpeg_rows[work_next];
 			jpeg_adjusted_rows_last[work_next] = jpeg_rows_last[work_next];
@@ -1326,7 +1326,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		jpeg_adjusted_rows_last[work_next] = jpeg_rows_last[work_next];
 	}
 
-	for (int j = 0; j < rpThreadCountCurrent; ++j) {
+	for (int j = 0; j < rpConfig.coreCount; ++j) {
 		cinfo = ctx->cinfos[j];
 		cinfo->image_width = ctx->height;
 		cinfo->image_height = ctx->width;
@@ -1348,7 +1348,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		}
 
 		ctx->irow_start[j] = cinfo->restart_in_rows * j;
-		ctx->irow_count[j] = j == rpThreadCountCurrent - 1 ? jpeg_adjusted_rows_last[work_next] : cinfo->restart_in_rows;
+		ctx->irow_count[j] = j == rpConfig.coreCount - 1 ? jpeg_adjusted_rows_last[work_next] : cinfo->restart_in_rows;
 	}
 	ctx->capture_next = 0;
 
@@ -1389,7 +1389,7 @@ void rpSendFramesBody(int thread_id, BLIT_CONTEXT* ctx, int work_next) {
 		work_next, thread_id, &ctx->capture_next);
 	jpeg_finish_pass_huff(cinfo);
 
-	if (thread_id != rpThreadCountCurrent - 1) {
+	if (thread_id != rpConfig.coreCount - 1) {
 		jpeg_emit_marker(cinfo, JPEG_RST0 + thread_id);
 	} else {
 		jpeg_write_file_trailer(cinfo);
@@ -1667,7 +1667,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		__atomic_clear(&syn->sem_set, __ATOMIC_RELAXED);
 
 		s32 count;
-		res = svc_releaseSemaphore(&count, syn->sem_start, rpThreadCountCurrent - 1);
+		res = svc_releaseSemaphore(&count, syn->sem_start, rpConfig.coreCount - 1);
 		if (res) {
 			nsDbgPrint("svc_releaseSemaphore sem_start failed: %d\n", res);
 			return;
@@ -1691,7 +1691,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		int format_changed = 0;
 		if (currentUpdating) {
 			// send top
-			for (int j = 0; j < rpThreadCountCurrent; ++j) {
+			for (int j = 0; j < rpConfig.coreCount; ++j) {
 				ctx->cinfos[j] = &cinfos_top[work_next][j];
 				ctx->cinfos_alloc_stats[j] = &alloc_stats_top[work_next][j];
 			}
@@ -1702,7 +1702,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			ctx->isTop = 1;
 		} else {
 			// send bottom
-			for (int j = 0; j < rpThreadCountCurrent; ++j) {
+			for (int j = 0; j < rpConfig.coreCount; ++j) {
 				ctx->cinfos[j] = &cinfos_bot[work_next][j];
 				ctx->cinfos_alloc_stats[j] = &alloc_stats_bot[work_next][j];
 			}
@@ -1732,7 +1732,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % rp_screen_work_count;
 
 		s32 count;
-		res = svc_releaseSemaphore(&count, syn->sem_work, rpThreadCountCurrent - 1);
+		res = svc_releaseSemaphore(&count, syn->sem_work, rpConfig.coreCount - 1);
 		if (res) {
 			nsDbgPrint("(%d) svc_releaseSemaphore sem_work (%d) failed: %d\n", thread_id, work_next, res);
 			goto final;
@@ -1769,7 +1769,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 	}
 
 final:
-	if (__atomic_add_fetch(&syn->sem_count, 1, __ATOMIC_RELAXED) == rpThreadCountCurrent) {
+	if (__atomic_add_fetch(&syn->sem_count, 1, __ATOMIC_RELAXED) == rpConfig.coreCount) {
 		__atomic_store_n(&syn->sem_count, 0, __ATOMIC_RELAXED);
 		s32 count;
 		// nsDbgPrint("(%d) svc_releaseSemaphore sem_end (%d):\n", thread_id, work_next);
@@ -1783,7 +1783,7 @@ final:
 }
 
 static void rpSendFrames() {
-	if (g_nsConfig->rpConfig.coreCount != rpThreadCountCurrent) {
+	if (g_nsConfig->rpConfig.coreCount != rpConfig.coreCount) {
 		rpResetThreads = 1;
 		return;
 	}
@@ -1792,16 +1792,16 @@ static void rpSendFrames() {
 	// rpQuality = g_nsConfig->startupInfo[9];
 	// rpQosValueInBytes = g_nsConfig->startupInfo[10];
 
-	if (g_nsConfig->rpConfig.dstPort) {
+	if (rpConfig.dstPort != g_nsConfig->rpConfig.dstPort)
 		rpConfig.dstPort = g_nsConfig->rpConfig.dstPort;
-	} else {
-		if (rpConfig.dstPort == 0)
-			rpConfig.dstPort = RP_DST_PORT_DEFAULT;
+	if (rpConfig.dstPort == 0) {
+		g_nsConfig->rpConfig.dstPort = rpConfig.dstPort = RP_DST_PORT_DEFAULT;
 	}
 
-	if (g_nsConfig->rpConfig.qosValueInBytes < 500 * 1024) {
-		g_nsConfig->rpConfig.qosValueInBytes = 2 * 1024 * 1024;
-	}
+	if (g_nsConfig->rpConfig.qosValueInBytes < 512 * 1024)
+		g_nsConfig->rpConfig.qosValueInBytes = 512 * 1024;
+	else if (g_nsConfig->rpConfig.qosValueInBytes > 5 * 1024 * 1024 / 2)
+		g_nsConfig->rpConfig.qosValueInBytes = 5 * 1024 * 1024 / 2;
 	rpMinIntervalBetweenPacketsInTick = (1000000 / (g_nsConfig->rpConfig.qosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
 
 	{
@@ -1815,6 +1815,10 @@ static void rpSendFrames() {
 		priorityFactor = factor;
 	}
 
+	if (g_nsConfig->rpConfig.quality < 10)
+		g_nsConfig->rpConfig.quality = 10;
+	else if (g_nsConfig->rpConfig.quality > 100)
+		g_nsConfig->rpConfig.quality = 100;
 	if (rpConfig.quality != g_nsConfig->rpConfig.quality) {
 		rpConfig.quality = g_nsConfig->rpConfig.quality;
 
@@ -1826,7 +1830,7 @@ static void rpSendFrames() {
 				cinfos[j]->quant_tbl_ptrs[i] = cinfos[0]->quant_tbl_ptrs[i];
 
 		for (int i = 0; i < rp_work_count; ++i) {
-			for (int j = 0; j < rpThreadCountCurrent; ++j) {
+			for (int j = 0; j < rpConfig.coreCount; ++j) {
 				if (!alloc_stats_top[i][j].qual.offset) {
 					memcpy(&alloc_stats_top[i][j].qual, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
 				} else {
@@ -1873,7 +1877,7 @@ static void rpSendFrames() {
 		}
 
 		for (int i = 0; i < rp_work_count; ++i) {
-			for (int j = 0; j < rpThreadCountCurrent; ++j) {
+			for (int j = 0; j < rpConfig.coreCount; ++j) {
 				memcpy(&alloc_stats_top[i][j].comp, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
 
 				memcpy(&alloc_stats_bot[i][j].comp, &cinfos_bot[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
@@ -1905,9 +1909,10 @@ static void rpSendFrames() {
 	while (1) {
 		checkExitFlag();
 
-		// if (g_nsConfig->rpConfig.dstAddr == 0) {
-		// 	g_nsConfig->rpConfig.dstAddr = rpConfig.dstAddr;
-		// }
+		if (g_nsConfig->rpConfig.dstAddr == 0) {
+			g_nsConfig->rpConfig.dstAddr = rpConfig.dstAddr;
+			rpDstAddrChanged = 1;
+		}
 
 		if (rpConfigChanged) {
 			break;
@@ -2017,20 +2022,18 @@ static void rpThreadStart(void *arg) {
 	// kRemotePlayCallback();
 
 	while (1) {
-		if (g_nsConfig->rpConfig.coreCount == 0) {
-			g_nsConfig->rpConfig.coreCount = rpThreadCountCurrent;
-		} else {
-			if (g_nsConfig->rpConfig.coreCount > rp_thread_count) {
-				g_nsConfig->rpConfig.coreCount = rp_thread_count;
-			}
-			rpThreadCountCurrent = g_nsConfig->rpConfig.coreCount;
-		}
+		if (g_nsConfig->rpConfig.coreCount < 0)
+			g_nsConfig->rpConfig.coreCount = 1;
+		else if (g_nsConfig->rpConfig.coreCount > rp_thread_count)
+			g_nsConfig->rpConfig.coreCount = rp_thread_count;
+		if (rpConfig.coreCount != g_nsConfig->rpConfig.coreCount)
+			rpConfig.coreCount = g_nsConfig->rpConfig.coreCount;
 		rpResetThreads = 0;
 
 		for (int i = 0; i < rp_work_count; ++i) {
 			rp_nwm_work_skip[i] = 0;
 
-			for (int j = 0; j < rpThreadCountCurrent; ++j) {
+			for (int j = 0; j < rpConfig.coreCount; ++j) {
 				struct rpDataBufInfo_t *info = &rpDataBufInfo[i][j];
 				info->sendPos = info->pos = rpDataBuf[i][j] + rp_data_hdr_size;
 				// info->filled = 0;
@@ -2048,12 +2051,12 @@ static void rpThreadStart(void *arg) {
 				nsDbgPrint("svc_createSemaphore sem_end (%d) failed: %08x\n", i, ret);
 				goto final;
 			}
-			ret = svc_createSemaphore(&rp_work_syn[i]->sem_start, 0, rpThreadCountCurrent - 1);
+			ret = svc_createSemaphore(&rp_work_syn[i]->sem_start, 0, rpConfig.coreCount - 1);
 			if (ret != 0) {
 				nsDbgPrint("svc_createSemaphore sem_start (%d) failed: %08x\n", i, ret);
 				goto final;
 			}
-			ret = svc_createSemaphore(&rp_work_syn[i]->sem_work, 0, rpThreadCountCurrent - 1);
+			ret = svc_createSemaphore(&rp_work_syn[i]->sem_work, 0, rpConfig.coreCount - 1);
 			if (ret != 0) {
 				nsDbgPrint("svc_createSemaphore sem_work (%d) failed: %08x\n", i, ret);
 				goto final;
@@ -2069,7 +2072,7 @@ static void rpThreadStart(void *arg) {
 		}
 
 		Handle hThreadAux1;
-		if (rpThreadCountCurrent >= 2) {
+		if (rpConfig.coreCount >= 2) {
 			u32 *threadStack = plgRequestMemory(rpThreadStackSize);
 			ret = svc_createThread(&hThreadAux1, (void*)rpAuxThreadStart, 1, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 3);
 			if (ret != 0) {
@@ -2079,7 +2082,7 @@ static void rpThreadStart(void *arg) {
 		}
 
 		Handle hThreadAux2;
-		if (rpThreadCountCurrent >= 3) {
+		if (rpConfig.coreCount >= 3) {
 			u32 *threadStack = plgRequestMemory(rpThreadStackSize);
 			ret = svc_createThread(&hThreadAux2, (void*)rpAuxThreadStart, 2, &threadStack[(rpThreadStackSize / 4) - 10], 0x3f, 1);
 			if (ret != 0) {
@@ -2094,11 +2097,11 @@ static void rpThreadStart(void *arg) {
 			rpSendFrames();
 		}
 
-		if (rpThreadCountCurrent >= 3) {
+		if (rpConfig.coreCount >= 3) {
 			svc_waitSynchronization1(hThreadAux2, S64_MAX);
 			svc_closeHandle(hThreadAux2);
 		}
-		if (rpThreadCountCurrent >= 2) {
+		if (rpConfig.coreCount >= 2) {
 			svc_waitSynchronization1(hThreadAux1, S64_MAX);
 			svc_closeHandle(hThreadAux1);
 		}
@@ -2110,7 +2113,7 @@ static void rpThreadStart(void *arg) {
 			svc_closeHandle(rp_work_syn[i]->sem_nwm);
 		}
 	}
-	final:
+final:
 	svc_exitThread();
 }
 
@@ -2166,8 +2169,9 @@ int nwmValParamCallback(u8* buf, int buflen) {
 		if (rpInited) {
 			u8 needUpdate = 0;
 
-			if ((tcp_hit && g_nsConfig->rpConfig.dstAddr == 0) || udp_hit) {
+			if ((tcp_hit && rpDstAddrChanged) || udp_hit) {
 				g_nsConfig->rpConfig.dstAddr = daddr;
+				rpDstAddrChanged = 0;
 				if (daddr != rpConfig.dstAddr) {
 					rpConfig.dstAddr = daddr;
 
@@ -2184,8 +2188,11 @@ int nwmValParamCallback(u8* buf, int buflen) {
 				needUpdate = 1;
 			}
 
-			if (needUpdate)
+			if (needUpdate) {
 				memcpy(rpNwmHdr, buf, 0x22 + 8);
+				printNwMHdr();
+			}
+
 
 			return 0;
 		}
@@ -2206,6 +2213,7 @@ int nwmValParamCallback(u8* buf, int buflen) {
 		initUDPPacket(rpNwmHdr, PACKET_SIZE);
 
 		g_nsConfig->rpConfig.dstAddr = rpConfig.dstAddr = daddr;
+		rpDstAddrChanged = 0;
 		threadStack = plgRequestMemory(rpThreadStackSize);
 		ret = svc_createThread(&hThread, (void*)rpThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 2);
 		if (ret != 0) {
@@ -2278,7 +2286,7 @@ void rpResetGameHandle(int status) {
 	svc_closeHandle(hProcess);
 }
 
-static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u16 dstPort, u32 dstAddr, u8 coreCount, u8 skipControl) {
+static inline int nsRemotePlayControl(RP_CONFIG *config, u8 skipControl) {
 	Handle hProcess;
 	u32 pid = 0x1a;
 	int ret = svc_openProcess(&hProcess, pid);
@@ -2298,14 +2306,14 @@ static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u16 dstPor
 				sizeof(control));
 			if (ret != 0) {
 				showDbg("copyRemoteMemory (0) failed: %08x", ret, 0);
-				svc_closeHandle(hProcess);
-				return -1;
+				ret = -1;
+				goto exit_hProcess;
 			}
 			if (control) {
 				if (!--controlCount) {
 					showDbg("rpConfigLock wait timed out", 0, 0);
-					svc_closeHandle(hProcess);
-					return -1;
+					ret = -1;
+					goto exit_hProcess;
 				}
 				svc_sleepThread(1000000);
 			} else {
@@ -2314,13 +2322,12 @@ static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u16 dstPor
 		} while (1);
 	}
 
-	rpConfig.currentMode = mode;
-	rpConfig.quality = quality;
-	rpConfig.qosValueInBytes = qos;
-	if (dstPort != 0)
-		rpConfig.dstPort = dstPort;
-	rpConfig.dstAddr = dstAddr;
-	rpConfig.coreCount = coreCount;
+
+	if (config->dstPort == 0)
+		config->dstPort = rpConfig.dstPort;
+	if (config->coreCount == 0)
+		config->coreCount = rpConfig.coreCount;
+	rpConfig = *config;
 
 	ret = copyRemoteMemory(
 		hProcess,
@@ -2330,8 +2337,8 @@ static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u16 dstPor
 		sizeof(rpConfig));
 	if (ret != 0) {
 		nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
-		svc_closeHandle(hProcess);
-		return -1;
+		ret = -1;
+		goto exit_hProcess;
 	}
 
 	u32 control = 1;
@@ -2343,23 +2350,34 @@ static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u16 dstPor
 		sizeof(control));
 	if (ret != 0) {
 		nsDbgPrint("copyRemoteMemory (2) failed: %08x\n", ret, 0);
-		svc_closeHandle(hProcess);
-		return -1;
+		ret = -1;
+		goto exit_hProcess;
 	}
 
+exit_hProcess:
 	svc_closeHandle(hProcess);
-	return 0;
+	return ret;
 }
 
-static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort, u32 dstAddr, u32 coreCount, u32 skipControl) {
-	if (!((quality >= 10) && (quality <= 100))) {
-		nsDbgPrint("illegal quality\n");
-		return -1;
+static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
+	if (!((config->quality >= 10) && (config->quality <= 100))) {
+		nsDbgPrint("out-of-range quality for remote play, limiting to between 10 and 100\n");
+		if (config->quality < 10)
+			config->quality = 10;
+		else if (config->quality > 100)
+			config->quality = 100;
 	}
+
+	if (config->qosValueInBytes < 512 * 1024)
+		config->qosValueInBytes = 512 * 1024;
+	else if (config->qosValueInBytes > 5 * 1024 * 1024 / 2)
+		config->qosValueInBytes = 5 * 1024 * 1024 / 2;
+
+	config->dstAddr = 0; /* always update from nwm callback */
 
 	if (__atomic_test_and_set(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
 		nsDbgPrint("remote play already started, updating params\n");
-		return nsRemotePlayControl(mode, quality, qosValue, dstPort, dstAddr, coreCount, skipControl);
+		return nsRemotePlayControl(config, skipControl);
 	}
 
 	Handle hProcess;
@@ -2373,19 +2391,12 @@ static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort, u3
 	// cfg.startupInfo[8] = mode;
 	// cfg.startupInfo[9] = quality;
 	// cfg.startupInfo[10] = qosValue;
-	rpConfig.currentMode = mode;
-	rpConfig.quality = quality;
-	rpConfig.qosValueInBytes = qosValue;
-	rpConfig.dstAddr = dstAddr;
-	rpConfig.coreCount = coreCount;
 
-	if (dstPort) {
-		rpConfig.dstPort = dstPort;
-	} else {
-		if (rpConfig.dstPort == 0)
-			rpConfig.dstPort = RP_DST_PORT_DEFAULT;
-	}
-	cfg.rpConfig = rpConfig;
+	if (config->dstPort == 0)
+		config->dstPort = RP_DST_PORT_DEFAULT;
+	if (config->coreCount == 0)
+		config->coreCount = rp_thread_count;
+	cfg.rpConfig = rpConfig = *config;
 
 	cfg.rpConfigLock = 1;
 
@@ -2446,10 +2457,11 @@ static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort, u3
 
 void nsHandleRemotePlay(void) {
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
-	u32 mode = pac->args[0];
-	u32 quality = pac->args[1];
-	u32 qosValue = pac->args[2];
-	nsInitRemotePlay(mode, quality, qosValue, 0, 0, 0, 0);
+	RP_CONFIG config = {};
+	config.currentMode = pac->args[0];
+	config.quality = pac->args[1];
+	config.qosValueInBytes = pac->args[2];
+	nsInitRemotePlay(&config, 0);
 }
 
 static void tryInitRemotePlay(u32 dstAddr) {
@@ -2691,60 +2703,48 @@ void ipAddrMenu(u32 *addr) {
 }
 
 int remotePlayMenu(void) {
-	u32 select = 0;
-	RP_CONFIG config = rpConfig;
-	u32 localaddr = gethostid();
-	u8 *dstAddr4 = &config.dstAddr;
-
-	RP_CONFIG configCurrent = config;
-	if (config.dstPort == 0) {
-		/* default values */
-		config.dstPort = RP_DST_PORT_DEFAULT;
-		config.currentMode = 0x0103;
-		config.quality = 75;
-		config.qosValueInBytes = 2 * 1024 * 1024;
-		config.dstAddr = localaddr;
-		dstAddr4[3] = 1;
-		config.coreCount = rp_thread_count;
-
-		rpConfig = config;
-	} else {
+	u32 daddrCurrent = 0;
+	do {
 		Handle hProcess;
 		u32 pid = 0x1a;
 		int ret = svc_openProcess(&hProcess, pid);
 		if (ret != 0) {
 			nsDbgPrint("openProcess failed: %08x\n", ret, 0);
-			goto someDefaultConfig;
+			break;
 		}
 
 		ret = copyRemoteMemory(
 			0xffff8001,
-			&configCurrent,
+			&daddrCurrent,
 			hProcess,
-			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig),
-			sizeof(configCurrent));
+			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig) + offsetof(RP_CONFIG, dstAddr),
+			sizeof(daddrCurrent));
 		if (ret != 0) {
 			nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
-			svc_closeHandle(hProcess);
-			goto someDefaultConfig;
 		}
 
 		svc_closeHandle(hProcess);
-		if (configCurrent.dstAddr == 0)
-			goto someDefaultConfig;
+	} while (0);
 
-		rpConfig.dstAddr = config.dstAddr = configCurrent.dstAddr;
-		rpConfig.coreCount = config.coreCount = configCurrent.coreCount;
-		goto someCurrentConfig;
+	rpConfig.dstAddr = daddrCurrent;
+	u32 select = 0;
+	RP_CONFIG config = rpConfig;
+	u32 localaddr = gethostid();
+	u8 *dstAddr4 = &config.dstAddr;
 
-someDefaultConfig:
-		config.dstAddr = localaddr;
+	/* default values */
+	if (config.quality == 0) {
+		config.currentMode = 0x0103;
+		config.quality = 75;
+		config.qosValueInBytes = 2 * 1024 * 1024;
+		config.dstPort = RP_DST_PORT_DEFAULT;
 		config.coreCount = rp_thread_count;
-		dstAddr4[3] = 1;
-		rpConfig.dstAddr = config.dstAddr;
-		rpConfig.coreCount = config.coreCount;
-someCurrentConfig:
 	}
+	if (config.dstAddr == 0) {
+		config.dstAddr = localaddr;
+		dstAddr4[3] = 1;
+	}
+	rpConfig = config;
 
 	u8 title[50], titleNotStarted[50];
 	u8 *localaddr4 = &localaddr;
@@ -2968,11 +2968,12 @@ someCurrentConfig:
 		}
 
 		else if (select == 7 && key == BUTTON_A) { /* apply */
-			int updateDstAddr = !rpStarted || rpConfig.dstAddr != config.dstAddr || configCurrent.dstAddr == 0;
-			nsInitRemotePlay(config.currentMode, config.quality, config.qosValueInBytes, config.dstPort, 0, config.coreCount, updateDstAddr);
+			int updateDstAddr = !rpStarted || rpConfig.dstAddr != config.dstAddr || daddrCurrent == 0;
+			u32 daddrUpdated = config.dstAddr;
+			nsInitRemotePlay(&config, updateDstAddr);
 
 			if (updateDstAddr) {
-				tryInitRemotePlay(config.dstAddr);
+				tryInitRemotePlay(daddrUpdated);
 			}
 
 			return 1;
