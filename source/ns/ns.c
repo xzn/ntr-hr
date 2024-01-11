@@ -1696,7 +1696,6 @@ int rpSendFramesStart(int thread_id, int work_next) {
 				ctx->cinfos_alloc_stats[j] = &alloc_stats_top[work_next][j];
 			}
 
-			currentTopId += 1;
 			format_changed = rpCtxInit(ctx, 400, 240, tl_format, imgBuffer[1][imgBuffer_work_next[1]]);
 			ctx->id = (u8)currentTopId;
 			ctx->isTop = 1;
@@ -1707,7 +1706,6 @@ int rpSendFramesStart(int thread_id, int work_next) {
 				ctx->cinfos_alloc_stats[j] = &alloc_stats_bot[work_next][j];
 			}
 
-			currentBottomId += 1;
 			format_changed = rpCtxInit(ctx, 320, 240, bl_format, imgBuffer[0][imgBuffer_work_next[0]]);
 			ctx->id = (u8)currentBottomId;
 			ctx->isTop = 0;
@@ -1728,8 +1726,10 @@ int rpSendFramesStart(int thread_id, int work_next) {
 
 		skip_frame = !format_changed && memcmp(ctx->src, imgBuffer[ctx->isTop][imgBuffer_work_prev], ctx->width * ctx->src_pitch) == 0;
 		__atomic_store_n(&rp_skip_frame[work_next], skip_frame, __ATOMIC_RELAXED);
-		if (!skip_frame)
+		if (!skip_frame) {
 			imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % rp_screen_work_count;
+			currentUpdating ? ++currentTopId : ++currentBottomId;
+		}
 
 		s32 count;
 		res = svc_releaseSemaphore(&count, syn->sem_work, rpConfig.coreCount - 1);
