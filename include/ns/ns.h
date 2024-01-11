@@ -61,6 +61,7 @@ typedef struct _RP_CONFIG {
 	u32 quality;
 	u32 qosValueInBytes;
 	u16 dstPort;
+	u32 dstAddr;
 } RP_CONFIG;
 
 typedef struct _NS_CONFIG {

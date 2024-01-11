@@ -275,6 +275,8 @@ int	initUDPPacket(u8 *rpNwmBufferCur, int dataLen) {
 	*(u16*)(rpNwmBufferCur + 0x12 + 8) = 0xaf01; // packet id is a random value since we won't use the fragment
 	*(u16*)(rpNwmBufferCur + 0x14 + 8) = 0x0040; // no fragment
 	*(u16*)(rpNwmBufferCur + 0x16 + 8) = 0x1140; // ttl 64, udp
+	*(u32*)(rpNwmBufferCur + 0x1e + 8) = __atomic_load_n(&rpConfig.dstAddr, __ATOMIC_RELAXED);
+
 	*(u16*)(rpNwmBufferCur + 0x18 + 8) = 0;
 	*(u16*)(rpNwmBufferCur + 0x18 + 8) = ip_checksum(rpNwmBufferCur + 0xE + 8, 0x14);
 
@@ -1788,6 +1790,7 @@ static void rpSendFrames() {
 #define rpQuality (g_nsConfig->rpConfig.quality)
 #define rpQosValueInBytes (g_nsConfig->rpConfig.qosValueInBytes)
 #define rpDstPort (g_nsConfig->rpConfig.dstPort)
+#define rpDstAddr (g_nsConfig->rpConfig.dstAddr)
 
 	// rpCurrentMode = g_nsConfig->startupInfo[8];
 	// rpQuality = g_nsConfig->startupInfo[9];
@@ -1798,6 +1801,16 @@ static void rpSendFrames() {
 	} else {
 		if (rpConfig.dstPort == 0)
 			rpConfig.dstPort = RP_DST_PORT_DEFAULT;
+	}
+
+	if (rpDstAddr) {
+		if (rpConfig.dstAddr != rpDstAddr) {
+			rpConfig.dstAddr = rpDstAddr;
+			u8 *daddr4 = &rpConfig.dstAddr;
+			nsDbgPrint("remote play updated dst IP: %d.%d.%d.%d\n",
+				(int)daddr4[0], (int)daddr4[1], (int)daddr4[2], (int)daddr4[3]
+			);
+		}
 	}
 
 	if (rpQosValueInBytes < 500 * 1024) {
@@ -1896,6 +1909,7 @@ static void rpSendFrames() {
 #undef rpQuality
 #undef rpQosValueInBytes
 #undef rpDstPort
+#undef rpDstAddr
 	rpConfigChanged = 0;
 	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELAXED);
 
@@ -2089,14 +2103,15 @@ static void rpThreadStart(void *arg) {
 
 // static u8 rp_hdr_tmp[22];
 
-// void printNwMHdr(void) {
-// 	u8 *buf = rpNwmHdr;
-// 	nsDbgPrint("nwm hdr: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x .. .. %02x %02x %02x %02x %02x %02x %02x %02x\n",
-// 		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11],
-// 		buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20], buf[21]
-// 	);
-// }
+void printNwMHdr(void) {
+	u8 *buf = rpNwmHdr;
+	nsDbgPrint("nwm hdr: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x .. .. %02x %02x %02x %02x %02x %02x %02x %02x\n",
+		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11],
+		buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20], buf[21]
+	);
+}
 
+static u32 current_nwm_src_addr;
 int nwmValParamCallback(u8* buf, int buflen) {
 	int i;
 	u32* threadStack;
@@ -2112,35 +2127,70 @@ int nwmValParamCallback(u8* buf, int buflen) {
 	}
 	}*/
 
-	if (rpInited) {
-		return 0;
-	}
-	if (buf[0x17 + 0x8] == 6) {
-		if ((*(u16*)(&buf[0x22 + 0x8])) == 0x401f) {  // src port 8000
-			// if (rpInited) {
-			// 	memcpy(buf_tmp, buf, 22);
-			// 	*(u16*)(buf_tmp + 12) = 0;
-			// 	if (memcmp(rp_hdr_tmp, buf_tmp, 22) != 0) {
-			// 		memcpy(rp_hdr_tmp, buf_tmp, 22);
-			// 		printNwMHdr();
-			// 	}
-			// 	return 0;
-			// }
+	// if (rpInited) {
+	// 	return 0;
+	// }
 
-			rpInited = 1;
-			rtDisableHook(&nwmValParamHook);
+	u8 protocol = buf[0x17 + 0x8];
+	u16 src_port = *(u16*)(&buf[0x22 + 0x8]);
+	u16 dst_port = *(u16*)(&buf[0x22 + 0xa]);
 
-			memcpy(rpNwmHdr, buf, 0x22 + 8);
-			// *(u16*)(rpNwmHdr + 12) = 0;
-			// memcpy(rp_hdr_tmp, rpNwmHdr, 22);
-			// printNwMHdr();
-			initUDPPacket(rpNwmHdr, PACKET_SIZE);
+	int tcp_hit = (protocol == 0x6 && src_port == htons(8000));
+	int udp_hit = (protocol == 0x11 && src_port == htons(8001) && dst_port == htons(8001));
+	if (tcp_hit || udp_hit) {
+		// if (rpInited) {
+		// 	memcpy(buf_tmp, buf, 22);
+		// 	*(u16*)(buf_tmp + 12) = 0;
+		// 	if (memcmp(rp_hdr_tmp, buf_tmp, 22) != 0) {
+		// 		memcpy(rp_hdr_tmp, buf_tmp, 22);
+		// 		printNwMHdr();
+		// 	}
+		// 	return 0;
+		// }
 
-			threadStack = plgRequestMemory(rpThreadStackSize);
-			ret = svc_createThread(&hThread, (void*)rpThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 2);
-			if (ret != 0) {
-				nsDbgPrint("Create RemotePlay Thread Failed: %08x\n", ret);
+		u32 saddr = *(u32 *)&buf[0x1a + 0x8];
+		u32 daddr = *(u32 *)&buf[0x1e + 0x8];
+		if (rpInited) {
+
+			if ((tcp_hit && g_nsConfig->rpConfig.dstAddr == 0) || udp_hit) {
+				if (daddr != __atomic_load_n(&rpConfig.dstAddr, __ATOMIC_RELAXED)) {
+					__atomic_store_n(&rpConfig.dstAddr, daddr, __ATOMIC_RELAXED);
+					g_nsConfig->rpConfig.dstAddr = daddr;
+
+					u8 *daddr4 = &daddr;
+					nsDbgPrint("remote play updated dst IP: %d.%d.%d.%d\n",
+						(int)daddr4[0], (int)daddr4[1], (int)daddr4[2], (int)daddr4[3]
+					);
+					memcpy(rpNwmHdr, buf, 22);
+				}
+			} else if (current_nwm_src_addr != saddr) {
+				current_nwm_src_addr = saddr;
+				memcpy(rpNwmHdr, buf, 22);
 			}
+
+			return 0;
+		}
+		rpInited = 1;
+		// rtDisableHook(&nwmValParamHook);
+
+		u8 *saddr4 = &saddr;
+		u8 *daddr4 = &daddr;
+		nsDbgPrint("remote play src IP: %d.%d.%d.%d, dst IP: %d.%d.%d.%d\n",
+			(int)saddr4[0], (int)saddr4[1], (int)saddr4[2], (int)saddr4[3],
+			(int)daddr4[0], (int)daddr4[1], (int)daddr4[2], (int)daddr4[3]
+		);
+
+		memcpy(rpNwmHdr, buf, 0x22 + 8);
+		// *(u16*)(rpNwmHdr + 12) = 0;
+		// memcpy(rp_hdr_tmp, rpNwmHdr, 22);
+		printNwMHdr();
+		initUDPPacket(rpNwmHdr, PACKET_SIZE);
+
+		g_nsConfig->rpConfig.dstAddr = rpConfig.dstAddr = daddr4;
+		threadStack = plgRequestMemory(rpThreadStackSize);
+		ret = svc_createThread(&hThread, (void*)rpThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 2);
+		if (ret != 0) {
+			nsDbgPrint("Create RemotePlay Thread Failed: %08x\n", ret);
 		}
 	}
 	return 0;
@@ -2209,7 +2259,7 @@ void rpResetGameHandle(int status) {
 	svc_closeHandle(hProcess);
 }
 
-static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPort) {
+static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPort, u32 dstAddr) {
 	Handle hProcess;
 	u32 pid = 0x1a;
 	int ret = svc_openProcess(&hProcess, pid);
@@ -2227,13 +2277,13 @@ static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPor
 			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfigLock),
 			sizeof(control));
 		if (ret != 0) {
-			showDbg("copyRemoteMemory (0) failed: %08x\n", ret, 0);
+			showDbg("copyRemoteMemory (0) failed: %08x", ret, 0);
 			svc_closeHandle(hProcess);
 			return -1;
 		}
 		if (control) {
 			if (!--controlCount) {
-				showDbg("rpConfigLock wait timed out\n", 0, 0);
+				showDbg("rpConfigLock wait timed out", 0, 0);
 				svc_closeHandle(hProcess);
 				return -1;
 			}
@@ -2248,6 +2298,7 @@ static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPor
 	rpConfig.qosValueInBytes = qos;
 	if (dstPort != 0)
 		rpConfig.dstPort = dstPort;
+	rpConfig.dstAddr = dstAddr;
 
 	ret = copyRemoteMemory(
 		hProcess,
@@ -2278,7 +2329,7 @@ static inline int nsRemotePlayControl(u32 mode, u32 quality, u32 qos, u32 dstPor
 	return 0;
 }
 
-static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
+static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort, u32 dstAddr) {
 	if (!((quality >= 10) && (quality <= 100))) {
 		nsDbgPrint("illegal quality\n");
 		return -1;
@@ -2286,7 +2337,7 @@ static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
 
 	if (__atomic_test_and_set(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
 		nsDbgPrint("remote play already started, updating params\n");
-		return nsRemotePlayControl(mode, quality, qosValue, dstPort);
+		return nsRemotePlayControl(mode, quality, qosValue, dstPort, dstAddr);
 	}
 
 	Handle hProcess;
@@ -2300,9 +2351,10 @@ static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
 	// cfg.startupInfo[8] = mode;
 	// cfg.startupInfo[9] = quality;
 	// cfg.startupInfo[10] = qosValue;
-	rpConfig.currentMode = cfg.rpConfig.currentMode = mode;
-	rpConfig.quality = cfg.rpConfig.quality = quality;
-	rpConfig.qosValueInBytes = cfg.rpConfig.qosValueInBytes = qosValue;
+	rpConfig.currentMode = mode;
+	rpConfig.quality = quality;
+	rpConfig.qosValueInBytes = qosValue;
+	rpConfig.dstAddr = dstAddr;
 
 	if (dstPort) {
 		rpConfig.dstPort = dstPort;
@@ -2310,7 +2362,9 @@ static int nsInitRemotePlay(u32 mode, u32 quality, u32 qosValue, u32 dstPort) {
 		if (rpConfig.dstPort == 0)
 			rpConfig.dstPort = RP_DST_PORT_DEFAULT;
 	}
-	cfg.rpConfig.dstPort = rpConfig.dstPort;
+	cfg.rpConfig = rpConfig;
+
+	cfg.rpConfigLock = 1;
 
 	ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
@@ -2372,7 +2426,78 @@ void nsHandleRemotePlay(void) {
 	u32 mode = pac->args[0];
 	u32 quality = pac->args[1];
 	u32 qosValue = pac->args[2];
-	nsInitRemotePlay(mode, quality, qosValue, 0);
+	nsInitRemotePlay(mode, quality, qosValue, 0, 0);
+}
+
+static void tryInitRemotePlay(u32 dstAddr) {
+	struct sockaddr_in addr;
+	int fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) {
+		showMsg("Cannot open socket.");
+		return;
+	}
+
+	struct sockaddr_in saddr, caddr;
+	memset(&saddr, 0, sizeof(struct sockaddr_in));
+	memset(&caddr, 0, sizeof(struct sockaddr_in));
+
+	saddr.sin_family = AF_INET;
+	saddr.sin_addr.s_addr = dstAddr;
+	saddr.sin_port = htons(8001);
+
+	caddr.sin_family = AF_INET;
+	caddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	caddr.sin_port = htons(8001);
+
+	if (bind(fd, &caddr, sizeof(struct sockaddr_in)) < 0) {
+		showMsg("Socket bind failed.");
+		goto socket_exit;
+	}
+
+	u8 data[1] = {0};
+
+	u32 control, controlCount = 10;
+	s32 ret;
+	Handle hProcess;
+	u32 pid = 0x1a;
+	ret = svc_openProcess(&hProcess, pid);
+	if (ret != 0) {
+		showDbg("Open remote play process failed: %08x", ret, 0);
+		goto socket_exit;
+	}
+
+	while (1) {
+		svc_sleepThread(1000000000);
+		if (sendto(fd, data, sizeof(data), 0, &saddr, sizeof(struct sockaddr_in)) < 0) {
+			showMsg("UDP send failed.");
+			goto nwm_exit;
+		}
+
+		ret = copyRemoteMemory(
+			0xffff8001,
+			&control,
+			hProcess,
+			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfigLock),
+			sizeof(control));
+		if (ret != 0) {
+			showDbg("Getting remote play status failed %08x", ret, 0);
+			goto nwm_exit;
+		}
+		if (control) {
+			if (!--controlCount) {
+				showMsg("Remote play init timeout.");
+				goto nwm_exit;
+			}
+			// showMsg("Remote play not started yet...");
+		} else {
+			break;
+		}
+	}
+
+nwm_exit:
+	svc_closeHandle(hProcess);
+socket_exit:
+	closesocket(fd);
 }
 
 static int menu_adjust_value_with_key(int *val, u32 key, int step_1, int step_2) {
@@ -2395,59 +2520,162 @@ static int menu_adjust_value_with_key(int *val, u32 key, int step_1, int step_2)
 	return ret;
 }
 
+void ipAddrMenu(u32 *addr) {
+	int posDigit = 0;
+	int posOctet = 0;
+	u32 localaddr = *addr;
+	u32 key = 0;
+	while (1) {
+		blank(0, 0, 320, 240);
+
+		u8 ipText[50];
+		u8 *addr4 = &localaddr;
+
+		xsprintf(ipText, "Viewer IP: %03d.%03d.%03d.%03d", addr4[0], addr4[1], addr4[2], addr4[3]);
+		print(ipText, 34, 30, 0, 0, 0);
+
+		int posCaret = posOctet * 4 + posDigit;
+		print("^", 34 + (11 + posCaret) * 8, 42, 0, 0, 0);
+
+		updateScreen();
+		while((key = waitKey()) == 0);
+
+		if (key == BUTTON_DR) {
+			++posDigit;
+			if (posDigit >= 3) {
+				posDigit = 0;
+				++posOctet;
+				if (posOctet >= 4) {
+					posOctet = 0;
+				}
+			}
+		}
+		else if (key == BUTTON_DL) {
+			--posDigit;
+			if (posDigit < 0) {
+				posDigit = 2;
+				--posOctet;
+				if (posOctet < 0) {
+					posOctet = 3;
+				}
+			}
+		}
+		else if (key == BUTTON_DU) {
+			int addr1 = addr4[posOctet];
+			addr1 += posDigit == 0 ? 100 : posDigit == 1 ? 10 : 1;
+			if (addr1 > 255) addr1 = 255;
+			addr4[posOctet] = addr1;
+		}
+		else if (key == BUTTON_DD) {
+			int addr1 = addr4[posOctet];
+			addr1 -= posDigit == 0 ? 100 : posDigit == 1 ? 10 : 1;
+			if (addr1 < 0) addr1 = 0;
+			addr4[posOctet] = addr1;
+		}
+		else if (key == BUTTON_A) {
+			*addr = localaddr;
+			return;
+		}
+		else if (key == BUTTON_B) {
+			return;
+		}
+	}
+}
+
 int remotePlayMenu(void) {
 	u32 select = 0;
 	RP_CONFIG config = rpConfig;
+	u32 localaddr = gethostid();
+	u8 *dstAddr4 = &config.dstAddr;
 
 	if (config.dstPort == 0) {
 		/* default values */
-		rpConfig.dstPort = config.dstPort = RP_DST_PORT_DEFAULT;
+		config.dstPort = RP_DST_PORT_DEFAULT;
+		config.currentMode = 0x0103;
+		config.quality = 75;
+		config.qosValueInBytes = 2 * 1024 * 1024;
+		config.dstAddr = localaddr;
+		((u8 *)&config.dstAddr)[3] = 1;
+
+		rpConfig = config;
+	} else {
+		Handle hProcess;
+		u32 pid = 0x1a;
+		int ret = svc_openProcess(&hProcess, pid);
+		if (ret != 0) {
+			nsDbgPrint("openProcess failed: %08x\n", ret, 0);
+			goto defaultDstAddr;
+		}
+
+		ret = copyRemoteMemory(
+			hProcess,
+			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig) + offsetof(RP_CONFIG, dstAddr),
+			0xffff8001,
+			&config.dstAddr,
+			sizeof(config.dstAddr));
+		if (ret != 0) {
+			nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
+			svc_closeHandle(hProcess);
+			goto defaultDstAddr;
+		}
+
+		svc_closeHandle(hProcess);
+		rpConfig.dstAddr = config.dstAddr;
+		goto currentDstAddr;
+
+defaultDstAddr:
+		config.dstAddr = localaddr;
+		dstAddr4[3] = 1;
+		rpConfig.dstAddr = config.dstAddr;
 	}
+currentDstAddr:
+
+	u8 title[50];
+	u8 *localaddr4 = &localaddr;
+	xsprintf(title, "Remote Play: %d.%d.%d.%d", (int)localaddr4[0], (int)localaddr4[1], (int)localaddr4[2], (int)localaddr4[3]);
 
 	while (1) {
-		u8 *title = "Remote Play";
-
 		u8 rpStarted = __atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED);
-		if (!rpStarted) {
-			title = "Remote Play (Not Started)";
+		// if (!rpStarted) {
+			// title = "Remote Play (Not Started)";
 
-			u8 dstPortCaption[50];
-			xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
+			// u8 dstPortCaption[50];
+			// xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
 
-			u8 *captions[] = {
-				dstPortCaption,
-				"Apply"
-			};
+			// u8 *captions[] = {
+			// 	dstPortCaption,
+			// 	"Apply"
+			// };
 
-			u32 entryCount = sizeof(captions) / sizeof(*captions);
+			// u32 entryCount = sizeof(captions) / sizeof(*captions);
 
-			u32 key;
-			select = showMenuEx2(title, entryCount, captions, NULL, select, &key);
+			// u32 key;
+			// select = showMenuEx2(title, entryCount, captions, NULL, select, &key);
 
-			if (select == 0) { /* dst port */
-				int dstPort = config.dstPort;
-				if (key == BUTTON_X)
-					dstPort = rpConfig.dstPort;
-				else
-					menu_adjust_value_with_key(&dstPort, key, 10, 100);
+			// if (select == 0) { /* dst port */
+			// 	int dstPort = config.dstPort;
+			// 	if (key == BUTTON_X)
+			// 		dstPort = rpConfig.dstPort;
+			// 	else
+			// 		menu_adjust_value_with_key(&dstPort, key, 10, 100);
 
-				if (dstPort < 1024)
-					dstPort = 1024;
-				else if (dstPort > 65535)
-					dstPort = 65535;
+			// 	if (dstPort < 1024)
+			// 		dstPort = 1024;
+			// 	else if (dstPort > 65535)
+			// 		dstPort = 65535;
 
-				if (dstPort != config.dstPort) {
-					config.dstPort = dstPort;
-				}
-			}
+			// 	if (dstPort != config.dstPort) {
+			// 		config.dstPort = dstPort;
+			// 	}
+			// }
 
-			else if (select == 1 && key == BUTTON_A) { /* apply */
-				rpConfig.dstPort = config.dstPort;
-				return 0;
-			}
+			// else if (select == 1 && key == BUTTON_A) { /* apply */
+			// 	rpConfig.dstPort = config.dstPort;
+			// 	return 0;
+			// }
 
-			continue;
-		}
+			// continue;
+		// }
 
 		u8 priorityScreenCaption[50];
 		xsprintf(priorityScreenCaption, "Priority Screen: %s", (config.currentMode & 0xff00) == 0 ? "Bottom" : "Top");
@@ -2463,6 +2691,9 @@ int remotePlayMenu(void) {
 		u32 qosKB = config.qosValueInBytes / 1024 % 1024 * 125 / 128;
 		xsprintf(qosCaption, "Bandwidth Limit (QoS): %d.%d MBps", (int)qosMB, (int)qosKB);
 
+		u8 dstAddrCaption[50];
+		xsprintf(dstAddrCaption, "Viewer IP: %d.%d.%d.%d", (int)dstAddr4[0], (int)dstAddr4[1], (int)dstAddr4[2], (int)dstAddr4[3]);
+
 		u8 dstPortCaption[50];
 		xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
 
@@ -2471,6 +2702,7 @@ int remotePlayMenu(void) {
 			priorityFactorCaption,
 			qualityCaption,
 			qosCaption,
+			dstAddrCaption,
 			dstPortCaption,
 			"Apply"
 		};
@@ -2561,7 +2793,24 @@ int remotePlayMenu(void) {
 			}
 		}
 
-		else if (select == 4) { /* dst port */
+		else if (select == 4) { /* dst addr */
+			int dstAddr = config.dstAddr;
+			if (key == BUTTON_X)
+				dstAddr = rpConfig.dstAddr;
+			else{
+				int dummy = 0;
+				dummy = menu_adjust_value_with_key(&dummy, key, 1, 1);
+				if (dummy) {
+					ipAddrMenu(&dstAddr);
+				}
+			}
+
+			if (dstAddr != config.dstAddr) {
+				config.dstAddr = dstAddr;
+			}
+		}
+
+		else if (select == 5) { /* dst port */
 			int dstPort = config.dstPort;
 			if (key == BUTTON_X)
 				dstPort = rpConfig.dstPort;
@@ -2578,8 +2827,14 @@ int remotePlayMenu(void) {
 			}
 		}
 
-		else if (select == 5 && key == BUTTON_A) { /* apply */
-			nsInitRemotePlay(config.currentMode, config.quality, config.qosValueInBytes, config.dstPort);
+		else if (select == 6 && key == BUTTON_A) { /* apply */
+			int updateDstAddr = rpConfig.dstAddr != config.dstAddr;
+			nsInitRemotePlay(config.currentMode, config.quality, config.qosValueInBytes, config.dstPort, config.dstAddr);
+
+			if (!rpStarted || updateDstAddr) {
+				tryInitRemotePlay(config.dstAddr);
+			}
+
 			return 1;
 		}
 	}
@@ -3424,6 +3679,12 @@ void nsMainLoop() {
 			showDbg("bind failed: %08x", ret, 0);
 			goto end_listen;
 		}
+
+		if (g_nsCtx->listenPort == 8000) {
+			tmp = fcntl(listen_sock, F_GETFL);
+			fcntl(listen_sock, F_SETFL, tmp | O_NONBLOCK);
+		}
+
 		ret = listen(listen_sock, 1);
 		if (ret < 0) {
 			showDbg("listen failed: %08x", ret, 0);
@@ -3435,12 +3696,13 @@ void nsMainLoop() {
 			sockfd = accept(listen_sock, NULL, NULL);
 			g_nsCtx->hSocket = sockfd;
 			if (sockfd < 0) {
+				int serr = SOC_GetErrno();
+				if (serr == -EAGAIN || serr == -EWOULDBLOCK) {
+					svc_sleepThread(100000000);
+					continue;
+				}
 				break;
 			}
-			/*
-			tmp = fcntl(sockfd, F_GETFL);
-			fcntl(sockfd, F_SETFL, tmp | O_NONBLOCK);
-			*/
 			while (1) {
 				ret = rtRecvSocket(sockfd, (u8*)&(g_nsCtx->packetBuf), sizeof(NS_PACKET));
 				if (ret != sizeof(NS_PACKET)) {
