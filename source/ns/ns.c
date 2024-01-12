@@ -365,6 +365,7 @@ int rpCtxInit(BLIT_CONTEXT* ctx, int width, int height, int format, u8* src) {
 static u32 rpLastSendTick = 0;
 
 // static u8 rp_nwm_work_skip[rp_work_count];
+static u8 rp_nwm_frame_skipped;
 static int rp_nwm_work_next, rp_nwm_thread_next;
 static u8 rpDataBufHdr[rp_work_count][rp_data_hdr_size];
 
@@ -1680,8 +1681,9 @@ int rpSendFramesStart(int thread_id, int work_next) {
 	BLIT_CONTEXT *ctx = &blit_context[work_next];
 	struct rp_work_syn_t *syn = rp_work_syn[work_next];
 
-	if (thread_id == rp_nwm_thread_id && rp_nwm_work_next == work_next) {
+	if (thread_id == rp_nwm_thread_id && (rp_nwm_work_next == work_next || rp_nwm_frame_skipped)) {
 		rpTrySendNextBuffer(1);
+		rp_nwm_frame_skipped = 0;
 	}
 
 	u8 skip_frame = 0;
@@ -1753,7 +1755,8 @@ int rpSendFramesStart(int thread_id, int work_next) {
 	// nsDbgPrint("(%d) skip_frame (%d): %d\n", thread_id, work_next, (int)skip_frame);
 	if (!skip_frame)
 		rpSendFramesBody(thread_id, ctx, work_next);
-	// else if (thread_id == rp_nwm_thread_id) {
+	else if (thread_id == rp_nwm_thread_id) {
+		rp_nwm_frame_skipped = 1;
 		// rp_nwm_work_skip[work_next] = 1;
 		// while (rp_nwm_work_next != work_next) {
 		// 	if (rpTrySendNextBuffer(1)) {
@@ -1766,7 +1769,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		// if (res) {
 		// 	nsDbgPrint("svc_releaseSemaphore sem_nwm (%d) failed: %d\n", work_next, res);
 		// }
-	// }
+	}
 
 final:
 	if (__atomic_add_fetch(&syn->sem_count, 1, __ATOMIC_RELAXED) == (int)rpConfig.coreCount) {
@@ -2034,6 +2037,7 @@ static void rpThreadStart(void *) {
 
 		for (int i = 0; i < rp_work_count; ++i) {
 			// rp_nwm_work_skip[i] = 0;
+			rp_nwm_frame_skipped = 0;
 
 			for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
 				struct rpDataBufInfo_t *info = &rpDataBufInfo[i][j];
