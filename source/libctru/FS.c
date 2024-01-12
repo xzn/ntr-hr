@@ -139,7 +139,7 @@ FSFILE_Close(Handle handle)
 	return ret;
 }
 
-Result FSFILE_Read(Handle handle, u32 *bytesRead, u64 offset, u32 *buffer, u32 size)
+Result FSFILE_Read(Handle handle, u32 *bytesRead, u64 offset, void *buffer, u32 size)
 {
 	u32 *cmdbuf=getThreadCommandBuffer();
  
@@ -160,7 +160,7 @@ Result FSFILE_Read(Handle handle, u32 *bytesRead, u64 offset, u32 *buffer, u32 s
 
 //WARNING : using wrong flushFlags CAN corrupt the archive you're writing to.
 //another warning : data should *not* be in RO memory
-Result FSFILE_Write(Handle handle, u32 *bytesWritten, u64 offset, u32 *data, u32 size, u32 flushFlags)
+Result FSFILE_Write(Handle handle, u32 *bytesWritten, u64 offset, const void *data, u32 size, u32 flushFlags)
 {
 	u32 *cmdbuf=getThreadCommandBuffer();
 

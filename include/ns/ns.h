@@ -157,8 +157,8 @@ u32 rtSafeCopyMemory(u32 dst, u32 src, u32 size) ;
 int rtRecvSocket(u32 sockfd, u8 *buf, int size);
 int rtSendSocket(u32 sockfd, u8 *buf, int size);
 u16 rtIntToPortNumber(u16 x) ;
-u32 rtGetFileSize(u8* fileName);
-u32 rtLoadFileToBuffer(u8* fileName, u32* pBuf, u32 bufSize) ;
+u32 rtGetFileSize(char* fileName);
+u32 rtLoadFileToBuffer(char* fileName, u32* pBuf, u32 bufSize) ;
 u32 rtGetThreadReg(Handle hProcess, u32 tid, u32* ctx);
 u32 rtFlushInstructionCache(void* ptr, u32 size);
 void rtInitHook(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr);
@@ -170,5 +170,10 @@ void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr);
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion);
 u32 rtGenerateJumpCode(u32 dst, u32* buf);
 
+void nsInitDebug(void);
+void nsInit(void);
 
+extern u8 nsIsRemotePlayStarted;
+int remotePlayMenu(void);
+void rpMain(void);
 

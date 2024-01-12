@@ -22,7 +22,7 @@ typedef enum{
 typedef struct{
 	FS_pathType type;
 	u32 size;
-	u8* data;
+	const void* data;
 }FS_path;
 
 typedef struct{
@@ -44,8 +44,8 @@ Result FSUSER_OpenFileDirectly(Handle handle, Handle* out, FS_archive archive, F
 Result FSUSER_CloseArchive(Handle handle, FS_archive* archive);
 
 Result FSFILE_Close(Handle handle);
-Result FSFILE_Read(Handle handle, u32 *bytesRead, u64 offset, u32 *buffer, u32 size);
-Result FSFILE_Write(Handle handle, u32 *bytesWritten, u64 offset, u32 *buffer, u32 size, u32 flushFlags);
+Result FSFILE_Read(Handle handle, u32 *bytesRead, u64 offset, void *buffer, u32 size);
+Result FSFILE_Write(Handle handle, u32 *bytesWritten, u64 offset, const void*buffer, u32 size, u32 flushFlags);
 Result FSFILE_GetSize(Handle handle, u64 *size);
 Result FSFILE_SetSize(Handle handle, u64 size);
 

@@ -10,7 +10,7 @@ void sleep(s64 ns);
 u32* threadStack = 0;
 NTR_CONFIG backupNtrConfig = { 0 };
 NTR_CONFIG* ntrConfig;
-FS_archive sdmcArchive = { 0x9, (FS_path){ PATH_EMPTY, 1, (u8*)"" } };
+FS_archive sdmcArchive = { 0x9, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };
 Handle fsUserHandle = 0;
 
 
@@ -32,7 +32,7 @@ u32 ScreenshotHotkey = 0;
 
 #define STACK_SIZE 0x4000
 
-u32 isInDebugMode() {
+int isInDebugMode(void) {
 	if ((getKey() & BUTTON_DL)) {
 		return 1;
 	}
@@ -62,7 +62,7 @@ u32 initValuesFromFIRM() {
 
 u32 initValuesFromHomeMenu() {
 	u32 t = 0;
-	u32 hProcess, ret;
+	u32 hProcess;
 	ntrConfig->HomeMenuVersion = 0;
 	svc_openProcess(&hProcess, ntrConfig->HomeMenuPid);
 	copyRemoteMemory(CURRENT_PROCESS_HANDLE, &t, hProcess, (void*)0x00200000, 4);
@@ -99,7 +99,6 @@ u32 initValuesFromHomeMenu() {
 		ntrConfig->HomeFSUHandleAddr = 0x00278E4C;
 		ntrConfig->HomeAptStartAppletAddr = 0x00129BFC;
 	}
-final:
 	svc_closeHandle(hProcess);
 	return ntrConfig->HomeMenuVersion;
 }
@@ -114,7 +113,7 @@ void disp(u32 t, u32 cl) {
 	*(vu32*)(IoBaseLcd + 0x204) = 0;
 }
 
-void setExitFlag() {
+void setExitFlag(void) {
 	g_nsConfig->exitFlag = 1;
 	svc_closeHandle(g_nsConfig->hSOCU);
 }
@@ -127,12 +126,12 @@ releaseVideo();
 
 
 
-void viewFile(FS_archive arc, u8 * path) {
-	u8 buf[0x5000];
+void viewFile(FS_archive arc, char* path) {
+	char buf[0x5000];
 	u32 off = 0;
 	u16 entry[0x228];
 	u32 i = 0;
-	u8* captions[1000];
+	char* captions[1000];
 	u32 entryCount = 0;
 
 	buf[0] = 0;
@@ -171,17 +170,17 @@ void viewFile(FS_archive arc, u8 * path) {
 		if (r == -1) {
 			break;
 		}
-		xsprintf((u8*)entry, "%s%s", path, captions[r]);
-		viewFile(arc, (u8*)entry);
+		xsprintf((char*)entry, "%s%s", path, captions[r]);
+		viewFile(arc, (char*)entry);
 	}
 	FSDIR_Close(dirHandle);
 }
 
 void fileManager() {
-	u8 buf[200];
+	char buf[200];
 
 	FS_archive arc;
-	arc = (FS_archive){ 0x567890AB, (FS_path){ PATH_EMPTY, 1, (u8*)"" } };
+	arc = (FS_archive){ 0x567890AB, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };
 	u32 ret = FSUSER_OpenArchive(fsUserHandle, &arc);
 	if (ret != 0) {
 		xsprintf(buf, "openArchive failed, ret=%08x", ret);
@@ -193,7 +192,7 @@ void fileManager() {
 }
 
 
-void checkExitFlag() {
+void checkExitFlag(void) {
 	if (g_nsConfig->exitFlag) {
 		svc_exitThread();
 	}
@@ -239,10 +238,10 @@ void magicKillProcess(u32 pid) {
 	}
 	u32 KProcess = kGetKProcessByHandle(hProcess);
 	u32 t = 0;
-	kmemcpy(&t, KProcess + 4, 4);
+	kmemcpy(&t, (u8 *)KProcess + 4, 4);
 	//showDbg("refcount: %08x", t, 0);
 	t = 1;
-	kmemcpy(KProcess + 4, &t, 4);
+	kmemcpy((u8 *)KProcess + 4, &t, 4);
 	svc_closeHandle(hProcess);
 }
 
@@ -252,7 +251,7 @@ void do_screen_shoot();
 
 int cpuClockLockValue = -1;
 
-void lockCpuClock() {
+void lockCpuClock(void) {
 	if (cpuClockLockValue == -1) {
 		return;
 	}
@@ -275,9 +274,7 @@ u32 HomeSetMemorySizeCallback(u32 size) {
 }
 
 void threadStart() {
-	volatile vu32* ptr;
-	Handle testFileHandle = 0;
-	u32 i, ret;
+	u32 ret;
 	int waitCnt = 0;
 
 	rtInitHook(&HomeFSReadHook, ntrConfig->HomeFSReadAddr, (u32)HomeFSReadCallback);
@@ -286,7 +283,7 @@ void threadStart() {
 	rtEnableHook(&HomeCardUpdateInitHook);
 
 	fsUserHandle = *((u32*)ntrConfig->HomeFSUHandleAddr);
-	sdmcArchive = (FS_archive){ 0x9, (FS_path){ PATH_EMPTY, 1, (u8*)"" } };
+	sdmcArchive = (FS_archive){ 0x9, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };
 	ret = initDirectScreenAccess();
 	if (ret != 0) {
 		disp(100, 0x10000ff);
@@ -328,7 +325,6 @@ void threadStart() {
 
 void initConfigureMemory() {
 	u32 ret;
-	u32 outAddr;
 
 	g_nsConfig = (void*) NS_CONFIGURE_ADDR;
 	ret = protectMemory((void*)NS_CONFIGURE_ADDR, 0x1000);
@@ -367,7 +363,7 @@ void injectToHomeMenu() {
 	Handle hProcess = 0;
 	svc_openProcess(&hProcess, ntrConfig->HomeMenuPid);
 
-	u32* bootArgs = arm11BinStart + 4;
+	u32* bootArgs = (void*)(arm11BinStart + 4);
 	bootArgs[0] = 1;
 	cfg.debugMore = isInDebugMode();
 	if (cfg.debugMore) {
@@ -454,7 +450,7 @@ void initFromSoc() {
 	rpMain();
 }
 
-int main() {
+int main(void) {
 	StartMode = _BootArgs[0];
 	//showDbg("", 0, sizeof(NS_CONFIG));
 	if (StartMode == 0) {
@@ -465,7 +461,7 @@ int main() {
 			initParamsFromLegacyBootNtr();
 		}
 
-		sdmcArchive = (FS_archive){ 0x9, (FS_path){ PATH_EMPTY, 1, (u8*)"" } };
+		sdmcArchive = (FS_archive){ 0x9, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };
 
 
 		if ((ntrConfig->HomeMenuVersion == 0) || (ntrConfig->firmVersion == 0)) {

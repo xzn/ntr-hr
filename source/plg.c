@@ -42,7 +42,7 @@ void plgInitScreenOverlay();
 int isVRAMAccessible = 0;
 int plgOverlayStatus = 0;
 
-u32 plgRegisterCallback(u32 type, void* callback, u32 param0) {
+u32 plgRegisterCallback(u32 type, void* callback, u32) {
 	if (type == CALLBACK_OVERLAY) {
 		plgInitScreenOverlay();
 		if (plgOverlayStatus != 1) {
@@ -69,7 +69,7 @@ u32 plgRequestMemory(u32 size) {
 u32 plgRequestMemorySpecifyRegion(u32 size, int sysRegion) {
 	u32 ret, outAddr, addr;
 
-	if (size & 0xfff != 0) {
+	if ((size & 0xfff) != 0) {
 		return 0;
 	}
 	if (!plgMemoryPoolEnd) {
@@ -94,6 +94,7 @@ u32 plgGetSharedServiceHandle(char* servName, u32* handle) {
 		*handle = fsUserHandle;
 		return 0;
 	}
+	return 1;
 }
 
 u32 plgGetIoBase(u32 IoBase) {
@@ -112,15 +113,15 @@ u32 plgGetIoBase(u32 IoBase) {
 	if (IoBase == IO_BASE_HOME_MENU_PID) {
 		return ntrConfig->HomeMenuPid;
 	}
-	if (IoBase = VALUE_CURRENT_LANGUAGE) {
+	if (IoBase == VALUE_CURRENT_LANGUAGE) {
 		return g_plgInfo->currentLanguage;
 	}
 	return 0;
 }
 
 void plgSetHotkeyUi() {
-	u8* entries[8];
-	u32 r;
+	char* entries[8];
+	int r;
 	entries[0] = "NTR Menu: X+Y";
 	entries[1] = "NTR Menu: L+START";
 	entries[2] = "Screenshot: disabled";
@@ -170,7 +171,7 @@ int plgTryLoadGamePluginMenu() {
 	if (ret != 0) {
 		return ret;
 	}
-	ret = copyRemoteMemory(CURRENT_PROCESS_HANDLE, &plgCurrentGamePluginMenu, hProcess, gamePluginMenuAddr, sizeof(GAME_PLUGIN_MENU));
+	ret = copyRemoteMemory(CURRENT_PROCESS_HANDLE, &plgCurrentGamePluginMenu, hProcess, (void *)gamePluginMenuAddr, sizeof(GAME_PLUGIN_MENU));
 	if (ret != 0) {
 		goto final;
 	}
@@ -179,18 +180,42 @@ int plgTryLoadGamePluginMenu() {
 	return ret;
 }
 
-void plgShowGamePluginMenu() {
-	u8* entries[70], ret;
-	u8* description[70];
-		u8* buf;
+static int plgUpdateGamePluginMenuState(void) {
+	u32 gamePid = g_plgInfo->gamePluginPid;
+	u32 gamePluginMenuAddr = g_plgInfo->gamePluginMenuAddr;
+	if (gamePid == 0) {
+		return 1;
+	}
+	if (gamePluginMenuAddr == 0) {
+		return 1;
+	}
+	u32 ret = 0;
+	u32 hProcess;
+	ret = svc_openProcess(&hProcess, gamePid);
+	if (ret != 0) {
+		return ret;
+	}
+	ret = copyRemoteMemory(hProcess, (void *)gamePluginMenuAddr, CURRENT_PROCESS_HANDLE, &plgCurrentGamePluginMenu, sizeof(plgCurrentGamePluginMenu.state));
+	if (ret != 0) {
+		goto final;
+	}
+	final:
+	svc_closeHandle(hProcess);
+	return ret;
+}
 
-	int i, j;
+static void plgShowGamePluginMenu(void) {
+	char* entries[70], ret;
+	char* description[70];
+	char* buf;
+
+	unsigned int i, j;
 	while (1) {
 		if (plgCurrentGamePluginMenu.count <= 0) {
 			return;
 		}
 		for (i = 0; i < plgCurrentGamePluginMenu.count; i++) {
-			buf = &(plgCurrentGamePluginMenu.buf[plgCurrentGamePluginMenu.offsetInBuffer[i]]);
+			buf = (char *)&(plgCurrentGamePluginMenu.buf[plgCurrentGamePluginMenu.offsetInBuffer[i]]);
 			description[i] = 0;
 			entries[i] = buf;
 			for (j = 0; j < strlen(buf); j++) {
@@ -222,9 +247,9 @@ void plgShowGamePluginMenu() {
 	}
 }
 
-int plgTryUpdateConfig() {
+int plgTryUpdateConfig(void) {
 	u32 gamePid = g_plgInfo->gamePluginPid;
-	u32 configStart = &(g_plgInfo->nightShiftLevel);
+	void *configStart = &(g_plgInfo->nightShiftLevel);
 	u32 configSize = 4;
 
 	if (gamePid == 0) {
@@ -239,44 +264,17 @@ int plgTryUpdateConfig() {
 	if (ret != 0) {
 		goto final;
 	}
-	final:
-	svc_closeHandle(hProcess);
-	return ret;
-}
-int plgUpdateGamePluginMenuState() {
-	u32 gamePid = g_plgInfo->gamePluginPid;
-	u32 gamePluginMenuAddr = g_plgInfo->gamePluginMenuAddr;
-	if (gamePid == 0) {
-		return 1;
-	}
-	if (gamePluginMenuAddr == 0) {
-		return 1;
-	}
-	u32 ret = 0;
-	u32 hProcess;
-	ret = svc_openProcess(&hProcess, gamePid);
-	if (ret != 0) {
-		return ret;
-	}
-	ret = copyRemoteMemory(hProcess, gamePluginMenuAddr, CURRENT_PROCESS_HANDLE, &plgCurrentGamePluginMenu, sizeof(plgCurrentGamePluginMenu.state));
-	if (ret != 0) {
-		goto final;
-	}
-	final:
+final:
 	svc_closeHandle(hProcess);
 	return ret;
 }
 
-extern u8 nsIsRemotePlayStarted;
-int remotePlayMenu(void);
-
-void plgShowMainMenu() {
+void plgShowMainMenu(void) {
 	typedef u32(*funcType)();
-	u8* entries[70];
+	char* entries[70];
 	u32 entid[70];
 	u32 pos = 0, i;
 	u32 mainEntries;
-	u8 requestUpdateState = 0;
 
 	debounceKey();
 	entries[0] = plgTranslate("Remote Play");
@@ -288,7 +286,7 @@ void plgShowMainMenu() {
 	pos = mainEntries;
 	for (i = 0; i < pluginEntryCount; i++) {
 		if (pluginEntry[i][0] == 1) {
-			entries[pos] = (u8*)pluginEntry[i][1];
+			entries[pos] = (char*)pluginEntry[i][1];
 			entid[pos] = i;
 			pos++;
 		}
@@ -300,12 +298,11 @@ void plgShowMainMenu() {
 	acquireVideo();
 	while (1) {
 		s32 r;
-		u8 buf[200];
 		r = showMenu(NTR_CFW_VERSION, pos, entries);
 		if (r == -1) {
 			break;
 		}
-		if (r >= mainEntries) {
+		if (r >= (int)mainEntries) {
 			if (r - mainEntries >= pluginEntryCount) {
 				plgShowGamePluginMenu();
 				break;
@@ -354,6 +351,7 @@ u32 plgRegisterMenuEntry(u32 catalog, char* title, void* callback) {
 	pluginEntry[pluginEntryCount][1] = (u32)title;
 	pluginEntry[pluginEntryCount][2] = (u32)callback;
 	pluginEntryCount++;
+	return 0;
 }
 
 u32 plgEnsurePoolEnd(u32 end) {
@@ -462,9 +460,6 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 		totalSize += size;
 		base += size;
 	}
-	u32 newKP = 0;
-	u32 oldKP = 0;
-	u32 hPMProcess = getCurrentProcessHandle();
 
 	ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize);
 
@@ -500,27 +495,21 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 }
 
 u32 svc_RunCallback(Handle hProcess, u32* startInfo) {
-	u32 ret;
-
 	plgLoadPluginToRemoteProcess(hProcess);
 	/*
 	ret = copyRemoteMemory(hProcess, 0x00100000, 0xffff8001, buf,  sizeof(buf));
 	nsDbgPrint("copyRemoteMemory ret: %08x\n", ret);*/
-	final:
 	return ((svc_RunTypeDef)((void*)(svc_RunHook.callCode)))(hProcess, startInfo);
 }
 
 
 
-void initFromInjectPM() {
-	u32 ret;
-
+void initFromInjectPM(void) {
 	rtInitHook(&svc_RunHook, ntrConfig->PMSvcRunAddr, (u32)svc_RunCallback);
 	rtEnableHook(&svc_RunHook);
 }
 
-u32 plgListPlugins(u32* entries, u8* buf, u8* path)  {
-	u32 maxPlugins = 32;
+u32 plgListPlugins(char ** entries, char* buf, char* path)  {
 	u32 off = 0;
 	u16 entry[0x228];
 	u32 i = 0;
@@ -534,17 +523,17 @@ u32 plgListPlugins(u32* entries, u8* buf, u8* path)  {
 		nsDbgPrint("FSUSER_OpenDirectory failed, ret=%08x\n", ret);
 		return 0;
 	}
-	while (1) {
+	while (entryCount < MAX_PLUGIN_COUNT) {
 		u32 nread = 0;
 		FSDIR_Read(dirHandle, &nread, 1, (u16*)entry);
 		if (!nread) break;
-		entries[entryCount] = (u32)&buf[off];
+		entries[entryCount] = &buf[off];
 		for (i = 0; i < 0x228; i++) {
 			u16 t = entry[i];
 			if (t == 0) {
 				break;
 			}
-			buf[off] = (u8)t;
+			buf[off] = (char)t;
 			off += 1;
 		}
 		buf[off] = 0;
@@ -560,6 +549,7 @@ u32 plgStartPluginLoad() {
 	plgNextLoadAddr = plgLoadStart;
 	g_plgInfo->arm11BinStart = arm11BinStart;
 	g_plgInfo->arm11BinSize = arm11BinSize;
+	return 0;
 }
 
 
@@ -585,7 +575,7 @@ u32 plgSetValue(u32 index, u32 value) {
 	return 0;
 }
 
-int plgIsValidPluginFile(u8* filename) {
+int plgIsValidPluginFile(char* filename) {
 	int len;
 	len = strlen(filename);
 	if (len < 5) {
@@ -600,10 +590,10 @@ int plgIsValidPluginFile(u8* filename) {
 	return 1;
 }
 
-u32 plgLoadPluginsFromDirectory(u8* dir) {
-	u8 path[200], pluginPath[200];
-	u32 entries[MAX_PLUGIN_COUNT];
-	u8 buf[0x1000];
+u32 plgLoadPluginsFromDirectory(char* dir) {
+	char path[200], pluginPath[200];
+	char *entries[MAX_PLUGIN_COUNT];
+	char buf[0x1000];
 	u32 cnt, i, ret;
 	u32 bufSize;
 	u32 validCount = 0;
@@ -648,7 +638,7 @@ u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	nsDbgPrint("starting app: %08x%08x\n", tid[1], tid[0]);
 	plgStartPluginLoad();
 	plgLoadPluginsFromDirectory("game");
-	u8 buf[32];
+	char buf[32];
 	xsprintf(buf, "%08x%08x", tid[1], tid[0]);
 	plgLoadPluginsFromDirectory(buf);
 	g_plgInfo->tid[0] = tid[0];
@@ -709,12 +699,12 @@ void startHomePlugin() {
 
 
 
-void plgInitFromInjectHOME() {
+void plgInitFromInjectHOME(void) {
 	u32 base = plgPoolStart;
 	u32 ret;
 
 	initSharedFunc();
-	plgSdmcArchive = (FS_archive){ 9, (FS_path){ PATH_EMPTY, 1, (u8*)"" } };
+	plgSdmcArchive = (FS_archive){ 9, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };
 	ret = FSUSER_OpenArchive(fsUserHandle, &plgSdmcArchive);
 	if (ret != 0) {
 		nsDbgPrint("FSUSER_OpenArchive failed: %08x\n", ret);
@@ -723,7 +713,7 @@ void plgInitFromInjectHOME() {
 	g_plgInfo = (PLGLOADER_INFO*)base;
 	base += rtAlignToPageSize(sizeof(PLGLOADER_INFO));
 
-	u8* arm11BinPath = ntrConfig->ntrFilePath;
+	char* arm11BinPath = ntrConfig->ntrFilePath;
 
 	arm11BinSize = rtAlignToPageSize(rtGetFileSize(arm11BinPath));
 	nsDbgPrint("arm11 bin size: %08x\n", arm11BinSize);
@@ -739,7 +729,7 @@ void plgInitFromInjectHOME() {
 	arm11BinStart = base;
 	base += arm11BinSize;
 	if (arm11BinSize > 32) {
-		u32* bootArgs = arm11BinStart + 4;
+		u32* bootArgs = (void *)(arm11BinStart + 4);
 		bootArgs[0] = 1;
 	}
 
@@ -871,13 +861,13 @@ u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 wi
 	if ((isDisplay1 == 0) && (addrB) && (addrB != addr)) {
 		svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addrB, width * height);
 	}
-	int i;
+	unsigned int i;
 	for (i = 0; i < pluginEntryCount; i++) {
 		if (pluginEntry[i][0] == CALLBACK_OVERLAY) {
 			ret = ((OverlayFnTypedef)((void*) pluginEntry[i][2]))(isDisplay1, addr, addrB, width, format);
-		}
-		if (ret == 0) {
-			isDirty = 1;
+			if (ret == 0) {
+				isDirty = 1;
+			}
 		}
 	}
 	if (g_plgInfo->nightShiftLevel) {
@@ -928,15 +918,15 @@ void plgInitScreenOverlay() {
 
 		return;
 	}
-	rtInitHook(&SetBufferSwapHook, fp, plgSetBufferSwapCallback);
+	rtInitHook(&SetBufferSwapHook, fp, (u32)plgSetBufferSwapCallback);
 	rtEnableHook(&SetBufferSwapHook);
 	plgOverlayStatus = 1;
 
 }
 
-void initFromInjectGame() {
+void initFromInjectGame(void) {
 	typedef void(*funcType)();
-	u32 i, ret;
+	u32 i;
 
 	initSharedFunc();
 

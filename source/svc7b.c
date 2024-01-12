@@ -15,14 +15,14 @@ u32 keRefHandle(u32 pHandleTable, u32 handle) {
 	return ptr;
 }
 
-void keDumpHandle(u32 pKProcess, u32* buf){
-	u32 pHandleTable = pKProcess + KProcessHandleDataOffset;
-
-}
+void keDumpHandle(u32, u32*) { /* not implemenetd */ }
+// void keDumpHandle(u32 pKProcess, u32* buf){
+// 	u32 pHandleTable = pKProcess + KProcessHandleDataOffset;
+// }
 
 u32* translateAddress(u32 addr) {
 	if (addr < 0x1ff00000) {
-		return addr - 0x1f3f8000 + 0xfffdc000;
+		return (u32*)(addr - 0x1f3f8000 + 0xfffdc000);
 	}
 	return (u32*)(addr - 0x1ff00000 + 0xdff00000);
 
@@ -83,10 +83,10 @@ void set_kmmu_rw(int cpu, u32 addr, u32 size)
 }
 
 void set_remoteplay_mmu(u32 addr, u32 size) {
-	int i, j;
+	int i;
 	u32 mmu_p;
-	u32 p1, p2;
-	u32 v1, v2;
+	u32 p1;
+	u32 v1;
 	u32 end;
 	
 	mmu_p = 0x1f3f8000;
@@ -123,11 +123,11 @@ void keDoKernelHax() {
 	*(u32*)(ntrConfig->ControlMemoryPatchAddr2) = 0;
 
 	if (ntrConfig->KernelFreeSpaceAddr_Optional) {
-		u32* addr = ntrConfig->KernelFreeSpaceAddr_Optional;
+		u32* addr = (u32 *)ntrConfig->KernelFreeSpaceAddr_Optional;
 		addr[0] = 0xe10f0000;
 		addr[1] = 0xe38000c0;
 		addr[2] = 0xe129f000;
-		rtGenerateJumpCode(kernelCallback, &addr[3]);
+		rtGenerateJumpCode((u32)kernelCallback, &addr[3]);
 		currentBackdoorHandler = (void*)(addr);
 	}
 
@@ -139,8 +139,8 @@ void keDoKernelHax() {
 
 void rpKernelCallback();
 
-void kernelCallback(u32 msr) {
-	typedef (*keRefHandleType)(u32, u32);
+void kernelCallback(u32 /*msr*/) {
+	// typedef (*keRefHandleType)(u32, u32);
 	
 	//keRefHandleType keRefHandle = (keRefHandleType)0xFFF67D9C;
 	
@@ -203,7 +203,7 @@ void kSetCurrentKProcess(u32 ptr) {
 	svc_backDoor(currentBackdoorHandler);
 }
 
-u32 kGetCurrentKProcess() {
+u32 kGetCurrentKProcess(void) {
 	kernelArgs[0] = 3;
 	svc_backDoor(currentBackdoorHandler);
 	return kernelArgs[1];
@@ -224,13 +224,13 @@ void kmemcpy(void* dst, void* src, u32 size) {
 	svc_backDoor(currentBackdoorHandler);
 }
 
-void kDoKernelHax() {
+void kDoKernelHax(void) {
 	kernelArgs[0] = 6;
 
 	svc_backDoor(currentBackdoorHandler);
 }
 
-void kRemotePlayCallback() {
+void kRemotePlayCallback(void) {
 	kernelArgs[0] = 7;
 
 	svc_backDoor(currentBackdoorHandler);

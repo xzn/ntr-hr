@@ -132,7 +132,7 @@ u16 rtIntToPortNumber(u16 x) {
 	return *((u16*)buf);
 }
 
-u32 rtGetFileSize(u8* fileName) {
+u32 rtGetFileSize(char* fileName) {
 	u32 hFile, size, ret;
 	u64 size64 ;
 
@@ -160,7 +160,7 @@ final:
 	return size;
 }
 
-u32 rtLoadFileToBuffer(u8* fileName, u32* pBuf, u32 bufSize) {
+u32 rtLoadFileToBuffer(char* fileName, u32* pBuf, u32 bufSize) {
 	u32 ret;
 	u32 hFile, size;
 	u64 size64;
@@ -197,7 +197,7 @@ u32 rtLoadFileToBuffer(u8* fileName, u32* pBuf, u32 bufSize) {
 		goto final;
 	}
 
-	ret = FSFILE_Read(hFile, &tmp, 0, (u32*)pBuf, size);
+	ret = FSFILE_Read(hFile, &tmp, 0, pBuf, size);
 	if(ret != 0) {
 		nsDbgPrint("FSFILE_Read failed: %08x\n", ret, 0);
 		goto final;
@@ -238,7 +238,7 @@ u32 rtGenerateJumpCode(u32 dst, u32* buf) {
 	return 8;
 }
 
-u32 rtGenerateJumpCodeThumbR3(u32 src, u32 dst, u32* buf) {
+u32 rtGenerateJumpCodeThumbR3(u32 /*src*/, u32 dst, u32* buf) {
 	buf[0] = 0x47184b00;
 	buf[1] = dst;
 	return 8;

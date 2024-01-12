@@ -7,7 +7,7 @@
 #define INIT_SHARED_FUNC(name,id) (g_nsConfig->sharedFunc[id] = (u32) name)
 #endif
 
-void initSharedFunc();
+void initSharedFunc(void);
 
 u32 plgRegisterMenuEntry(u32 catalog, char* title, void* callback) ;
 u32 plgGetSharedServiceHandle(char* servName, u32* handle);
@@ -40,13 +40,13 @@ u32 plgSetValue(u32 index, u32 value);
 void nsDbgPrintShared(const char* fmt, ...);
 
 #define showDbg(fmt, v1, v2) do { \
-	u8 showDbg_buf__[400]; \
+	char showDbg_buf__[400]; \
  \
 	nsDbgPrint(fmt, v1, v2); \
 	xsprintf(showDbg_buf__, fmt, v1, v2); \
 	showMsgExtra(showDbg_buf__, __FILE__, __LINE__, __func__); \
 } while (0)
-void showDbgShared(u8* fmt, u32 v1, u32 v2);
+void showDbgShared(char* fmt, u32 v1, u32 v2);
 
 u32 controlVideo(u32 cmd, u32 arg1, u32 arg2, u32 arg3);
 #define CONTROLVIDEO_ACQUIREVIDEO 1
@@ -55,9 +55,9 @@ u32 controlVideo(u32 cmd, u32 arg1, u32 arg2, u32 arg3);
 #define CONTROLVIDEO_SETFRAMEBUFFER 4
 #define CONTROLVIDEO_UPDATESCREEN 5
 
-s32 showMenuEx(u8* title, u32 entryCount, u8* captions[], u8* descriptions[], u32 selectOn);
-
-s32 showMenuEx2(u8* title, u32 entryCount, u8* captions[], u8* descriptions[], u32 selectOn, u32 *keyPressed);
+s32 showMenu(char* title, u32 entryCount, char* captions[]);
+s32 showMenuEx(char* title, u32 entryCount, char* captions[], char* descriptions[], u32 selectOn);
+s32 showMenuEx2(char* title, u32 entryCount, char* captions[], char* descriptions[], u32 selectOn, u32 *keyPressed);
 
 u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 size);
 

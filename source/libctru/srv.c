@@ -18,6 +18,7 @@ Result exitSrv()
 {
 	if(srvHandle)svc_closeHandle(srvHandle);
 	srvHandle = 0;
+	return 0;
 }
 
 Result srv_RegisterClient(Handle* handleptr)

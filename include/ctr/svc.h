@@ -62,7 +62,7 @@ typedef struct {
 
 	Result svc_writeProcessMemory(Handle debug, void const* buffer, u32 addr, u32 size);
 	Result svc_readProcessMemory(void* buffer, Handle debug, u32 addr, u32 size);
-	Result svc_debugActiveProcess(s32* handle_out, u32 pid);
+	Result svc_debugActiveProcess(Handle* handle_out, u32 pid);
 	Result svc_getProcessList(s32* processCount, u32* processIds, s32 processIdMaxCount);
 
 	Result svc_controlProcessMemory(Handle hProcess, void* Addr0, void* Addr1, u32 size, u32 Type, u32 Permissions);
@@ -99,6 +99,7 @@ typedef struct {
 	Result svc_setThreadIdealProcessor(Handle handle, u32 processorid);
 	Result svc_restartDma(Handle h, void * dst, void const* src, unsigned int size, signed char flag);
 	Result svc_kernelSetState(unsigned int Type, unsigned int Param0, unsigned int Param1, unsigned int Param2);
+	Result svc_openThread(Handle *thread, Handle process, u32 threadId);
 
 	/**
 	* @brief Maps a block of process memory.

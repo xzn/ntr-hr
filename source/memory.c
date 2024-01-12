@@ -62,8 +62,8 @@ u32 byte_to_bit_string(u8 byte, char* ret, int max_len){
   return 0;
 }*/
 
-u32 byte_to_string(u8 byte, char* ret, int max_len){
-  if (max_len < 3) return;
+int byte_to_string(u8 byte, char* ret, int max_len){
+  if (max_len < 3) return -1;
   u32 mask = 0x0F;
   u32 i;
 
@@ -76,8 +76,8 @@ u32 byte_to_string(u8 byte, char* ret, int max_len){
   return 0;
 }
 
-u32 u32_to_string(u32 byte, char* ret, int max_len){
-  if (max_len < 9) return;
+int u32_to_string(u32 byte, char* ret, int max_len){
+  if (max_len < 9) return -1;
   u32 mask = 0x0000000F;
   u32 i;
 

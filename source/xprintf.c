@@ -22,7 +22,7 @@
 /* Put a character                              */
 /*----------------------------------------------*/
 
-static inline void xputc (char c, char **outptr, void (*out_func)(unsigned char))
+static inline void xputc (char c, char **outptr, void (*out_func)(char))
 {
 	if (_CR_CRLF && c == '\n') xputc('\r', outptr, out_func);		/* CR -> CRLF */
 
@@ -44,7 +44,7 @@ static inline void xputc (char c, char **outptr, void (*out_func)(unsigned char)
 
 static inline void xputs (					/* Put a string to the default device */
 	const char* str,			/* Pointer to the string */
-	char **outptr, void (*out_func)(unsigned char)
+	char **outptr, void (*out_func)(char)
 )
 {
 	while (*str)
@@ -70,7 +70,7 @@ static inline void xputs (					/* Put a string to the default device */
 */
 
 static inline void xvprintf (
-	char **outptr, void (*out_func)(unsigned char),
+	char **outptr, void (*out_func)(char),
 	const char*	fmt,	/* Pointer to the format string */
 	va_list arp			/* Pointer to arguments */
 )
@@ -147,7 +147,7 @@ static inline void xvprintf (
 }
 
 
-void xfvprintf (void (*out_func)(unsigned char), const char* fmt, va_list arp)
+void xfvprintf (void (*out_func)(char), const char* fmt, va_list arp)
 {
 	xvprintf(0, out_func, fmt, arp);
 }

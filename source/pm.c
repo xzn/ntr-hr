@@ -91,8 +91,6 @@ u32 controlMemoryInSysRegion(u32* outAddr, u32 addr0, u32 addr1, u32 size, u32 o
 }
 
 u32 protectRemoteMemory(Handle hProcess, void* addr, u32 size) {
-	u32 outAddr = 0;
-
 	return svc_controlProcessMemory(hProcess, addr, addr, size, 6, 7);
 }
 
@@ -103,7 +101,7 @@ u32 protectMemory(void* addr, u32 size) {
 u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 size) {
 	u8 dmaConfig[80] = {-1, 0, 4};
 	u32 hdma = 0;
-	u32 state, i, ret;
+	u32 ret;
 
 	ret = svc_flushProcessDataCache(hSrc, (u32)ptrSrc, size);
 	if (ret != 0) {
@@ -116,7 +114,7 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 		return ret;
 	}
 
-	ret = svc_startInterProcessDma(&hdma, hDst, ptrDst, hSrc, ptrSrc, size, dmaConfig);
+	ret = svc_startInterProcessDma(&hdma, hDst, ptrDst, hSrc, ptrSrc, size, (DmaConfig *)dmaConfig);
 	if (ret != 0) {
 		return ret;
 	}
@@ -162,22 +160,28 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 
 u32 getProcessTIDByHandle(u32 hProcess, u32 tid[]) {
 	u8 bufKProcess[0x100], bufKCodeSet[0x100];
-	u32  pKCodeSet, pKProcess, ret;
+	u32  pKCodeSet, pKProcess;
 
 	pKProcess = kGetKProcessByHandle(hProcess);
+	if (pKProcess == 0) {
+		tid[0] = tid[1] = 0;
+		return 1;
+	}
+
 	kmemcpy(bufKProcess, (void*)pKProcess, 0x100);
 	pKCodeSet = *(u32*)(&bufKProcess[KProcessCodesetOffset]);
 	kmemcpy(bufKCodeSet, (void*)pKCodeSet, 0x100);
 	u32* pTid = (u32*)(&bufKCodeSet[0x5c]);
 	tid[0] = pTid[0];
 	tid[1] = pTid[1];
+
+	return 0;
 }
 
 
-u32 getProcessInfo(u32 pid, u8* pname, u32 pname_size, u32 tid[], u32* kpobj) {
+u32 getProcessInfo(u32 pid, char* pname, u32 pname_size, u32 tid[], u32* kpobj) {
 	u8 bufKProcess[0x100], bufKCodeSet[0x100];
 	u32 hProcess, pKCodeSet, pKProcess, ret;
-	u8 buf[300];
 
 	ret = 0;
 	ret = svc_openProcess(&hProcess, pid);
@@ -191,7 +195,7 @@ u32 getProcessInfo(u32 pid, u8* pname, u32 pname_size, u32 tid[], u32* kpobj) {
 	pKCodeSet = *(u32*)(&bufKProcess[KProcessCodesetOffset]);
 	kmemcpy(bufKCodeSet, (void*)pKCodeSet, 0x100);
 	bufKCodeSet[0x5A] = 0;
-	u8* pProcessName = &bufKCodeSet[0x50];
+	char* pProcessName = (char *)&bufKCodeSet[0x50];
 	u32* pTid = (u32*)(&bufKCodeSet[0x5c]);
 	tid[0] = pTid[0];
 	tid[1] = pTid[1];
@@ -199,7 +203,6 @@ u32 getProcessInfo(u32 pid, u8* pname, u32 pname_size, u32 tid[], u32* kpobj) {
 	pname[pname_size - 1] = 0;
 	*kpobj = pKProcess;
 
-	final:
 	if (hProcess) {
 		svc_closeHandle(hProcess);
 	}
@@ -207,14 +210,11 @@ u32 getProcessInfo(u32 pid, u8* pname, u32 pname_size, u32 tid[], u32* kpobj) {
 }
 
 
-void dumpRemoteProcess(u32 pid, u8* fileName, u32 startAddr) {
-	u32 hProcess, hFile, ret, i, state, t;
-	u8 buf[0x1020];
-	u32 dmaConfig[20] = {0};
+void dumpRemoteProcess(u32 pid, char* fileName, u32 startAddr) {
+	u32 hProcess, hFile, ret, t;
+	char buf[0x1020];
 	u32 base = startAddr;
 	u32 off = 0, addr;
-	u32 kProcess = 0;
-
 
 	FS_path testPath = (FS_path){PATH_CHAR, strlen(fileName) + 1, fileName};
 	ret = FSUSER_OpenFileDirectly(fsUserHandle, &hFile, sdmcArchive, testPath, 7, 0);
@@ -242,7 +242,7 @@ void dumpRemoteProcess(u32 pid, u8* fileName, u32 startAddr) {
 		if (ret != 0) {
 			showDbg("readRemoteMemory failed: %08x", ret, 0);
 		}
-		FSFILE_Write(hFile, &t, off, (u32*)buf, 0x1000, 0);
+		FSFILE_Write(hFile, &t, off, buf, 0x1000, 0);
 		off += 0x1000;
 	}
 
@@ -255,12 +255,11 @@ void dumpRemoteProcess(u32 pid, u8* fileName, u32 startAddr) {
 	}
 }
 
-void dumpRemoteProcess2(u32 pid, u8* fileName) {
-	u32 hdebug = 0, hfile = 0;
+void dumpRemoteProcess2(u32 pid, char* fileName) {
+	Handle hdebug = 0, hfile = 0;
 	u32 ret;
-	u32 hprocess = 0;
 	u32 t, off, base = 0x00100000;
-	u8 buf[0x1020];
+	char buf[0x1020];
 
 
 
@@ -289,7 +288,7 @@ void dumpRemoteProcess2(u32 pid, u8* fileName) {
 			showDbg("readmemory addr = %08x, ret = %08x", base + off, ret);
 			goto final;
 		}
-		FSFILE_Write(hfile, &t, off, (u32*)buf, 0x1000, 0);
+		FSFILE_Write(hfile, &t, off, buf, 0x1000, 0);
 		off += 0x1000;
 	}
 	final:
@@ -302,11 +301,11 @@ void dumpRemoteProcess2(u32 pid, u8* fileName) {
 }
 
 
-void dumpCode(u32 base, u32 size, u8* fileName) {
+void dumpCode(u32 base, u32 size, char* fileName) {
 	u32 off = 0;
 	u8 tmpBuffer[0x1000];
 	Handle handle = 0;
-	u8 buf[200];
+	char buf[200];
 	u32 t = 0;
 	vu32 i;
 
@@ -355,7 +354,7 @@ u32 writeRemoteProcessMemory(int pid, u32 addr, u32 size, u32* buf) {
 }
 
 void initSMPatch() {
-	u32 hProcess = 0, ret;
+	u32 ret;
 	u32 buf[20];
 	//write(0x101820,(0x01,0x00,0xA0,0xE3,0x1E,0xFF,0x2F,0xE1),pid=0x3)
 	buf[0] = 0xe3a00001;
@@ -367,7 +366,7 @@ void initSMPatch() {
 }
 
 u32 showStartAddrMenu() {
-	u8* entries[8];
+	char* entries[8];
 	u32 r;
 	entries[0] = "0x00100000";
 	entries[1] = "0x08000000";
@@ -391,14 +390,14 @@ u32 showStartAddrMenu() {
 
 void processManager() {
 	u32 pids[100];
-	u32 ret, off, i, t;
-	u32 pidCount = 0;
-	u8 buf[800];
-	u8* captions[100];
-	u8 pidbuf[50];
-	u8 pname[20];
+	u32 off, t;
+	s32 ret, i, pidCount = 0;
+	char buf[800];
+	char* captions[100];
+	char pidbuf[50];
+	char pname[20];
 	u32 tid[4];
-	static dumpCnt = 0;
+	static int dumpCnt = 0;
 	u32 startAddr;
 
 	ret = svc_getProcessList(&pidCount, pids, 100);
@@ -416,11 +415,11 @@ void processManager() {
 	}
 
 	while(1) {
-		u32 r = showMenu("processList", pidCount, captions);
+		int r = showMenu("processList", pidCount, captions);
 		if (r == -1) {
 			return;
 		}
-		u8* actCaptions[] =  {"dump", "info"};
+		char* actCaptions[] =  {"dump", "info"};
 		u32 act = showMenu(captions[r], 2, actCaptions);
 		if (act == 0) {
 			xsprintf(pidbuf, "/dump_pid%x_%d.dmp", pids[r], dumpCnt);
@@ -431,7 +430,7 @@ void processManager() {
 		if (act == 1) {
 			ret = getProcessInfo(pids[r], pname, sizeof(pname), tid, &t);
 			if (ret == 0) {
-				showDbg("pname: %s", (u32)pname, 0);
+				showDbg("pname: %s", pname, 0);
 				showDbg("tid: %08x%08x", tid[1], tid[0]);
 			} else {
 				showDbg("getProcessInfo error: %d", ret, 0);

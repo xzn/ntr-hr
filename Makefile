@@ -42,8 +42,7 @@ $(PAYLOAD_LOCAL_BIN): $(PAYLOAD_LOCAL_ELF)
 $(PAYLOAD_LOCAL_ELF): $(OBJ)
 	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
-CC_WARNS = -Wno-int-conversion -Wno-implicit-function-declaration -Wno-incompatible-pointer-types -Wno-implicit-int -Wno-return-type -Wno-attribute-alias
-# CC_WARNS = -Wall -Wextra
+CC_WARNS = -Wall -Wextra
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
 NS_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS) -Iinclude/jpeg
@@ -67,7 +66,7 @@ obj/%.o: source/ns/%.c
 	$(NS_CC_CMD)
 
 obj/%.o: source/jpeg/%.c
-	$(NS_CC_CMD)
+	$(NS_CC_CMD) -Wno-attribute-alias -Wno-unused-variable -Wno-unused-parameter -Wno-unused-but-set-variable
 
 obj/ns_lto.o: $(NS_OBJ)
 	$(CC) -flto $(CFLAGS) -r -o $@ $^

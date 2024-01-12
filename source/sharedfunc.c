@@ -2,7 +2,7 @@
 
 
 
-void initSharedFunc() {
+void initSharedFunc(void) {
 
 	INIT_SHARED_FUNC(showDbgShared, 0);
 	INIT_SHARED_FUNC(nsDbgPrintShared, 1);

@@ -102,7 +102,7 @@ static u8 _net_error_code_map[] = { //This is based on the array from libogc net
 static s32 _net_convert_error(s32 sock_retval)//This is based on the function from libogc network_wii.c.
 {
 	if (sock_retval >= 0) return sock_retval;
-	if (sock_retval < -sizeof(_net_error_code_map)
+	if (sock_retval < -(int)(sizeof(_net_error_code_map))
 		|| !_net_error_code_map[-sock_retval])
 			return NET_UNKNOWN_ERROR_OFFSET + sock_retval;
 	return -_net_error_code_map[-sock_retval];
@@ -468,7 +468,7 @@ int socuipc_cmd9(int sockfd, const void *buf, int len, int flags, const struct s
 {
 	int ret=0;
 	u32 *cmdbuf = getThreadCommandBuffer();
-	u32 tmp_addrlen=0;
+	int tmp_addrlen=0;
 	u8 tmpaddr[0x1c];
 
 	memset(tmpaddr, 0, 0x1c);
@@ -520,7 +520,7 @@ int socuipc_cmda(int sockfd, const void *buf, int len, int flags, const struct s
 {
 	int ret=0;
 	u32 *cmdbuf = getThreadCommandBuffer();
-	u32 tmp_addrlen=0;
+	int tmp_addrlen=0;
 	u8 tmpaddr[0x1c];
 
 	memset(tmpaddr, 0, 0x1c);

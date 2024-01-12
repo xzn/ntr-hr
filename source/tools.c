@@ -16,7 +16,7 @@ u8 *image_buf = NULL;
 
 int sdf_open(char *filename, int mode)
 {
-	FS_archive sdmcArchive = { 0x9, (FS_path){ PATH_EMPTY, 1, (u8*)"" } };
+	FS_archive sdmcArchive = { 0x9, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };
 
 	Handle hd;
 	Result retv;
@@ -39,7 +39,7 @@ int sdf_read(int fd, int offset, void *buf, int size)
 	int read_size;
 	Result retv;
 
-	retv = FSFILE_Read(fd, (u32*)&read_size, offset, (u32*)buf, size);
+	retv = FSFILE_Read(fd, (u32*)&read_size, offset, buf, size);
 	if (retv < 0)
 		return retv;
 
@@ -51,7 +51,7 @@ int sdf_write(int fd, int offset, void *buf, int size)
 	int write_size;
 	Result retv;
 
-	retv = FSFILE_Write(fd, (u32*)&write_size, offset, (u32*)buf, size, 0);
+	retv = FSFILE_Write(fd, (u32*)&write_size, offset, buf, size, 0);
 	if (retv < 0)
 		return retv;
 
@@ -239,9 +239,8 @@ void do_screen_shoot(void)
 	u32 tl_pitch, bl_pitch;
 	u8 *rev_buf;
 	u32 fbP2VOffset = 0xc0000000;
-	u32 out_addr;
 
-	u32 workingBuffer;
+	u8 *workingBuffer = 0;
 
 	char name[64];
 
@@ -255,7 +254,7 @@ void do_screen_shoot(void)
 		workingBuffer = image_buf;
 	}
 	else {
-		workingBuffer = plgRequestTempBuffer(0xA0000);
+		workingBuffer = (u8 *)plgRequestTempBuffer(0xA0000);
 	}
 
 	if (workingBuffer == 0) {
@@ -299,7 +298,6 @@ void do_screen_shoot(void)
 
 u32 takeScreenShot() {
 	vu32 i;
-	u32 ret, out_addr;
 
 	for (i = 0; i < 0x1000000; i++) {
 	}
@@ -322,7 +320,7 @@ u32 getRegionSize(Handle hProcess, u32 addr) {
 	return size;
 }
 
-u32 fastCopyMemory(Handle hDst, u32 ptrDst, Handle hSrc, u32 ptrSrc, u32 size) {
+u32 fastCopyMemory(Handle hDst, u8 *ptrDst, Handle hSrc, u8 *ptrSrc, u32 size) {
 	u32 ret = 0;
 	ret = copyRemoteMemory(hDst, ptrDst, hSrc, ptrSrc, size);
 	if (ret == 0) {
@@ -349,11 +347,11 @@ u32 loadSaveVRAM(int fd, int isLoad) {
 		if (isLoad) {
 			ret = sdf_read(fd, off, image_buf, 0x00100000);
 			if (ret >= 0) {
-				memcpy(VRAM_ADDR + off, image_buf, 0x00100000);
+				memcpy((u8 *)VRAM_ADDR + off, image_buf, 0x00100000);
 			}
 		}
 		else {
-			memcpy(image_buf, VRAM_ADDR + off, 0x00100000);
+			memcpy(image_buf, (u8 *)VRAM_ADDR + off, 0x00100000);
 			ret = sdf_write(fd, off, image_buf, 0x00100000);
 		}
 		if (ret < 0) {
@@ -375,7 +373,7 @@ u32 saveRegion(Handle hProcess, u32 addr, int fd, u32 offsetInFile, u32 size) {
 		if (currentRead > 0x00100000) {
 			currentRead = 0x00100000;
 		}
-		ret = fastCopyMemory(CURRENT_PROCESS_HANDLE, image_buf, hProcess, addr + off, currentRead);
+		ret = fastCopyMemory(CURRENT_PROCESS_HANDLE, image_buf, hProcess, (u8 *)addr + off, currentRead);
 		if (ret != 0) {
 			return ret;
 		}
@@ -395,7 +393,7 @@ u32 loadRegion(Handle hProcess, u32 addr, int fd, u32 offsetInFile, u32 size) {
 			currentRead = 0x00100000;
 		}
 		sdf_read(fd, off + offsetInFile, image_buf, currentRead);
-		ret = fastCopyMemory(hProcess, addr + off, CURRENT_PROCESS_HANDLE, image_buf, currentRead);
+		ret = fastCopyMemory(hProcess, (u8 *)addr + off, CURRENT_PROCESS_HANDLE, image_buf, currentRead);
 		if (ret != 0) {
 			return ret;
 		}
@@ -430,7 +428,7 @@ u32 instantSave(int id, int isLoad) {
 		goto final;
 	}
 
-	u8 buf[40];
+	char buf[40];
 	xsprintf(buf, "/save_%08x_%d.rts", g_plgInfo->tid[0], id);
 	fd = sdf_open(buf, isLoad ? O_RDWR : (O_RDWR | O_CREAT));
 	if (fd <= 0) {
@@ -494,20 +492,20 @@ u32 instantSave(int id, int isLoad) {
 u32 instantSaveMenu() {
 	if (ntrConfig->memMode != NTR_MEMMODE_DEFAULT) {
 		showMsg("RTS is not compatitable with extended memory mode.");
-		return;
+		return 1;
 	}
 	if (!image_buf) {
 		allocImageBuf();
 	}
 	if (image_buf == NULL){
-		return;
+		showMsg("FATAL image buffer alloc failed.");
+		return 1;
 	}
 
-	u8* entries[7];
-	u8 buf[5][20];
+	char* entries[7];
+	char buf[5][20];
 
-	u32 r;
-	int i;
+	int r, i;
 	for (i = 0; i < 3; i++) {
 		xsprintf(buf[i], plgTranslate("Save %d"), i);
 		xsprintf(buf[i + 3], plgTranslate("Load %d"), i);
@@ -536,10 +534,9 @@ u32 instantSaveMenu() {
 
 
 u32 cpuClockUi() {
-	u8 buf[200];
 	acquireVideo();
-	u8* entries[8];
-	u32 r;
+	char* entries[8];
+	int r;
 	entries[0] = plgTranslate("268MHz, L2 Disabled (Default)");
 	entries[1] = plgTranslate("804MHz, L2 Disabled");
 	entries[2] = plgTranslate("268MHz, L2 Enabled");
@@ -609,9 +606,9 @@ void plgDoPowerOff() {
 
 u32 powerMenu() {
 	acquireVideo();
-	u8* entries[8];
-	u32 r;
-	vu32 i;
+	char* entries[8];
+	int r;
+	// vu32 i;
 	entries[0] = plgTranslate("Reboot");
 	entries[1] = plgTranslate("Power Off");
 	while (1) {
@@ -620,14 +617,16 @@ u32 powerMenu() {
 			break;
 		}
 		if (r == 0) {
-			for (i = 0; i < 0x05000000; i++) {
-			}
+			// for (i = 0; i < 0x05000000; i++) {
+			// }
+			svc_sleepThread(0x05000000);
 			plgDoReboot();
 			break;
 		}
 		if (r == 1) {
-			for (i = 0; i < 0x05000000; i++) {
-			}
+			// for (i = 0; i < 0x05000000; i++) {
+			// }
+			svc_sleepThread(0x05000000);
 			plgDoPowerOff();
 			break;
 		}
@@ -658,7 +657,7 @@ int checkBacklightSupported() {
 		return 0;
 	}
 	gspPatchAddr = 0x0010740C;
-	copyRemoteMemory(getCurrentProcessHandle(), buf, hGSPProcess, gspPatchAddr, 16);
+	copyRemoteMemory(getCurrentProcessHandle(), buf, hGSPProcess, (void *)gspPatchAddr, 16);
 
 	if (memcmp(buf, desiredHeader, 16) == 0) {
 		goto requirePatch;
@@ -666,7 +665,7 @@ int checkBacklightSupported() {
 
 	// 11.3.0
 	gspPatchAddr = 0x0010743C;
-	copyRemoteMemory(getCurrentProcessHandle(), buf, hGSPProcess, gspPatchAddr, 16);
+	copyRemoteMemory(getCurrentProcessHandle(), buf, hGSPProcess, (void *)gspPatchAddr, 16);
 
 	if (memcmp(buf, desiredHeader, 16) == 0) {
 		goto requirePatch;
@@ -697,7 +696,6 @@ int patchGSP() {
 		return 0;
 	}
 	u32 ret;
-	Handle hGSPProcess = 0;
 	u32 buf[4] = { 0, 0 };
 	ret = writeRemoteProcessMemory(GSPPid, gspPatchAddr + 0x68, 4, buf);
 	ret = writeRemoteProcessMemory(GSPPid, gspPatchAddr + 0xC8, 4, buf);
@@ -742,7 +740,7 @@ u32 backlightMenu() {
 	if (isGSPPatchRequired) {
 		patchGSP();
 	}
-	u8 buf[50];
+	char buf[50];
 	while (1) {
 		blank(0, 0, 320, 240);
 		xsprintf(buf, "backlight: %d", bklightValue);
@@ -771,10 +769,9 @@ u32 backlightMenu() {
 
 u32 nightShiftUi() {
 	int configUpdated = 0;
-	u8 buf[200];
 	acquireVideo();
-	u8* entries[11];
-	u32 r;
+	char* entries[11];
+	int r;
 	entries[0] = plgTranslate("Disabled");
 	entries[1] = plgTranslate("Reduce Blue Light Level 1");
 	entries[2] = plgTranslate("Reduce Blue Light Level 2");
@@ -808,10 +805,7 @@ u32 nightShiftUi() {
 	}
 	return 1;
 }
-int screenshotMain() {
-	u32 retv;
-
-
+void screenshotMain(void) {
 	nsDbgPrint("initializing screenshot plugin\n");
 	plgRegisterMenuEntry(1, plgTranslate("Take Screenshot"), takeScreenShot);
 	plgRegisterMenuEntry(1, plgTranslate("Real-Time Save (Experimental)"), instantSaveMenu);
@@ -829,7 +823,6 @@ int screenshotMain() {
 	}
 
 	plgRegisterMenuEntry(1, plgTranslate("Screen Filter"), nightShiftUi);
-
 }
 
 

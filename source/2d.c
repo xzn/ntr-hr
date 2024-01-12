@@ -5,7 +5,7 @@
 
 
 
-void paint_square(int x, int y, char r, char g, char b, int w, int h, int screen){
+void paint_square(int x, int y, u8 r, u8 g, u8 b, int w, int h, int screen){
   int x1, y1;
 
   for (x1 = x; x1 < x+w; x1++){
@@ -15,7 +15,7 @@ void paint_square(int x, int y, char r, char g, char b, int w, int h, int screen
   }
 }
 
-void paint_pixel(u32 x, u32 y, char r, char g, char b, int screen){
+void paint_pixel(u32 x, u32 y, u8 r, u8 g, u8 b, int screen){
 	if (x >= BOTTOM_WIDTH) {
 		return;
 	}
@@ -31,13 +31,12 @@ void blank(int x, int y, int xs, int ys){
   paint_square(x,y,255,255,255,xs,ys,BOTTOM_FRAME2);
 }
 
-void paint_letter(u8 letter, int x, int y, char r, char g, char b, int screen){
+void paint_letter(char letter, int x, int y, u8 r, u8 g, u8 b, int screen) {
 
 	int i;
 	int k;
 	int c;
 	unsigned char mask;
-	unsigned char* _letter;
 	unsigned char l;
 	if ((letter < 32) || (letter > 127)) {
 		letter = '?';
@@ -57,9 +56,9 @@ void paint_letter(u8 letter, int x, int y, char r, char g, char b, int screen){
 		}
 	}
 }
-void paint_word(char* word, int x,int y, char r, char g, char b, int screen){
+void paint_word(char* word, int x,int y, u8 r, u8 g, u8 b, int screen){
     int tmp_x =x;
-    int i;
+    unsigned int i;
     int line = 0;
 
     for (i = 0; i <strlen(word); i++){

@@ -21,7 +21,7 @@
 // void xputs (const char* str, char **outptr, void (*out_func)(unsigned char));
 // void xvprintf (char **outptr, void (*out_func)(unsigned char), const char* fmt, va_list arp);
 void xsprintf (char* buff, const char* fmt, ...);
-void xfvprintf (void (*out_func)(unsigned char), const char* fmt, va_list arp);
+void xfvprintf (void (*out_func)(char), const char* fmt, va_list arp);
 #if _USE_XFUNC_OUT_EXTRA
 void xfputs (void (*func)(unsigned char), const char* str);
 void xfprintf (void (*func)(unsigned char), const char*	fmt, ...);

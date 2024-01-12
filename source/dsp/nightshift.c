@@ -181,7 +181,7 @@ static inline __attribute__((always_inline)) u32 plgNightShift3(u32 addr, u32 st
                         REPEAT_8(NIGHT_SHIFT_RGB565_B_G_UNALIGNED(levelb, levelg));
                         REPEAT_8(NIGHT_SHIFT_RGB565_B_G_UNALIGNED(levelb, levelg));
                     } else {
-                        u16 pix, b, g;
+                        u16 pix, b;
                         REPEAT_8(NIGHT_SHIFT_RGB565_B_UNALIGNED(levelb));
                         REPEAT_8(NIGHT_SHIFT_RGB565_B_UNALIGNED(levelb));
                     }
@@ -219,7 +219,7 @@ static inline __attribute__((always_inline)) u32 plgScreenFilter(u32 addr, u32 s
 			u16* sp = (u16*)addr;
 			u16* spEnd = (u16*)(addr + 240 * 2);
 			while (sp < spEnd) {
-				u16 pix, b, g, r, gray;
+				u16 pix, gray;
 				if (type == 1) {
 					REPEAT_4(INVERT_RGB565_UNALIGNED());
 					REPEAT_4(INVERT_RGB565_UNALIGNED());
