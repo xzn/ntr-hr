@@ -2022,7 +2022,7 @@ static void rpThreadStart(void *arg) {
 	// kRemotePlayCallback();
 
 	while (1) {
-		if (g_nsConfig->rpConfig.coreCount < 0)
+		if (g_nsConfig->rpConfig.coreCount < 1)
 			g_nsConfig->rpConfig.coreCount = 1;
 		else if (g_nsConfig->rpConfig.coreCount > rp_thread_count)
 			g_nsConfig->rpConfig.coreCount = rp_thread_count;
@@ -2989,7 +2989,8 @@ void nsHandleSaveFile() {
 	NS_PACKET* pac = &(g_nsCtx->packetBuf);
 	u32 remain = pac->dataLen;
 	u8 buf[0x220];
-	u32 ret, hFile;
+	int ret;
+	Handle hFile;
 	u32 off = 0, tmp;
 
 	if ((ret = nsRecvPacketData(buf, 0x200)) < 0) {
