@@ -364,7 +364,7 @@ int rpCtxInit(BLIT_CONTEXT* ctx, int width, int height, int format, u8* src) {
 
 static u32 rpLastSendTick = 0;
 
-static u8 rp_nwm_work_skip[rp_work_count];
+// static u8 rp_nwm_work_skip[rp_work_count];
 static int rp_nwm_work_next, rp_nwm_thread_next;
 static u8 rpDataBufHdr[rp_work_count][rp_data_hdr_size];
 
@@ -578,7 +578,7 @@ int rpTrySendNextBuffer(int work_flush) {
 	int work_next = rp_nwm_work_next;
 	int thread_id = rp_nwm_thread_next;
 
-#if 1
+#if 0
 	if (rp_nwm_work_skip[work_next]) {
 		rp_nwm_work_skip[work_next] = 0;
 
@@ -1708,8 +1708,6 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			ctx->id = (u8)currentBottomId;
 			ctx->isTop = 0;
 		}
-		rpReadyWork(ctx, work_next);
-		rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
 
 		s32 res = svc_waitSynchronization1(rpHDma[work_next], 1000000000);
 		if (res) {
@@ -1727,6 +1725,10 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		if (!skip_frame) {
 			imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % rp_screen_work_count;
 			currentUpdating ? ++currentTopId : ++currentBottomId;
+
+			rpReadyWork(ctx, work_next);
+			rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
+
 		}
 
 		s32 count;
@@ -1751,8 +1753,8 @@ int rpSendFramesStart(int thread_id, int work_next) {
 	// nsDbgPrint("(%d) skip_frame (%d): %d\n", thread_id, work_next, (int)skip_frame);
 	if (!skip_frame)
 		rpSendFramesBody(thread_id, ctx, work_next);
-	else if (thread_id == rp_nwm_thread_id) {
-		rp_nwm_work_skip[work_next] = 1;
+	// else if (thread_id == rp_nwm_thread_id) {
+		// rp_nwm_work_skip[work_next] = 1;
 		// while (rp_nwm_work_next != work_next) {
 		// 	if (rpTrySendNextBuffer(1)) {
 		// 		u32 sleepValue = rpMinIntervalBetweenPacketsInTick * 1000 / SYSTICK_PER_US;
@@ -1764,7 +1766,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		// if (res) {
 		// 	nsDbgPrint("svc_releaseSemaphore sem_nwm (%d) failed: %d\n", work_next, res);
 		// }
-	}
+	// }
 
 final:
 	if (__atomic_add_fetch(&syn->sem_count, 1, __ATOMIC_RELAXED) == (int)rpConfig.coreCount) {
@@ -1922,10 +1924,10 @@ static void rpSendFrames() {
 		}
 		nextScreenCaptured[rp_work_next] = 0;
 
-		// int ret =
+		int ret =
 			rpSendFramesStart(0, rp_work_next);
 
-		// if (ret == 0)
+		if (ret == 0)
 			rp_work_next = (rp_work_next + 1) % rp_work_count;
 	}
 
@@ -1965,10 +1967,10 @@ static void rpAuxThreadStart(u32 thread_id) {
 			continue;
 		}
 
-		// res =
+		res =
 			rpSendFramesStart(thread_id, work_next);
 
-		// if (res == 0)
+		if (res == 0)
 			work_next = (work_next + 1) % rp_work_count;
 	}
 	svc_exitThread();
@@ -2031,7 +2033,7 @@ static void rpThreadStart(void *) {
 		rpResetThreads = 0;
 
 		for (int i = 0; i < rp_work_count; ++i) {
-			rp_nwm_work_skip[i] = 0;
+			// rp_nwm_work_skip[i] = 0;
 
 			for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
 				struct rpDataBufInfo_t *info = &rpDataBufInfo[i][j];
@@ -2041,6 +2043,10 @@ static void rpThreadStart(void *) {
 
 				jpeg_progress[i][j] = 0;
 			}
+			jpeg_rows[i] = 0;
+			jpeg_rows_last[i] = 0;
+			jpeg_adjusted_rows[i] = 0;
+			jpeg_adjusted_rows_last[i] = 0;
 		}
 		rp_nwm_work_next = rp_nwm_thread_next = 0;
 		rp_work_next = 0;
