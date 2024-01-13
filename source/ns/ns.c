@@ -1833,7 +1833,7 @@ static void rpSendFrames() {
 				cinfos[j]->quant_tbl_ptrs[i] = cinfos[0]->quant_tbl_ptrs[i];
 
 		for (int i = 0; i < rp_work_count; ++i) {
-			for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
+			for (int j = 0; j < rp_thread_count /* (int)rpConfig.coreCount */; ++j) {
 				if (!alloc_stats_top[i][j].qual.offset) {
 					memcpy(&alloc_stats_top[i][j].qual, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
 				} else {
@@ -2037,8 +2037,6 @@ static void rpThreadStart(void *) {
 
 		for (int i = 0; i < rp_work_count; ++i) {
 			// rp_nwm_work_skip[i] = 0;
-			rp_nwm_frame_skipped = 0;
-
 			for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
 				struct rpDataBufInfo_t *info = &rpDataBufInfo[i][j];
 				info->sendPos = info->pos = rpDataBuf[i][j] + rp_data_hdr_size;
@@ -2052,6 +2050,7 @@ static void rpThreadStart(void *) {
 			jpeg_adjusted_rows[i] = 0;
 			jpeg_adjusted_rows_last[i] = 0;
 		}
+		rp_nwm_frame_skipped = 0;
 		rp_nwm_work_next = rp_nwm_thread_next = 0;
 		rp_work_next = 0;
 
