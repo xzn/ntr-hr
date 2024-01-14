@@ -358,11 +358,16 @@ void startupFromInject() {
 
 extern int _BootArgs[];
 
-void injectToHomeMenu() {
+int injectToHomeMenu() {
 	NS_CONFIG cfg;
 	memset(&cfg, 0, sizeof(NS_CONFIG));
 	Handle hProcess = 0;
-	svc_openProcess(&hProcess, ntrConfig->HomeMenuPid);
+	int ret;
+	ret = svc_openProcess(&hProcess, ntrConfig->HomeMenuPid);
+	if (ret != 0) {
+		showDbg("Failed to open home menu process: %d", ret, 0);
+		goto final;
+	}
 
 	u32* bootArgs = (void*)(arm11BinStart + 4);
 	bootArgs[0] = 1;
@@ -371,14 +376,15 @@ void injectToHomeMenu() {
 		disp(100, 0x17f7f7f);
 	}
 
-	int ret;
 	ret = nsAttachProcess(hProcess, ntrConfig->HomeMenuInjectAddr, &cfg, 1);
 	svc_closeHandle(hProcess);
 
 	if (ret != 0) {
-		showDbg("Inject to home menu failed: %d", ret, 0);
-		svc_sleepThread(1000000000);
+		showDbg("Attach to home menu process failed: %d", ret, 0);
 	}
+
+final:
+	return ret;
 }
 
 void doSomething() {
@@ -500,7 +506,15 @@ int main(void) {
 			doSomethingInitSrv();
 			disp(100, 0x1ff0000);
 			showDbg("homemenu ver: %08x", ntrConfig->HomeMenuVersion, 0);
-			injectToHomeMenu();
+			int tries = 5;
+			while (injectToHomeMenu() != 0) {
+				svc_sleepThread(1000000000);
+				if (--tries == 0) {
+					showMsg("giving up");
+					svc_sleepThread(1000000000);
+					break;
+				}
+			}
 		}
 
 		//dumpRemoteProcess(0xf, "/pidf");
