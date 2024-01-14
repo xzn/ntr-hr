@@ -29,6 +29,7 @@ Features unrelated to streaming are unchanged and should continues to work with 
 - Crash/fail to initialize on occasions when starting NTR, or when starting remote play.
 - Some games are not compatible with streaming.
 - When cheat plugins have been loaded, launching another game (or the same game again) would hang for certain plugins.
+- - [CTRPluginFramework](https://github.com/Nanquitas/CTRPluginFramework-BlankTemplate) is known to hang the launching of next game. Most simpler plugins should no longer cause a hang.
 - [UWPStreamer](https://github.com/toolboc/UWPStreamer) flickers and crashes sometimes.
 - 3DS web browser will crash if used with remote play.
 
