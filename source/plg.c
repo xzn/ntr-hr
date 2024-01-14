@@ -278,7 +278,7 @@ void plgShowMainMenu(void) {
 	u32 mainEntries;
 	u32 localaddr = gethostid();
 
-	debounceKey();
+	// debounceKey();
 	entries[0] = plgTranslate("Remote Play");
 	entries[1] = plgTranslate("Process Manager");
 	entries[2] = plgTranslate("Enable Debugger");
@@ -341,8 +341,8 @@ void plgShowMainMenu(void) {
 	}
 
 	releaseVideo();
-	debounceKey();
-	delayUi();
+	// debounceKey();
+	// delayUi();
 }
 
 u32 plgRegisterMenuEntry(u32 catalog, char* title, void* callback) {
@@ -436,6 +436,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	u32 pid = 0;
 	svc_getProcessId(&pid, hProcess);
 	plgInfo.gamePluginPid = pid;
+	rpSetGamePid(pid);
 	copyRemoteMemory(hMenuProcess, (void*)plgPoolStart, 0xffff8001, &plgInfo, sizeof(PLGLOADER_INFO));
 
 	if (plgInfo.plgCount == 0) {
@@ -634,7 +635,6 @@ u32 plgLoadPluginsFromDirectory(char* dir) {
 RT_HOOK	aptPrepareToStartApplicationHook;
 typedef u32(*aptPrepareToStartApplicationTypeDef) (u32 a1, u32 a2, u32 a3);
 
-void rpResetGameHandle(int status);
 u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	u32* tid = (u32*)a1;
 	nsDbgPrint("starting app: %08x%08x\n", tid[1], tid[0]);
@@ -651,17 +651,13 @@ u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 
 	if (g_plgInfo->plgCount)
 		nsDbgPrint("plugins loaded: %d (total size %08x)\n", g_plgInfo->plgCount, plgNextLoadAddr);
+	rpSetGamePid(0);
 	s32 res = ((aptPrepareToStartApplicationTypeDef)((void*)(aptPrepareToStartApplicationHook.callCode)))(a1, a2, a3);
 	// nsDbgPrint("app started: 0x%08x\n", res);
-	if (res == 0) {
-		rpResetGameHandle(1);
-	} else {
-		rpResetGameHandle(-1);
-	}
 	return res;
 }
 
-void injectPM() {
+int injectPM() {
 	NS_CONFIG cfg;
 	u32 pid = ntrConfig->PMPid, ret;
 	Handle hProcess;
@@ -676,11 +672,12 @@ void injectPM() {
 		goto final;
 	}
 	cfg.debugMore = g_nsConfig->debugMore;
-	nsAttachProcess(hProcess, remotePC, &cfg, 1);
-	final:
+	ret = nsAttachProcess(hProcess, remotePC, &cfg, 1);
+final:
 	if (hProcess != 0) {
 		svc_closeHandle(hProcess);
 	}
+	return ret;
 }
 
 void startHomePlugin() {
@@ -748,7 +745,15 @@ void plgInitFromInjectHOME(void) {
 	rtInitHook(&aptPrepareToStartApplicationHook, ntrConfig->HomeAptStartAppletAddr, (u32)aptPrepareToStartApplicationCallback);
 	rtEnableHook(&aptPrepareToStartApplicationHook);
 
-	injectPM();
+	int tries = 5;
+	while (injectPM() != 0) {
+		svc_sleepThread(1000000000);
+		if (--tries == 0) {
+			showMsg("giving up");
+			svc_sleepThread(1000000000);
+			break;
+		}
+	}
 }
 
 

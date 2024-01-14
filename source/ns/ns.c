@@ -1458,7 +1458,7 @@ void rpKernelCallback(int isTop) {
 	}
 }
 
-Handle rpHDma[rp_work_count], rpHandleHome, rpHandleGame;
+Handle rpHDma[rp_work_count], rpHandleHome, rpHandleGame, rpGamePid;
 u32 rpGameFCRAMBase = 0;
 
 void rpInitDmaHome() {
@@ -1471,22 +1471,19 @@ void rpCloseGameHandle(void) {
 		svc_closeHandle(rpHandleGame);
 		rpHandleGame = 0;
 		rpGameFCRAMBase = 0;
+		rpGamePid = 0;
 	}
 }
 
 Handle rpGetGameHandle() {
-	int i, res;
+	int /* i, */ res;
 	Handle hProcess;
-	u32 pids[100];
-	s32 pidCount;
+	// u32 pids[100];
+	// s32 pidCount;
 
-	int lock;
-	if ((lock = __atomic_load_n(&g_nsConfig->rpGameLock, __ATOMIC_RELAXED))) {
-		__atomic_store_n(&g_nsConfig->rpGameLock, 0, __ATOMIC_RELAXED);
+	u32 gamePid = __atomic_load_n(&g_nsConfig->rpGamePid, __ATOMIC_RELAXED);
+	if (gamePid != rpGamePid) {
 		rpCloseGameHandle();
-		if (lock < 0) {
-			svc_sleepThread(1000000000);
-		}
 	}
 
 	if (rpHandleGame == 0) {
@@ -1499,7 +1496,7 @@ Handle rpGetGameHandle() {
 				break;
 			}
 		}
-#else
+#elif 0
 		res = svc_getProcessList(&pidCount, pids, 100);
 		if (res == 0) {
 			for (i = 0; i < pidCount; ++i) {
@@ -1512,6 +1509,15 @@ Handle rpGetGameHandle() {
 				}
 				break;
 			}
+		}
+#else
+		if (gamePid == 0) {
+			return 0;
+		}
+		res = svc_openProcess(&hProcess, gamePid);
+		if (res == 0) {
+			rpHandleGame = hProcess;
+			rpGamePid = gamePid;
 		}
 #endif
 		if (rpHandleGame == 0) {
@@ -1526,12 +1532,11 @@ Handle rpGetGameHandle() {
 			rpGameFCRAMBase = 0x30000000;
 		}
 		else {
-			svc_closeHandle(rpHandleGame);
-			rpHandleGame = 0;
+			rpCloseGameHandle();
 			return 0;
 		}
 
-		nsDbgPrint("game process: pid 0x%04x, fcram 0x%08x\n", pids[i], rpGameFCRAMBase);
+		nsDbgPrint("game process: pid 0x%04x, fcram 0x%08x\n", gamePid, rpGameFCRAMBase);
 	}
 	return rpHandleGame;
 }
@@ -2303,9 +2308,9 @@ int rpSetExitFlag(void) {
 	return 0;
 }
 
-void rpResetGameHandle(int status) {
-	if (!__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED))
-		return;
+void rpSetGamePid(u32 gamePid) {
+	// if (!__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED))
+	// 	return;
 
 	Handle hProcess;
 	u32 pid = 0x1a;
@@ -2317,12 +2322,12 @@ void rpResetGameHandle(int status) {
 
 	ret = copyRemoteMemory(
 		hProcess,
-		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpGameLock),
+		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpGamePid),
 		0xffff8001,
-		&status,
-		sizeof(status));
+		&gamePid,
+		sizeof(gamePid));
 	if (ret != 0) {
-		nsDbgPrint("copyRemoteMemory rpGameLock failed: %08x\n", ret, 0);
+		nsDbgPrint("copyRemoteMemory rpGamePid failed: %08x\n", ret, 0);
 	}
 
 	svc_closeHandle(hProcess);
@@ -3724,8 +3729,8 @@ void nsHandleAttachProcess() {
 		hProcess = 0;
 		goto final;
 	}
-	nsAttachProcess(hProcess, remotePC, &cfg, 0);
-	nsDbgPrint("will listen at port %d \n", pid + 5000);
+	if (nsAttachProcess(hProcess, remotePC, &cfg, 0) == 0)
+		nsDbgPrint("will listen at port %d \n", pid + 5000);
 	final:
 	if (hProcess != 0) {
 		svc_closeHandle(hProcess);

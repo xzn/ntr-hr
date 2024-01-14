@@ -85,7 +85,7 @@ typedef struct _NS_CONFIG {
 	NTR_CONFIG ntrConfig;
 	RP_CONFIG rpConfig;
 	u32 rpConfigLock;
-	s32 rpGameLock;
+	u32 rpGamePid;
 	u32 debugMore;
 } NS_CONFIG;
 
@@ -170,10 +170,11 @@ void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr);
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion);
 u32 rtGenerateJumpCode(u32 dst, u32* buf);
 
+int isInVRAM(u32 phys);
 void nsInitDebug(void);
 void nsInit(void);
 
 extern u8 nsIsRemotePlayStarted;
 int remotePlayMenu(u32 localaddr);
 void rpMain(void);
-
+void rpSetGamePid(u32 pid);

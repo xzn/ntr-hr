@@ -312,6 +312,13 @@ u32 decideBottomFrameBufferAddr() {
 			return 0x1F500000;
 		}
 	}
+	if (
+		isInVRAM(REG(IoBasePdc + 0x468)) ||
+		isInVRAM(REG(IoBasePdc + 0x46c)) ||
+		isInVRAM(REG(IoBasePdc + 0x568)) ||
+		isInVRAM(REG(IoBasePdc + 0x56c))
+	)
+		return 0x1F500000;
 	return 0x1F000000;
 }
 
