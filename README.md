@@ -16,6 +16,8 @@ This fork attempts to improve the wireless streaming aspect of the homebrew. Cur
 - No more green tint when streaming games with RGB565 output (e.g. SMT4)
 - Can now update quality setting, QoS, and screen priority settings while streaming
 - New menu item in NTR menu (accessed by X + Y), can be used to change viewer's port and other settings
+- - Has NFC patching functionality
+- - Can start Remote Play from the menu and change viewer's IP
 - Skip duplicate frames (when actual frame rate is lower than how fast NTR can encode)
 - - Should lead to better frame pacing
 - Stability increase
