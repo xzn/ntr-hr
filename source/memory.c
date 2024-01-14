@@ -13,7 +13,7 @@ void write_color(u32 address, u8 r, u8 g, u8 b){
 }
 
 void write_byte(u32 address, u8 byte){
-  char *a = (char*) address;
+  u8 *a = (u8 *) address;
   *a = byte;
 }
 

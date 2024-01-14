@@ -69,9 +69,10 @@ u32 plgRequestMemory(u32 size) {
 u32 plgRequestMemorySpecifyRegion(u32 size, int sysRegion) {
 	u32 ret, outAddr, addr;
 
-	if ((size & 0xfff) != 0) {
-		return 0;
-	}
+	// if ((size & 0xfff) != 0) {
+	// 	return 0;
+	// }
+	size = rtAlignToPageSize(size);
 	if (!plgMemoryPoolEnd) {
 		plgMemoryPoolEnd = plgMemoryPoolStart;
 	}
@@ -275,6 +276,7 @@ void plgShowMainMenu(void) {
 	u32 entid[70];
 	u32 pos = 0, i;
 	u32 mainEntries;
+	u32 localaddr = gethostid();
 
 	debounceKey();
 	entries[0] = plgTranslate("Remote Play");
@@ -315,7 +317,7 @@ void plgShowMainMenu(void) {
 			}
 		}
 		else if (r == 0) {
-			int ret = remotePlayMenu();
+			int ret = remotePlayMenu(localaddr);
 			if (ret) {
 				break;
 			}

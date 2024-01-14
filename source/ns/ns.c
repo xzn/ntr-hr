@@ -285,6 +285,32 @@ int	initUDPPacket(u8 *rpNwmBufferCur, int dataLen) {
 	return dataLen;
 }
 
+void updateCurrentDstAddr(u32 dstAddr) {
+	g_nsConfig->rpConfig.dstAddr = dstAddr;
+	do {
+		Handle hProcess;
+		u32 pid = ntrConfig->HomeMenuPid;
+		int ret = svc_openProcess(&hProcess, pid);
+		if (ret != 0) {
+			nsDbgPrint("openProcess failed: %08x\n", ret, 0);
+			break;
+		}
+
+		ret = copyRemoteMemory(
+			hProcess,
+			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig) + offsetof(RP_CONFIG, dstAddr),
+			0xffff8001,
+			&g_nsConfig->rpConfig.dstAddr,
+			sizeof(g_nsConfig->rpConfig.dstAddr));
+		if (ret != 0) {
+			nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
+		}
+
+		svc_closeHandle(hProcess);
+	} while (0);
+
+}
+
 
 #define GL_RGBA8_OES (0)
 #define GL_RGB8_OES (1)
@@ -381,11 +407,11 @@ int rpDataBufFilled(struct rpDataBufInfo_t *info, u8 **pos, int *flag) {
 	return info->sendPos < *pos || *flag;
 }
 
-void rpReadyNwm(int thread_id, int work_next, int id, int isTop) {
+void rpReadyNwm(int /* thread_id */, int work_next, int id, int isTop) {
 	while (1) {
-		s32 res = svc_waitSynchronization1(rp_work_syn[work_next]->sem_nwm, 1000000000);
+		s32 res = svc_waitSynchronization1(rp_work_syn[work_next]->sem_nwm, 100000000 /* 1000000000 */);
 		if (res) {
-			nsDbgPrint("(%d) svc_waitSynchronization1 sem_nwm (%d) failed: %d\n", thread_id, work_next, res);
+			// nsDbgPrint("(%d) svc_waitSynchronization1 sem_nwm (%d) failed: %d\n", thread_id, work_next, res);
 			checkExitFlag();
 			continue;
 		}
@@ -1712,9 +1738,9 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		}
 
 		s32 res = svc_waitSynchronization1(rpHDma[work_next], 1000000000);
-		if (res) {
-			nsDbgPrint("(%d) svc_waitSynchronization1 rpHDma (%d) failed: %d\n", thread_id, work_next, res);
-		}
+		// if (res) {
+			// nsDbgPrint("(%d) svc_waitSynchronization1 rpHDma (%d) failed: %d\n", thread_id, work_next, res);
+		// }
 
 		int imgBuffer_work_prev = imgBuffer_work_next[ctx->isTop];
 		if (imgBuffer_work_prev == 0)
@@ -1913,7 +1939,7 @@ static void rpSendFrames() {
 		checkExitFlag();
 
 		if (g_nsConfig->rpConfig.dstAddr == 0) {
-			g_nsConfig->rpConfig.dstAddr = rpConfig.dstAddr;
+			updateCurrentDstAddr(rpConfig.dstAddr);
 			rpDstAddrChanged = 1;
 		}
 
@@ -1964,9 +1990,9 @@ static void rpAuxThreadStart(u32 thread_id) {
 
 		struct rp_work_syn_t *syn = rp_work_syn[work_next];
 
-		res = svc_waitSynchronization1(syn->sem_start, 1000000000);
+		res = svc_waitSynchronization1(syn->sem_start, 100000000 /* 1000000000 */);
 		if (res) {
-			nsDbgPrint("(%d) svc_waitSynchronization1 sem_start (%d) failed: %d\n", thread_id, work_next, res);
+			// nsDbgPrint("(%d) svc_waitSynchronization1 sem_start (%d) failed: %d\n", thread_id, work_next, res);
 			continue;
 		}
 
@@ -2179,7 +2205,7 @@ int nwmValParamCallback(u8* buf, int /*buflen*/) {
 			u8 needUpdate = 0;
 
 			if ((tcp_hit && rpDstAddrChanged) || udp_hit) {
-				g_nsConfig->rpConfig.dstAddr = daddr;
+				updateCurrentDstAddr(daddr);
 				rpDstAddrChanged = 0;
 				if (daddr != rpConfig.dstAddr) {
 					rpConfig.dstAddr = daddr;
@@ -2221,7 +2247,7 @@ int nwmValParamCallback(u8* buf, int /*buflen*/) {
 		printNwMHdr();
 		initUDPPacket(rpNwmHdr, PACKET_SIZE);
 
-		g_nsConfig->rpConfig.dstAddr = rpConfig.dstAddr = daddr;
+		updateCurrentDstAddr((rpConfig.dstAddr = daddr));
 		rpDstAddrChanged = 0;
 		threadStack = (u32 *)plgRequestMemory(rpThreadStackSize);
 		ret = svc_createThread(&hThread, (void*)rpThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 2);
@@ -2710,34 +2736,33 @@ void ipAddrMenu(u32 *addr) {
 	}
 }
 
-int remotePlayMenu(void) {
-	u32 daddrCurrent = 0;
-	do {
-		Handle hProcess;
-		u32 pid = 0x1a;
-		int ret = svc_openProcess(&hProcess, pid);
-		if (ret != 0) {
-			nsDbgPrint("openProcess failed: %08x\n", ret, 0);
-			break;
-		}
+int remotePlayMenu(u32 localaddr) {
+	u32 daddrCurrent = REG(&g_nsConfig->rpConfig.dstAddr);
+	// do {
+	// 	Handle hProcess;
+	// 	u32 pid = 0x1a;
+	// 	int ret = svc_openProcess(&hProcess, pid);
+	// 	if (ret != 0) {
+	// 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
+	// 		break;
+	// 	}
 
-		ret = copyRemoteMemory(
-			0xffff8001,
-			&daddrCurrent,
-			hProcess,
-			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig) + offsetof(RP_CONFIG, dstAddr),
-			sizeof(daddrCurrent));
-		if (ret != 0) {
-			nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
-		}
+	// 	ret = copyRemoteMemory(
+	// 		0xffff8001,
+	// 		&daddrCurrent,
+	// 		hProcess,
+	// 		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig) + offsetof(RP_CONFIG, dstAddr),
+	// 		sizeof(daddrCurrent));
+	// 	if (ret != 0) {
+	// 		nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
+	// 	}
 
-		svc_closeHandle(hProcess);
-	} while (0);
+	// 	svc_closeHandle(hProcess);
+	// } while (0);
 
 	rpConfig.dstAddr = daddrCurrent;
 	u32 select = 0;
 	RP_CONFIG config = rpConfig;
-	u32 localaddr = gethostid();
 	u8 *dstAddr4 = (u8 *)&config.dstAddr;
 
 	/* default values */
@@ -3593,7 +3618,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion
 
 
 	if (!buf) {
-		nsDbgPrint("arm11 not loaded\n");
+		showDbg("arm11 not loaded", 0, 0);
 		return -1;
 	}
 
@@ -3608,18 +3633,18 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion
 	}
 
 	if (ret != 0) {
-		nsDbgPrint("mapRemoteMemory failed: %08x\n", ret, 0);
+		showDbg("mapRemoteMemory failed: %08x", ret, 0);
 	}
 	// set rwx
 	ret = protectRemoteMemory(hProcess, (void*)baseAddr, totalSize);
 	if (ret != 0) {
-		nsDbgPrint("protectRemoteMemory failed: %08x\n", ret, 0);
+		showDbg("protectRemoteMemory failed: %08x", ret, 0);
 		goto final;
 	}
 	// load arm11.bin code at arm11StartAddress
 	ret = copyRemoteMemory(hProcess, (void*)arm11StartAddress, arm11BinProcess, buf, size);
 	if (ret != 0) {
-		nsDbgPrint("copyRemoteMemory(1) failed: %08x\n", ret, 0);
+		showDbg("copyRemoteMemory(1) failed: %08x", ret, 0);
 		goto final;
 	}
 
@@ -3632,7 +3657,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion
 	}
 	ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, remotePC, 8);
 	if (ret != 0) {
-		nsDbgPrint("rtCheckRemoteMemoryRegionSafeForWrite failed: %08x\n", ret, 0);
+		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08x", ret, 0);
 		goto final;
 	}
 
@@ -3643,7 +3668,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion
 	// store original 8-byte code
 	ret = copyRemoteMemory(0xffff8001, &(cfg->startupInfo[0]), hProcess, (void*)remotePC, 8);
 	if (ret != 0) {
-		nsDbgPrint("copyRemoteMemory(3) failed: %08x\n", ret, 0);
+		showDbg("copyRemoteMemory(3) failed: %08x", ret, 0);
 		goto final;
 	}
 	cfg->startupInfo[2] = remotePC;
@@ -3651,7 +3676,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion
 	// copy cfg structure to remote process
 	ret = copyRemoteMemory(hProcess, (void*)baseAddr, 0xffff8001, cfg, sizeof(NS_CONFIG));
 	if (ret != 0) {
-		nsDbgPrint("copyRemoteMemory(2) failed: %08x\n", ret, 0);
+		showDbg("copyRemoteMemory(2) failed: %08x", ret, 0);
 		goto final;
 	}
 
@@ -3660,7 +3685,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion
 	tmp[1] = arm11StartAddress;
 	ret = copyRemoteMemory(hProcess, (void*)remotePC, 0xffff8001, &tmp, 8);
 	if (ret != 0) {
-		nsDbgPrint("copyRemoteMemory(4) failed: %08x\n", ret, 0);
+		showDbg("copyRemoteMemory(4) failed: %08x", ret, 0);
 		goto final;
 	}
 

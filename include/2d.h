@@ -12,8 +12,9 @@
 #define BOTTOM_HEIGHT 240
 #define BOTTOM_WIDTH 320
 
-#define BOTTOM_FRAME1 bottomFrameBuffer
-#define BOTTOM_FRAME2 bottomFrameBuffer
+// #define BOTTOM_FRAME1 (getPhysAddr(bottomFrameBuffer) | 0x80000000)
+#define BOTTOM_FRAME1 (bottomRenderingFrameBuffer)
+// #define BOTTOM_FRAME2 BOTTOM_FRAME1
 #define BOTTOM_FRAME_SIZE	(320 * 240 * 3)
 
 
@@ -34,5 +35,7 @@ void paint_square(int x, int y, u8 r, u8 g, u8 b, int h, int w, int screen);
 void blank(int x, int y, int xs, int ys);
 void square(int x, int y, int xs, int ys);
 
+u32 getPhysAddr(u32 vaddr);
 extern u32 bottomFrameBuffer;
+extern u32 bottomRenderingFrameBuffer;
 #endif

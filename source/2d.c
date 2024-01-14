@@ -28,7 +28,7 @@ void paint_pixel(u32 x, u32 y, u8 r, u8 g, u8 b, int screen){
 
 void blank(int x, int y, int xs, int ys){
   paint_square(x,y,255,255,255,xs,ys,BOTTOM_FRAME1);
-  paint_square(x,y,255,255,255,xs,ys,BOTTOM_FRAME2);
+//   paint_square(x,y,255,255,255,xs,ys,BOTTOM_FRAME2);
 }
 
 void paint_letter(char letter, int x, int y, u8 r, u8 g, u8 b, int screen) {

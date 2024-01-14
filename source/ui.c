@@ -5,6 +5,7 @@ u32 savedVideoState[10];
 u32 allowDirectScreenAccess = 0;
 
 u32 bottomFrameBuffer = 0x1F000000;
+u32 bottomRenderingFrameBuffer = 0;
 u32 allocFrameBuffer = 0;
 u32 hGSPProcess = 0;
 
@@ -17,7 +18,8 @@ int builtinDrawString(char* str, int x, int y, char r, char g, char b, int newLi
 
 	for (i = 0; i < len; i++) {
 		chWidth = 8;
-		if (currentX + chWidth > BOTTOM_WIDTH) {
+		int strln = str[i] == '\n';
+		if (strln || currentX + chWidth > BOTTOM_WIDTH) {
 			if (!newLine) {
 				return totalLen;
 			}
@@ -26,6 +28,9 @@ int builtinDrawString(char* str, int x, int y, char r, char g, char b, int newLi
 				return totalLen;
 			}
 			currentX = x;
+			if (strln) {
+				continue;
+			}
 		}
 		paint_letter(str[i], currentX, y, r, g, b, BOTTOM_FRAME1);
 		totalLen += chWidth;
@@ -61,6 +66,10 @@ u32 initDirectScreenAccess(void) {
 	if (ret != 0) {
 		return ret;
 	}
+	bottomRenderingFrameBuffer = plgRequestMemory(BOTTOM_FRAME_SIZE);
+	if (bottomRenderingFrameBuffer == 0) {
+		return -1;
+	}
 	allowDirectScreenAccess = 1;
 
 	return 0;
@@ -77,10 +86,10 @@ u32 controlVideo(u32 cmd, u32 arg1, u32 /*arg2*/, u32 /*rg3*/) {
 		return 0;
 	}
 	if (cmd == CONTROLVIDEO_GETFRAMEBUFFER) {
-		return bottomFrameBuffer;
+		return bottomRenderingFrameBuffer;
 	}
 	if (cmd == CONTROLVIDEO_SETFRAMEBUFFER) {
-		bottomFrameBuffer = arg1;
+		bottomRenderingFrameBuffer = arg1;
 		return 0;
 	}
 	if (cmd == CONTROLVIDEO_UPDATESCREEN) {
@@ -92,37 +101,38 @@ u32 controlVideo(u32 cmd, u32 arg1, u32 /*arg2*/, u32 /*rg3*/) {
 
 
 void debounceKey(void) {
-	// vu32 t;
-	// for (t = 0; t < 0x00100000; t++) {
-	// }
-	svc_sleepThread(0x00100000);
+	vu32 t;
+	for (t = 0; t < 0x00100000; t++) {
+	}
+	// svc_sleepThread(0x00100000);
 }
 
 void delayUi(void) {
-	// vu32 t;
-	// for (t = 0; t < 0x03000000; t++) {
-	// }
-	svc_sleepThread(0x03000000);
+	vu32 t;
+	for (t = 0; t < 0x03000000; t++) {
+	}
+	// svc_sleepThread(0x03000000);
 }
 
 void mdelay(u32 m) {
-	// vu32 t;
-	// vu32 i;
-	// for (i = 0; i < m; i++) {
-	// 	for (t = 0; t < 0x00100000; t++) {
-	// 	}
-	// }
-	svc_sleepThread(0x00100000 * m);
+	vu32 t;
+	vu32 i;
+	for (i = 0; i < m; i++) {
+		for (t = 0; t < 0x00100000; t++) {
+		}
+	}
+	// svc_sleepThread(0x00100000 * m);
 }
 
+void memcpy_ctr(void* dst, void* src, size_t size);
 void updateScreen(void) {
-
+	memcpy_ctr((void *)((getPhysAddr(bottomFrameBuffer) | 0x80000000)), (void *)BOTTOM_FRAME1, BOTTOM_FRAME_SIZE);
 	*(vu32*)(IoBasePdc + 0x568) = getPhysAddr(bottomFrameBuffer);
 	*(vu32*)(IoBasePdc + 0x56C) = getPhysAddr(bottomFrameBuffer);
 	*(vu32*)(IoBasePdc + 0x570) = 0x00080301;
 	*(vu32*)(IoBasePdc + 0x55c) = 0x014000f0;
 	*(vu32*)(IoBasePdc + 0x590) = 0x000002d0;
-	svc_flushProcessDataCache(0xffff8001, BOTTOM_FRAME1, BOTTOM_FRAME_SIZE);
+	// svc_flushProcessDataCache(0xffff8001, BOTTOM_FRAME1, BOTTOM_FRAME_SIZE);
 }
 
 s32 showMenu(char* title, u32 entryCount, char* captions[]) {

@@ -174,6 +174,6 @@ void nsInitDebug(void);
 void nsInit(void);
 
 extern u8 nsIsRemotePlayStarted;
-int remotePlayMenu(void);
+int remotePlayMenu(u32 localaddr);
 void rpMain(void);
 

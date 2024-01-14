@@ -608,7 +608,7 @@ u32 powerMenu() {
 	acquireVideo();
 	char* entries[8];
 	int r;
-	// vu32 i;
+	vu32 i;
 	entries[0] = plgTranslate("Reboot");
 	entries[1] = plgTranslate("Power Off");
 	while (1) {
@@ -617,16 +617,16 @@ u32 powerMenu() {
 			break;
 		}
 		if (r == 0) {
-			// for (i = 0; i < 0x05000000; i++) {
-			// }
-			svc_sleepThread(0x05000000);
+			for (i = 0; i < 0x05000000; i++) {
+			}
+			// svc_sleepThread(0x05000000);
 			plgDoReboot();
 			break;
 		}
 		if (r == 1) {
-			// for (i = 0; i < 0x05000000; i++) {
-			// }
-			svc_sleepThread(0x05000000);
+			for (i = 0; i < 0x05000000; i++) {
+			}
+			// svc_sleepThread(0x05000000);
 			plgDoPowerOff();
 			break;
 		}
