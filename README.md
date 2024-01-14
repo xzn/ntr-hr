@@ -37,6 +37,7 @@ The issues were present in 3.6 also and I don't really know how to fix them..
 
 - cell9
 - Nanquitas
+- PabloMK7
 
 Especially thanks to cell9 for releasing the source of NTR 3.6 making this mod possible
 
