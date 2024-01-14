@@ -30,6 +30,7 @@ Features unrelated to streaming are unchanged and should continues to work with 
 - Some games are not compatible with streaming.
 - When cheat plugins have been loaded, launching another game (or the same game again) would hang.
 - [UWPStreamer](https://github.com/toolboc/UWPStreamer) flickers and crashes sometimes.
+- 3DS web browser will crash if used with remote play.
 
 The issues were present in 3.6 also and I don't really know how to fix them..
 
