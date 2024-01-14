@@ -2494,7 +2494,7 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 		svc_closeHandle(hProcess);
 	}
 	if (ret) {
-		nsDbgPrint("starting remote play failed: %d\n", ret);
+		showDbg("Starting remote play failed: %d, retry maybe.", ret, 0);
 		__atomic_clear(&nsIsRemotePlayStarted, __ATOMIC_RELAXED);
 	}
 	return ret;
