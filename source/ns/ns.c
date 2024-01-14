@@ -601,7 +601,7 @@ void rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 	}
 }
 
-int rpTrySendNextBuffer(int work_flush) {
+int rpTrySendNextBufferMaybe(int work_flush, int may_skip) {
 	int work_next = rp_nwm_work_next;
 	int thread_id = rp_nwm_thread_next;
 
@@ -633,7 +633,7 @@ flush:
 	// if (!__atomic_load_n(&info->filled, __ATOMIC_CONSUME))
 	// 	return;
 	if (!rpDataBufFilled(info, &data_buf_pos, &data_buf_flag))
-		return -1;
+		return may_skip == 0 ? -1 : 0;
 
 	u32 nextTick = svc_getSystemTick();
 	s32 tickDiff = (s32)nextTick - (s32)rpLastSendTick;
@@ -653,9 +653,14 @@ flush:
 		if (thread_id != rp_nwm_thread_next)
 			thread_id = rp_nwm_thread_next;
 
+		may_skip = 0;
 		goto flush;
 	}
 	return 0;
+}
+
+int rpTrySendNextBuffer(int work_flush) {
+	return rpTrySendNextBufferMaybe(work_flush, 0);
 }
 
 void rpSendBuffer(j_compress_ptr cinfo, u8* /*buf*/, u32 size, u32 flag) {
@@ -1676,8 +1681,8 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 	if (!nextScreenSynced[work_next]) {
 		res = svc_waitSynchronization1(syn->sem_end, wait_sync ? 1000000000 : 0);
 		if (res) {
-			if (wait_sync || res < 0)
-				nsDbgPrint("svc_waitSynchronization1 sem_end (%d) failed: %d\n", work_next, res);
+			// if (wait_sync || res < 0)
+				// nsDbgPrint("svc_waitSynchronization1 sem_end (%d) failed: %d\n", work_next, res);
 			return;
 		}
 
@@ -1708,7 +1713,9 @@ int rpSendFramesStart(int thread_id, int work_next) {
 	struct rp_work_syn_t *syn = rp_work_syn[work_next];
 
 	if (thread_id == rp_nwm_thread_id && (rp_nwm_work_next == work_next || rp_nwm_frame_skipped)) {
-		rpTrySendNextBuffer(1);
+		if (rpTrySendNextBufferMaybe(1, rp_nwm_frame_skipped) != 0) {
+			nsDbgPrint("flush nwm buffer failed: %d\n", rp_nwm_frame_skipped);
+		}
 		rp_nwm_frame_skipped = 0;
 	}
 
