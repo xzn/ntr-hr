@@ -6,7 +6,7 @@ u32 allowDirectScreenAccess = 0;
 
 u32 bottomFrameBuffer = 0x1F000000;
 u32 bottomRenderingFrameBuffer = 0;
-u32 allocFrameBuffer = 0;
+u32 bottomAllocFrameBuffer = 0;
 u32 hGSPProcess = 0;
 
 
@@ -66,11 +66,12 @@ u32 initDirectScreenAccess(void) {
 	if (ret != 0) {
 		return ret;
 	}
-	bottomRenderingFrameBuffer = plgRequestMemory(BOTTOM_FRAME_SIZE);
-	if (bottomRenderingFrameBuffer == 0) {
+	bottomAllocFrameBuffer = plgRequestMemory(BOTTOM_FRAME_SIZE);
+	if (bottomAllocFrameBuffer == 0) {
 		return -1;
 	}
 	allowDirectScreenAccess = 1;
+	bottomRenderingFrameBuffer = bottomAllocFrameBuffer;
 
 	return 0;
 
@@ -315,6 +316,7 @@ u32 decideBottomFrameBufferAddr() {
 void acquireVideo(void) {
 	if (videoRef == 0) {
 		bottomFrameBuffer = decideBottomFrameBufferAddr();
+		bottomRenderingFrameBuffer = bottomAllocFrameBuffer;
 		*(vu32*)(IoBaseLcd + 0x204) = 0;
 		*(vu32*)(IoBaseLcd + 0xA04) = 0;
 		savedVideoState[0] = *(vu32*)(IoBasePdc + 0x568);
