@@ -371,8 +371,14 @@ void injectToHomeMenu() {
 		disp(100, 0x17f7f7f);
 	}
 
-	nsAttachProcess(hProcess, ntrConfig->HomeMenuInjectAddr, &cfg, 1);
+	int ret;
+	ret = nsAttachProcess(hProcess, ntrConfig->HomeMenuInjectAddr, &cfg, 1);
 	svc_closeHandle(hProcess);
+
+	if (ret != 0) {
+		showDbg("Inject to home menu failed: %d", ret, 0);
+		svc_sleepThread(1000000000);
+	}
 }
 
 void doSomething() {

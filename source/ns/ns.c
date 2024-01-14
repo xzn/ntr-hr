@@ -2487,12 +2487,15 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 	setCpuClockLock(3);
 	nsDbgPrint("cpu was locked on 804MHz, L2 Enabled\n");
 	nsDbgPrint("starting remoteplay...\n");
-	nsAttachProcess(hProcess, remotePC, &cfg, 1);
-	ret = 0;
+	ret = nsAttachProcess(hProcess, remotePC, &cfg, 1);
 
 	final:
 	if (hProcess != 0) {
 		svc_closeHandle(hProcess);
+	}
+	if (ret) {
+		nsDbgPrint("starting remote play failed: %d\n", ret);
+		__atomic_clear(&nsIsRemotePlayStarted, __ATOMIC_RELAXED);
 	}
 	return ret;
 }
