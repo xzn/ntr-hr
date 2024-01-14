@@ -323,7 +323,7 @@ void threadStart() {
 
 
 
-void initConfigureMemory() {
+int initConfigureMemory() {
 	u32 ret;
 
 	g_nsConfig = (void*) NS_CONFIGURE_ADDR;
@@ -333,7 +333,7 @@ void initConfigureMemory() {
 	// 	ret = svc_controlMemory(&outAddr, NS_CONFIGURE_ADDR, 0, 0x1000, 3, 3);
 		if (ret != 0) {
 			showMsg("init cfg memory failed");
-			return;
+			// return;
 		}
 
 	// 	memset(g_nsConfig, 0, sizeof(NS_CONFIG));
@@ -341,6 +341,7 @@ void initConfigureMemory() {
 	// 	return;
 	// }
 
+	return ret;
 }
 
 
@@ -504,7 +505,9 @@ int main(void) {
 
 	if (StartMode == 1) {
 		// init from inject
-		initConfigureMemory();
+		while (initConfigureMemory() != 0) {
+			svc_sleepThread(1000000000);
+		}
 		initParamsFromInject();
 		nsInitDebug();
 
