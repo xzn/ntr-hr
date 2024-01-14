@@ -229,6 +229,7 @@ u32 isFileExist(char* fileName) {
 	return 1;
 }
 
+#if 0
 void magicKillProcess(u32 pid) {
 	Handle hProcess;
 	u32 ret = 0;
@@ -244,6 +245,7 @@ void magicKillProcess(u32 pid) {
 	kmemcpy((u8 *)KProcess + 4, &t, 4);
 	svc_closeHandle(hProcess);
 }
+#endif
 
 
 
@@ -275,7 +277,6 @@ u32 HomeSetMemorySizeCallback(u32 size) {
 
 void threadStart() {
 	u32 ret;
-	int waitCnt = 0;
 
 	rtInitHook(&HomeFSReadHook, ntrConfig->HomeFSReadAddr, (u32)HomeFSReadCallback);
 	rtEnableHook(&HomeFSReadHook);
@@ -300,6 +301,7 @@ void threadStart() {
 	screenshotMain();
 	//magicKillProcess(0x27);
 	//disp(100, 0x100ff00);
+	int waitCnt = 0;
 	while (1) {
 
 		if ((getKey()) == NTRMenuHotkey) {
@@ -318,6 +320,7 @@ void threadStart() {
 		}
 		checkExitFlag();
 	}
+	svc_exitThread();
 }
 
 

@@ -62,11 +62,11 @@ u32 plgRegisterCallback(u32 type, void* callback, u32) {
 }
 
 u32 plgRequestMemory(u32 size) {
-	return plgRequestMemorySpecifyRegion(size, 1);
+	return plgRequestMemorySpecifyRegion(size, 0);
 }
 
 
-u32 plgRequestMemorySpecifyRegion(u32 size, int sysRegion) {
+u32 plgRequestMemorySpecifyRegion(u32 size, int /* sysRegion */) {
 	u32 ret, outAddr, addr;
 
 	// if ((size & 0xfff) != 0) {
@@ -77,12 +77,26 @@ u32 plgRequestMemorySpecifyRegion(u32 size, int sysRegion) {
 		plgMemoryPoolEnd = plgMemoryPoolStart;
 	}
 	addr = plgMemoryPoolEnd;
-	if (sysRegion) {
-		ret = controlMemoryInSysRegion(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
-	}
-	else {
-		ret = svc_controlMemory(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
-	}
+	// if (sysRegion) {
+	// 	ret = controlMemoryInSysRegion(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
+	// 	if (ret != 0) {
+	// 		showDbg("controlMemoryInSysRegion failed: %08x", ret, 0);
+	// 		return 0;
+	// 	}
+	// }
+	// else {
+		u32 mem_region;
+		ret = getMemRegion(&mem_region, CURRENT_PROCESS_HANDLE);
+		if (ret != 0) {
+			showDbg("getMemRegion failed: %08x", ret, 0);
+			return 0;
+		}
+		ret = svc_controlMemory(&outAddr, addr, addr, size, mem_region + 3, 3);
+		if (ret != 0) {
+			showDbg("svc_controlMemory failed: %08x", ret, 0);
+			return 0;
+		}
+	// }
 	if (ret != 0) {
 		return 0;
 	}
@@ -369,7 +383,14 @@ u32 plgEnsurePoolEnd(u32 end) {
 		return 0;
 	}
 	nsDbgPrint("expand pool addr: %08x, size: %08x\n", addr, size);
-	ret = controlMemoryInSysRegion(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
+	// ret = controlMemoryInSysRegion(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
+	u32 mem_region;
+	ret = getMemRegion(&mem_region, CURRENT_PROCESS_HANDLE);
+	if (ret != 0) {
+		showDbg("getMemRegion failed: %08x", ret, 0);
+		return ret;
+	}
+	ret = svc_controlMemory(&outAddr, addr, addr, size, mem_region + 3, 3);
 	if (ret != 0) {
 		if (rtCheckRemoteMemoryRegionSafeForWrite(0xffff8001, addr, size) != 0) {
 			nsDbgPrint("alloc plg memory failed: %08x\n", ret);
@@ -464,7 +485,8 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 		base += size;
 	}
 
-	ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize);
+	// ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize);
+	ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
 
 	if (ret != 0) {
 		nsDbgPrint("alloc plugin memory failed: %08x\n", ret);
@@ -489,7 +511,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 		}
 	}
 
-	ret = nsAttachProcess(hProcess, 0x00100000, &cfg, 1);
+	ret = nsAttachProcess(hProcess, 0x00100000, &cfg, 0);
 	if (ret != 0) {
 		nsDbgPrint("attach process failed: %08x\n", ret);
 		return ret;

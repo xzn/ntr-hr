@@ -746,7 +746,7 @@ int rpInitJpegCompress() {
 	for (int i = 0; i < rp_cinfos_count; ++i) {
 		j_compress_ptr cinfo = cinfos[i];
 
-		cinfo->alloc.buf = (void *)plgRequestMemorySpecifyRegion(cinfo_alloc_sizes[i], 1);
+		cinfo->alloc.buf = (void *)plgRequestMemory(cinfo_alloc_sizes[i]);
 		if (cinfo->alloc.buf) {
 			cinfo->alloc.stats.offset = 0;
 			cinfo->alloc.stats.remaining = cinfo_alloc_sizes[i];
@@ -3616,7 +3616,7 @@ void nsHandleListThread() {
 
 
 
-u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion) {
+u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int /* sysRegion */) {
 	u32 size = 0;
 	u32* buf = 0;
 	u32 baseAddr = NS_CONFIGURE_ADDR;
@@ -3638,14 +3638,14 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion
 	}
 
 	totalSize = size + stackSize + 0x1000;
-	if (sysRegion) {
-		// allocate buffer to remote memory
-		ret = mapRemoteMemoryInSysRegion(hProcess, baseAddr, totalSize);
-	}
-	else {
+	// if (sysRegion) {
+	// 	// allocate buffer to remote memory
+	// 	ret = mapRemoteMemoryInSysRegion(hProcess, baseAddr, totalSize);
+	// }
+	// else {
 		// allocate buffer to remote memory
 		ret = mapRemoteMemory(hProcess, baseAddr, totalSize);
-	}
+	// }
 
 	if (ret != 0) {
 		showDbg("mapRemoteMemory failed: %08x", ret, 0);
@@ -3967,7 +3967,14 @@ void nsInit(void) {
 	}
 	else {
 		if (g_nsConfig->initMode == NS_INITMODE_FROMHOOK) {
-			ret = controlMemoryInSysRegion(&outAddr, base, 0, bufferSize, NS_DEFAULT_MEM_REGION + 3, 3);
+			// ret = controlMemoryInSysRegion(&outAddr, base, 0, bufferSize, NS_DEFAULT_MEM_REGION + 3, 3);
+			u32 mem_region;
+			ret = getMemRegion(&mem_region, CURRENT_PROCESS_HANDLE);
+			if (ret != 0) {
+				showDbg("getMemRegion failed: %08x", ret, 0);
+				return;
+			}
+			ret = svc_controlMemory(&outAddr, base, 0, bufferSize, mem_region + 3, 3);
 		}
 		else {
 			ret = svc_controlMemory(&outAddr, base, 0, bufferSize, NS_DEFAULT_MEM_REGION + 3, 3);

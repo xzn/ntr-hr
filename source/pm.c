@@ -29,13 +29,35 @@ u32 getCurrentProcessHandle() {
 	return hCurrentProcess;
 }
 
+#if 0
 u32 getCurrentProcessKProcess() {
 	return kGetCurrentKProcess();
+}
+#endif
+
+Result getMemRegion(u32 *region, Handle hProcess) {
+	s64 procInfo;
+	Result ret = svc_getProcessInfo(&procInfo, hProcess, 19);
+	u32 mem_region = NS_DEFAULT_MEM_REGION;
+	if (ret == 0) {
+		mem_region = (u32)procInfo & 0xF00;
+		nsDbgPrint("mem region: %x\n", mem_region);
+	} else {
+		// showDbg("svc_getProcessInfo failed: %08x", ret, 0);
+	}
+	*region = mem_region;
+	return ret;
 }
 
 u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 	u32 outAddr = 0;
 	u32 ret;
+	u32 mem_region;
+	ret = getMemRegion(&mem_region, hProcess);
+	if (ret != 0) {
+		showDbg("getMemRegion failed: %08x", ret, 0);
+		return ret;
+	}
 	u32 newKP = kGetKProcessByHandle(hProcess);
 	u32 oldKP = kGetCurrentKProcess();
 
@@ -43,7 +65,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 	//u32 oldPid = kSwapProcessPid(newKP, 1);
 
 	kSetCurrentKProcess(newKP);
-	ret = svc_controlMemory(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
+	ret = svc_controlMemory(&outAddr, addr, addr, size, mem_region + 3, 3);
 	kSetCurrentKProcess(oldKP);
 	//kSwapProcessPid(newKP, oldPid);
 	if (ret != 0) {
@@ -58,6 +80,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 	return 0;
 }
 
+#if 0
 u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size) {
 	u32 outAddr = 0;
 	u32 ret;
@@ -81,7 +104,9 @@ u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size) {
 	//showMsg("mapremote done");
 	return 0;
 }
+#endif
 
+#if 0
 u32 controlMemoryInSysRegion(u32* outAddr, u32 addr0, u32 addr1, u32 size, u32 op, u32 perm) {
 	u32 currentKP = kGetCurrentKProcess();
 	u32 oldPid = kSwapProcessPid(currentKP, 1);
@@ -89,6 +114,7 @@ u32 controlMemoryInSysRegion(u32* outAddr, u32 addr0, u32 addr1, u32 size, u32 o
 	kSwapProcessPid(currentKP, oldPid);
 	return ret;
 }
+#endif
 
 u32 protectRemoteMemory(Handle hProcess, void* addr, u32 size) {
 	return svc_controlProcessMemory(hProcess, addr, addr, size, 6, 7);

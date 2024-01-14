@@ -64,6 +64,7 @@ typedef struct {
 	Result svc_readProcessMemory(void* buffer, Handle debug, u32 addr, u32 size);
 	Result svc_debugActiveProcess(Handle* handle_out, u32 pid);
 	Result svc_getProcessList(s32* processCount, u32* processIds, s32 processIdMaxCount);
+	Result svc_getProcessInfo(s64 *out, Handle process, u32 type);
 
 	Result svc_controlProcessMemory(Handle hProcess, void* Addr0, void* Addr1, u32 size, u32 Type, u32 Permissions);
 
