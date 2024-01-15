@@ -485,6 +485,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 		base += size;
 	}
 
+	totalSize = rtAlignToPageSize(totalSize);
 	// ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize);
 	ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
 
@@ -492,7 +493,8 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 		nsDbgPrint("alloc plugin memory failed: %08x\n", ret);
 		return ret;
 	}
-	ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, plgPoolStart, totalSize);
+	// ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, plgPoolStart, totalSize);
+	ret = protectRemoteMemory(hProcess, (void *)plgPoolStart, totalSize);
 	if (ret != 0) {
 		nsDbgPrint("rwx failed: %08x\n", ret);
 		return ret;

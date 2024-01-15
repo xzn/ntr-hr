@@ -40,19 +40,21 @@ u32 rtGetPageOfAddress(u32 addr) {
 
 
 u32 rtCheckRemoteMemoryRegionSafeForWrite(Handle hProcess, u32 addr, u32 size) {
-	u32 ret;
-	u32 startPage, endPage, page;
+	u32 ret = 0;
+	u32 startPage, endPage/* , page */;
 
 	startPage = rtGetPageOfAddress(addr);
 	endPage = rtGetPageOfAddress(addr + size - 1);
+	size = endPage - startPage + 0x1000;
 
-	for (page = startPage; page <= endPage; page += 0x1000) {
-		ret = protectRemoteMemory(hProcess, (void*) page, 0x1000);
-		if (ret != 0) {
-			return ret;
-		}
-	}
-	return 0;
+	// for (page = startPage; page <= endPage; page += 0x1000) {
+	// 	ret = protectRemoteMemory(hProcess, (void*) page, 0x1000);
+	// 	if (ret != 0) {
+	// 		return ret;
+	// 	}
+	// }
+	ret = protectRemoteMemory(hProcess, (void*) startPage, size);
+	return ret;
 }
 
 u32 rtSafeCopyMemory(u32 dst, u32 src, u32 size) {

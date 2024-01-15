@@ -102,6 +102,7 @@ typedef struct {
 	Result svc_kernelSetState(unsigned int Type, unsigned int Param0, unsigned int Param1, unsigned int Param2);
 	Result svc_openThread(Handle *thread, Handle process, u32 threadId);
 
+	Result svc_mapProcessMemory(Handle process, u32 destAddress, u32 size);
 	/**
 	* @brief Maps a block of process memory.
 	* @param process Handle of the process.
