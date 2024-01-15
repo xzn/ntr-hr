@@ -189,7 +189,6 @@ void kernelCallback(u32 /*msr*/) {
 	}
 }
 
-#if 0
 u32 kSwapProcessPid(u32 kProcess, u32 newPid) {
 	kernelArgs[0] = 5;
 	kernelArgs[1] = kProcess;
@@ -197,7 +196,6 @@ u32 kSwapProcessPid(u32 kProcess, u32 newPid) {
 	svc_backDoor(currentBackdoorHandler);
 	return kernelArgs[2];
 }
-#endif
 
 void kSetCurrentKProcess(u32 ptr) {
 	kernelArgs[0] = 4;

@@ -15,10 +15,8 @@ u32 protectRemoteMemory(Handle hProcess, void* addr, u32 size);
 u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 size);
 u32 getProcessInfo(u32 pid, char* pname, u32 pname_size, u32 tid[], u32* kpobj);
 u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size);
-#if 0
 u32 controlMemoryInSysRegion(u32* outAddr, u32 addr0, u32 addr1, u32 size, u32 op, u32 perm);
-u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size);
-#endif
+u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size, u32 op);
 u32 writeRemoteProcessMemory(int pid, u32 addr, u32 size, u32* buf);
 
 u32 getProcessTIDByHandle(u32 hProcess, u32 tid[]);
@@ -57,13 +55,12 @@ void kmemcpy(void* dst, void* src, u32 size) ;
 void kSetCurrentKProcess(u32 ptr);
 u32 kGetCurrentKProcess(void);
 u32 kGetKProcessByHandle(u32 handle);
-#if 0
 u32 kSwapProcessPid(u32 kProcess, u32 newPid) ;
-#endif
 void kRemotePlayCallback(void);
 void kDoKernelHax(void);
 void InvalidateEntireInstructionCache(void);
 void InvalidateEntireDataCache(void);
+void magicKillProcessByHandle(Handle hProcess);
 
 void initFromInjectPM(void);
 void initFromInjectGame(void);

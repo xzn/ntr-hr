@@ -80,8 +80,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 	return 0;
 }
 
-#if 0
-u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size) {
+u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size, u32 op) {
 	u32 outAddr = 0;
 	u32 ret;
 	u32 newKP = kGetKProcessByHandle(hProcess);
@@ -90,23 +89,21 @@ u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size) {
 	u32 oldPid = kSwapProcessPid(newKP, 1);
 
 	kSetCurrentKProcess(newKP);
-	ret = svc_controlMemory(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
+	ret = svc_controlMemory(&outAddr, addr, 0, size, NS_DEFAULT_MEM_REGION + op, 3);
 	kSetCurrentKProcess(oldKP);
 	kSwapProcessPid(newKP, oldPid);
 	if (ret != 0) {
-		showDbg("svc_controlMemory failed: %08x", ret, 0);
+		nsDbgPrint("svc_controlMemory failed: %08x\n", ret);
 		return ret;
 	}
-	if (outAddr != addr) {
-		showDbg("outAddr: %08x, addr: %08x", outAddr, addr);
-		return 0;
-	}
+	// if (outAddr != addr) {
+		nsDbgPrint("outAddr: %08x, addr: %08x\n", outAddr, addr);
+	// 	return 0;
+	// }
 	//showMsg("mapremote done");
 	return 0;
 }
-#endif
 
-#if 0
 u32 controlMemoryInSysRegion(u32* outAddr, u32 addr0, u32 addr1, u32 size, u32 op, u32 perm) {
 	u32 currentKP = kGetCurrentKProcess();
 	u32 oldPid = kSwapProcessPid(currentKP, 1);
@@ -114,7 +111,6 @@ u32 controlMemoryInSysRegion(u32* outAddr, u32 addr0, u32 addr1, u32 size, u32 o
 	kSwapProcessPid(currentKP, oldPid);
 	return ret;
 }
-#endif
 
 u32 protectRemoteMemory(Handle hProcess, void* addr, u32 size) {
 	return svc_controlProcessMemory(hProcess, addr, addr, size, 6, 7);

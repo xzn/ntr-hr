@@ -18,9 +18,9 @@ typedef  u32(*svc_RunTypeDef) (u32 hProcess, u32* startInfo);
 typedef u32(*runAppletTypeDef) (u32 a1, u32 a2, u32 a3, u32 a4, u32 a5);
 u32 lastTid[2] = { 0, 0 };
 
-u32 plgPoolStart = 0x07000000;
+#define plgPoolStart (0x07000000)
 u32 plgPoolEnd = 0;
-u32 plgMemoryPoolStart = 0x06200000;
+#define plgMemoryPoolStart (0x06200000)
 u32 plgMemoryPoolEnd = 0;
 FS_archive plgSdmcArchive;
 PLGLOADER_INFO *g_plgInfo;
@@ -36,6 +36,8 @@ GAME_PLUGIN_MENU plgCurrentGamePluginMenu;
 translateTypeDef plgTranslateCallback = 0;
 drawStringTypeDef plgDrawStringCallback = 0;
 
+Handle plgGameHandle;
+u32 plgPoolSize;
 
 void plgInitScreenOverlay();
 
@@ -418,6 +420,22 @@ void tryInitFS() {
 	nsDbgPrint("fsUserHandle: %08x\n", fsUserHandle);
 }
 
+static void plgFreePreviousPool(u32 force_kill) {
+	if (plgGameHandle) {
+		u32 ret;
+		ret = mapRemoteMemoryInSysRegion(plgGameHandle, plgPoolStart, plgPoolSize, 1);
+		if (ret != 0) {
+			nsDbgPrint("free previous plugin memory failed: %08x\n", ret);
+		}
+		if (force_kill)
+			magicKillProcessByHandle(plgGameHandle);
+		else
+			svc_closeHandle(plgGameHandle);
+		plgGameHandle = 0;
+		plgPoolSize = 0;
+	}
+}
+
 u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	static Handle hMenuProcess = 0;
 	u32 ret, i;
@@ -425,9 +443,6 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	PLGLOADER_INFO plgInfo, targetPlgInfo;
 	NS_CONFIG cfg;
 	u32 procTid[2];
-
-
-
 
 	if (hMenuProcess == 0) {
 		ret = svc_openProcess(&hMenuProcess, ntrConfig->HomeMenuPid);
@@ -460,6 +475,8 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	rpSetGamePid(pid);
 	copyRemoteMemory(hMenuProcess, (void*)plgPoolStart, 0xffff8001, &plgInfo, sizeof(PLGLOADER_INFO));
 
+	plgFreePreviousPool(0);
+
 	if (plgInfo.plgCount == 0) {
 		if (!isInDebugMode()) {
 			if (plgInfo.nightShiftLevel == 0) {
@@ -484,41 +501,63 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 		totalSize += size;
 		base += size;
 	}
-
 	totalSize = rtAlignToPageSize(totalSize);
-	// ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize);
-	ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
-
+	ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 3);
+	// ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
 	if (ret != 0) {
 		nsDbgPrint("alloc plugin memory failed: %08x\n", ret);
 		return ret;
 	}
+	plgPoolSize = totalSize;
+	ret = svc_duplicateHandle(&plgGameHandle, hProcess);
+	if (ret != 0) {
+		nsDbgPrint("dupping process handle failed: %08x\n", ret);
+		plgGameHandle = 0;
+		goto error_alloc;
+	}
+
 	// ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, plgPoolStart, totalSize);
 	ret = protectRemoteMemory(hProcess, (void *)plgPoolStart, totalSize);
 	if (ret != 0) {
 		nsDbgPrint("rwx failed: %08x\n", ret);
-		return ret;
+		goto error_alloc;
 	}
 	ret = copyRemoteMemory(hProcess, (void*)plgPoolStart, 0xffff8001, &targetPlgInfo, sizeof(PLGLOADER_INFO));
 	if (ret != 0) {
 		nsDbgPrint("copy plginfo failed: %08x\n", ret);
-		return ret;
+		goto error_alloc;
 	}
 	for (i = 0; i < targetPlgInfo.plgCount; i++) {
 		ret = copyRemoteMemory(hProcess, (void*)targetPlgInfo.plgBufferPtr[i], hMenuProcess, (void*)plgInfo.plgBufferPtr[i],
 			targetPlgInfo.plgSize[i]);
 		if (ret != 0) {
 			nsDbgPrint("load plg failed: %08x\n", ret);
-			return ret;
+			goto error_alloc;
 		}
 	}
 
 	ret = nsAttachProcess(hProcess, 0x00100000, &cfg, 0);
 	if (ret != 0) {
 		nsDbgPrint("attach process failed: %08x\n", ret);
-		return ret;
+		goto error_alloc;
 	}
+
 	return 0;
+
+error_alloc:
+	if (plgGameHandle) {
+		svc_closeHandle(plgGameHandle);
+		plgGameHandle = 0;
+	}
+	plgPoolSize = 0;
+	{
+		u32 ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 1);
+		if (ret != 0) {
+			nsDbgPrint("free plugin memory failed: %08x\n", ret);
+			return ret;
+		}
+	}
+	return ret;
 }
 
 u32 svc_RunCallback(Handle hProcess, u32* startInfo) {
@@ -678,6 +717,7 @@ u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	rpSetGamePid(0);
 	s32 res = ((aptPrepareToStartApplicationTypeDef)((void*)(aptPrepareToStartApplicationHook.callCode)))(a1, a2, a3);
 	// nsDbgPrint("app started: 0x%08x\n", res);
+
 	return res;
 }
 

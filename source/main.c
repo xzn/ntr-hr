@@ -229,7 +229,16 @@ u32 isFileExist(char* fileName) {
 	return 1;
 }
 
-#if 0
+void magicKillProcessByHandle(Handle hProcess) {
+	u32 KProcess = kGetKProcessByHandle(hProcess);
+	u32 t = 0;
+	kmemcpy(&t, (u8 *)KProcess + 4, 4);
+	nsDbgPrint("refcount: %08x\n", t);
+	t = 1;
+	kmemcpy((u8 *)KProcess + 4, &t, 4);
+	svc_closeHandle(hProcess);
+}
+
 void magicKillProcess(u32 pid) {
 	Handle hProcess;
 	u32 ret = 0;
@@ -237,16 +246,8 @@ void magicKillProcess(u32 pid) {
 	if (ret != 0) {
 		return;
 	}
-	u32 KProcess = kGetKProcessByHandle(hProcess);
-	u32 t = 0;
-	kmemcpy(&t, (u8 *)KProcess + 4, 4);
-	//showDbg("refcount: %08x", t, 0);
-	t = 1;
-	kmemcpy((u8 *)KProcess + 4, &t, 4);
-	svc_closeHandle(hProcess);
+	magicKillProcess(hProcess);
 }
-#endif
-
 
 
 void do_screen_shoot();

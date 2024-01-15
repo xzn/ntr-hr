@@ -3640,7 +3640,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int /* sysReg
 	totalSize = size + stackSize + 0x1000;
 	// if (sysRegion) {
 	// 	// allocate buffer to remote memory
-	// 	ret = mapRemoteMemoryInSysRegion(hProcess, baseAddr, totalSize);
+	// 	ret = mapRemoteMemoryInSysRegion(hProcess, baseAddr, totalSize, 3);
 	// }
 	// else {
 		// allocate buffer to remote memory

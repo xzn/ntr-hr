@@ -70,7 +70,7 @@ typedef struct _NS_CONFIG {
 	u32 startupCommand;
 	u32 hSOCU;
 
-	u8* debugBuf; 
+	u8* debugBuf;
 	u32 debugBufSize;
 	u32 debugPtr;
 	u32 debugReady;
@@ -105,7 +105,7 @@ typedef struct _NS_PACKET {
 	u32 type;
 	u32 cmd;
 	u32 args[16];
-	
+
 	u32 dataLen;
 } NS_PACKET;
 
@@ -125,14 +125,14 @@ typedef struct _NS_CONTEXT {
 	u32 hListenSocket;
 	u32 hSocket;
 	u32 hCurrentProcess;
-	
+
 
 	u8 debugBuf[DEBUG_BUFFER_SIZE + 20];
-		
+
 	NS_PACKET packetBuf;
 	s32 remainDataLen;
 	u8 gBuff[GLOBAL_BUFFER_SIZE + 20];
-	
+
 	RT_LOCK	breakPointTriggerLock;
 	NS_BREAKPOINT breakPoint[MAX_BREAKPOINT];
 
