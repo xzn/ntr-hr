@@ -3575,7 +3575,7 @@ void nsHandleListThread() {
 	Handle hProcess;
 	u32 pid = pac->args[0];
 	u32 tids[100];
-	u32 tidCount, i, j;
+	u32 tidCount, i/*, j*/;
 	u32 ctx[400];
 	// u32 hThread;
 	// u32 pKThread;
@@ -3598,11 +3598,23 @@ void nsHandleListThread() {
 		memset(ctx, 0x33, sizeof(ctx));
 		rtGetThreadReg(hProcess, tid, ctx);
 		nsDbgPrint("pc: %08x, lr: %08x\n", ctx[15], ctx[14]);
-		for (j = 0; j < 32; j++) {
-
-			nsDbgPrint("%08x ", ctx[j]);
-		}
-		nsDbgPrint("\n");
+		nsDbgPrint(
+			"%08x ""%08x ""%08x ""%08x "
+			"%08x ""%08x ""%08x ""%08x "
+			"%08x ""%08x ""%08x ""%08x "
+			"%08x ""%08x ""%08x ""%08x "
+			"%08x ""%08x ""%08x ""%08x "
+			"%08x ""%08x ""%08x ""%08x "
+			"%08x ""%08x ""%08x ""%08x "
+			"%08x ""%08x ""%08x ""%08x\n",
+			ctx[0], ctx[1], ctx[2], ctx[3],
+			ctx[4], ctx[5], ctx[6], ctx[7],
+			ctx[8], ctx[9], ctx[10], ctx[11],
+			ctx[12], ctx[13], ctx[14], ctx[15],
+			ctx[16], ctx[17], ctx[18], ctx[19],
+			ctx[20], ctx[21], ctx[22], ctx[23],
+			ctx[24], ctx[25], ctx[26], ctx[27],
+			ctx[28], ctx[29], ctx[30], ctx[31]);
 		// svc_closeHandle(hThread);
 
 	}
@@ -3739,14 +3751,14 @@ void nsHandleAttachProcess() {
 }
 
 void nsPrintRegs(u32* regs) {
-	u32 i;
-
-	nsDbgPrint("cpsr:%08x ", regs[0]);
-	nsDbgPrint("lr:%08x sp:%08x\n", regs[14], (u32)(regs)+14 * 4);
-	for (i = 0; i <= 12; i++) {
-		nsDbgPrint("r%d:%08x ", i, regs[1 + i]);
-	}
-	nsDbgPrint("\n");
+	nsDbgPrint("cpsr:%08x lr:%08x sp:%08x\n", regs[0], regs[14], (u32)(regs)+14 * 4);
+	nsDbgPrint(
+		"r0:%08x " "r1:%08x " "r2:%08x " "r3:%08x "
+		"r4:%08x " "r5:%08x " "r6:%08x " "r7:%08x "
+		"r8:%08x " "r9:%08x " "r10:%08x " "r11:%08x\n",
+		regs[1], regs[2], regs[3], regs[4],
+		regs[5], regs[6], regs[7], regs[8],
+		regs[9], regs[10], regs[11], regs[12]);
 }
 
 void nsUpdateDebugStatus() {
