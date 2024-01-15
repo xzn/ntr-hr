@@ -66,10 +66,10 @@ u32 initDirectScreenAccess(void) {
 	if (ret != 0) {
 		return ret;
 	}
-	bottomAllocFrameBuffer = plgRequestMemory(BOTTOM_FRAME_SIZE);
-	if (bottomAllocFrameBuffer == 0) {
-		return -1;
-	}
+	// bottomAllocFrameBuffer = plgRequestMemory(BOTTOM_FRAME_SIZE);
+	// if (bottomAllocFrameBuffer == 0) {
+	// 	return -1;
+	// }
 	allowDirectScreenAccess = 1;
 	bottomRenderingFrameBuffer = bottomAllocFrameBuffer;
 
@@ -363,9 +363,9 @@ u32 getKey(void) {
 }
 
 
-int confirmKey(u32 keyCode, int time) {
+static int confirmKey(u32 keyCode, int times) {
 	int i;
-	for (i = 0; i < time; i++) {
+	for (i = 0; i < times; i++) {
 		if (getKey() != keyCode) {
 			return 0;
 		}
@@ -373,31 +373,34 @@ int confirmKey(u32 keyCode, int time) {
 	return 1;
 }
 
-u32 waitKey(void) {
-	u32 key = 0;
+static s32 const refreshScreenCount = 0x10000;
+static u32 waitKeyAndRefreshScreen(u32 need_key, int times, s32 *refreshScreen) {
+	u32 key;
+	s32 count = *refreshScreen;
 	while (1) {
-		if (getKey() == 0) {
-			if (confirmKey(0, 0x1000)) {
+		key = need_key ? getKey() : 0;
+		if (need_key ? key != 0 : key == getKey()) {
+			if (confirmKey(key, times)) {
 				break;
 			}
+			count -= times;
+		}
+		--count;
+		if (count < 0) {
+			count += refreshScreenCount;
+			updateScreen();
 		}
 	}
-	while(1) {
-		key = getKey();
-		if (key != 0) {
-			if (confirmKey(key, 0x10000)) {
-				break;
-			}
-		}
-	}
-	while (1) {
-		if (getKey() == 0) {
-			if (confirmKey(0, 0x1000)) {
-				break;
-			}
-		}
-	}
+	*refreshScreen = count;
+	return key;
+}
 
+u32 waitKey(void) {
+	u32 key;
+	s32 refreshScreen = refreshScreenCount;
+	waitKeyAndRefreshScreen(0, 0x1000, &refreshScreen);
+	key = waitKeyAndRefreshScreen(1, 0x10000, &refreshScreen);
+	waitKeyAndRefreshScreen(0, 0x1000, &refreshScreen);
 	return key;
 }
 

@@ -97,9 +97,9 @@ u32 plgRequestMemory(u32 size) {
 			return 0;
 		}
 	// }
-	if (ret != 0) {
-		return 0;
-	}
+	// if (ret != 0) {
+	// 	return 0;
+	// }
 	plgMemoryPoolEnd += size;
 	return addr;
 }
