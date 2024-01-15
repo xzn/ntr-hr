@@ -12,7 +12,7 @@ void initSharedFunc(void);
 u32 plgRegisterMenuEntry(u32 catalog, char* title, void* callback) ;
 u32 plgGetSharedServiceHandle(char* servName, u32* handle);
 u32 plgRequestMemory(u32 size);
-u32 plgRequestMemorySpecifyRegion(u32 size, int sysRegion);
+// u32 plgRequestMemorySpecifyRegion(u32 size, int sysRegion);
 u32 plgRegisterCallback(u32 type, void* callback, u32 param0);
 
 #define CALLBACK_OVERLAY 101

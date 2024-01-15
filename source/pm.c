@@ -33,7 +33,6 @@ u32 getCurrentProcessHandle() {
 u32 getCurrentProcessKProcess() {
 	return kGetCurrentKProcess();
 }
-#endif
 
 Result getMemRegion(u32 *region, Handle hProcess) {
 	s64 procInfo;
@@ -48,16 +47,17 @@ Result getMemRegion(u32 *region, Handle hProcess) {
 	*region = mem_region;
 	return ret;
 }
+#endif
 
 u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 	u32 outAddr = 0;
 	u32 ret;
-	u32 mem_region;
-	ret = getMemRegion(&mem_region, hProcess);
-	if (ret != 0) {
-		showDbg("getMemRegion failed: %08x", ret, 0);
-		return ret;
-	}
+	// u32 mem_region;
+	// ret = getMemRegion(&mem_region, hProcess);
+	// if (ret != 0) {
+	// 	showDbg("getMemRegion failed: %08x", ret, 0);
+	// 	return ret;
+	// }
 	u32 newKP = kGetKProcessByHandle(hProcess);
 	u32 oldKP = kGetCurrentKProcess();
 
@@ -65,7 +65,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 	//u32 oldPid = kSwapProcessPid(newKP, 1);
 
 	kSetCurrentKProcess(newKP);
-	ret = svc_controlMemory(&outAddr, addr, addr, size, mem_region + 3, 3);
+	ret = svc_controlMemory(&outAddr, addr, addr, size, /* mem_region + */3, 3);
 	kSetCurrentKProcess(oldKP);
 	//kSwapProcessPid(newKP, oldPid);
 	if (ret != 0) {

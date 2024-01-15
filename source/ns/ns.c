@@ -3966,19 +3966,19 @@ void nsInit(void) {
 		outAddr = base;
 	}
 	else {
-		if (g_nsConfig->initMode == NS_INITMODE_FROMHOOK) {
-			// ret = controlMemoryInSysRegion(&outAddr, base, 0, bufferSize, NS_DEFAULT_MEM_REGION + 3, 3);
-			u32 mem_region;
-			ret = getMemRegion(&mem_region, CURRENT_PROCESS_HANDLE);
-			if (ret != 0) {
-				showDbg("getMemRegion failed: %08x", ret, 0);
-				return;
-			}
-			ret = svc_controlMemory(&outAddr, base, 0, bufferSize, mem_region + 3, 3);
-		}
-		else {
-			ret = svc_controlMemory(&outAddr, base, 0, bufferSize, NS_DEFAULT_MEM_REGION + 3, 3);
-		}
+		// if (g_nsConfig->initMode == NS_INITMODE_FROMHOOK) {
+		// 	// ret = controlMemoryInSysRegion(&outAddr, base, 0, bufferSize, NS_DEFAULT_MEM_REGION + 3, 3);
+		// 	u32 mem_region;
+		// 	ret = getMemRegion(&mem_region, CURRENT_PROCESS_HANDLE);
+		// 	if (ret != 0) {
+		// 		showDbg("getMemRegion failed: %08x", ret, 0);
+		// 		return;
+		// 	}
+			ret = svc_controlMemory(&outAddr, base, 0, bufferSize, /* mem_region + */3, 3);
+		// }
+		// else {
+		// 	ret = svc_controlMemory(&outAddr, base, 0, bufferSize, NS_DEFAULT_MEM_REGION + 3, 3);
+		// }
 		if (ret != 0) {
 			showDbg("svc_controlMemory failed: %08x", ret, 0);
 			return;
