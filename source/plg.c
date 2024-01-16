@@ -420,14 +420,14 @@ u32 plgEnsurePoolEnd(u32 end) {
 		return 0;
 	}
 	nsDbgPrint("expand pool addr: %08x, size: %08x\n", addr, size);
-	// ret = controlMemoryInSysRegion(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
+	ret = controlMemoryInSysRegion(&outAddr, addr, addr, size, NS_DEFAULT_MEM_REGION + 3, 3);
 	// u32 mem_region;
 	// ret = getMemRegion(&mem_region, CURRENT_PROCESS_HANDLE);
 	// if (ret != 0) {
 	// 	showDbg("getMemRegion failed: %08x", ret, 0);
 	// 	return ret;
 	// }
-	ret = svc_controlMemory(&outAddr, addr, addr, size, /* mem_region + */3, 3);
+	// ret = svc_controlMemory(&outAddr, addr, addr, size, /* mem_region + */3, 3);
 	if (ret != 0) {
 		if (rtCheckRemoteMemoryRegionSafeForWrite(0xffff8001, addr, size) != 0) {
 			nsDbgPrint("alloc plg memory failed: %08x\n", ret);
