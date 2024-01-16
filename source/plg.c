@@ -286,10 +286,33 @@ final:
 	return ret;
 }
 
+static void plgChangeNoSysRegion(void) {
+	static Handle hPMProcess = 0;
+	s32 ret = 0;
+	if (hPMProcess == 0) {
+		ret = svc_openProcess(&hPMProcess, ntrConfig->PMPid);
+		if (ret != 0) {
+			showDbg("Open pm process failed: %08x", ret, 0);
+			return;
+		}
+	}
+	u32 noSysRegion = !g_nsConfig->plgNoSysRegion;
+	ret = copyRemoteMemory(hPMProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, plgNoSysRegion), CURRENT_PROCESS_HANDLE, &noSysRegion, sizeof(g_nsConfig->plgNoSysRegion));
+	if (ret != 0) {
+		showDbg("Update sys region setting failed: %08x", ret, 0);
+		return;
+	}
+	g_nsConfig->plgNoSysRegion = noSysRegion;
+}
+
 void plgShowMainMenu(void) {
 	typedef u32(*funcType)();
-	char* entries[70];
-	u32 entid[70];
+
+#define mainEntriesMax 5
+#define entriesMax (MAX_PLUGIN_ENTRY + 1 + mainEntriesMax)
+
+	char *entries[entriesMax], *descs[entriesMax] = {0};
+	u32 entid[entriesMax];
 	u32 pos = 0, i;
 	u32 mainEntries;
 	u32 localaddr = gethostid();
@@ -299,7 +322,13 @@ void plgShowMainMenu(void) {
 	entries[1] = plgTranslate("Process Manager");
 	entries[2] = plgTranslate("Enable Debugger");
 	entries[3] = plgTranslate("Set Hotkey");
-	mainEntries = 4;
+	entries[4] = g_nsConfig->plgNoSysRegion ? plgTranslate("Enable Sys Region") : plgTranslate("Disable Sys Region");
+	descs[4] = plgTranslate("Affect game plugins only. Keep enabled for higher compatibility.");
+	mainEntries = 5;
+	if (mainEntriesMax < mainEntries) {
+		showDbg("Error: too many menu items", 0, 0);
+		return;
+	}
 
 	pos = mainEntries;
 	for (i = 0; i < pluginEntryCount; i++) {
@@ -316,7 +345,7 @@ void plgShowMainMenu(void) {
 	acquireVideo();
 	while (1) {
 		s32 r;
-		r = showMenu(NTR_CFW_VERSION, pos, entries);
+		r = showMenuEx(NTR_CFW_VERSION, pos, entries, descs, 0);
 		if (r == -1) {
 			break;
 		}
@@ -353,6 +382,12 @@ void plgShowMainMenu(void) {
 		}
 		else if (r == 3) {
 			plgSetHotkeyUi();
+		}
+		else if (r == 4) {
+			releaseVideo();
+			plgChangeNoSysRegion();
+			acquireVideo();
+			break;
 		}
 	}
 
@@ -443,6 +478,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	PLGLOADER_INFO plgInfo, targetPlgInfo;
 	NS_CONFIG cfg;
 	u32 procTid[2];
+	u32 sysRegion = !__atomic_load_n(&g_nsConfig->plgNoSysRegion, __ATOMIC_RELAXED);
 
 	if (hMenuProcess == 0) {
 		ret = svc_openProcess(&hMenuProcess, ntrConfig->HomeMenuPid);
@@ -502,18 +538,23 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 		base += size;
 	}
 	totalSize = rtAlignToPageSize(totalSize);
-	ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 3);
-	// ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
+
+	if (sysRegion)
+		ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 3);
+	else
+		ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
 	if (ret != 0) {
 		nsDbgPrint("alloc plugin memory failed: %08x\n", ret);
 		return ret;
 	}
-	plgPoolSize = totalSize;
-	ret = svc_duplicateHandle(&plgGameHandle, hProcess);
-	if (ret != 0) {
-		nsDbgPrint("dupping process handle failed: %08x\n", ret);
-		plgGameHandle = 0;
-		goto error_alloc;
+	if (sysRegion) {
+		plgPoolSize = totalSize;
+		ret = svc_duplicateHandle(&plgGameHandle, hProcess);
+		if (ret != 0) {
+			nsDbgPrint("dupping process handle failed: %08x\n", ret);
+			plgGameHandle = 0;
+			goto error_alloc;
+		}
 	}
 
 	// ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, plgPoolStart, totalSize);
@@ -550,11 +591,10 @@ error_alloc:
 		plgGameHandle = 0;
 	}
 	plgPoolSize = 0;
-	{
+	if (sysRegion) {
 		u32 ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 1);
 		if (ret != 0) {
 			nsDbgPrint("free plugin memory failed: %08x\n", ret);
-			return ret;
 		}
 	}
 	return ret;

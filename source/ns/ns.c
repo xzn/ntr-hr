@@ -3022,6 +3022,8 @@ int remotePlayMenu(u32 localaddr) {
 		}
 
 		else if (select == 7 && key == BUTTON_A) { /* apply */
+			releaseVideo();
+
 			int updateDstAddr = !rpStarted || rpConfig.dstAddr != config.dstAddr || daddrCurrent == 0;
 			u32 daddrUpdated = config.dstAddr;
 			nsInitRemotePlay(&config, updateDstAddr);
@@ -3030,11 +3032,15 @@ int remotePlayMenu(u32 localaddr) {
 				tryInitRemotePlay(daddrUpdated);
 			}
 
+			acquireVideo();
+
 			return 1;
 		}
 
 		else if (select == 8 && key == BUTTON_A) { /* nfc patch */
+			releaseVideo();
 			rpDoNFCPatch();
+			acquireVideo();
 		}
 	}
 }
