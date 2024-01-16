@@ -351,14 +351,14 @@ void acquireVideo(void) {
 			for (int j = 0; j < BOTTOM_WIDTH; ++j)
 				memcpy_ctr(
 					(u8 *)bottomAllocFrameBuffer + j * BOTTOM_UI_PITCH,
-					(u8 *)bottomFrameBuffer + j * bottomFrameBufferPitch,
+					(u8 *)(getPhysAddr(bottomFrameBuffer) | 0x80000000) + j * bottomFrameBufferPitch,
 					BOTTOM_UI_PITCH
 				);
 		else if (bottomFrameIsVid && bottomAllocFrameBuffer) {
 			bottomFrameSavedVid = 1;
 			memcpy_ctr(
 				(void *)bottomAllocFrameBuffer,
-				(void *)bottomFrameBuffer,
+				(void *)(getPhysAddr(bottomFrameBuffer) | 0x80000000),
 				BOTTOM_FRAME_VID_SIZE
 			);
 		}
@@ -384,14 +384,14 @@ void releaseVideo(void) {
 		if (!bottomFrameIsVid && bottomAllocFrameBuffer)
 			for (int j = 0; j < BOTTOM_WIDTH; ++j)
 				memcpy_ctr(
-					(u8 *)bottomFrameBuffer + j * bottomFrameBufferPitch,
+					(u8 *)(getPhysAddr(bottomFrameBuffer) | 0x80000000) + j * bottomFrameBufferPitch,
 					(u8 *)bottomAllocFrameBuffer + j * BOTTOM_UI_PITCH,
 					BOTTOM_UI_PITCH
 				);
 		else if (bottomFrameSavedVid) {
 			bottomFrameSavedVid = 0;
 			memcpy_ctr(
-				(void *)bottomFrameBuffer,
+				(void *)(getPhysAddr(bottomFrameBuffer) | 0x80000000),
 				(void *)bottomAllocFrameBuffer,
 				BOTTOM_FRAME_VID_SIZE
 			);
