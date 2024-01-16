@@ -73,13 +73,28 @@ void  rpFree(j_common_ptr, void*) {}
 // }
 
 
-void nsDbgPutc(char ch) {
+static void nsDbgPutc(char ch) {
 
 	if (g_nsConfig->debugPtr >= g_nsConfig->debugBufSize) {
 		return;
 	}
 	(g_nsConfig->debugBuf)[g_nsConfig->debugPtr] = ch;
 	g_nsConfig->debugPtr++;
+}
+
+static void nsDbgLn() {
+	if (g_nsConfig->debugPtr == 0)
+		return;
+	if (g_nsConfig->debugPtr >= g_nsConfig->debugBufSize) {
+		if ((g_nsConfig->debugBuf)[g_nsConfig->debugBufSize - 1] != '\n') {
+			(g_nsConfig->debugBuf)[g_nsConfig->debugBufSize - 1] = '\n';
+		}
+	} else {
+		if ((g_nsConfig->debugBuf)[g_nsConfig->debugPtr - 1] != '\n') {
+			(g_nsConfig->debugBuf)[g_nsConfig->debugPtr] = '\n';
+			g_nsConfig->debugPtr++;
+		}
+	}
 }
 
 void nsDbgPrintShared(const char* fmt, ...) {
@@ -89,17 +104,8 @@ void nsDbgPrintShared(const char* fmt, ...) {
 	if (g_nsConfig) {
 		if (g_nsConfig->debugReady) {
 			rtAcquireLock(&(g_nsConfig->debugBufferLock));
+			nsDbgLn();
 			xfvprintf(nsDbgPutc, fmt, arp);
-			if (g_nsConfig->debugPtr >= g_nsConfig->debugBufSize) {
-				if ((g_nsConfig->debugBuf)[g_nsConfig->debugBufSize - 1] != '\n') {
-					(g_nsConfig->debugBuf)[g_nsConfig->debugBufSize - 1] = '\n';
-				}
-			} else {
-				if ((g_nsConfig->debugBuf)[g_nsConfig->debugPtr - 1] != '\n') {
-					(g_nsConfig->debugBuf)[g_nsConfig->debugPtr] = '\n';
-					g_nsConfig->debugPtr++;
-				}
-			}
 			rtReleaseLock(&(g_nsConfig->debugBufferLock));
 		}
 	}
@@ -3791,6 +3797,7 @@ void nsHandlePacket() {
 
 	if (pac->cmd == NS_CMD_HEARTBEAT) {
 		rtAcquireLock(&(g_nsConfig->debugBufferLock));
+		nsDbgLn();
 		pac->dataLen = g_nsConfig->debugPtr;
 		nsSendPacketHeader();
 		if (pac->dataLen > 0) {
