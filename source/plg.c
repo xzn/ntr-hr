@@ -286,7 +286,7 @@ final:
 	return ret;
 }
 
-static void plgChangeNoSysRegion(void) {
+static void plgChangeNoLoaderMem(void) {
 	static Handle hPMProcess = 0;
 	s32 ret = 0;
 	if (hPMProcess == 0) {
@@ -296,13 +296,13 @@ static void plgChangeNoSysRegion(void) {
 			return;
 		}
 	}
-	u32 noSysRegion = !g_nsConfig->plgNoSysRegion;
-	ret = copyRemoteMemory(hPMProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, plgNoSysRegion), CURRENT_PROCESS_HANDLE, &noSysRegion, sizeof(g_nsConfig->plgNoSysRegion));
+	u32 noLoaderMem = !g_nsConfig->plgNoLoaderMem;
+	ret = copyRemoteMemory(hPMProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, plgNoLoaderMem), CURRENT_PROCESS_HANDLE, &noLoaderMem, sizeof(g_nsConfig->plgNoLoaderMem));
 	if (ret != 0) {
-		showDbg("Update sys region setting failed: %08x", ret, 0);
+		showDbg("Update loader mem setting failed: %08x", ret, 0);
 		return;
 	}
-	g_nsConfig->plgNoSysRegion = noSysRegion;
+	g_nsConfig->plgNoLoaderMem = noLoaderMem;
 }
 
 void plgShowMainMenu(void) {
@@ -322,7 +322,7 @@ void plgShowMainMenu(void) {
 	entries[1] = plgTranslate("Process Manager");
 	entries[2] = plgTranslate("Enable Debugger");
 	entries[3] = plgTranslate("Set Hotkey");
-	entries[4] = g_nsConfig->plgNoSysRegion ? plgTranslate("Enable Sys Region") : plgTranslate("Disable Sys Region");
+	entries[4] = g_nsConfig->plgNoLoaderMem ? plgTranslate("Enable Loader Mem") : plgTranslate("Disable Loader Mem");
 	descs[4] = plgTranslate("Affect game plugins only. Keep enabled for higher compatibility.");
 	mainEntries = 5;
 	if (mainEntriesMax < mainEntries) {
@@ -385,7 +385,7 @@ void plgShowMainMenu(void) {
 		}
 		else if (r == 4) {
 			releaseVideo();
-			plgChangeNoSysRegion();
+			plgChangeNoLoaderMem();
 			acquireVideo();
 			break;
 		}
@@ -478,7 +478,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	PLGLOADER_INFO plgInfo, targetPlgInfo;
 	NS_CONFIG cfg;
 	u32 procTid[2];
-	u32 sysRegion = !__atomic_load_n(&g_nsConfig->plgNoSysRegion, __ATOMIC_RELAXED);
+	u32 loaderMem = !__atomic_load_n(&g_nsConfig->plgNoLoaderMem, __ATOMIC_RELAXED);
 
 	if (hMenuProcess == 0) {
 		ret = svc_openProcess(&hMenuProcess, ntrConfig->HomeMenuPid);
@@ -539,7 +539,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	}
 	totalSize = rtAlignToPageSize(totalSize);
 
-	if (sysRegion)
+	if (loaderMem)
 		ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 3);
 	else
 		ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
@@ -547,7 +547,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 		nsDbgPrint("alloc plugin memory failed: %08x\n", ret);
 		return ret;
 	}
-	if (sysRegion) {
+	if (loaderMem) {
 		plgPoolSize = totalSize;
 		ret = svc_duplicateHandle(&plgGameHandle, hProcess);
 		if (ret != 0) {
@@ -591,7 +591,7 @@ error_alloc:
 		plgGameHandle = 0;
 	}
 	plgPoolSize = 0;
-	if (sysRegion) {
+	if (loaderMem) {
 		u32 ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 1);
 		if (ret != 0) {
 			nsDbgPrint("free plugin memory failed: %08x\n", ret);

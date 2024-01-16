@@ -90,7 +90,7 @@ typedef struct _NS_CONFIG {
 	RP_CONFIG rpConfig;
 	u32 rpConfigLock;
 	u32 rpGamePid;
-	u32 plgNoSysRegion;
+	u32 plgNoLoaderMem;
 } NS_CONFIG;
 
 #define NS_INITMODE_FROMBOOT	0
