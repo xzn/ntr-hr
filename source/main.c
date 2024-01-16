@@ -297,7 +297,7 @@ void threadStart() {
 	if (isFileExist("/debug.flag")) {
 		nsInit();
 	}
-	svc_sleepThread(1000000000);
+	// svc_sleepThread(1000000000);
 	plgInitFromInjectHOME();
 	screenshotMain();
 	//magicKillProcess(0x27);

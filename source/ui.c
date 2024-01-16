@@ -7,10 +7,11 @@ u32 allowDirectScreenAccess = 0;
 u32 bottomFrameBuffer = 0x1F000000;
 u32 bottomRenderingFrameBuffer = 0x1F000000;
 u32 bottomAllocFrameBuffer = 0;
+u32 bottomFrameBufferPitch = BOTTOM_UI_PITCH;
 u32 hGSPProcess = 0;
 
-
-
+u32 bottomFrameIsVid = 0;
+u32 bottomFrameSavedVid = 0;
 
 int builtinDrawString(char* str, int x, int y, char r, char g, char b, int newLine) {
 	int len = strlen(str);
@@ -66,18 +67,19 @@ u32 initDirectScreenAccess(void) {
 	if (ret != 0) {
 		return ret;
 	}
-	// bottomAllocFrameBuffer = plgRequestMemory(BOTTOM_FRAME_SIZE);
-	// if (bottomAllocFrameBuffer == 0) {
-	// 	return -1;
-	// }
+	bottomAllocFrameBuffer = plgRequestMemory(BOTTOM_FRAME_VID_SIZE);
+	if (bottomAllocFrameBuffer == 0) {
+		return -1;
+	}
 	allowDirectScreenAccess = 1;
-	bottomRenderingFrameBuffer = bottomAllocFrameBuffer;
 
 	return 0;
 
 }
 
 u32 controlVideo(u32 cmd, u32 arg1, u32 /*arg2*/, u32 /*rg3*/) {
+	bottomFrameIsVid = 1;
+
 	if (cmd == CONTROLVIDEO_ACQUIREVIDEO) {
 		acquireVideo();
 		return 0;
@@ -128,14 +130,20 @@ void mdelay(u32 m) {
 void memcpy_ctr(void* dst, void* src, size_t size);
 void updateScreen(void) {
 	// if (bottomFrameBuffer != BOTTOM_FRAME1)
-		memcpy_ctr((void *)((getPhysAddr(bottomFrameBuffer) | 0x80000000)), (void *)BOTTOM_FRAME1, BOTTOM_FRAME_SIZE);
+	if (bottomFrameIsVid)
+		memcpy_ctr((void *)(getPhysAddr(bottomFrameBuffer) | 0x80000000), (void *)BOTTOM_FRAME1, BOTTOM_FRAME_VID_SIZE);
+	else
+		for (int j = 0; j < BOTTOM_WIDTH; ++j)
+			memcpy_ctr(
+				(u8 *)(getPhysAddr(bottomFrameBuffer) | 0x80000000) + j * bottomFrameBufferPitch,
+				(u8 *)BOTTOM_FRAME1 + j * bottomFrameBufferPitch,
+				BOTTOM_UI_PITCH
+			);
 	*(vu32*)(IoBasePdc + 0x568) = getPhysAddr(bottomFrameBuffer);
 	*(vu32*)(IoBasePdc + 0x56C) = getPhysAddr(bottomFrameBuffer);
-	*(vu32*)(IoBasePdc + 0x570) = 0x00080301;
+	*(vu32*)(IoBasePdc + 0x570) = 0x00080300 | (bottomFrameIsVid ? BOTTOM_VID_FORMAT : BOTTOM_UI_FORMAT);
 	*(vu32*)(IoBasePdc + 0x55c) = 0x014000f0;
-	*(vu32*)(IoBasePdc + 0x590) = 0x000002d0;
-	// if (bottomFrameBuffer == BOTTOM_FRAME1)
-	// 	svc_flushProcessDataCache(0xffff8001, BOTTOM_FRAME1, BOTTOM_FRAME_SIZE);
+	*(vu32*)(IoBasePdc + 0x590) = bottomFrameIsVid ? BOTTOM_VID_PITCH : bottomFrameBufferPitch;
 }
 
 s32 showMenu(char* title, u32 entryCount, char* captions[]) {
@@ -288,7 +296,7 @@ void showDbgShared(char* fmt, u32 v1, u32 v2) {
 
 extern PLGLOADER_INFO *g_plgInfo;
 u32 decideBottomFrameBufferAddr() {
-
+	bottomFrameBufferPitch = BOTTOM_UI_PITCH;
 	if (g_plgInfo) {
 		u32 tidLow = g_plgInfo->tid[0];
 		if ((tidLow == 0x00125500) || (tidLow == 0x000D6E00) || (tidLow == 0x00125600)) {
@@ -318,9 +326,10 @@ u32 decideBottomFrameBufferAddr() {
 	if (
 		isInVRAM(bl_fbaddr[0]) ||
 		isInVRAM(bl_fbaddr[1])
-	)
-		return (bl_fbaddr[0] < bl_fbaddr[1] ? bl_fbaddr[0] : bl_fbaddr[1])
-			+ 0x07000000;
+	) {
+		bottomFrameBufferPitch = REG(IoBasePdc + 0x590);
+		return MIN(MIN(bl_fbaddr[0], bl_fbaddr[1]), 0x18600000 - BOTTOM_FRAME_VID_SIZE) + 0x07000000;
+	}
 	u32 tl_fbaddr[2];
 	tl_fbaddr[0] = REG(IoBasePdc + 0x468);
 	tl_fbaddr[1] = REG(IoBasePdc + 0x46c);
@@ -335,24 +344,31 @@ u32 decideBottomFrameBufferAddr() {
 void acquireVideo(void) {
 	if (videoRef == 0) {
 		bottomFrameBuffer = decideBottomFrameBufferAddr();
-		if (bottomAllocFrameBuffer != 0)
-			bottomRenderingFrameBuffer = bottomAllocFrameBuffer;
-		else
-			bottomRenderingFrameBuffer = bottomFrameBuffer;
+		bottomRenderingFrameBuffer = bottomFrameBuffer;
 		*(vu32*)(IoBaseLcd + 0x204) = 0;
 		*(vu32*)(IoBaseLcd + 0xA04) = 0;
+		if (!bottomFrameIsVid && bottomAllocFrameBuffer)
+			for (int j = 0; j < BOTTOM_WIDTH; ++j)
+				memcpy_ctr(
+					(u8 *)bottomAllocFrameBuffer + j * BOTTOM_UI_PITCH,
+					(u8 *)bottomFrameBuffer + j * bottomFrameBufferPitch,
+					BOTTOM_UI_PITCH
+				);
+		else if (bottomFrameIsVid && bottomAllocFrameBuffer) {
+			bottomFrameSavedVid = 1;
+			memcpy_ctr(
+				(void *)bottomAllocFrameBuffer,
+				(void *)bottomFrameBuffer,
+				BOTTOM_FRAME_VID_SIZE
+			);
+		}
 		savedVideoState[0] = *(vu32*)(IoBasePdc + 0x568);
 		savedVideoState[1] = *(vu32*)(IoBasePdc + 0x56C);
 		savedVideoState[2] = *(vu32*)(IoBasePdc + 0x570);
 		savedVideoState[3] = *(vu32*)(IoBasePdc + 0x55c);
 		savedVideoState[4] = *(vu32*)(IoBasePdc + 0x590);
-		*(vu32*)(IoBasePdc + 0x568) = getPhysAddr(bottomFrameBuffer);
-		*(vu32*)(IoBasePdc + 0x56C) = getPhysAddr(bottomFrameBuffer);
-		*(vu32*)(IoBasePdc + 0x570) = 0x00080301;
-		*(vu32*)(IoBasePdc + 0x55c) = 0x014000f0;
-		*(vu32*)(IoBasePdc + 0x590) = 0x000002d0;
-
 		blank(0, 0, 320, 240);
+		updateScreen();
 	}
 	videoRef ++;
 }
@@ -365,6 +381,21 @@ void releaseVideo(void) {
 		*(vu32*)(IoBasePdc + 0x570) = savedVideoState[2];
 		*(vu32*)(IoBasePdc + 0x55c) = savedVideoState[3];
 		*(vu32*)(IoBasePdc + 0x590) = savedVideoState[4];
+		if (!bottomFrameIsVid && bottomAllocFrameBuffer)
+			for (int j = 0; j < BOTTOM_WIDTH; ++j)
+				memcpy_ctr(
+					(u8 *)bottomFrameBuffer + j * bottomFrameBufferPitch,
+					(u8 *)bottomAllocFrameBuffer + j * BOTTOM_UI_PITCH,
+					BOTTOM_UI_PITCH
+				);
+		else if (bottomFrameSavedVid) {
+			bottomFrameSavedVid = 0;
+			memcpy_ctr(
+				(void *)bottomFrameBuffer,
+				(void *)bottomAllocFrameBuffer,
+				BOTTOM_FRAME_VID_SIZE
+			);
+		}
 	}
 }
 

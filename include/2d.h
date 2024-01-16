@@ -11,11 +11,18 @@
 
 #define BOTTOM_HEIGHT 240
 #define BOTTOM_WIDTH 320
+#define BOTTOM_UI_BPP 2
+#define BOTTOM_UI_PITCH (BOTTOM_HEIGHT * BOTTOM_UI_BPP)
+#define BOTTOM_UI_FORMAT 3
+
+#define BOTTOM_VID_BPP 3
+#define BOTTOM_VID_PITCH (BOTTOM_HEIGHT * BOTTOM_VID_BPP)
+#define BOTTOM_VID_FORMAT 1
 
 // #define BOTTOM_FRAME1 (getPhysAddr(bottomFrameBuffer) | 0x80000000)
 #define BOTTOM_FRAME1 (bottomRenderingFrameBuffer)
 // #define BOTTOM_FRAME2 BOTTOM_FRAME1
-#define BOTTOM_FRAME_SIZE	(320 * 240 * 3)
+#define BOTTOM_FRAME_VID_SIZE	(BOTTOM_WIDTH * BOTTOM_VID_PITCH)
 
 
 
@@ -37,5 +44,7 @@ void square(int x, int y, int xs, int ys);
 
 u32 getPhysAddr(u32 vaddr);
 extern u32 bottomFrameBuffer;
+extern u32 bottomFrameBufferPitch;
 extern u32 bottomRenderingFrameBuffer;
+extern u32 bottomFrameIsVid;
 #endif

@@ -7,6 +7,11 @@
 }*/
 
 void write_color(u32 address, u8 r, u8 g, u8 b){
+  u16 color = (((u16)r >> 3) << 11) | (((u16)g >> 3) << 6) | (((u16)b >> 3) << 1) | 1;
+  *(u16 *)address = color;
+}
+
+void write_color_vid(u32 address, u8 r, u8 g, u8 b){
   write_byte(address, b);
   write_byte(address+1, g);
   write_byte(address+2, r);

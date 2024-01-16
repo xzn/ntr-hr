@@ -118,6 +118,9 @@ typedef struct _GAME_PLUGIN_MENU {
 #define REG16(x) (*(volatile u16*)(x))
 #define SW(addr, data)  *(u32*)(addr) = data
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 
 
 #endif

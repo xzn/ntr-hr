@@ -7,6 +7,7 @@
 void write_byte(u32 address, u8 byte);
 void write_word(u32 address, u32 word);
 void write_color(u32 address, u8 r, u8 g, u8 b);
+void write_color_vid(u32 address, u8 r, u8 g, u8 b);
 u32 read_word(u32 address);
 char nibble_to_readable(u8 nibble);
 int byte_to_string(u8 byte, char* ret, int max_len);
