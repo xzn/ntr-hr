@@ -735,8 +735,7 @@ int injectPM() {
 		hProcess = 0;
 		goto final;
 	}
-	cfg.debugMore = g_nsConfig->debugMore;
-	ret = nsAttachProcess(hProcess, remotePC, &cfg, 1);
+	ret = nsAttachProcess(hProcess, remotePC, &cfg, 0);
 final:
 	if (hProcess != 0) {
 		svc_closeHandle(hProcess);

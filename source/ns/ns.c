@@ -2498,7 +2498,7 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 	setCpuClockLock(3);
 	nsDbgPrint("cpu was locked on 804MHz, L2 Enabled\n");
 	nsDbgPrint("starting remoteplay...\n");
-	ret = nsAttachProcess(hProcess, remotePC, &cfg, 1);
+	ret = nsAttachProcess(hProcess, remotePC, &cfg, 0);
 
 	final:
 	if (hProcess != 0) {
@@ -3634,7 +3634,7 @@ void nsHandleListThread() {
 
 
 
-u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int /* sysRegion */) {
+u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int cfgHasNtrConfig) {
 	u32 size = 0;
 	u32* buf = 0;
 	u32 baseAddr = NS_CONFIGURE_ADDR;
@@ -3705,7 +3705,8 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int /* sysReg
 		goto final;
 	}
 	cfg->startupInfo[2] = remotePC;
-	memcpy(&(cfg->ntrConfig), ntrConfig, sizeof(NTR_CONFIG));
+	if (!cfgHasNtrConfig)
+		memcpy(&(cfg->ntrConfig), ntrConfig, sizeof(NTR_CONFIG));
 	// copy cfg structure to remote process
 	ret = copyRemoteMemory(hProcess, (void*)baseAddr, 0xffff8001, cfg, sizeof(NS_CONFIG));
 	if (ret != 0) {

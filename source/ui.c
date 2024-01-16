@@ -127,7 +127,6 @@ void mdelay(u32 m) {
 	// svc_sleepThread(0x00100000 * m);
 }
 
-void memcpy_ctr(void* dst, void* src, size_t size);
 void updateScreen(void) {
 	// if (bottomFrameBuffer != BOTTOM_FRAME1)
 	if (bottomFrameIsVid)

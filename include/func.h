@@ -121,6 +121,7 @@ typedef struct _GAME_PLUGIN_MENU {
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
+void memcpy_ctr(void* dst, void* src, size_t size);
 
 
 #endif

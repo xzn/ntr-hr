@@ -375,8 +375,10 @@ int injectToHomeMenu() {
 
 	u32* bootArgs = (void*)(arm11BinStart + 4);
 	bootArgs[0] = 1;
-	cfg.debugMore = isInDebugMode();
-	if (cfg.debugMore) {
+
+	memcpy(&cfg.ntrConfig, ntrConfig, offsetof(NTR_CONFIG, debugMore));
+	cfg.ntrConfig.debugMore = isInDebugMode();
+	if (cfg.ntrConfig.debugMore) {
 		disp(100, 0x17f7f7f);
 	}
 
@@ -556,7 +558,7 @@ int main(void) {
 
 			threadStack = (u32*)((u32)NS_CONFIGURE_ADDR + 0x1000);
 			if (
-				(g_nsConfig->debugMore && currentPid == ntrConfig->PMPid) ||
+				(ntrConfig->debugMore && currentPid == ntrConfig->PMPid) ||
 				isInDebugMode() ||
 				(g_nsConfig->startupCommand == NS_STARTCMD_DEBUG)
 			) {

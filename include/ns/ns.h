@@ -82,11 +82,14 @@ typedef struct _NS_CONFIG {
 	u32 exitFlag;
 
 	u32 sharedFunc[100];
+
+	/* Plugins NS_CONFIG end here */
+
 	NTR_CONFIG ntrConfig;
+
 	RP_CONFIG rpConfig;
 	u32 rpConfigLock;
 	u32 rpGamePid;
-	u32 debugMore;
 } NS_CONFIG;
 
 #define NS_INITMODE_FROMBOOT	0
@@ -167,7 +170,7 @@ void rtDisableHook(RT_HOOK* hook);
 void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr);
 
 
-u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int sysRegion);
+u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int cfgHasNtrConfig);
 u32 rtGenerateJumpCode(u32 dst, u32* buf);
 
 int isInVRAM(u32 phys);
