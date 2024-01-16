@@ -312,11 +312,21 @@ u32 decideBottomFrameBufferAddr() {
 			return 0x1F500000;
 		}
 	}
+	u32 bl_fbaddr[2];
+	bl_fbaddr[0] = REG(IoBasePdc + 0x568);
+	bl_fbaddr[1] = REG(IoBasePdc + 0x56c);
 	if (
-		isInVRAM(REG(IoBasePdc + 0x468)) ||
-		isInVRAM(REG(IoBasePdc + 0x46c)) ||
-		isInVRAM(REG(IoBasePdc + 0x568)) ||
-		isInVRAM(REG(IoBasePdc + 0x56c))
+		isInVRAM(bl_fbaddr[0]) ||
+		isInVRAM(bl_fbaddr[1])
+	)
+		return (bl_fbaddr[0] < bl_fbaddr[1] ? bl_fbaddr[0] : bl_fbaddr[1])
+			+ 0x07000000;
+	u32 tl_fbaddr[2];
+	tl_fbaddr[0] = REG(IoBasePdc + 0x468);
+	tl_fbaddr[1] = REG(IoBasePdc + 0x46c);
+	if (
+		isInVRAM(tl_fbaddr[0]) ||
+		isInVRAM(tl_fbaddr[1])
 	)
 		return 0x1F500000;
 	return 0x1F000000;
