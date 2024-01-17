@@ -1689,12 +1689,16 @@ final:
 static u32 screenDequeueCount;
 static u32 screenBusyWait = 0;
 
-static int rpGetFrameCount(u32 isTop) {
-	return isTop == isPriorityTop ? 1 << SCALEBITS : priorityFactorLogScaled;
+static int rpCalcFrameCount(u32 isTop, u32 prioTop, u32 prioScaled) {
+	return isTop == prioTop ? 1 << SCALEBITS : prioScaled;
 }
 
-static int rpCalcFrameFactor(u32 isTop, u32 count) {
-	return (s64)__atomic_load_n(&rpPortQueued[isTop], __ATOMIC_RELAXED) * (s64)(1 << SCALEBITS) / (s64)count;
+static int rpGetFrameCount(u32 isTop) {
+	return rpCalcFrameCount(isTop, isPriorityTop, priorityFactorLogScaled);
+}
+
+static int rpCalcFrameFactor(s32 queued, u32 count) {
+	return (s64)queued * (s64)(1 << SCALEBITS) / (s64)count;
 }
 
 static int rpGetFrameFactor(u32 isTop) {
@@ -1702,7 +1706,7 @@ static int rpGetFrameFactor(u32 isTop) {
 		return isTop == isPriorityTop;
 	}
 	u32 count = rpGetFrameCount(isTop);
-	return rpCalcFrameFactor(isTop, count);
+	return rpCalcFrameFactor(__atomic_load_n(&rpPortQueued[isTop], __ATOMIC_RELAXED), count);
 }
 
 static int rpTryDequeue(u32 isTop) {
@@ -2439,18 +2443,47 @@ static void rpPortThread(u32) {
 			if (__atomic_load_n(&rpPortGamePid, __ATOMIC_RELAXED) != gamePid)
 				__atomic_store_n(&rpPortGamePid, gamePid, __ATOMIC_RELAXED);
 
-			u32 frameCountThis = rpGetFrameCount(isTop);
-			u32 frameFactorThis = rpCalcFrameFactor(isTop, frameCountThis);
+			u32 prioTop = __atomic_load_n(&isPriorityTop, __ATOMIC_RELAXED);
+			u32 prioScaled = __atomic_load_n(&priorityFactorLogScaled, __ATOMIC_RELAXED);
 
-			if (frameFactorThis >= log_scaled_tab[0xFF]) {
-				u32 frameCountThat = rpGetFrameCount(!isTop);
-				u32 frameFactorThat = rpCalcFrameFactor(!isTop, frameCountThat);
+			static u32 lastPrioTop = -1;
+			static u32 lastPrioScaled = -1;
+			if (prioTop != lastPrioTop || prioScaled != lastPrioScaled) {
+				lastPrioTop = prioTop;
+				lastPrioScaled = prioScaled;
 
-				u32 factorWhich = MIN(frameFactorThis, frameFactorThat);
-				__atomic_sub_fetch(&rpPortQueued[isTop], (u64)frameCountThis * (u64)factorWhich / (u64)(1 << SCALEBITS), __ATOMIC_RELAXED);
-				__atomic_sub_fetch(&rpPortQueued[!isTop], (u64)frameCountThat * (u64)factorWhich / (u64)(1 << SCALEBITS), __ATOMIC_RELAXED);
+				u32 frameCountThis = rpCalcFrameCount(isTop, prioTop, prioScaled);
+				u32 frameCountThat = rpCalcFrameCount(!isTop, prioTop, prioScaled);
+
+				frameCountThis += 1 << SCALEBITS;
+				__atomic_store_n(&rpPortQueued[isTop], frameCountThis, __ATOMIC_RELAXED);
+				__atomic_store_n(&rpPortQueued[!isTop], frameCountThat, __ATOMIC_RELAXED);
+			} else {
+				s32 frameThis = __atomic_load_n(&rpPortQueued[isTop], __ATOMIC_RELAXED);
+				u32 frameCountThis = rpCalcFrameCount(isTop, prioTop, prioScaled);
+				s32 frameFactorThis = rpCalcFrameFactor(frameThis, frameCountThis);
+
+				if (frameFactorThis >= (s32)log_scaled_tab[0xFF]) { /* just a cap */
+					s32 frameThat = __atomic_load_n(&rpPortQueued[!isTop], __ATOMIC_RELAXED);
+					u32 frameCountThat = rpCalcFrameCount(!isTop, prioTop, prioScaled);
+					s32 frameFactorThat = rpCalcFrameFactor(frameThat, frameCountThat);
+
+					s32 factorWhich = MIN(frameFactorThis, frameFactorThat);
+
+					s32 frameSubThis = (s64)frameCountThis * (s64)factorWhich / (s64)(1 << SCALEBITS);
+					s32 frameSubThat = (s64)frameCountThat * (s64)factorWhich / (s64)(1 << SCALEBITS);
+
+					if (frameSubThis >= (s32)(1 << SCALEBITS)) {
+						frameSubThis -= 1 << SCALEBITS;
+					} else {
+						frameSubThis = 0;
+						// frameSubThat += (s64)((1 << SCALEBITS) - frameSubThis) * (s64)frameFactorThat / (s64)frameFactorThis;
+					}
+					if (frameSubThis != 0) __atomic_sub_fetch(&rpPortQueued[isTop], frameSubThis, __ATOMIC_RELAXED);
+					if (frameSubThat != 0) __atomic_sub_fetch(&rpPortQueued[!isTop], frameSubThat, __ATOMIC_RELAXED);
+				} else
+					__atomic_add_fetch(&rpPortQueued[isTop], 1 << SCALEBITS, __ATOMIC_RELAXED);
 			}
-			__atomic_add_fetch(&rpPortQueued[isTop], 1 << SCALEBITS, __ATOMIC_RELAXED);
 
 			ret = svc_signalEvent(rpPortEvent[isTop]);
 			if (ret != 0) {
