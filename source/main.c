@@ -7,7 +7,7 @@ u32 nsDefaultMemRegion = 0x200;
 
 void sleep(s64 ns);
 
-u32* threadStack = 0;
+static u32* threadStack = 0;
 NTR_CONFIG backupNtrConfig = { 0 };
 NTR_CONFIG* ntrConfig;
 FS_archive sdmcArchive = { 0x9, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };

@@ -979,7 +979,7 @@ u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 wi
 	if (ret != 0) {
 		nsDbgPrint("plgOverlayEvent signal failed: %08x\n", ret);
 	}
-	rpPortSend(isDisplay1 ? 0 : 1);
+	// rpPortSend(isDisplay1 ? 0 : 1);
 
 	if (!ntrConfig->gameHasPlugins)
 		goto final;
@@ -1028,7 +1028,7 @@ static void plgOverlayThread(u32 fp) {
 	if (!fp) {
 		while (1) {
 			rpPortSend(2);
-			svc_sleepThread(500000000);
+			svc_sleepThread(1000000000);
 		}
 	}
 
@@ -1037,12 +1037,15 @@ static void plgOverlayThread(u32 fp) {
 		ret = svc_waitSynchronization1(*plgOverlayEvent, 1000000000);
 		if (ret != 0) {
 			if (ret == 0x09401BFE) {
+				rpPortSend(2);
 				continue;
 			}
 			svc_sleepThread(1000000000);
 			continue;
 		}
-		rpPortSend(__atomic_load_n(&rpPortIsTop, __ATOMIC_RELAXED));
+		if (rpPortSend(__atomic_load_n(&rpPortIsTop, __ATOMIC_RELAXED)) != 0) {
+			svc_sleepThread(1000000000);
+		}
 	}
 	svc_exitThread();
 }

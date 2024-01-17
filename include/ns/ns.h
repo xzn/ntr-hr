@@ -182,4 +182,4 @@ extern u8 nsIsRemotePlayStarted;
 int remotePlayMenu(u32 localaddr);
 void rpMain(void);
 void rpSetGamePid(u32 pid);
-void rpPortSend(u32 isTop);
+int rpPortSend(u32 isTop);
