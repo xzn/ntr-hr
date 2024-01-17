@@ -8,6 +8,8 @@ Handle hCurrentProcess = 0;
 u32 currentPid = 0;
 
 u32 getCurrentProcessId() {
+	if (currentPid != 0)
+		return currentPid;
 	svc_getProcessId(&currentPid, 0xffff8001);
 	return currentPid;
 }
@@ -19,8 +21,7 @@ u32 getCurrentProcessHandle() {
 	if (hCurrentProcess != 0) {
 		return hCurrentProcess;
 	}
-	svc_getProcessId(&currentPid, 0xffff8001);
-	ret = svc_openProcess(&handle, currentPid);
+	ret = svc_openProcess(&handle, getCurrentProcessId());
 	if (ret != 0) {
 		showDbg("openProcess failed, ret: %08x", ret, 0);
 		return 0;

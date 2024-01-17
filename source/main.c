@@ -356,7 +356,7 @@ void startupFromInject() {
 	disp(100, 0x1ff0000);
 	nsInit();
 	disp(100, 0x10000ff);
-	svc_exitThread(0);
+	svc_exitThread();
 }
 
 
@@ -575,7 +575,7 @@ int main(void) {
 				initFromInjectPM();
 			}
 			else if (g_nsConfig->startupCommand == NS_STARTCMD_INJECTGAME) {
-				disp(100, 0x100ff00);
+				// disp(100, 0x100ff00);
 				initFromInjectGame();
 			}
 		}

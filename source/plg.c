@@ -46,7 +46,9 @@ int plgOverlayStatus = 0;
 
 u32 plgRegisterCallback(u32 type, void* callback, u32) {
 	if (type == CALLBACK_OVERLAY) {
-		plgInitScreenOverlay();
+		// plgInitScreenOverlay();
+		ntrConfig->gameHasPlugins = 1;
+
 		if (plgOverlayStatus != 1) {
 			return -1;
 		}
@@ -513,13 +515,14 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 
 	plgFreePreviousPool(0);
 
+	u32 gameHasPlugins = 1;
 	if (plgInfo.plgCount == 0) {
-		if (!isInDebugMode()) {
+		// if (!isInDebugMode()) {
 			if (plgInfo.nightShiftLevel == 0) {
 				// no plugin loaded and not debug mode, skipping
-				return -1;
+				gameHasPlugins = 0;
 			}
-		}
+		// }
 	}
 
 	arm11BinStart = plgInfo.arm11BinStart;
@@ -527,57 +530,61 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	arm11BinProcess = hMenuProcess;
 	cfg.startupCommand = NS_STARTCMD_INJECTGAME;
 
-	base = plgPoolStart;
-	memcpy(&targetPlgInfo, &plgInfo, sizeof(PLGLOADER_INFO));
-	totalSize = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
-	base += totalSize;
-	for (i = 0; i < plgInfo.plgCount; i++) {
-		u32 size = plgInfo.plgSize[i];
-		targetPlgInfo.plgBufferPtr[i] = base;
-		totalSize += size;
-		base += size;
-	}
-	totalSize = rtAlignToPageSize(totalSize);
+	if (gameHasPlugins) {
+		base = plgPoolStart;
+		memcpy(&targetPlgInfo, &plgInfo, sizeof(PLGLOADER_INFO));
+		totalSize = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
+		base += totalSize;
+		for (i = 0; i < plgInfo.plgCount; i++) {
+			u32 size = plgInfo.plgSize[i];
+			targetPlgInfo.plgBufferPtr[i] = base;
+			totalSize += size;
+			base += size;
+		}
+		totalSize = rtAlignToPageSize(totalSize);
 
-	if (loaderMem)
-		ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 3);
-	else
-		ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
-	if (ret != 0) {
-		nsDbgPrint("alloc plugin memory failed: %08x\n", ret);
-		return ret;
-	}
-	if (loaderMem) {
-		plgPoolSize = totalSize;
-		ret = svc_duplicateHandle(&plgGameHandle, hProcess);
+		if (loaderMem)
+			ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 3);
+		else
+			ret = mapRemoteMemory(hProcess, plgPoolStart, totalSize);
 		if (ret != 0) {
-			nsDbgPrint("dupping process handle failed: %08x\n", ret);
-			plgGameHandle = 0;
+			nsDbgPrint("alloc plugin memory failed: %08x\n", ret);
+			return ret;
+		}
+		if (loaderMem) {
+			plgPoolSize = totalSize;
+			ret = svc_duplicateHandle(&plgGameHandle, hProcess);
+			if (ret != 0) {
+				nsDbgPrint("dupping process handle failed: %08x\n", ret);
+				plgGameHandle = 0;
+				goto error_alloc;
+			}
+		}
+
+		// ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, plgPoolStart, totalSize);
+		ret = protectRemoteMemory(hProcess, (void *)plgPoolStart, totalSize);
+		if (ret != 0) {
+			nsDbgPrint("rwx failed: %08x\n", ret);
 			goto error_alloc;
+		}
+		ret = copyRemoteMemory(hProcess, (void*)plgPoolStart, 0xffff8001, &targetPlgInfo, sizeof(PLGLOADER_INFO));
+		if (ret != 0) {
+			nsDbgPrint("copy plginfo failed: %08x\n", ret);
+			goto error_alloc;
+		}
+		for (i = 0; i < targetPlgInfo.plgCount; i++) {
+			ret = copyRemoteMemory(hProcess, (void*)targetPlgInfo.plgBufferPtr[i], hMenuProcess, (void*)plgInfo.plgBufferPtr[i],
+				targetPlgInfo.plgSize[i]);
+			if (ret != 0) {
+				nsDbgPrint("load plg failed: %08x\n", ret);
+				goto error_alloc;
+			}
 		}
 	}
 
-	// ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, plgPoolStart, totalSize);
-	ret = protectRemoteMemory(hProcess, (void *)plgPoolStart, totalSize);
-	if (ret != 0) {
-		nsDbgPrint("rwx failed: %08x\n", ret);
-		goto error_alloc;
-	}
-	ret = copyRemoteMemory(hProcess, (void*)plgPoolStart, 0xffff8001, &targetPlgInfo, sizeof(PLGLOADER_INFO));
-	if (ret != 0) {
-		nsDbgPrint("copy plginfo failed: %08x\n", ret);
-		goto error_alloc;
-	}
-	for (i = 0; i < targetPlgInfo.plgCount; i++) {
-		ret = copyRemoteMemory(hProcess, (void*)targetPlgInfo.plgBufferPtr[i], hMenuProcess, (void*)plgInfo.plgBufferPtr[i],
-			targetPlgInfo.plgSize[i]);
-		if (ret != 0) {
-			nsDbgPrint("load plg failed: %08x\n", ret);
-			goto error_alloc;
-		}
-	}
-
-	ret = nsAttachProcess(hProcess, 0x00100000, &cfg, 0);
+	memcpy(&cfg.ntrConfig, ntrConfig, sizeof(NTR_CONFIG));
+	cfg.ntrConfig.gameHasPlugins = gameHasPlugins;
+	ret = nsAttachProcess(hProcess, 0x00100000, &cfg, 1);
 	if (ret != 0) {
 		nsDbgPrint("attach process failed: %08x\n", ret);
 		goto error_alloc;
@@ -586,15 +593,17 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	return 0;
 
 error_alloc:
-	if (plgGameHandle) {
-		svc_closeHandle(plgGameHandle);
-		plgGameHandle = 0;
-	}
-	plgPoolSize = 0;
-	if (loaderMem) {
-		u32 ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 1);
-		if (ret != 0) {
-			nsDbgPrint("free plugin memory failed: %08x\n", ret);
+	if (gameHasPlugins) {
+		if (plgGameHandle) {
+			svc_closeHandle(plgGameHandle);
+			plgGameHandle = 0;
+		}
+		plgPoolSize = 0;
+		if (loaderMem) {
+			u32 ret = mapRemoteMemoryInSysRegion(hProcess, plgPoolStart, totalSize, 1);
+			if (ret != 0) {
+				nsDbgPrint("free plugin memory failed: %08x\n", ret);
+			}
 		}
 	}
 	return ret;
@@ -799,11 +808,11 @@ void startHomePlugin() {
 }
 
 
-
-
 void plgInitFromInjectHOME(void) {
 	u32 base = plgPoolStart;
 	u32 ret;
+
+	plgInitScreenOverlay();
 
 	initSharedFunc();
 	plgSdmcArchive = (FS_archive){ 9, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };
@@ -836,6 +845,7 @@ void plgInitFromInjectHOME(void) {
 	}
 
 	memset(g_plgInfo, 0, sizeof(PLGLOADER_INFO));
+
 	plgLoadStart = base;
 	plgStartPluginLoad();
 	plgLoadPluginsFromDirectory("home");
@@ -954,11 +964,27 @@ u32 plgOverlayNightShift(u32 isDisplay1, u32 addr, u32 addrB, u32 width, u32 for
 	return 0;
 }
 
+static Handle *plgOverlayEvent;
+static u32 rpPortIsTop = 0;
+
+#define STACK_SIZE 0x4000
+static u32 *plgOverlayThreadStack;
+
 typedef u32 (*OverlayFnTypedef) (u32 isDisplay1, u32 addr, u32 addrB, u32 width, u32 format);
 
 u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 width, u32 format, u32 a7) {
-	u32 height = isDisplay1 ? 320 : 400;
+	__atomic_store_n(&rpPortIsTop, isDisplay1 ? 0 : 1, __ATOMIC_RELAXED);
 	u32 ret;
+	ret = svc_signalEvent(*plgOverlayEvent);
+	if (ret != 0) {
+		nsDbgPrint("plgOverlayEvent signal failed: %08x\n", ret);
+	}
+	rpPortSend(isDisplay1 ? 0 : 1);
+
+	if (!ntrConfig->gameHasPlugins)
+		goto final;
+
+	u32 height = isDisplay1 ? 320 : 400;
 	int isDirty = 0;
 
 	if ((addr >= 0x1f000000) && (addr < 0x1f600000)) {
@@ -998,6 +1024,29 @@ final:
 	return ret;
 }
 
+static void plgOverlayThread(u32 fp) {
+	if (!fp) {
+		while (1) {
+			rpPortSend(2);
+			svc_sleepThread(500000000);
+		}
+	}
+
+	int ret;
+	while (1) {
+		ret = svc_waitSynchronization1(*plgOverlayEvent, 1000000000);
+		if (ret != 0) {
+			if (ret == 0x09401BFE) {
+				continue;
+			}
+			svc_sleepThread(1000000000);
+			continue;
+		}
+		rpPortSend(__atomic_load_n(&rpPortIsTop, __ATOMIC_RELAXED));
+	}
+	svc_exitThread();
+}
+
 void plgInitScreenOverlay() {
 	if (plgOverlayStatus) {
 		return;
@@ -1024,10 +1073,21 @@ void plgInitScreenOverlay() {
 	}
 	nsDbgPrint("overlay addr: %08x, %08x\n", addr, fp);
 
-	if (!fp) {
-
-		return;
+	plgOverlayThreadStack = (void *)plgRequestMemory(STACK_SIZE);
+	plgOverlayEvent = plgOverlayThreadStack;
+	int ret;
+	ret = svc_createEvent(plgOverlayEvent, 0);
+	if (ret != 0) {
+		nsDbgPrint("create plgOverlayEvent failed: %08x", ret);
 	}
+	Handle hThread;
+	ret = svc_createThread(&hThread, plgOverlayThread, fp, &plgOverlayThreadStack[(STACK_SIZE / 4) - 10], 0x18, -2);
+	if (ret != 0) {
+		nsDbgPrint("create plgOverlayThread failed: %08x", ret);
+	}
+
+	if (!fp)
+		return;
 	rtInitHook(&SetBufferSwapHook, fp, (u32)plgSetBufferSwapCallback);
 	rtEnableHook(&SetBufferSwapHook);
 	plgOverlayStatus = 1;
@@ -1038,14 +1098,23 @@ void initFromInjectGame(void) {
 	typedef void(*funcType)();
 	u32 i;
 
+	plgInitScreenOverlay();
+	if (plgOverlayStatus != 1) {
+	}
+
+	if (!ntrConfig->gameHasPlugins)
+		return;
+
+	disp(100, 0x100ff00);
+
 	initSharedFunc();
 
 
-
 	g_plgInfo = (PLGLOADER_INFO*)plgPoolStart;
-	if (g_plgInfo->nightShiftLevel) {
-		plgInitScreenOverlay();
-	}
+	// if (g_plgInfo->nightShiftLevel) {
+		// plgInitScreenOverlay();
+	// }
+
 	for (i = 0; i < g_plgInfo->plgCount; i++) {
 		nsDbgPrint("plg: %08x\n", g_plgInfo->plgBufferPtr[i]);
 		((funcType)(g_plgInfo->plgBufferPtr[i]))();

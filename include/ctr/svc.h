@@ -75,7 +75,7 @@ typedef struct {
 	Result svc_controlMemory(u32* outaddr, u32 addr0, u32 addr1, u32 size, u32 operation, u32 permissions); //(outaddr is usually the same as the input addr0)
 	void svc_exitProcess(void);
 	Result svc_createThread(Handle* thread, ThreadFunc entrypoint, u32 arg, u32* stacktop, s32 threadpriority, s32 processorid);
-	void svc_exitThread();
+	void svc_exitThread(void) __attribute__((noreturn));
 	void svc_sleepThread(s64 ns);
 	Result svc_createMutex(Handle* mutex, bool initialLocked);
 	Result svc_releaseMutex(Handle handle);
@@ -91,7 +91,7 @@ typedef struct {
 	Result svc_waitSynchronizationN(s32* out, Handle* handles, s32 handlecount, bool waitAll, s64 nanoseconds);
 	Result svc_arbitrateAddress(Handle arbiter, u32 addr, u8 type, s32 value, s64 nanoseconds);
 	Result svc_closeHandle(Handle handle);
-	u64 svc_getSystemTick();
+	u64 svc_getSystemTick(void);
 	Result svc_getSystemInfo(s64* out, u32 type, s32 param);
 	Result svc_connectToPort(volatile Handle* out, const char* portName);
 	Result svc_sendSyncRequest(Handle session);
@@ -104,12 +104,13 @@ typedef struct {
 
 	Result svc_duplicateHandle(Handle* out, Handle original);
 	Result svc_mapProcessMemory(Handle process, u32 destAddress, u32 size);
-	/**
-	* @brief Maps a block of process memory.
-	* @param process Handle of the process.
-	* @param destAddress Address of the mapped block in the current process.
-	* @param srcAddress Address of the mapped block in the source process.
-	* @param size Size of the block of the memory to map (truncated to a multiple of 0x1000 bytes).
-	*/
+
 	Result svcMapProcessMemoryEx(Handle process, u32 destAddr, u32 srcAddr, u32 size);
+	Result svcCreatePort(Handle* portServer, Handle* portClient, const char* name, s32 maxSessions);
+	Result svcAcceptSession(Handle* session, Handle port);
+	Result svcReplyAndReceive(s32* index, const Handle* handles, s32 handleCount, Handle replyTarget);
+
+	static inline u32 IPC_MakeHeader(u16 command_id, unsigned normal_params, unsigned translate_params) {
+		return ((u32) command_id << 16) | (((u32) normal_params & 0x3F) << 6) | (((u32) translate_params & 0x3F) << 0);
+	}
 #endif

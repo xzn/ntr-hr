@@ -55,10 +55,40 @@ svc_sleepThread:
 .global svcMapProcessMemoryEx
 .type svcMapProcessMemoryEx, %function
 svcMapProcessMemoryEx:
-    svc 0xA0
-    bx lr
+	svc 0xA0
+	bx lr
 
+.global svcCreatePort
+.type svcCreatePort, %function
+svcCreatePort:
+	push {r0, r1}
+	svc 0x47
+	ldr r3, [sp, #0]
+	str r1, [r3]
+	ldr r3, [sp, #4]
+	str r2, [r3]
+	add sp, sp, #8
+	bx  lr
 
+.global svcAcceptSession
+.type svcAcceptSession, %function
+svcAcceptSession:
+	str r0, [sp, #-4]!
+	svc 0x4A
+	ldr r2, [sp]
+	str r1, [r2]
+	add sp, sp, #4
+	bx  lr
+
+.global svcReplyAndReceive
+.type svcReplyAndReceive, %function
+svcReplyAndReceive:
+	str r0, [sp, #-4]!
+	svc 0x4F
+	ldr r2, [sp]
+	str r1, [r2]
+	add sp, sp, #4
+	bx  lr
 
 .global svc_createMutex
 .type svc_createMutex, %function
@@ -139,8 +169,8 @@ svc_unmapMemoryBlock:
 .global svc_arbitrateAddress
 .type svc_arbitrateAddress, %function
 svc_arbitrateAddress:
-        svc 0x22
-        bx lr
+		svc 0x22
+		bx lr
 
 .global svc_closeHandle
 .type svc_closeHandle, %function
@@ -158,13 +188,15 @@ svc_waitSynchronization1:
 .type svc_waitSynchronizationN, %function
 svc_waitSynchronizationN:
 	str r5, [sp, #-4]!
+	str r4, [sp, #-4]!
 	mov r5, r0
-	ldr r0, [sp, #0x4]
-	ldr r4, [sp, #0x4+0x4]
+	ldr r0, [sp, #0x8]
+	ldr r4, [sp, #0x8+0x4]
 	svc 0x25
 	str r1, [r5]
+	ldr r4, [sp], #4
 	ldr r5, [sp], #4
-	bx lr
+	bx  lr
 
 .global svc_getSystemTick
 .type svc_getSystemTick, %function

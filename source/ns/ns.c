@@ -10,6 +10,12 @@
 /* CSTATE_START from jpegint.h */
 #define JPEG_CSTATE_START 100
 
+#include <math.h>
+
+#define SCALEBITS 16
+#define ONE_HALF ((u32)1 << (SCALEBITS - 1))
+#define FIX(x) ((u32)((x) * (1L << SCALEBITS) + 0.5))
+
 NS_CONTEXT* g_nsCtx = 0;
 NS_CONFIG* g_nsConfig;
 
@@ -36,6 +42,12 @@ static int jpeg_progress[rp_work_count][rp_thread_count];
 u32 rpMinIntervalBetweenPacketsInTick = 0;
 static u32 rpThreadStackSize = 0x10000;
 static u8 rpResetThreads = 0;
+
+#define STACK_SIZE 0x4000
+
+static Handle *rpPortEvent = 0;
+static s32 rpPortQueued[2];
+static u32 rpPortGamePid;
 
 void*  rpMalloc(j_common_ptr cinfo, u32 size)
 {
@@ -356,7 +368,7 @@ typedef struct _BLIT_CONTEXT {
 
 	u8 id;
 	u8 isTop;
-	u8 frameCount;
+	// u8 frameCount;
 
 	// int directCompress;
 	j_compress_ptr cinfos[rp_thread_count];
@@ -390,7 +402,7 @@ int rpCtxInit(BLIT_CONTEXT* ctx, int width, int height, int format, u8* src) {
 	ctx->src = src;
 	ctx->x = 0;
 	ctx->y = 0;
-	ctx->frameCount = 0;
+	// ctx->frameCount = 0;
 	return ret;
 }
 
@@ -817,9 +829,10 @@ static MCU_buffer_t MCU_buffers[rp_work_count][rp_thread_count];
 #endif
 
 static u32 currentUpdating;
-static u32 frameCount;
+static u32 frameCount[2];
 static u32 isPriorityTop;
 static u32 priorityFactor;
+static u32 priorityFactorLogScaled;
 static int nextScreenCaptured[rp_work_count];
 static int nextScreenSynced[rp_work_count] = { 0 };
 
@@ -1673,18 +1686,49 @@ final:
 	return -1;
 }
 
+static u32 screenDequeueCount;
+static u32 screenBusyWait = 0;
+
+static int rpGetFrameCount(u32 isTop) {
+	return isTop == isPriorityTop ? 1 << SCALEBITS : priorityFactorLogScaled;
+}
+
+static int rpCalcFrameFactor(u32 isTop, u32 count) {
+	return (s64)__atomic_load_n(&rpPortQueued[isTop], __ATOMIC_RELAXED) * (s64)(1 << SCALEBITS) / (s64)count;
+}
+
+static int rpGetFrameFactor(u32 isTop) {
+	if (priorityFactor == 0) {
+		return isTop == isPriorityTop;
+	}
+	u32 count = rpGetFrameCount(isTop);
+	return rpCalcFrameFactor(isTop, count);
+}
+
+static int rpTryDequeue(u32 isTop) {
+	if (priorityFactor == 0 && isTop != isPriorityTop) {
+		return 0;
+	}
+	screenDequeueCount = rpGetFrameCount(isTop);
+	if (__atomic_load_n(&rpPortQueued[isTop], __ATOMIC_RELAXED) >= (s32)screenDequeueCount) {
+		return 1;
+	}
+	return 0;
+}
+
+static void rpTryDequeueCurrent(u32 isTop) {
+	if (isTop == currentUpdating) {
+		__atomic_sub_fetch(&rpPortQueued[currentUpdating], screenDequeueCount, __ATOMIC_RELAXED);
+		if (rpTryDequeue(!currentUpdating)) {
+			__atomic_sub_fetch(&rpPortQueued[!currentUpdating], screenDequeueCount, __ATOMIC_RELAXED);
+		}
+	}
+}
+
 void rpCaptureNextScreen(int work_next, int wait_sync) {
 	if (__atomic_load_n(&g_nsConfig->rpConfigLock, __ATOMIC_RELAXED)) {
 		rpConfigChanged = 1;
 		return;
-	}
-
-	currentUpdating = isPriorityTop;
-	frameCount += 1;
-	if (priorityFactor != 0) {
-		if (frameCount % (priorityFactor + 1) == 0) {
-			currentUpdating = !isPriorityTop;
-		}
 	}
 
 	struct rp_work_syn_t *syn = rp_work_syn[work_next];
@@ -1700,9 +1744,71 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		nextScreenSynced[work_next] = 1;
 	}
 
+	currentUpdating = isPriorityTop;
+	screenBusyWait = 0;
+
+	while (1) {
+		if (!__atomic_load_n(&rpPortGamePid, __ATOMIC_RELAXED)) {
+			if (priorityFactor != 0) {
+				if (frameCount[currentUpdating] >= priorityFactor) {
+					if (frameCount[!currentUpdating] >= 1) {
+						frameCount[currentUpdating] -= priorityFactor;
+						frameCount[!currentUpdating] -= 1;
+						currentUpdating = !currentUpdating;
+					}
+				}
+			}
+			screenBusyWait = 1;
+			break;
+		}
+
+		u32 factorPrio = rpGetFrameFactor(currentUpdating) >= rpGetFrameFactor(!currentUpdating) ?
+			currentUpdating : !currentUpdating;
+		// nsDbgPrint("factorPrio (%d): %d (%d)\n", factorPrio, rpGetFrameFactor(factorPrio), rpGetFrameFactor(!factorPrio));
+
+		if (rpTryDequeue(factorPrio)) {
+			if ((res = svc_waitSynchronization1(rpPortEvent[factorPrio], 0)) == 0) {
+				currentUpdating = factorPrio;
+				break;
+			}
+
+			rpTryDequeueCurrent(factorPrio);
+		}
+
+		if (rpTryDequeue(!factorPrio)) {
+			if ((res = svc_waitSynchronization1(rpPortEvent[!factorPrio], 0)) == 0) {
+				currentUpdating = !factorPrio;
+				break;
+			}
+
+			rpTryDequeueCurrent(!factorPrio);
+		}
+
+		s32 portIsTop;
+		res = svc_waitSynchronizationN(&portIsTop, rpPortEvent, 2, 0, 100000000);
+		if (res != 0) {
+			if (res != 0x09401BFE) {
+				nsDbgPrint("svc_waitSynchronizationN rpPortEvent all error: %08x\n", res);
+				break;
+			}
+			continue;
+		}
+
+		if (rpTryDequeue(portIsTop)) {
+			currentUpdating = portIsTop;
+			break;
+
+			rpTryDequeueCurrent(portIsTop);
+		}
+	}
+
 	rpKernelCallback(currentUpdating);
 	int captured = rpCaptureScreen(work_next, currentUpdating) == 0;
 	if (captured) {
+		if (screenBusyWait)
+			frameCount[currentUpdating] += 1;
+		else
+			__atomic_sub_fetch(&rpPortQueued[currentUpdating], screenDequeueCount, __ATOMIC_RELAXED);
 		nextScreenCaptured[work_next] = captured;
 		nextScreenSynced[work_next] = 0;
 		__atomic_clear(&syn->sem_set, __ATOMIC_RELAXED);
@@ -1733,7 +1839,8 @@ int rpSendFramesStart(int thread_id, int work_next) {
 	u8 skip_frame = 0;
 	if (!__atomic_test_and_set(&syn->sem_set, __ATOMIC_RELAXED)) {
 		int format_changed = 0;
-		if (currentUpdating) {
+		ctx->isTop = currentUpdating;
+		if (ctx->isTop) {
 			// send top
 			for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
 				ctx->cinfos[j] = &cinfos_top[work_next][j];
@@ -1742,7 +1849,6 @@ int rpSendFramesStart(int thread_id, int work_next) {
 
 			format_changed = rpCtxInit(ctx, 400, 240, tl_format, imgBuffer[1][imgBuffer_work_next[1]]);
 			ctx->id = (u8)currentTopId;
-			ctx->isTop = 1;
 		} else {
 			// send bottom
 			for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
@@ -1752,7 +1858,6 @@ int rpSendFramesStart(int thread_id, int work_next) {
 
 			format_changed = rpCtxInit(ctx, 320, 240, bl_format, imgBuffer[0][imgBuffer_work_next[0]]);
 			ctx->id = (u8)currentBottomId;
-			ctx->isTop = 0;
 		}
 
 		s32 res = svc_waitSynchronization1(rpHDma[work_next], 1000000000);
@@ -1770,11 +1875,9 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		__atomic_store_n(&rp_skip_frame[work_next], skip_frame, __ATOMIC_RELAXED);
 		if (!skip_frame) {
 			imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % rp_screen_work_count;
-			currentUpdating ? ++currentTopId : ++currentBottomId;
-
+			ctx->isTop ? ++currentTopId : ++currentBottomId;
 			rpReadyWork(ctx, work_next);
 			rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
-
 		}
 
 		s32 count;
@@ -1829,6 +1932,26 @@ final:
 	return skip_frame;
 }
 
+#define LOG(x) FIX(log(x) / log(2))
+static u32 log_scaled_tab[] = {
+	LOG(1), LOG(2), LOG(3), LOG(4), LOG(5), LOG(6), LOG(7), LOG(8), LOG(9), LOG(10), LOG(11), LOG(12), LOG(13), LOG(14), LOG(15), LOG(16),
+	LOG(17), LOG(18), LOG(19), LOG(20), LOG(21), LOG(22), LOG(23), LOG(24), LOG(25), LOG(26), LOG(27), LOG(28), LOG(29), LOG(30), LOG(31), LOG(32),
+	LOG(33), LOG(34), LOG(35), LOG(36), LOG(37), LOG(38), LOG(39), LOG(40), LOG(41), LOG(42), LOG(43), LOG(44), LOG(45), LOG(46), LOG(47), LOG(48),
+	LOG(49), LOG(50), LOG(51), LOG(52), LOG(53), LOG(54), LOG(55), LOG(56), LOG(57), LOG(58), LOG(59), LOG(60), LOG(61), LOG(62), LOG(63), LOG(64),
+	LOG(65), LOG(66), LOG(67), LOG(68), LOG(69), LOG(70), LOG(71), LOG(72), LOG(73), LOG(74), LOG(75), LOG(76), LOG(77), LOG(78), LOG(79), LOG(80),
+	LOG(81), LOG(82), LOG(83), LOG(84), LOG(85), LOG(86), LOG(87), LOG(88), LOG(89), LOG(90), LOG(91), LOG(92), LOG(93), LOG(94), LOG(95), LOG(96),
+	LOG(97), LOG(98), LOG(99), LOG(100), LOG(101), LOG(102), LOG(103), LOG(104), LOG(105), LOG(106), LOG(107), LOG(108), LOG(109), LOG(110), LOG(111), LOG(112),
+	LOG(113), LOG(114), LOG(115), LOG(116), LOG(117), LOG(118), LOG(119), LOG(120), LOG(121), LOG(122), LOG(123), LOG(124), LOG(125), LOG(126), LOG(127), LOG(128),
+	LOG(129), LOG(130), LOG(131), LOG(132), LOG(133), LOG(134), LOG(135), LOG(136), LOG(137), LOG(138), LOG(139), LOG(140), LOG(141), LOG(142), LOG(143), LOG(144),
+	LOG(145), LOG(146), LOG(147), LOG(148), LOG(149), LOG(150), LOG(151), LOG(152), LOG(153), LOG(154), LOG(155), LOG(156), LOG(157), LOG(158), LOG(159), LOG(160),
+	LOG(161), LOG(162), LOG(163), LOG(164), LOG(165), LOG(166), LOG(167), LOG(168), LOG(169), LOG(170), LOG(171), LOG(172), LOG(173), LOG(174), LOG(175), LOG(176),
+	LOG(177), LOG(178), LOG(179), LOG(180), LOG(181), LOG(182), LOG(183), LOG(184), LOG(185), LOG(186), LOG(187), LOG(188), LOG(189), LOG(190), LOG(191), LOG(192),
+	LOG(193), LOG(194), LOG(195), LOG(196), LOG(197), LOG(198), LOG(199), LOG(200), LOG(201), LOG(202), LOG(203), LOG(204), LOG(205), LOG(206), LOG(207), LOG(208),
+	LOG(209), LOG(210), LOG(211), LOG(212), LOG(213), LOG(214), LOG(215), LOG(216), LOG(217), LOG(218), LOG(219), LOG(220), LOG(221), LOG(222), LOG(223), LOG(224),
+	LOG(225), LOG(226), LOG(227), LOG(228), LOG(229), LOG(230), LOG(231), LOG(232), LOG(233), LOG(234), LOG(235), LOG(236), LOG(237), LOG(238), LOG(239), LOG(240),
+	LOG(241), LOG(242), LOG(243), LOG(244), LOG(245), LOG(246), LOG(247), LOG(248), LOG(249), LOG(250), LOG(251), LOG(252), LOG(253), LOG(254), LOG(255), LOG(256),
+};
+
 static void rpSendFrames() {
 	if (g_nsConfig->rpConfig.coreCount != rpConfig.coreCount) {
 		rpResetThreads = 1;
@@ -1852,14 +1975,16 @@ static void rpSendFrames() {
 	rpMinIntervalBetweenPacketsInTick = (1000000 / (g_nsConfig->rpConfig.qosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
 
 	{
-		isPriorityTop = 1;
+		u32 isTop = 1;
 		priorityFactor = 0;
 		u32 mode = (g_nsConfig->rpConfig.currentMode & 0xff00) >> 8;
 		u32 factor = (g_nsConfig->rpConfig.currentMode & 0xff);
 		if (mode == 0) {
-			isPriorityTop = 0;
+			isTop = 0;
 		}
+		__atomic_store_n(&isPriorityTop, isTop, __ATOMIC_RELAXED);
 		priorityFactor = factor;
+		__atomic_store_n(&priorityFactorLogScaled, log_scaled_tab[factor], __ATOMIC_RELAXED);
 	}
 
 	if (g_nsConfig->rpConfig.quality < 10)
@@ -1946,7 +2071,7 @@ static void rpSendFrames() {
 	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELAXED);
 
 	currentUpdating = isPriorityTop;
-	frameCount = 0;
+	frameCount[0] = frameCount[1] = 1;
 	for (int i = 0; i < rp_work_count; ++i) {
 		nextScreenCaptured[i] = 0;
 	}
@@ -2023,6 +2148,7 @@ static void rpAuxThreadStart(u32 thread_id) {
 	svc_exitThread();
 }
 
+static void rpPortThread(u32);
 static void rpThreadStart(void *) {
 	u32 i, j, ret;
 
@@ -2064,6 +2190,28 @@ static void rpThreadStart(void *) {
 	for (i = 0; i < rp_work_count; ++i) {
 		// rp_work[i] = (void *)plgRequestMemory(0x1000);
 		rp_work_syn[i] = (void *)plgRequestMemory(0x1000);
+	}
+
+	/* just sticking it here, we waste enough memory already */
+	((u32 *)(rp_work_syn[1]) - 2)[0] = 0;
+	((u32 *)(rp_work_syn[1]) - 2)[1] = 0;
+	rpPortEvent = (u32 *)(rp_work_syn[1]) - 2;
+	ret = svc_createEvent(&rpPortEvent[0], 0);
+	if (ret != 0) {
+		nsDbgPrint("svc_createEvent rpPortEvent[0] failed: %08x\n", ret);
+		goto final;
+	}
+	ret = svc_createEvent(&rpPortEvent[1], 0);
+	if (ret != 0) {
+		nsDbgPrint("svc_createEvent rpPortEvent[1] failed: %08x\n", ret);
+		goto final;
+	}
+
+	u32 *threadStack = (u32 *)plgRequestMemory(STACK_SIZE);
+	Handle hThread;
+	ret = svc_createThread(&hThread, (void*)rpPortThread, 0, &threadStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+	if (ret != 0) {
+		nsDbgPrint("Create remote play service thread Failed: %08x\n", ret);
 	}
 
 	rpInitDmaHome();
@@ -2172,7 +2320,7 @@ final:
 
 // static u8 rp_hdr_tmp[22];
 
-void printNwMHdr(void) {
+static void printNwMHdr(void) {
 	u8 *buf = rpNwmHdr;
 	nsDbgPrint("nwm hdr: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x .. .. %02x %02x %02x %02x %02x %02x %02x %02x\n",
 		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11],
@@ -2180,8 +2328,149 @@ void printNwMHdr(void) {
 	);
 }
 
+static Handle rpSessionClient = 0;
+void rpPortSend(u32 isTop) {
+	Handle hClient = rpSessionClient;
+	int ret;
+	if (hClient == 0) {
+		ret = svc_connectToPort(&hClient, "rp:ov");
+		if (ret != 0) {
+			// nsDbgPrint("svc_connectToPort failed: %08x\n", ret);
+			return;
+		}
+		nsDbgPrint("svc_connectToPort: client %08x\n", hClient);
+		rpSessionClient = hClient;
+	}
+
+	u32* cmdbuf = getThreadCommandBuffer();
+	cmdbuf[0] = IPC_MakeHeader(isTop + 1, 1, 0);
+	cmdbuf[1] = getCurrentProcessId();
+
+	ret = svc_sendSyncRequest(hClient);
+	if (ret != 0) {
+		nsDbgPrint("svc_sendSyncRequest failed: %08x\n", ret);
+		return;
+	}
+}
+
+#define rpPortSessionsMax 4
+static void rpPortThread(u32) {
+	int ret;
+	Handle hServer = 0, hClient = 0;
+	ret = svcCreatePort(&hServer, &hClient, "rp:ov", rpPortSessionsMax);
+	if (ret != 0) {
+		nsDbgPrint("svcCreatePort failed: %08x\n", ret);
+		svc_exitThread();
+	}
+
+	nsDbgPrint("svcCreatePort: server %08x, client %08x\n", hServer, hClient);
+
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	Handle hSessions[rpPortSessionsMax] = {0};
+	Handle handleReply = 0;
+	cmdbuf[0] = 0xFFFF0000;
+	while (1) {
+		Handle hHandles[rpPortSessionsMax + 1];
+		u32 hHandlesMap[rpPortSessionsMax + 1];
+
+		int i, hCount = 0;
+		for (i = 0; i < rpPortSessionsMax; ++i) {
+			if (hSessions[i] != 0) {
+				hHandles[hCount] = hSessions[i];
+				hHandlesMap[hCount] = i;
+				++hCount;
+			}
+		}
+		hHandles[hCount] = hServer;
+		hHandlesMap[hCount] = rpPortSessionsMax;
+		++hCount;
+
+		s32 handleIndex = -1;
+		ret = svcReplyAndReceive(&handleIndex, hHandles, hCount, handleReply);
+		if (ret != 0) {
+			if (ret == (int)0xC920181A) {
+				nsDbgPrint("svcReplyAndReceive handle closed: %08x\n", hHandles[handleIndex]);
+				handleReply = 0;
+				cmdbuf[0] = 0xFFFF0000;
+				svc_closeHandle(hHandles[handleIndex]);
+				hSessions[hHandlesMap[handleIndex]] = 0;
+				continue;
+			}
+
+			handleReply = 0;
+			cmdbuf[0] = 0xFFFF0000;
+			nsDbgPrint("svcReplyAndReceive error: %08x\n", ret);
+			continue;
+		}
+
+		if (hHandlesMap[handleIndex] == rpPortSessionsMax) {
+			handleReply = 0;
+			cmdbuf[0] = 0xFFFF0000;
+			Handle hSession;
+			ret = svcAcceptSession(&hSession, hServer);
+			if (ret != 0) {
+				nsDbgPrint("hServer accept error: %08x\n", ret);
+				continue;
+			}
+
+			for (i = 0; i < rpPortSessionsMax; ++i) {
+				if (hSessions[i] == 0) {
+					hSessions[i] = hSession;
+					break;
+				}
+			}
+			if (i >= rpPortSessionsMax) {
+				nsDbgPrint("rpPortSessionsMax exceeded\n");
+				svc_closeHandle(hSession);
+			}
+			continue;
+		}
+
+		handleReply = hHandles[handleIndex];
+		u32 cmd_id = cmdbuf[0] >> 16;
+		u32 norm_param_count = (cmdbuf[0] >> 6) & 0x3F;
+		// nsDbgPrint("received command: %04x %d 0x%x\n", cmd_id, norm_param_count, norm_param_count > 0 ? cmdbuf[1] : 0);
+		u32 gamePid = norm_param_count >= 1 ? cmdbuf[1] : 0;
+		u32 isTop = cmd_id - 1;
+		if (isTop > 1) {
+			__atomic_store_n(&rpPortGamePid, 0, __ATOMIC_RELAXED);
+		} else {
+			if (__atomic_load_n(&rpPortGamePid, __ATOMIC_RELAXED) != gamePid)
+				__atomic_store_n(&rpPortGamePid, gamePid, __ATOMIC_RELAXED);
+
+			u32 frameCountThis = rpGetFrameCount(isTop);
+			u32 frameFactorThis = rpCalcFrameFactor(isTop, frameCountThis);
+
+			if (frameFactorThis >= log_scaled_tab[0xFF]) {
+				u32 frameCountThat = rpGetFrameCount(!isTop);
+				u32 frameFactorThat = rpCalcFrameFactor(!isTop, frameCountThat);
+
+				u32 factorWhich = MIN(frameFactorThis, frameFactorThat);
+				__atomic_sub_fetch(&rpPortQueued[isTop], (u64)frameCountThis * (u64)factorWhich / (u64)(1 << SCALEBITS), __ATOMIC_RELAXED);
+				__atomic_sub_fetch(&rpPortQueued[!isTop], (u64)frameCountThat * (u64)factorWhich / (u64)(1 << SCALEBITS), __ATOMIC_RELAXED);
+			}
+			__atomic_add_fetch(&rpPortQueued[isTop], 1 << SCALEBITS, __ATOMIC_RELAXED);
+
+			ret = svc_signalEvent(rpPortEvent[isTop]);
+			if (ret != 0) {
+				nsDbgPrint("svc_signalEvent failed: %08x\n", ret);
+			}
+		}
+
+		cmdbuf[0] = IPC_MakeHeader(cmd_id, 0, 0);
+	}
+
+	if (hServer)
+		svc_closeHandle(hServer);
+	if (hClient)
+		svc_closeHandle(hClient);
+
+	svc_exitThread();
+}
+
 static u32 current_nwm_src_addr;
-int nwmValParamCallback(u8* buf, int /*buflen*/) {
+static int nwmValParamCallback(u8* buf, int /*buflen*/) {
 	// int i;
 	u32* threadStack;
 	int ret;
@@ -2280,7 +2569,6 @@ void rpMain(void) {
 	nwmSendPacket = (sendPacketTypedef)g_nsConfig->startupInfo[12];
 	rtInitHookThumb(&nwmValParamHook, g_nsConfig->startupInfo[11], (u32)nwmValParamCallback);
 	rtEnableHook(&nwmValParamHook);
-
 }
 
 u8 nsIsRemotePlayStarted = 0;
@@ -3953,8 +4241,6 @@ void nsThreadStart() {
 	nsMainLoop();
 	svc_exitThread();
 }
-
-#define STACK_SIZE 0x4000
 
 void nsInitDebug(void) {
 	// xfunc_out = (void*)nsDbgPutc;
