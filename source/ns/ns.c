@@ -51,6 +51,12 @@ static Handle *rpPortEvent = 0;
 static u32 rpPortGamePid;
 static u32 frameQueued[2];
 
+static void rpShowNextFrameBothScreen(void) {
+	/* Show at least one frame*/
+	svc_signalEvent(rpPortEvent[0]);
+	svc_signalEvent(rpPortEvent[1]);
+}
+
 void*  rpMalloc(j_common_ptr cinfo, u32 size)
 {
 	void* ret = cinfo->alloc.buf + cinfo->alloc.stats.offset;
@@ -1033,7 +1039,6 @@ u32 rpGameFCRAMBase = 0;
 
 void rpInitDmaHome() {
 	svc_openProcess(&rpHandleHome, 0xf);
-
 }
 
 void rpCloseGameHandle(void) {
@@ -1042,6 +1047,8 @@ void rpCloseGameHandle(void) {
 		rpHandleGame = 0;
 		rpGameFCRAMBase = 0;
 		rpGamePid = 0;
+
+		rpShowNextFrameBothScreen();
 	}
 }
 
@@ -1276,6 +1283,13 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		}
 
 		s32 isTop = currentUpdating;
+
+		if (priorityFactor == 0) {
+			if ((res = svc_waitSynchronization1(rpPortEvent[isTop], 100000000)) == 0) {
+				break;
+			}
+			continue;
+		}
 
 		u32 prio[2];
 		prio[isTop] = rpGetPrioScaled(isTop);
@@ -1512,6 +1526,8 @@ static void rpSendFrames() {
 		isPriorityTop = isTop;
 		priorityFactor = factor;
 		priorityFactorLogScaled = log_scaled_tab[factor];
+
+		rpShowNextFrameBothScreen();
 	}
 
 	if (g_nsConfig->rpConfig.quality < 10)
