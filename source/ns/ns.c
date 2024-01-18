@@ -1017,6 +1017,8 @@ void rpKernelCallback(int isTop) {
 		tl_pitch = REG(IoBasePdc + 0x490);
 		current_fb = REG(IoBasePdc + 0x478);
 		current_fb &= 1;
+		if (g_nsConfig->rpCapturePreviousFrameThanCurrent)
+			current_fb = !current_fb;
 		tl_current = tl_fbaddr[current_fb];
 
 		int full_width = !(tl_format & (7 << 4));
@@ -1030,6 +1032,8 @@ void rpKernelCallback(int isTop) {
 		bl_pitch = REG(IoBasePdc + 0x590);
 		current_fb = REG(IoBasePdc + 0x578);
 		current_fb &= 1;
+		if (g_nsConfig->rpCapturePreviousFrameThanCurrent)
+			current_fb = !current_fb;
 		bl_current = bl_fbaddr[current_fb];
 	}
 }
@@ -2302,6 +2306,7 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 	cfg.rpConfig = rpConfig = *config;
 
 	cfg.rpConfigLock = 1;
+	cfg.rpCapturePreviousFrameThanCurrent = g_nsConfig->rpCapturePreviousFrameThanCurrent;
 
 	ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
@@ -2544,7 +2549,7 @@ static int menu_adjust_value_with_key(int *val, u32 key, int step_1, int step_2)
 	return ret;
 }
 
-void ipAddrMenu(u32 *addr) {
+static void ipAddrMenu(u32 *addr) {
 	int posDigit = 0;
 	int posOctet = 0;
 	u32 localaddr = *addr;
@@ -2606,29 +2611,37 @@ void ipAddrMenu(u32 *addr) {
 	}
 }
 
+static void rpChangeFrameCaptureMode(void) {
+	u32 capturePrevious = !g_nsConfig->rpCapturePreviousFrameThanCurrent;
+
+	if (__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
+		s32 ret;
+		Handle hProcess;
+
+		ret = svc_openProcess(&hProcess, 0x1a);
+		if (ret != 0) {
+			nsDbgPrint("Open nwm process failed: %08x", ret, 0);
+			goto update_final;
+		}
+
+		ret = copyRemoteMemory(hProcess,
+			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpCapturePreviousFrameThanCurrent),
+			CURRENT_PROCESS_HANDLE, &capturePrevious,
+			sizeof(g_nsConfig->rpCapturePreviousFrameThanCurrent));
+		if (ret != 0) {
+			showDbg("Update frame capture mode setting failed: %08x", ret, 0);
+			svc_closeHandle(hProcess);
+			return;
+		}
+		svc_closeHandle(hProcess);
+	}
+update_final:
+	g_nsConfig->rpCapturePreviousFrameThanCurrent = capturePrevious;
+	return;
+}
+
 int remotePlayMenu(u32 localaddr) {
 	u32 daddrCurrent = REG(&g_nsConfig->rpConfig.dstAddr);
-	// do {
-	// 	Handle hProcess;
-	// 	u32 pid = 0x1a;
-	// 	int ret = svc_openProcess(&hProcess, pid);
-	// 	if (ret != 0) {
-	// 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
-	// 		break;
-	// 	}
-
-	// 	ret = copyRemoteMemory(
-	// 		0xffff8001,
-	// 		&daddrCurrent,
-	// 		hProcess,
-	// 		(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpConfig) + offsetof(RP_CONFIG, dstAddr),
-	// 		sizeof(daddrCurrent));
-	// 	if (ret != 0) {
-	// 		nsDbgPrint("copyRemoteMemory (1) failed: %08x\n", ret, 0);
-	// 	}
-
-	// 	svc_closeHandle(hProcess);
-	// } while (0);
 
 	rpConfig.dstAddr = daddrCurrent;
 	u32 select = 0;
@@ -2659,43 +2672,6 @@ int remotePlayMenu(u32 localaddr) {
 		char *titleCurrent = title;
 		if (!rpStarted) {
 			titleCurrent = titleNotStarted;
-
-			// u8 dstPortCaption[50];
-			// xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
-
-			// u8 *captions[] = {
-			// 	dstPortCaption,
-			// 	"Apply"
-			// };
-
-			// u32 entryCount = sizeof(captions) / sizeof(*captions);
-
-			// u32 key;
-			// select = showMenuEx2(titleCurrent, entryCount, captions, NULL, select, &key);
-
-			// if (select == 0) { /* dst port */
-			// 	int dstPort = config.dstPort;
-			// 	if (key == BUTTON_X)
-			// 		dstPort = rpConfig.dstPort;
-			// 	else
-			// 		menu_adjust_value_with_key(&dstPort, key, 10, 100);
-
-			// 	if (dstPort < 1024)
-			// 		dstPort = 1024;
-			// 	else if (dstPort > 65535)
-			// 		dstPort = 65535;
-
-			// 	if (dstPort != config.dstPort) {
-			// 		config.dstPort = dstPort;
-			// 	}
-			// }
-
-			// else if (select == 1 && key == BUTTON_A) { /* apply */
-			// 	rpConfig.dstPort = config.dstPort;
-			// 	return 0;
-			// }
-
-			// continue;
 		}
 
 		char coreCountCaption[50];
@@ -2721,6 +2697,8 @@ int remotePlayMenu(u32 localaddr) {
 		char dstPortCaption[50];
 		xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
 
+		char *frameModeCaption = g_nsConfig->rpCapturePreviousFrameThanCurrent ? "Frame Capture Mode: Previous" : "Frame Capture Mode: Current";
+
 		char *captions[] = {
 			coreCountCaption,
 			priorityScreenCaption,
@@ -2729,13 +2707,18 @@ int remotePlayMenu(u32 localaddr) {
 			qosCaption,
 			dstAddrCaption,
 			dstPortCaption,
-			"Apply",
-			"NFC Patch"
+			"Apply (Above Options)",
+			"NFC Patch",
+			frameModeCaption
 		};
 		u32 entryCount = sizeof(captions) / sizeof(*captions);
 
+		char *descs[entryCount];
+		memset(descs, 0, sizeof(*descs) * entryCount);
+		descs[9] = "Set to previous if you experience\nwobble/staircase artifact.";
+
 		u32 key;
-		select = showMenuEx2(titleCurrent, entryCount, captions, NULL, select, &key);
+		select = showMenuEx2(titleCurrent, entryCount, captions, descs, select, &key);
 
 		if (key == BUTTON_B) {
 			return 0;
@@ -2889,6 +2872,12 @@ int remotePlayMenu(u32 localaddr) {
 		else if (select == 8 && key == BUTTON_A) { /* nfc patch */
 			releaseVideo();
 			rpDoNFCPatch();
+			acquireVideo();
+		}
+
+		else if (select == 9 && key == BUTTON_A) { /* frame capture mode */
+			releaseVideo();
+			rpChangeFrameCaptureMode();
 			acquireVideo();
 		}
 	}

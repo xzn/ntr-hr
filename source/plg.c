@@ -289,13 +289,14 @@ final:
 	return ret;
 }
 
+static Handle hPMProcess = 0;
 static void plgChangeNoLoaderMem(void) {
-	static Handle hPMProcess = 0;
 	s32 ret = 0;
 	if (hPMProcess == 0) {
 		ret = svc_openProcess(&hPMProcess, ntrConfig->PMPid);
 		if (ret != 0) {
 			showDbg("Open pm process failed: %08x", ret, 0);
+			hPMProcess = 0;
 			return;
 		}
 	}
@@ -309,12 +310,12 @@ static void plgChangeNoLoaderMem(void) {
 }
 
 static void plgChangeCTRPFCompat(void) {
-	static Handle hPMProcess = 0;
 	s32 ret = 0;
 	if (hPMProcess == 0) {
 		ret = svc_openProcess(&hPMProcess, ntrConfig->PMPid);
 		if (ret != 0) {
 			showDbg("Open pm process failed: %08x", ret, 0);
+			hPMProcess = 0;
 			return;
 		}
 	}

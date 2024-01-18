@@ -90,6 +90,7 @@ typedef struct _NS_CONFIG {
 	RP_CONFIG rpConfig;
 	u32 rpConfigLock;
 	u32 rpGamePid;
+	u32 rpCapturePreviousFrameThanCurrent;
 	u32 plgNoLoaderMem;
 	u32 plgCTRPFCompat;
 } NS_CONFIG;
