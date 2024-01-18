@@ -983,7 +983,7 @@ u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 wi
 	}
 	// rpPortSend(isDisplay1 ? 0 : 1);
 
-	// if (!(ntrConfig->gameHasPlugins && (plgHasOverlay || g_plgInfo->nightShiftLevel)))
+	if (!(ntrConfig->gameHasPlugins && (plgHasOverlay || g_plgInfo->nightShiftLevel)))
 		goto final;
 
 	u32 height = isDisplay1 ? 320 : 400;
