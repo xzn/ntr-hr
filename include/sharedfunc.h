@@ -35,7 +35,7 @@ u32 plgSetValue(u32 index, u32 value);
     u64 nsDbgPrint_ticks__ = svc_getSystemTick(); \
 	u64 nsDbgPrint_mono_us__ = nsDbgPrint_ticks__ / SYSTICK_PER_US; \
 	u32 nsDbgPrint_pid__ = getCurrentProcessId(); \
-    nsDbgPrintShared("[%d.%d][%x]%s:%d:%s " fmt, (u32)(nsDbgPrint_mono_us__ / 1000000), (u32)(nsDbgPrint_mono_us__ % 1000000), nsDbgPrint_pid__, __FILE__, __LINE__, __func__, ## __VA_ARGS__); \
+    nsDbgPrintShared("[%d.%06d][%x]%s:%d:%s " fmt, (u32)(nsDbgPrint_mono_us__ / 1000000), (u32)(nsDbgPrint_mono_us__ % 1000000), nsDbgPrint_pid__, __FILE__, __LINE__, __func__, ## __VA_ARGS__); \
 } while (0)
 void nsDbgPrintShared(const char* fmt, ...);
 

@@ -240,7 +240,7 @@ int showMsgExtra(char* msg, const char *file_name, int line_number, const char *
 	u64 mono_us = ticks / SYSTICK_PER_US;
 	u32 pid = getCurrentProcessId();
 	char extra[0x100];
-	xsprintf(extra, "[%d.%d][%x]%s:%d:%s", (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+	xsprintf(extra, "[%d.%06d][%x]%s:%d:%s", (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
 
 	acquireVideo();
 

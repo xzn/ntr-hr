@@ -1046,50 +1046,47 @@ void rpCloseGameHandle(void) {
 }
 
 Handle rpGetGameHandle() {
-	int /* i, */ res;
+	int i, res;
 	Handle hProcess;
-	// u32 pids[100];
-	// s32 pidCount;
+	u32 pids[100];
+	s32 pidCount;
+	u32 tid[2];
 
 	u32 gamePid = __atomic_load_n(&g_nsConfig->rpGamePid, __ATOMIC_RELAXED);
 	if (gamePid != rpGamePid) {
 		rpCloseGameHandle();
+		rpGamePid = gamePid;
 	}
 
 	if (rpHandleGame == 0) {
-#if 0
-		for (i = 0x28; i < 0x38; i++) {
-			int ret = svc_openProcess(&hProcess, i);
-			if (ret == 0) {
-				nsDbgPrint("game process: %x\n", i);
+		if (gamePid != 0) {
+			res = svc_openProcess(&hProcess, gamePid);
+			if (res == 0) {
 				rpHandleGame = hProcess;
-				break;
 			}
 		}
-#elif 0
-		res = svc_getProcessList(&pidCount, pids, 100);
-		if (res == 0) {
-			for (i = 0; i < pidCount; ++i) {
-				if (pids[i] < 0x28)
-					continue;
+		if (rpHandleGame == 0) {
+			res = svc_getProcessList(&pidCount, pids, 100);
+			if (res == 0) {
+				for (i = 0; i < pidCount; ++i) {
+					if (pids[i] < 0x28)
+						continue;
 
-				res = svc_openProcess(&hProcess, pids[i]);
-				if (res == 0) {
-					rpHandleGame = hProcess;
+					res = svc_openProcess(&hProcess, pids[i]);
+					if (res == 0) {
+						res = getProcessTIDByHandle(hProcess, tid);
+						if (res == 0) {
+							if ((tid[1] & 0xFFFF) == 0) {
+								rpHandleGame = hProcess;
+								gamePid = pids[i];
+								break;
+							}
+						}
+						svc_closeHandle(hProcess);
+					}
 				}
-				break;
 			}
 		}
-#else
-		if (gamePid == 0) {
-			return 0;
-		}
-		res = svc_openProcess(&hProcess, gamePid);
-		if (res == 0) {
-			rpHandleGame = hProcess;
-			rpGamePid = gamePid;
-		}
-#endif
 		if (rpHandleGame == 0) {
 			return 0;
 		}
