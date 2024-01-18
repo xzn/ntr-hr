@@ -41,13 +41,14 @@ u32 plgPoolSize;
 
 void plgInitScreenOverlay();
 
-int isVRAMAccessible = 0;
-int plgOverlayStatus = 0;
+static int isVRAMAccessible = 0;
+static int plgOverlayStatus = 0;
+static int plgHasOverlay = 0;
 
 u32 plgRegisterCallback(u32 type, void* callback, u32) {
 	if (type == CALLBACK_OVERLAY) {
 		// plgInitScreenOverlay();
-		ntrConfig->gameHasPlugins = 1;
+		plgHasOverlay = 1;
 
 		if (plgOverlayStatus != 1) {
 			return -1;
@@ -431,7 +432,7 @@ u32 plgEnsurePoolEnd(u32 end) {
 	// }
 	// ret = svc_controlMemory(&outAddr, addr, addr, size, /* mem_region + */3, 3);
 	if (ret != 0) {
-		if (rtCheckRemoteMemoryRegionSafeForWrite(0xffff8001, addr, size) != 0) {
+		if (rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), addr, size) != 0) {
 			nsDbgPrint("alloc plg memory failed: %08x\n", ret);
 			return ret;
 		}
@@ -812,8 +813,6 @@ void plgInitFromInjectHOME(void) {
 	u32 base = plgPoolStart;
 	u32 ret;
 
-	plgInitScreenOverlay();
-
 	initSharedFunc();
 	plgSdmcArchive = (FS_archive){ 9, (FS_path){ PATH_EMPTY, 1, "" }, 0, 0 };
 	ret = FSUSER_OpenArchive(fsUserHandle, &plgSdmcArchive);
@@ -845,6 +844,8 @@ void plgInitFromInjectHOME(void) {
 	}
 
 	memset(g_plgInfo, 0, sizeof(PLGLOADER_INFO));
+
+	plgInitScreenOverlay();
 
 	plgLoadStart = base;
 	plgStartPluginLoad();
@@ -964,24 +965,25 @@ u32 plgOverlayNightShift(u32 isDisplay1, u32 addr, u32 addrB, u32 width, u32 for
 	return 0;
 }
 
-static Handle *plgOverlayEvent;
+static Handle *plgOverlayEvent = 0;
 static u32 rpPortIsTop = 0;
 
 #define STACK_SIZE 0x4000
 static u32 *plgOverlayThreadStack;
-
 typedef u32 (*OverlayFnTypedef) (u32 isDisplay1, u32 addr, u32 addrB, u32 width, u32 format);
 
 u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 width, u32 format, u32 a7) {
 	__atomic_store_n(&rpPortIsTop, isDisplay1 ? 0 : 1, __ATOMIC_RELAXED);
 	u32 ret;
-	ret = svc_signalEvent(*plgOverlayEvent);
-	if (ret != 0) {
-		nsDbgPrint("plgOverlayEvent signal failed: %08x\n", ret);
+	if (plgOverlayEvent) {
+		ret = svc_signalEvent(*plgOverlayEvent);
+		if (ret != 0) {
+			nsDbgPrint("plgOverlayEvent signal failed: %08x\n", ret);
+		}
 	}
 	// rpPortSend(isDisplay1 ? 0 : 1);
 
-	if (!ntrConfig->gameHasPlugins)
+	// if (!(ntrConfig->gameHasPlugins && (plgHasOverlay || g_plgInfo->nightShiftLevel)))
 		goto final;
 
 	u32 height = isDisplay1 ? 320 : 400;
@@ -997,12 +999,13 @@ u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 wi
 	if ((isDisplay1 == 0) && (addrB) && (addrB != addr)) {
 		svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addrB, width * height);
 	}
-	unsigned int i;
-	for (i = 0; i < pluginEntryCount; i++) {
-		if (pluginEntry[i][0] == CALLBACK_OVERLAY) {
-			ret = ((OverlayFnTypedef)((void*) pluginEntry[i][2]))(isDisplay1, addr, addrB, width, format);
-			if (ret == 0) {
-				isDirty = 1;
+	if (plgHasOverlay) {
+		for (unsigned int i = 0; i < pluginEntryCount; i++) {
+			if (pluginEntry[i][0] == CALLBACK_OVERLAY) {
+				ret = ((OverlayFnTypedef)((void*) pluginEntry[i][2]))(isDisplay1, addr, addrB, width, format);
+				if (ret == 0) {
+					isDirty = 1;
+				}
 			}
 		}
 	}
@@ -1016,11 +1019,8 @@ u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 wi
 		}
 	}
 
-
 final:
 	ret = ((SetBufferSwapTypedef)((void*)SetBufferSwapHook.callCode))(isDisplay1, a2, addr, addrB, width, format, a7);
-
-
 	return ret;
 }
 
@@ -1056,9 +1056,8 @@ void plgInitScreenOverlay() {
 	}
 	plgOverlayStatus = 2;
 
-	if (rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), 0x1F000000, 0x00600000) == 0) {
+	if (rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), 0x1F000000, 0x00600000) == 0)
 		isVRAMAccessible = 1;
-	}
 	nsDbgPrint("vram accessible: %d\n", isVRAMAccessible);
 
 	static u32 pat[] = { 0xe1833000, 0xe2044cff, 0xe3c33cff, 0xe1833004, 0xe1824f93 };
@@ -1102,8 +1101,6 @@ void initFromInjectGame(void) {
 	u32 i;
 
 	plgInitScreenOverlay();
-	if (plgOverlayStatus != 1) {
-	}
 
 	if (!ntrConfig->gameHasPlugins)
 		return;

@@ -60,11 +60,11 @@ u32 rtCheckRemoteMemoryRegionSafeForWrite(Handle hProcess, u32 addr, u32 size) {
 u32 rtSafeCopyMemory(u32 dst, u32 src, u32 size) {
 	u32 ret;
 
-	ret = rtCheckRemoteMemoryRegionSafeForWrite(0xffff8001, dst, size) ;
+	ret = rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), dst, size) ;
 	if (ret != 0) {
 		return ret;
 	}
-	ret = rtCheckRemoteMemoryRegionSafeForWrite(0xffff8001, src, size) ;
+	ret = rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), src, size) ;
 	if (ret != 0) {
 		return ret;
 	}
