@@ -308,6 +308,25 @@ static void plgChangeNoLoaderMem(void) {
 	g_nsConfig->plgNoLoaderMem = noLoaderMem;
 }
 
+static void plgChangeCTRPFCompat(void) {
+	static Handle hPMProcess = 0;
+	s32 ret = 0;
+	if (hPMProcess == 0) {
+		ret = svc_openProcess(&hPMProcess, ntrConfig->PMPid);
+		if (ret != 0) {
+			showDbg("Open pm process failed: %08x", ret, 0);
+			return;
+		}
+	}
+	u32 CTRPFCompat = !g_nsConfig->plgCTRPFCompat;
+	ret = copyRemoteMemory(hPMProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, plgCTRPFCompat), CURRENT_PROCESS_HANDLE, &CTRPFCompat, sizeof(g_nsConfig->plgCTRPFCompat));
+	if (ret != 0) {
+		showDbg("Update CTRPF compat option failed: %08x", ret, 0);
+		return;
+	}
+	g_nsConfig->plgCTRPFCompat = CTRPFCompat;
+}
+
 void plgShowMainMenu(void) {
 	typedef u32(*funcType)();
 
@@ -320,13 +339,23 @@ void plgShowMainMenu(void) {
 	u32 mainEntries;
 	u32 localaddr = gethostid();
 
+	char *enableCTRPFCompatText = plgTranslate("CTRPF Compat Mode (Disabled)");
+	char *disableCTRPFCompatText = plgTranslate("CTRPF Compat Mode (Enabled)");
+	char *enableLoaderMemText = plgTranslate("Loader Mem Compat (Disabled)");
+	char *disableLoaderMemText = plgTranslate("Loader Mem Compat (Enabled)");
+
 	// debounceKey();
-	entries[0] = plgTranslate("Remote Play");
+
+	entries[0] = plgTranslate("Remote Play (New 3DS)");
 	entries[1] = plgTranslate("Process Manager");
+#if 0
 	entries[2] = plgTranslate("Enable Debugger");
+#endif
+	entries[2] = g_nsConfig->plgCTRPFCompat ? disableCTRPFCompatText : enableCTRPFCompatText;
+	descs[2] = plgTranslate("Avoid crash in CTRPF based plugins\nby disabling all overlay functions\nincluding night shift screen filters");
 	entries[3] = plgTranslate("Set Hotkey");
-	entries[4] = g_nsConfig->plgNoLoaderMem ? plgTranslate("Enable Loader Mem") : plgTranslate("Disable Loader Mem");
-	descs[4] = plgTranslate("Affect game plugins only. Keep enabled for higher compatibility.");
+	entries[4] = g_nsConfig->plgNoLoaderMem ? enableLoaderMemText : disableLoaderMemText;
+	descs[4] = plgTranslate("Affect game plugins only.\nKeep enabled for higher compatibility.\nSome plugins will crash when disabled\nothers will hang when switching games\nif enabled");
 	mainEntries = 5;
 	if (mainEntriesMax < mainEntries) {
 		showDbg("Error: too many menu items", 0, 0);
@@ -373,6 +402,7 @@ void plgShowMainMenu(void) {
 		else if (r == 1) {
 			processManager();
 		}
+#if 0
 		else if (r == 2) {
 			if (g_nsConfig->hSOCU) {
 				showMsg(plgTranslate("Debugger has already been enabled."));
@@ -383,14 +413,21 @@ void plgShowMainMenu(void) {
 				break;
 			}
 		}
+#endif
+		else if (r == 2) {
+			releaseVideo();
+			plgChangeCTRPFCompat();
+			entries[2] = g_nsConfig->plgCTRPFCompat ? disableCTRPFCompatText : enableCTRPFCompatText;
+			acquireVideo();
+		}
 		else if (r == 3) {
 			plgSetHotkeyUi();
 		}
 		else if (r == 4) {
 			releaseVideo();
 			plgChangeNoLoaderMem();
+			entries[4] = g_nsConfig->plgNoLoaderMem ? enableLoaderMemText : disableLoaderMemText;
 			acquireVideo();
-			break;
 		}
 	}
 
@@ -585,6 +622,7 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 
 	memcpy(&cfg.ntrConfig, ntrConfig, sizeof(NTR_CONFIG));
 	cfg.ntrConfig.gameHasPlugins = gameHasPlugins;
+	cfg.ntrConfig.ctrpfCompat = g_nsConfig->plgCTRPFCompat;
 	ret = nsAttachProcess(hProcess, 0x00100000, &cfg, 1);
 	if (ret != 0) {
 		nsDbgPrint("attach process failed: %08x\n", ret);
@@ -1100,7 +1138,8 @@ void initFromInjectGame(void) {
 	typedef void(*funcType)();
 	u32 i;
 
-	plgInitScreenOverlay();
+	if (!ntrConfig->ctrpfCompat)
+		plgInitScreenOverlay();
 
 	if (!ntrConfig->gameHasPlugins)
 		return;

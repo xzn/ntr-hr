@@ -2310,11 +2310,10 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 		goto final;
 	}
 
-
 	u8 desiredHeader[16] = { 0x04, 0x00, 0x2D, 0xE5, 0x4F, 0x00, 0x00, 0xEF, 0x00, 0x20, 0x9D, 0xE5, 0x00, 0x10, 0x82, 0xE5 };
 	u8 buf[16] = { 0 };
 	if (!(ntrConfig->isNew3DS)) {
-		nsDbgPrint("remoteplay is available on new3ds only\n");
+		nsDbgPrint("Remote Play is available on New 3DS only.", 0, 0);
 		ret = -1;
 		goto final;
 	}

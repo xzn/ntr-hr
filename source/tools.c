@@ -771,7 +771,7 @@ u32 nightShiftUi() {
 	int configUpdated = 0;
 	acquireVideo();
 	char* entries[11];
-	int r;
+	int r = 0;
 	entries[0] = plgTranslate("Disabled");
 	entries[1] = plgTranslate("Reduce Blue Light Level 1");
 	entries[2] = plgTranslate("Reduce Blue Light Level 2");
@@ -780,10 +780,14 @@ u32 nightShiftUi() {
 	entries[5] = plgTranslate("Reduce Blue Light Level 5");
 	entries[6] = plgTranslate("Invert Colors");
 	entries[7] = plgTranslate("Grayscale");
-	entries[8] = plgTranslate("Hint: Must be enabled before starting game. Will set CPU to L2+804MHz on New3DS.");
+	entries[8] = plgTranslate(
+		   "Hint: Must be enabled before       "
+		"starting game. Will set CPU to        "
+		"L2 + 804MHz on New 3DS."
+	);
 	while (1) {
 		blank(0, 0, 320, 240);
-		r = showMenu(plgTranslate("Screen Filter"), 8, entries);
+		r = showMenuEx(plgTranslate("Screen Filter"), 9, entries, NULL, r);
 		if (r == -1) {
 			break;
 
@@ -815,7 +819,7 @@ void screenshotMain(void) {
 	nsDbgPrint("bmp index is: %d", bmp_index);
 
 	if (ntrConfig->isNew3DS) {
-		plgRegisterMenuEntry(1, plgTranslate("CPU Clock (New3DS Only)"), cpuClockUi);
+		plgRegisterMenuEntry(1, plgTranslate("CPU Clock (New 3DS)"), cpuClockUi);
 	}
 	plgRegisterMenuEntry(1, plgTranslate("Power"), powerMenu);
 	if (checkBacklightSupported()){
