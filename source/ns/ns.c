@@ -43,18 +43,30 @@ static u32 rpMinIntervalBetweenPacketsInTick = 0;
 static u32 rpMinIntervalBetweenPacketsInNS = 0;
 static u32 rpThreadStackSize = 0x10000;
 static u8 rpResetThreads = 0;
-static Handle *rpNwmEvent = 0;
 
 #define STACK_SIZE 0x4000
-
-static Handle *rpPortEvent = 0;
 static u32 rpPortGamePid;
 static u32 frameQueued[2];
 
+struct rp_handles_t {
+	struct rp_work_syn_t {
+		Handle sem_end, sem_nwm, sem_send;
+		int sem_count;
+		u8 sem_set;
+	} work[rp_work_count];
+
+	struct rp_thread_syn_t {
+		Handle sem_start, sem_work;
+	} thread[rp_thread_count];
+
+	Handle nwmEvent;
+	Handle portEvent[2];
+} *rp_syn;
+
 static void rpShowNextFrameBothScreen(void) {
 	/* Show at least one frame*/
-	svc_signalEvent(rpPortEvent[0]);
-	svc_signalEvent(rpPortEvent[1]);
+	svc_signalEvent(rp_syn->portEvent[0]);
+	svc_signalEvent(rp_syn->portEvent[1]);
 }
 
 void*  rpMalloc(j_common_ptr cinfo, u32 size)
@@ -201,12 +213,6 @@ return ret;
 }
 return cmdbuf[1];
 }*/
-
-struct rp_work_syn_t {
-	Handle sem_end, sem_start, sem_work, sem_nwm;
-	int sem_count;
-	u8 sem_set;
-} *rp_work_syn[rp_work_count];
 
 RT_HOOK nwmValParamHook;
 
@@ -419,6 +425,7 @@ static u32 rpLastSendTick = 0;
 // static u8 rp_nwm_work_skip[rp_work_count];
 // static u8 rp_nwm_frame_skipped;
 static int rp_nwm_work_next, rp_nwm_thread_next;
+static int rp_nwm_syn_next[rp_work_count];
 static u8 rpDataBufHdr[rp_work_count][rp_data_hdr_size];
 
 static struct rpDataBufInfo_t {
@@ -435,7 +442,7 @@ int rpDataBufFilled(struct rpDataBufInfo_t *info, u8 **pos, int *flag) {
 
 void rpReadyNwm(int /* thread_id */, int work_next, int id, int isTop) {
 	while (1) {
-		s32 res = svc_waitSynchronization1(rp_work_syn[work_next]->sem_nwm, 100000000 /* 1000000000 */);
+		s32 res = svc_waitSynchronization1(rp_syn->work[work_next].sem_nwm, 100000000 /* 1000000000 */);
 		if (res) {
 			// nsDbgPrint("(%d) svc_waitSynchronization1 sem_nwm (%d) failed: %d\n", thread_id, work_next, res);
 			checkExitFlag();
@@ -449,6 +456,12 @@ void rpReadyNwm(int /* thread_id */, int work_next, int id, int isTop) {
 		info->sendPos = info->pos = rpDataBuf[work_next][j] + rp_data_hdr_size;
 		// info->filled = 0;
 		info->flag = 0;
+	}
+
+	s32 count, res;
+	res = svc_releaseSemaphore(&count, rp_syn->work[work_next].sem_send, 1);
+	if (res) {
+		nsDbgPrint("svc_releaseSemaphore sem_send (%d) failed: %d\n", work_next, res);
 	}
 
 	rpDataBufHdr[work_next][0] = id;
@@ -573,13 +586,14 @@ int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 
 		if (rp_nwm_thread_next == 0) {
 			s32 count, res;
-			res = svc_releaseSemaphore(&count, rp_work_syn[work_next]->sem_nwm, 1);
+			res = svc_releaseSemaphore(&count, rp_syn->work[work_next].sem_nwm, 1);
 			if (res) {
 				nsDbgPrint("svc_releaseSemaphore sem_nwm (%d) failed: %d\n", work_next, res);
 			}
 
 			work_next = (work_next + 1) % rp_work_count;
 			rp_nwm_work_next = work_next;
+			rp_nwm_syn_next[work_next] = 1;
 		}
 
 		return 0;
@@ -616,13 +630,14 @@ int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 
 		if (rp_nwm_thread_next == 0) {
 			s32 count, res;
-			res = svc_releaseSemaphore(&count, rp_work_syn[work_next]->sem_nwm, 1);
+			res = svc_releaseSemaphore(&count, rp_syn->work[work_next].sem_nwm, 1);
 			if (res) {
 				nsDbgPrint("svc_releaseSemaphore sem_nwm (%d) failed: %d\n", work_next, res);
 			}
 
 			work_next = (work_next + 1) % rp_work_count;
 			rp_nwm_work_next = work_next;
+			rp_nwm_syn_next[work_next] = 1;
 		}
 	}
 	return 0;
@@ -632,27 +647,19 @@ static int rpTrySendNextBufferMaybe(int work_flush, int may_skip) {
 	int work_next = rp_nwm_work_next;
 	int thread_id = rp_nwm_thread_next;
 
-#if 0
-	if (rp_nwm_work_skip[work_next]) {
-		rp_nwm_work_skip[work_next] = 0;
-
-		rp_nwm_thread_next = 0;
-
-		s32 count, res;
-		res = svc_releaseSemaphore(&count, rp_work_syn[work_next]->sem_nwm, 1);
-		if (res) {
-			nsDbgPrint("svc_releaseSemaphore sem_nwm (%d) failed: %d\n", work_next, res);
-		}
-
-		work_next = (work_next + 1) % rp_work_count;
-		rp_nwm_work_next = work_next;
-
-		return 0;
-	}
-#endif
-
 	while (1) {
 		struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][thread_id];
+
+		if (rp_nwm_syn_next[work_next]) {
+			s32 res = svc_waitSynchronization1(rp_syn->work[work_next].sem_send, 0);
+			if (res) {
+				if (res != 0x09401BFE) {
+					nsDbgPrint("svc_waitSynchronization1 sem_send (%d) failed: %d\n", work_next, res);
+				}
+				return -1;
+			}
+			rp_nwm_syn_next[work_next] = 0;
+		}
 
 		u8 *data_buf_pos;
 		int data_buf_flag;
@@ -713,9 +720,9 @@ void rpSendBuffer(j_compress_ptr cinfo, u8* /*buf*/, u32 size, u32 flag) {
 	}
 
 	// __atomic_store_n(&info->filled, 1, __ATOMIC_RELEASE);
-	int ret = svc_signalEvent(*rpNwmEvent);
+	int ret = svc_signalEvent(rp_syn->nwmEvent);
 	if (ret != 0) {
-		nsDbgPrint("rpNwmEvent signal error: %08x\n", ret);
+		nsDbgPrint("nwmEvent signal error: %08x\n", ret);
 	}
 }
 
@@ -963,7 +970,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 
 #if 0
 	struct rp_work_t *work = rp_work[work_next];
-	// struct rp_work_syn_t *syn = rp_work_syn[work_next];
+	// struct rp_work_syn_t *syn = rp_syn->work[work_next];
 
 	memset(work, 0, sizeof(struct rp_work_t));
 	work->work_next = work_next;
@@ -1255,7 +1262,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		return;
 	}
 
-	struct rp_work_syn_t *syn = rp_work_syn[work_next];
+	struct rp_work_syn_t *syn = &rp_syn->work[work_next];
 	s32 res;
 	if (!nextScreenSynced[work_next]) {
 		res = svc_waitSynchronization1(syn->sem_end, wait_sync ? 1000000000 : 0);
@@ -1289,7 +1296,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		s32 isTop = currentUpdating;
 
 		if (priorityFactor == 0) {
-			if ((res = svc_waitSynchronization1(rpPortEvent[isTop], 100000000)) == 0) {
+			if ((res = svc_waitSynchronization1(rp_syn->portEvent[isTop], 100000000)) == 0) {
 				break;
 			}
 			continue;
@@ -1312,7 +1319,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		isTop = factor[isTop] >= factor[!isTop] ? isTop : !isTop;
 
 		if (frameQueued[isTop] >= prio[isTop]) {
-			if ((res = svc_waitSynchronization1(rpPortEvent[isTop], 0)) == 0) {
+			if ((res = svc_waitSynchronization1(rp_syn->portEvent[isTop], 0)) == 0) {
 				currentUpdating = isTop;
 				frameQueued[isTop] -= prio[isTop];
 				break;
@@ -1320,17 +1327,17 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		}
 
 		if (frameQueued[!isTop] >= prio[!isTop]) {
-			if ((res = svc_waitSynchronization1(rpPortEvent[!isTop], 0)) == 0) {
+			if ((res = svc_waitSynchronization1(rp_syn->portEvent[!isTop], 0)) == 0) {
 				currentUpdating = !isTop;
 				frameQueued[!isTop] -= prio[!isTop];
 				break;
 			}
 		}
 
-		res = svc_waitSynchronizationN(&isTop, rpPortEvent, 2, 0, 100000000);
+		res = svc_waitSynchronizationN(&isTop, rp_syn->portEvent, 2, 0, 100000000);
 		if (res != 0) {
 			if (res != 0x09401BFE) {
-				nsDbgPrint("svc_waitSynchronizationN rpPortEvent all error: %08x\n", res);
+				nsDbgPrint("svc_waitSynchronizationN rp_syn->portEvent all error: %08x\n", res);
 				break;
 			}
 			continue;
@@ -1357,11 +1364,13 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		nextScreenSynced[work_next] = 0;
 		__atomic_clear(&syn->sem_set, __ATOMIC_RELAXED);
 
-		s32 count;
-		res = svc_releaseSemaphore(&count, syn->sem_start, rpConfig.coreCount - 1);
-		if (res) {
-			nsDbgPrint("svc_releaseSemaphore sem_start failed: %d\n", res);
-			return;
+		for (int j = 1; j < (int)rpConfig.coreCount; ++j) {
+			s32 count;
+			res = svc_releaseSemaphore(&count, rp_syn->thread[j].sem_start, 1);
+			if (res) {
+				nsDbgPrint("svc_releaseSemaphore sem_start failed: %d\n", res);
+				// return;
+			}
 		}
 	}
 }
@@ -1371,7 +1380,7 @@ static u8 rp_skip_frame[rp_work_count] = { 0 };
 
 int rpSendFramesStart(int thread_id, int work_next) {
 	BLIT_CONTEXT *ctx = &blit_context[work_next];
-	struct rp_work_syn_t *syn = rp_work_syn[work_next];
+	struct rp_work_syn_t *syn = &rp_syn->work[work_next];
 
 	// if (thread_id == rp_nwm_thread_id && (rp_nwm_work_next == work_next || rp_nwm_frame_skipped)) {
 	// 	if (rpTrySendNextBufferMaybe(1, rp_nwm_frame_skipped) != 0) {
@@ -1425,14 +1434,18 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		}
 
 		s32 count;
-		res = svc_releaseSemaphore(&count, syn->sem_work, rpConfig.coreCount - 1);
-		if (res) {
-			nsDbgPrint("(%d) svc_releaseSemaphore sem_work (%d) failed: %d\n", thread_id, work_next, res);
-			goto final;
+		for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
+			if (j != thread_id) {
+				res = svc_releaseSemaphore(&count, rp_syn->thread[j].sem_work, 1);
+				if (res) {
+					nsDbgPrint("(%d) svc_releaseSemaphore sem_work[j] (%d) failed: %d\n", thread_id, j, work_next, res);
+					// goto final;
+				}
+			}
 		}
 	} else {
 		while (1) {
-			s32 res = svc_waitSynchronization1(syn->sem_work, 1000000000);
+			s32 res = svc_waitSynchronization1(rp_syn->thread[thread_id].sem_work, 1000000000);
 			if (res) {
 				nsDbgPrint("(%d) svc_waitSynchronization1 sem_work (%d) failed: %d\n", thread_id, work_next, res);
 				checkExitFlag();
@@ -1456,13 +1469,13 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		// 	}
 		// }
 		// s32 count, res;
-		// res = svc_releaseSemaphore(&count, rp_work_syn[work_next]->sem_nwm, 1);
+		// res = svc_releaseSemaphore(&count, rp_syn->work[work_next].sem_nwm, 1);
 		// if (res) {
 		// 	nsDbgPrint("svc_releaseSemaphore sem_nwm (%d) failed: %d\n", work_next, res);
 		// }
 	// }
 
-final:
+// final:
 	if (__atomic_add_fetch(&syn->sem_count, 1, __ATOMIC_RELAXED) == (int)rpConfig.coreCount) {
 		__atomic_store_n(&syn->sem_count, 0, __ATOMIC_RELAXED);
 		s32 count;
@@ -1654,7 +1667,7 @@ static void rpSendFrames() {
 	for (int i = 0; i < rp_work_count; ++i) {
 		s32 res;
 		while (1) {
-			res = svc_waitSynchronization1(rp_work_syn[i]->sem_end, 1000000000);
+			res = svc_waitSynchronization1(rp_syn->work[i].sem_end, 1000000000);
 			if (res) {
 				nsDbgPrint("svc_waitSynchronization1 sem_end (%d) join failed: %d\n", i, res);
 				checkExitFlag();
@@ -1664,7 +1677,7 @@ static void rpSendFrames() {
 		}
 
 		s32 count;
-		res = svc_releaseSemaphore(&count, rp_work_syn[i]->sem_end, 1);
+		res = svc_releaseSemaphore(&count, rp_syn->work[i].sem_end, 1);
 		if (res) {
 			nsDbgPrint("svc_releaseSemaphore sem_end (%d) join failed: %d\n", i, res);
 			// return;
@@ -1679,7 +1692,7 @@ static void rpAuxThreadStart(u32 thread_id) {
 
 		int res;
 
-		struct rp_work_syn_t *syn = rp_work_syn[work_next];
+		struct rp_thread_syn_t *syn = &rp_syn->thread[thread_id];
 
 		res = svc_waitSynchronization1(syn->sem_start, 100000000 /* 1000000000 */);
 		if (res) {
@@ -1699,10 +1712,10 @@ static void rpAuxThreadStart(u32 thread_id) {
 static void rpNwmThread(u32) {
 	while (!rpResetThreads) {
 		while (rpTrySendNextBuffer(1) == 0) svc_sleepThread(rpMinIntervalBetweenPacketsInNS);
-		int ret = svc_waitSynchronization1(*rpNwmEvent, 100000000);
+		int ret = svc_waitSynchronization1(rp_syn->nwmEvent, 100000000);
 		if (ret != 0) {
 			if (ret != 0x09401BFE) {
-				nsDbgPrint("rpNwmEvent wait error: %08x\n", ret);
+				nsDbgPrint("nwmEvent wait error: %08x\n", ret);
 				svc_sleepThread(1000000000);
 			}
 		}
@@ -1749,27 +1762,20 @@ static void rpThreadStart(void *) {
 		goto final;
 	}
 
-	for (i = 0; i < rp_work_count; ++i) {
-		// rp_work[i] = (void *)plgRequestMemory(0x1000);
-		rp_work_syn[i] = (void *)plgRequestMemory(0x1000);
-	}
-
-	/* just sticking it here, we waste enough memory already */
-	rpPortEvent = (u32 *)(rp_work_syn[1]) - 2;
-	ret = svc_createEvent(&rpPortEvent[0], 0);
+	rp_syn = (void *)plgRequestMemory(0x1000);
+	ret = svc_createEvent(&rp_syn->portEvent[0], 0);
 	if (ret != 0) {
-		nsDbgPrint("svc_createEvent rpPortEvent[0] failed: %08x\n", ret);
+		nsDbgPrint("svc_createEvent portEvent[0] failed: %08x\n", ret);
 		goto final;
 	}
-	ret = svc_createEvent(&rpPortEvent[1], 0);
+	ret = svc_createEvent(&rp_syn->portEvent[1], 0);
 	if (ret != 0) {
-		nsDbgPrint("svc_createEvent rpPortEvent[1] failed: %08x\n", ret);
+		nsDbgPrint("svc_createEvent portEvent[1] failed: %08x\n", ret);
 		goto final;
 	}
-	rpNwmEvent = (u32 *)(rp_work_syn[1]) - 3;
-	ret = svc_createEvent(rpNwmEvent, 0);
+	ret = svc_createEvent(&rp_syn->nwmEvent, 0);
 	if (ret != 0) {
-		nsDbgPrint("svc_createEvent rpNwmEvent failed: %08x\n", ret);
+		nsDbgPrint("svc_createEvent nwmEvent failed: %08x\n", ret);
 		goto final;
 	}
 
@@ -1810,35 +1816,46 @@ static void rpThreadStart(void *) {
 			jpeg_rows_last[i] = 0;
 			jpeg_adjusted_rows[i] = 0;
 			jpeg_adjusted_rows_last[i] = 0;
+
+			rp_nwm_syn_next[i] = 1;
 		}
 		// rp_nwm_frame_skipped = 0;
 		rp_nwm_work_next = rp_nwm_thread_next = 0;
 		rp_work_next = 0;
 
 		for (i = 0; i < rp_work_count; ++i) {
-			ret = svc_createSemaphore(&rp_work_syn[i]->sem_end, 1, 1);
+			ret = svc_createSemaphore(&rp_syn->work[i].sem_end, 1, 1);
 			if (ret != 0) {
 				nsDbgPrint("svc_createSemaphore sem_end (%d) failed: %08x\n", i, ret);
 				goto final;
 			}
-			ret = svc_createSemaphore(&rp_work_syn[i]->sem_start, 0, rpConfig.coreCount - 1);
-			if (ret != 0) {
-				nsDbgPrint("svc_createSemaphore sem_start (%d) failed: %08x\n", i, ret);
-				goto final;
-			}
-			ret = svc_createSemaphore(&rp_work_syn[i]->sem_work, 0, rpConfig.coreCount - 1);
-			if (ret != 0) {
-				nsDbgPrint("svc_createSemaphore sem_work (%d) failed: %08x\n", i, ret);
-				goto final;
-			}
-			ret = svc_createSemaphore(&rp_work_syn[i]->sem_nwm, 1, 1);
+			ret = svc_createSemaphore(&rp_syn->work[i].sem_nwm, 1, 1);
 			if (ret != 0) {
 				nsDbgPrint("svc_createSemaphore sem_nwm (%d) failed: %08x\n", i, ret);
 				goto final;
 			}
+			ret = svc_createSemaphore(&rp_syn->work[i].sem_send, 1, 1);
+			if (ret != 0) {
+				nsDbgPrint("svc_createSemaphore sem_send (%d) failed: %08x\n", i, ret);
+				goto final;
+			}
 
-			rp_work_syn[i]->sem_count = 0;
-			rp_work_syn[i]->sem_set = 0;
+			rp_syn->work[i].sem_count = 0;
+			rp_syn->work[i].sem_set = 0;
+		}
+		for (j = 0; j < rpConfig.coreCount; ++j) {
+			if (j != 0) {
+				ret = svc_createSemaphore(&rp_syn->thread[j].sem_start, 0, rp_work_count);
+				if (ret != 0) {
+					nsDbgPrint("svc_createSemaphore sem_start (%d) failed: %08x\n", i, ret);
+					goto final;
+				}
+			}
+			ret = svc_createSemaphore(&rp_syn->thread[j].sem_work, 0, rp_work_count);
+			if (ret != 0) {
+				nsDbgPrint("svc_createSemaphore sem_work (%d) failed: %08x\n", i, ret);
+				goto final;
+			}
 		}
 
 		Handle hThreadAux1;
@@ -1886,10 +1903,14 @@ static void rpThreadStart(void *) {
 		svc_closeHandle(hThreadNwm);
 
 		for (i = 0; i < rp_work_count; ++i) {
-			svc_closeHandle(rp_work_syn[i]->sem_end);
-			svc_closeHandle(rp_work_syn[i]->sem_start);
-			svc_closeHandle(rp_work_syn[i]->sem_work);
-			svc_closeHandle(rp_work_syn[i]->sem_nwm);
+			svc_closeHandle(rp_syn->work[i].sem_end);
+			svc_closeHandle(rp_syn->work[i].sem_nwm);
+			svc_closeHandle(rp_syn->work[i].sem_send);
+		}
+		for (j = 0; j < rpConfig.coreCount; ++j) {
+			if (j != 0)
+				svc_closeHandle(rp_syn->thread[j].sem_start);
+			svc_closeHandle(rp_syn->thread[j].sem_work);
 		}
 	}
 final:
@@ -2018,7 +2039,7 @@ static void rpPortThread(u32) {
 			if (__atomic_load_n(&rpPortGamePid, __ATOMIC_RELAXED) != gamePid)
 				__atomic_store_n(&rpPortGamePid, gamePid, __ATOMIC_RELAXED);
 
-			ret = svc_signalEvent(rpPortEvent[isTop]);
+			ret = svc_signalEvent(rp_syn->portEvent[isTop]);
 			if (ret != 0) {
 				nsDbgPrint("svc_signalEvent failed: %08x\n", ret);
 			}
@@ -2697,7 +2718,7 @@ int remotePlayMenu(u32 localaddr) {
 		char dstPortCaption[50];
 		xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
 
-		char *frameModeCaption = g_nsConfig->rpCapturePreviousFrameThanCurrent ? "Frame Capture Mode: Previous" : "Frame Capture Mode: Current";
+		char *frameModeCaption = g_nsConfig->rpCapturePreviousFrameThanCurrent ? "Capture Which Frames: Previous" : "Capture Which Frames: Current";
 
 		char *captions[] = {
 			coreCountCaption,
@@ -2715,7 +2736,7 @@ int remotePlayMenu(u32 localaddr) {
 
 		char *descs[entryCount];
 		memset(descs, 0, sizeof(*descs) * entryCount);
-		descs[9] = "Set to previous if you experience\nwobble/staircase artifact.";
+		descs[9] = "Set to Previous if you experience\nwobble/staircase artifact.";
 
 		u32 key;
 		select = showMenuEx2(titleCurrent, entryCount, captions, descs, select, &key);
