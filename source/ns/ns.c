@@ -2392,6 +2392,8 @@ void nsHandleRemotePlay(void) {
 	config.currentMode = pac->args[0];
 	config.quality = pac->args[1];
 	config.qosValueInBytes = pac->args[2];
+	if (pac->args[3] == 1404036572) /* guarding magic */
+		config.dstPort = pac->args[4];
 	nsInitRemotePlay(&config, 0);
 }
 
