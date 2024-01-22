@@ -63,12 +63,6 @@ struct rp_handles_t {
 	Handle portEvent[2];
 } *rp_syn;
 
-static void rpShowNextFrameBothScreen(void) {
-	/* Show at least one frame*/
-	svc_signalEvent(rp_syn->portEvent[0]);
-	svc_signalEvent(rp_syn->portEvent[1]);
-}
-
 void*  rpMalloc(j_common_ptr cinfo, u32 size)
 {
 	void* ret = cinfo->alloc.buf + cinfo->alloc.stats.offset;
@@ -239,6 +233,15 @@ static u32 tl_format, bl_format;
 static u32 tl_pitch, bl_pitch;
 static u32 tl_current, bl_current;
 
+static void rpShowNextFrameBothScreen(void) {
+	/* Show at least one frame*/
+	svc_signalEvent(rp_syn->portEvent[0]);
+	svc_signalEvent(rp_syn->portEvent[1]);
+	for (int i = 0; i < rp_screen_work_count; ++i) {
+		++imgBuffer[0][i][0];
+		++imgBuffer[1][i][0];
+	}
+}
 
 typedef u32(*sendPacketTypedef) (u8*, u32);
 sendPacketTypedef nwmSendPacket = 0;
