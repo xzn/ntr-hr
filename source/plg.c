@@ -47,7 +47,7 @@ static int plgHasOverlay = 0;
 
 u32 plgRegisterCallback(u32 type, void* callback, u32) {
 	if (type == CALLBACK_OVERLAY) {
-		// plgInitScreenOverlay();
+		plgInitScreenOverlay();
 		plgHasOverlay = 1;
 
 		if (plgOverlayStatus != 1) {
@@ -269,8 +269,7 @@ static void plgShowGamePluginMenu(void) {
 
 int plgTryUpdateConfig(void) {
 	u32 gamePid = g_plgInfo->gamePluginPid;
-	void *configStart = &(g_plgInfo->nightShiftLevel);
-	u32 configSize = 4;
+	u32 config = ntrConfig->nightShiftLevel = g_plgInfo->nightShiftLevel;
 
 	if (gamePid == 0) {
 		return 1;
@@ -280,16 +279,72 @@ int plgTryUpdateConfig(void) {
 	if (ret != 0) {
 		return ret;
 	}
-	ret = copyRemoteMemory(hProcess, configStart, CURRENT_PROCESS_HANDLE, configStart, configSize);
-	if (ret != 0) {
-		goto final;
-	}
-final:
+	ret = copyRemoteMemory(
+		hProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, ntrConfig) + offsetof(NTR_CONFIG, nightShiftLevel),
+		CURRENT_PROCESS_HANDLE, &config,
+		sizeof(config));
 	svc_closeHandle(hProcess);
 	return ret;
 }
 
 static Handle hPMProcess = 0;
+static void plgChangeDisabled(void) {
+	s32 ret = 0;
+	if (hPMProcess == 0) {
+		ret = svc_openProcess(&hPMProcess, ntrConfig->PMPid);
+		if (ret != 0) {
+			showDbg("Open pm process failed: %08x", ret, 0);
+			hPMProcess = 0;
+			return;
+		}
+	}
+	u32 disabled = !g_nsConfig->plgDisabled;
+	ret = copyRemoteMemory(hPMProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, plgDisabled), CURRENT_PROCESS_HANDLE, &disabled, sizeof(g_nsConfig->plgDisabled));
+	if (ret != 0) {
+		showDbg("Update plugin loader setting failed: %08x", ret, 0);
+		return;
+	}
+	g_nsConfig->plgDisabled = disabled;
+}
+
+static void plgChangeNoCTRPFCompat(void) {
+	s32 ret = 0;
+	if (hPMProcess == 0) {
+		ret = svc_openProcess(&hPMProcess, ntrConfig->PMPid);
+		if (ret != 0) {
+			showDbg("Open pm process failed: %08x", ret, 0);
+			hPMProcess = 0;
+			return;
+		}
+	}
+	u32 noCTRPFCompat = !g_nsConfig->plgNoCTRPFCompat;
+	ret = copyRemoteMemory(hPMProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, plgNoCTRPFCompat), CURRENT_PROCESS_HANDLE, &noCTRPFCompat, sizeof(g_nsConfig->plgNoCTRPFCompat));
+	if (ret != 0) {
+		showDbg("Update CTRPF compat option failed: %08x", ret, 0);
+		return;
+	}
+	g_nsConfig->plgNoCTRPFCompat = noCTRPFCompat;
+}
+
+static void plgChangeRPCallback(void) {
+	s32 ret = 0;
+	if (hPMProcess == 0) {
+		ret = svc_openProcess(&hPMProcess, ntrConfig->PMPid);
+		if (ret != 0) {
+			showDbg("Open pm process failed: %08x", ret, 0);
+			hPMProcess = 0;
+			return;
+		}
+	}
+	u32 rpCallback = !g_nsConfig->plgRemotePlayCallback;
+	ret = copyRemoteMemory(hPMProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, plgRemotePlayCallback), CURRENT_PROCESS_HANDLE, &rpCallback, sizeof(g_nsConfig->plgRemotePlayCallback));
+	if (ret != 0) {
+		showDbg("Update remote play boost option failed: %08x", ret, 0);
+		return;
+	}
+	g_nsConfig->plgRemotePlayCallback = rpCallback;
+}
+
 static void plgChangeNoLoaderMem(void) {
 	s32 ret = 0;
 	if (hPMProcess == 0) {
@@ -309,55 +364,90 @@ static void plgChangeNoLoaderMem(void) {
 	g_nsConfig->plgNoLoaderMem = noLoaderMem;
 }
 
-static void plgChangeCTRPFCompat(void) {
-	s32 ret = 0;
-	if (hPMProcess == 0) {
-		ret = svc_openProcess(&hPMProcess, ntrConfig->PMPid);
-		if (ret != 0) {
-			showDbg("Open pm process failed: %08x", ret, 0);
-			hPMProcess = 0;
-			return;
+static void plgShowPluginLoaderMenu(void) {
+	char *enablePlugins = plgTranslate("Game Plugin Loader (Disabled)");
+	char *disablePlugins = plgTranslate("Game Plugin Loader (Enabled)");
+	char *enableCTRPFCompatText = plgTranslate("CTRPF Compat Mode (Disabled)");
+	char *disableCTRPFCompatText = plgTranslate("CTRPF Compat Mode (Enabled)");
+	char *enableRPCallbackText = plgTranslate("Remote Play Boost (Disabled)");
+	char *disableRPCallbackText = plgTranslate("Remote Play Boost (Enabled)");
+	char *enableLoaderMemText = plgTranslate("Loader Mem Compat (Disabled)");
+	char *disableLoaderMemText = plgTranslate("Loader Mem Compat (Enabled)");
+
+	char *entries[4];
+	char *descs[4];
+	entries[0] = g_nsConfig->plgDisabled ? enablePlugins : disablePlugins;
+	descs[0] = plgTranslate("Does not affect overlay functions\nsuch as night shift screen filters or\nremote play boost.");
+	entries[1] = g_nsConfig->plgNoCTRPFCompat ? enableCTRPFCompatText : disableCTRPFCompatText;
+	descs[1] = plgTranslate("Avoid crash in CTRPF based plugins\nby disabling all overlay functions\nincluding night shift screen filters.");
+	entries[2] = g_nsConfig->plgRemotePlayCallback ? disableRPCallbackText : enableRPCallbackText;
+	descs[2] = plgTranslate("Improve Remote Play performance by\nusing overlay callback for screen\nupdate timing.\nNot compatible with CTRPF.");
+	entries[3] = g_nsConfig->plgNoLoaderMem ? enableLoaderMemText : disableLoaderMemText;
+	descs[3] = plgTranslate("Affect game plugins only.\nKeep enabled for higher compatibility.\nSome plugins will crash when disabled.\nOthers will hang when switching games\nif enabled.");
+
+	s32 r = 0;
+	while (1) {
+		r = showMenuEx("Plugin Loader", 4, entries, descs, r);
+		if (r == -1) {
+			break;
+		}
+		else if (r == 0) {
+			releaseVideo();
+			plgChangeDisabled();
+			entries[0] = g_nsConfig->plgDisabled ? enablePlugins : disablePlugins;
+			acquireVideo();
+		}
+		else if (r == 1) {
+			releaseVideo();
+			plgChangeNoCTRPFCompat();
+			entries[1] = g_nsConfig->plgNoCTRPFCompat ? enableCTRPFCompatText : disableCTRPFCompatText;
+			if (!g_nsConfig->plgNoCTRPFCompat && g_nsConfig->plgRemotePlayCallback) {
+				plgChangeRPCallback();
+				entries[2] = g_nsConfig->plgRemotePlayCallback ? disableRPCallbackText : enableRPCallbackText;
+			}
+			acquireVideo();
+		}
+		else if (r == 2) {
+			releaseVideo();
+			plgChangeRPCallback();
+			entries[2] = g_nsConfig->plgRemotePlayCallback ? disableRPCallbackText : enableRPCallbackText;
+			if (g_nsConfig->plgRemotePlayCallback && !g_nsConfig->plgNoCTRPFCompat) {
+				plgChangeNoCTRPFCompat();
+				entries[1] = g_nsConfig->plgNoCTRPFCompat ? enableCTRPFCompatText : disableCTRPFCompatText;
+			}
+			acquireVideo();
+		}
+		else if (r == 3) {
+			releaseVideo();
+			plgChangeNoLoaderMem();
+			entries[3] = g_nsConfig->plgNoLoaderMem ? enableLoaderMemText : disableLoaderMemText;
+			acquireVideo();
 		}
 	}
-	u32 CTRPFCompat = !g_nsConfig->plgCTRPFCompat;
-	ret = copyRemoteMemory(hPMProcess, (u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, plgCTRPFCompat), CURRENT_PROCESS_HANDLE, &CTRPFCompat, sizeof(g_nsConfig->plgCTRPFCompat));
-	if (ret != 0) {
-		showDbg("Update CTRPF compat option failed: %08x", ret, 0);
-		return;
-	}
-	g_nsConfig->plgCTRPFCompat = CTRPFCompat;
 }
 
 void plgShowMainMenu(void) {
 	typedef u32(*funcType)();
 
-#define mainEntriesMax 5
+#define mainEntriesMax 4
 #define entriesMax (MAX_PLUGIN_ENTRY + 1 + mainEntriesMax)
 
-	char *entries[entriesMax], *descs[entriesMax] = {0};
+	char *entries[entriesMax];
 	u32 entid[entriesMax];
 	u32 pos = 0, i;
 	u32 mainEntries;
 	u32 localaddr = gethostid();
 
-	char *enableCTRPFCompatText = plgTranslate("CTRPF Compat Mode (Disabled)");
-	char *disableCTRPFCompatText = plgTranslate("CTRPF Compat Mode (Enabled)");
-	char *enableLoaderMemText = plgTranslate("Loader Mem Compat (Disabled)");
-	char *disableLoaderMemText = plgTranslate("Loader Mem Compat (Enabled)");
-
 	// debounceKey();
 
 	entries[0] = plgTranslate("Remote Play (New 3DS)");
-	entries[1] = plgTranslate("Process Manager");
 #if 0
-	entries[2] = plgTranslate("Enable Debugger");
+	entries[1] = plgTranslate("Enable Debugger");
 #endif
-	entries[2] = g_nsConfig->plgCTRPFCompat ? disableCTRPFCompatText : enableCTRPFCompatText;
-	descs[2] = plgTranslate("Avoid crash in CTRPF based plugins\nby disabling all overlay functions\nincluding night shift screen filters");
+	entries[1] = plgTranslate("Plugin Loader");
+	entries[2] = plgTranslate("Process Manager");
 	entries[3] = plgTranslate("Set Hotkey");
-	entries[4] = g_nsConfig->plgNoLoaderMem ? enableLoaderMemText : disableLoaderMemText;
-	descs[4] = plgTranslate("Affect game plugins only.\nKeep enabled for higher compatibility.\nSome plugins will crash when disabled\nothers will hang when switching games\nif enabled");
-	mainEntries = 5;
+	mainEntries = 4;
 	if (mainEntriesMax < mainEntries) {
 		showDbg("Error: too many menu items", 0, 0);
 		return;
@@ -378,7 +468,7 @@ void plgShowMainMenu(void) {
 	acquireVideo();
 	while (1) {
 		s32 r;
-		r = showMenuEx(NTR_CFW_VERSION, pos, entries, descs, 0);
+		r = showMenu(NTR_CFW_VERSION, pos, entries);
 		if (r == -1) {
 			break;
 		}
@@ -400,11 +490,8 @@ void plgShowMainMenu(void) {
 				break;
 			}
 		}
-		else if (r == 1) {
-			processManager();
-		}
 #if 0
-		else if (r == 2) {
+		else if (r == 1) {
 			if (g_nsConfig->hSOCU) {
 				showMsg(plgTranslate("Debugger has already been enabled."));
 				break;
@@ -415,20 +502,14 @@ void plgShowMainMenu(void) {
 			}
 		}
 #endif
+		else if (r == 1) {
+			plgShowPluginLoaderMenu();
+		}
 		else if (r == 2) {
-			releaseVideo();
-			plgChangeCTRPFCompat();
-			entries[2] = g_nsConfig->plgCTRPFCompat ? disableCTRPFCompatText : enableCTRPFCompatText;
-			acquireVideo();
+			processManager();
 		}
 		else if (r == 3) {
 			plgSetHotkeyUi();
-		}
-		else if (r == 4) {
-			releaseVideo();
-			plgChangeNoLoaderMem();
-			entries[4] = g_nsConfig->plgNoLoaderMem ? enableLoaderMemText : disableLoaderMemText;
-			acquireVideo();
 		}
 	}
 
@@ -540,7 +621,6 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 
 	getProcessTIDByHandle(hProcess, procTid);
 
-
 	nsDbgPrint("procTid: %08x%08x\n", procTid[1], procTid[0]);
 	if (!((procTid[0] == plgInfo.tid[0]) && (procTid[1] == plgInfo.tid[1]))) {
 		nsDbgPrint("tid mismatch\n");
@@ -557,11 +637,16 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	u32 gameHasPlugins = 1;
 	if (plgInfo.plgCount == 0) {
 		// if (!isInDebugMode()) {
-			if (plgInfo.nightShiftLevel == 0) {
+			// if (plgInfo.nightShiftLevel == 0) {
 				// no plugin loaded and not debug mode, skipping
 				gameHasPlugins = 0;
-			}
+			// }
 		// }
+	}
+	if (__atomic_load_n(&g_nsConfig->plgDisabled, __ATOMIC_RELAXED)) {
+		plgInfo.plgCount = 0;
+		// plgInfo.nightShiftLevel = 0;
+		gameHasPlugins = 0;
 	}
 
 	arm11BinStart = plgInfo.arm11BinStart;
@@ -569,7 +654,26 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 	arm11BinProcess = hMenuProcess;
 	cfg.startupCommand = NS_STARTCMD_INJECTGAME;
 
-	if (gameHasPlugins) {
+	memcpy(&cfg.ntrConfig, ntrConfig, sizeof(NTR_CONFIG));
+	cfg.ntrConfig.gameHasPlugins = gameHasPlugins;
+	cfg.ntrConfig.noCTRPFCompat = __atomic_load_n(&g_nsConfig->plgNoCTRPFCompat, __ATOMIC_RELAXED);
+	cfg.ntrConfig.remotePlayBoost = __atomic_load_n(&g_nsConfig->plgRemotePlayCallback, __ATOMIC_RELAXED);
+	cfg.ntrConfig.nightShiftLevel = plgInfo.nightShiftLevel;
+	cfg.ntrConfig.debugMore = isInDebugMode();
+
+	gameHasPlugins =
+		cfg.ntrConfig.debugMore ||
+		cfg.ntrConfig.gameHasPlugins ||
+		(
+			(cfg.ntrConfig.remotePlayBoost || cfg.ntrConfig.nightShiftLevel) &&
+			cfg.ntrConfig.noCTRPFCompat
+		);
+	if (!cfg.ntrConfig.gameHasPlugins)
+		loaderMem = 0;
+
+	if (
+		gameHasPlugins
+	) {
 		base = plgPoolStart;
 		memcpy(&targetPlgInfo, &plgInfo, sizeof(PLGLOADER_INFO));
 		totalSize = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
@@ -619,15 +723,12 @@ u32 plgLoadPluginToRemoteProcess(u32 hProcess) {
 				goto error_alloc;
 			}
 		}
-	}
 
-	memcpy(&cfg.ntrConfig, ntrConfig, sizeof(NTR_CONFIG));
-	cfg.ntrConfig.gameHasPlugins = gameHasPlugins;
-	cfg.ntrConfig.ctrpfCompat = g_nsConfig->plgCTRPFCompat;
-	ret = nsAttachProcess(hProcess, 0x00100000, &cfg, 1);
-	if (ret != 0) {
-		nsDbgPrint("attach process failed: %08x\n", ret);
-		goto error_alloc;
+		ret = nsAttachProcess(hProcess, 0x00100000, &cfg, 1);
+		if (ret != 0) {
+			nsDbgPrint("attach process failed: %08x\n", ret);
+			goto error_alloc;
+		}
 	}
 
 	return 0;
@@ -884,6 +985,9 @@ void plgInitFromInjectHOME(void) {
 
 	memset(g_plgInfo, 0, sizeof(PLGLOADER_INFO));
 
+	ntrConfig->gameHasPlugins = 1;
+	ntrConfig->noCTRPFCompat = 1;
+	ntrConfig->remotePlayBoost = 1;
 	plgInitScreenOverlay();
 
 	plgLoadStart = base;
@@ -953,9 +1057,6 @@ u32 plgSearchBytes(u32 startAddr, u32 endAddr, u32* pat, int patlen) {
 
 RT_HOOK SetBufferSwapHook;
 
-typedef u32(*SetBufferSwapTypedef) (u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 width, u32 a6, u32 a7);
-
-
 /*
 u32 plgNightShiftFramebufferLevel2(u32 addr, u32 stride, u32 height, u32 format) {
 	format &= 0x0f;
@@ -984,20 +1085,18 @@ u32 plgNightShiftFramebufferLevel2(u32 addr, u32 stride, u32 height, u32 format)
 }
 */
 
-
-
 u32 plgNightShiftFramebuffer(u32 addr, u32 stride, u32 height, u32 format);
 
-u32 plgOverlayNightShift(u32 isDisplay1, u32 addr, u32 addrB, u32 width, u32 format) {
+u32 plgOverlayNightShift(u32 isDisplay1, u32 addr, u32 addrB, u32 stride, u32 format) {
 
 	if (isDisplay1 == 0) {
-		plgNightShiftFramebuffer(addr, width, 400, format);
+		plgNightShiftFramebuffer(addr, stride, 400, format);
 		if ((addrB) && (addrB != addr)) {
-			plgNightShiftFramebuffer(addrB, width, 400, format);
+			plgNightShiftFramebuffer(addrB, stride, 400, format);
 		}
 	}
 	else {
-		plgNightShiftFramebuffer(addr, width, 320, format);
+		plgNightShiftFramebuffer(addr, stride, 320, format);
 	}
 
 
@@ -1009,9 +1108,12 @@ static u32 rpPortIsTop = 0;
 
 #define STACK_SIZE 0x4000
 static u32 *plgOverlayThreadStack;
-typedef u32 (*OverlayFnTypedef) (u32 isDisplay1, u32 addr, u32 addrB, u32 width, u32 format);
+typedef u32 (*OverlayFnTypedef)(u32 isDisplay1, u32 addr, u32 addrB, u32 width, u32 format);
 
-u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 width, u32 format, u32 a7) {
+typedef u32 (*SetBufferSwapTypedef)(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 width, u32 a6, u32 a7);
+typedef u32 (*SetBufferSwapTypedef2)(u32 r0, u32 *params, u32 isBottom, u32 arg);
+
+static void plgSetBufferSwapCommon(u32 isDisplay1, u32 addr, u32 addrB, u32 stride, u32 format) {
 	__atomic_store_n(&rpPortIsTop, isDisplay1 ? 0 : 1, __ATOMIC_RELAXED);
 	u32 ret;
 	if (plgOverlayEvent) {
@@ -1022,44 +1124,65 @@ u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 wi
 	}
 	// rpPortSend(isDisplay1 ? 0 : 1);
 
-	if (!(ntrConfig->gameHasPlugins && (plgHasOverlay || g_plgInfo->nightShiftLevel)))
-		goto final;
+	if (!((ntrConfig->gameHasPlugins && plgHasOverlay) || ntrConfig->nightShiftLevel))
+		return;
 
 	u32 height = isDisplay1 ? 320 : 400;
 	int isDirty = 0;
 
 	if ((addr >= 0x1f000000) && (addr < 0x1f600000)) {
 		if (!isVRAMAccessible) {
-			goto final;
+			return;
 		}
 	}
 
-	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addr, width * height);
+	svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addr, stride * height);
 	if ((isDisplay1 == 0) && (addrB) && (addrB != addr)) {
-		svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addrB, width * height);
+		svc_invalidateProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addrB, stride * height);
 	}
 	if (plgHasOverlay) {
 		for (unsigned int i = 0; i < pluginEntryCount; i++) {
 			if (pluginEntry[i][0] == CALLBACK_OVERLAY) {
-				ret = ((OverlayFnTypedef)((void*) pluginEntry[i][2]))(isDisplay1, addr, addrB, width, format);
+				ret = ((OverlayFnTypedef)((void*) pluginEntry[i][2]))(isDisplay1, addr, addrB, stride, format);
 				if (ret == 0) {
 					isDirty = 1;
 				}
 			}
 		}
 	}
-	if (g_plgInfo->nightShiftLevel) {
-		plgOverlayNightShift(isDisplay1, addr, addrB, width, format);
+	if (ntrConfig->nightShiftLevel) {
+		plgOverlayNightShift(isDisplay1, addr, addrB, stride, format);
 	}
 	else if (isDirty) {
-		svc_flushProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addr, width * height);
+		svc_flushProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addr, stride * height);
 		if ((isDisplay1 == 0) && (addrB) && (addrB != addr)) {
-			svc_flushProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addrB, width * height);
+			svc_flushProcessDataCache(CURRENT_PROCESS_HANDLE, (u32)addrB, stride * height);
 		}
 	}
+}
 
-final:
-	ret = ((SetBufferSwapTypedef)((void*)SetBufferSwapHook.callCode))(isDisplay1, a2, addr, addrB, width, format, a7);
+static u32 plgSetBufferSwapCallback(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 stride, u32 format, u32 a7) {
+	if (addr)
+		plgSetBufferSwapCommon(isDisplay1, addr, addrB, stride, format);
+	u32 ret = ((SetBufferSwapTypedef)((void*)SetBufferSwapHook.callCode))(isDisplay1, a2, addr, addrB, stride, format, a7);
+	return ret;
+}
+
+// taken from CTRPF
+static u32 plgSetBufferSwapCallback2(u32 r0, u32 *params, u32 isDisplay1, u32 arg) {
+	if (params)
+	{
+		// u32 isBottom = params[0];
+		u32 addr = params[1];
+		// void *addrB = params[2]; possible, not confirmed
+		u32 stride = params[3];
+		u32 format = params[4] & 0xF;
+
+		if (addr)
+			plgSetBufferSwapCommon(isDisplay1, addr, 0, stride, format);
+	}
+
+	u32 ret = ((SetBufferSwapTypedef2)((void*)SetBufferSwapHook.callCode))(r0, params, isDisplay1, arg);
 	return ret;
 }
 
@@ -1090,6 +1213,11 @@ static void plgOverlayThread(u32 fp) {
 }
 
 void plgInitScreenOverlay() {
+	if (!ntrConfig->noCTRPFCompat) {
+		plgOverlayStatus = 2;
+		return;
+	}
+
 	if (plgOverlayStatus) {
 		return;
 	}
@@ -1103,16 +1231,32 @@ void plgInitScreenOverlay() {
 	static u32 pat2[] = { 0xe8830e60, 0xee078f9a, 0xe3a03001, 0xe7902104 };
 	static u32 pat3[] = { 0xee076f9a, 0xe3a02001, 0xe7901104, 0xe1911f9f, 0xe3c110ff};
 
-	u32 addr = plgSearchBytes(0x00100000, 0, pat, sizeof(pat));
+	u32 addr, fp, fp2;
+	addr = plgSearchBytes(0x00100000, 0, pat, sizeof(pat));
 	if (!addr) {
 		addr = plgSearchBytes(0x00100000, 0, pat2, sizeof(pat2));
 	}
-	u32 fp = plgSearchReverse(addr, addr - 0x400, 0xe92d5ff0);
+	fp = plgSearchReverse(addr, addr - 0x400, 0xe92d5ff0);
 	if (!fp) {
 		addr = plgSearchBytes(0x00100000, 0, pat3, sizeof(pat3));
 		fp = plgSearchReverse(addr, addr - 0x400, 0xe92d47f0);
 	}
-	nsDbgPrint("overlay addr: %08x, %08x\n", addr, fp);
+
+	// taken from CTRPF
+	static u32 pat4[] = {
+		0xE3A00000, // MOV R0, #0
+		0xEE070F9A, // MCR P15, 0, R0, c7, c10, 4
+		0xE3A00001, // MOV R0, #1
+		0xE7951104, // LDR R1, [R5, R4, LSL#2] // 0x10
+	};
+
+	if (fp) {
+		fp2 = 0;
+	} else {
+		addr = plgSearchBytes(0x00100000, 0, pat4, sizeof(pat4));
+		fp2 = plgSearchReverse(addr, addr - 0x400, 0xE92D4070);
+	}
+	nsDbgPrint("overlay addr: %x; fp: %x; fp2: %x\n", addr, fp, fp2);
 
 	plgOverlayThreadStack = (void *)plgRequestMemory(STACK_SIZE);
 	plgOverlayEvent = plgOverlayThreadStack;
@@ -1122,24 +1266,27 @@ void plgInitScreenOverlay() {
 		nsDbgPrint("create plgOverlayEvent failed: %08x", ret);
 	}
 	Handle hThread;
-	ret = svc_createThread(&hThread, plgOverlayThread, fp, &plgOverlayThreadStack[(STACK_SIZE / 4) - 10], 0x18, -2);
+	ret = svc_createThread(&hThread, plgOverlayThread, fp || fp2, &plgOverlayThreadStack[(STACK_SIZE / 4) - 10], 0x18, -2);
 	if (ret != 0) {
 		nsDbgPrint("create plgOverlayThread failed: %08x", ret);
 	}
 
-	if (!fp)
-		return;
-	rtInitHook(&SetBufferSwapHook, fp, (u32)plgSetBufferSwapCallback);
-	rtEnableHook(&SetBufferSwapHook);
-	plgOverlayStatus = 1;
-
+	if (fp) {
+		rtInitHook(&SetBufferSwapHook, fp, (u32)plgSetBufferSwapCallback);
+		rtEnableHook(&SetBufferSwapHook);
+		plgOverlayStatus = 1;
+	} else if (fp2) {
+		rtInitHook(&SetBufferSwapHook, fp2, (u32)plgSetBufferSwapCallback2);
+		rtEnableHook(&SetBufferSwapHook);
+		plgOverlayStatus = 1;
+	}
 }
 
 void initFromInjectGame(void) {
 	typedef void(*funcType)();
 	u32 i;
 
-	if (!ntrConfig->ctrpfCompat)
+	if (ntrConfig->remotePlayBoost || ntrConfig->nightShiftLevel)
 		plgInitScreenOverlay();
 
 	if (!ntrConfig->gameHasPlugins)
@@ -1149,11 +1296,7 @@ void initFromInjectGame(void) {
 
 	initSharedFunc();
 
-
 	g_plgInfo = (PLGLOADER_INFO*)plgPoolStart;
-	// if (g_plgInfo->nightShiftLevel) {
-		// plgInitScreenOverlay();
-	// }
 
 	for (i = 0; i < g_plgInfo->plgCount; i++) {
 		nsDbgPrint("plg: %08x\n", g_plgInfo->plgBufferPtr[i]);

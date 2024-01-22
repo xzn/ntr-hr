@@ -91,8 +91,10 @@ typedef struct _NS_CONFIG {
 	u32 rpConfigLock;
 	u32 rpGamePid;
 	u32 rpCapturePreviousFrameThanCurrent;
+	u32 plgDisabled;
+	u32 plgNoCTRPFCompat;
+	u32 plgRemotePlayCallback;
 	u32 plgNoLoaderMem;
-	u32 plgCTRPFCompat;
 } NS_CONFIG;
 
 #define NS_INITMODE_FROMBOOT	0

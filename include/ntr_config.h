@@ -37,7 +37,9 @@ typedef struct _NTR_CONFIG {
 	/* BootNTR's NTR_CONFIG ends here */
 	u32 debugMore;
 	u32 gameHasPlugins;
-	u32 ctrpfCompat;
+	u32 noCTRPFCompat;
+	u32 remotePlayBoost;
+	u32 nightShiftLevel;
 } NTR_CONFIG;
 
 #define NTR_MEMMODE_DEFAULT (0)

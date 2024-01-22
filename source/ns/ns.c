@@ -2288,6 +2288,11 @@ exit_hProcess:
 }
 
 static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
+	if (!ntrConfig->isNew3DS) {
+		showDbg("Remote Play is available on New 3DS only.", 0, 0);
+		return -1;
+	}
+
 	if (!((config->quality >= 10) && (config->quality <= 100))) {
 		nsDbgPrint("out-of-range quality for remote play, limiting to between 10 and 100\n");
 		if (config->quality < 10)
@@ -2338,11 +2343,6 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 
 	u8 desiredHeader[16] = { 0x04, 0x00, 0x2D, 0xE5, 0x4F, 0x00, 0x00, 0xEF, 0x00, 0x20, 0x9D, 0xE5, 0x00, 0x10, 0x82, 0xE5 };
 	u8 buf[16] = { 0 };
-	if (!(ntrConfig->isNew3DS)) {
-		nsDbgPrint("Remote Play is available on New 3DS only.", 0, 0);
-		ret = -1;
-		goto final;
-	}
 
 	int isFirmwareSupported = 0;
 	int firmwareType = 0;
@@ -2380,7 +2380,7 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 		svc_closeHandle(hProcess);
 	}
 	if (ret) {
-		showDbg("Starting remote play failed: %d, retry maybe.", ret, 0);
+		showDbg("Starting remote play failed: %d. Retry maybe...", ret, 0);
 		__atomic_clear(&nsIsRemotePlayStarted, __ATOMIC_RELAXED);
 	}
 	return ret;
@@ -2664,6 +2664,11 @@ update_final:
 }
 
 int remotePlayMenu(u32 localaddr) {
+	if (!ntrConfig->isNew3DS) {
+		showDbg("Remote Play is available on New 3DS only.", 0, 0);
+		return 0;
+	}
+
 	u32 daddrCurrent = REG(&g_nsConfig->rpConfig.dstAddr);
 
 	rpConfig.dstAddr = daddrCurrent;

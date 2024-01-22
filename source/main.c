@@ -558,8 +558,9 @@ int main(void) {
 
 			threadStack = (u32*)((u32)NS_CONFIGURE_ADDR + 0x1000);
 			if (
-				(ntrConfig->debugMore && currentPid == ntrConfig->PMPid) ||
-				isInDebugMode() ||
+				(ntrConfig->debugMore &&
+					(currentPid == ntrConfig->PMPid || g_nsConfig->startupCommand == NS_STARTCMD_INJECTGAME)
+				) ||
 				(g_nsConfig->startupCommand == NS_STARTCMD_DEBUG)
 			) {
 				svc_createThread(&handle, (void*)startupFromInject, 0, &threadStack[(STACK_SIZE / 4) - 10], 0x3f, 0xFFFFFFFE);

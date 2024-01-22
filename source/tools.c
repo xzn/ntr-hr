@@ -297,14 +297,14 @@ void do_screen_shoot(void)
 }
 
 u32 takeScreenShot() {
-	vu32 i;
+	// vu32 i;
 
-	for (i = 0; i < 0x1000000; i++) {
-	}
-	controlVideo(CONTROLVIDEO_RELEASEVIDEO, 0, 0, 0);
+	// for (i = 0; i < 0x1000000; i++) {
+	// }
+	releaseVideo();
 	svc_sleepThread(100000000);
 	do_screen_shoot();
-	controlVideo(CONTROLVIDEO_ACQUIREVIDEO, 0, 0, 0);
+	acquireVideo();
 	return 1;
 }
 
@@ -495,7 +495,9 @@ u32 instantSaveMenu() {
 		return 1;
 	}
 	if (!image_buf) {
+		releaseVideo();
 		allocImageBuf();
+		acquireVideo();
 	}
 	if (image_buf == NULL){
 		showMsg("FATAL image buffer alloc failed.");
@@ -519,11 +521,15 @@ u32 instantSaveMenu() {
 			break;
 		}
 		if ((r >= 0) && (r <= 2)) {
+			releaseVideo();
 			instantSave(r, 0);
+			acquireVideo();
 			break;
 		}
 		if ((r >= 3) && (r <= 5)) {
+			releaseVideo();
 			instantSave(r - 3, 1);
+			acquireVideo();
 			break;
 		}
 	}
@@ -532,31 +538,32 @@ u32 instantSaveMenu() {
 }
 
 
-
 u32 cpuClockUi() {
-	acquireVideo();
 	char* entries[8];
-	int r;
+	int r = cpuClockLockValue;
+	if (r < 0)
+		r = 0;
 	entries[0] = plgTranslate("268MHz, L2 Disabled (Default)");
 	entries[1] = plgTranslate("804MHz, L2 Disabled");
 	entries[2] = plgTranslate("268MHz, L2 Enabled");
 	entries[3] = plgTranslate("804MHz, L2 Enabled (Best)");
 	while (1) {
 		blank(0, 0, 320, 240);
-		r = showMenu(plgTranslate("CPU Clock"), 4, entries);
+		r = showMenuEx(plgTranslate("CPU Clock"), 4, entries, NULL, r);
 		if (r == -1) {
 			break;
 		}
 		if ((r >= 0) && (r <= 3)) {
+			releaseVideo();
 			u32 ret = svc_kernelSetState(10, r, 0, 0);
 			if (ret != 0) {
 				showDbg("kernelSetState failed: %08x", ret, 0);
 			}
 			setCpuClockLock(r);
+			acquireVideo();
 			break;
 		}
 	}
-	releaseVideo();
 	return 0;
 }
 
@@ -605,7 +612,6 @@ void plgDoPowerOff() {
 
 
 u32 powerMenu() {
-	acquireVideo();
 	char* entries[8];
 	int r;
 	// vu32 i;
@@ -620,18 +626,21 @@ u32 powerMenu() {
 			// for (i = 0; i < 0x05000000; i++) {
 			// }
 			// svc_sleepThread(0x05000000);
+			releaseVideo();
 			plgDoReboot();
+			acquireVideo();
 			break;
 		}
 		if (r == 1) {
 			// for (i = 0; i < 0x05000000; i++) {
 			// }
 			// svc_sleepThread(0x05000000);
+			releaseVideo();
 			plgDoPowerOff();
+			acquireVideo();
 			break;
 		}
 	}
-	releaseVideo();
 	return 1;
 }
 
@@ -726,6 +735,7 @@ void updateBklight() {
 }
 
 void adjustBklight(int adj) {
+	releaseVideo();
 	bklightValue += adj;
 	if (bklightValue < 1) {
 		bklightValue = 1;
@@ -734,11 +744,14 @@ void adjustBklight(int adj) {
 		bklightValue = 100;
 	}
 	updateBklight();
+	acquireVideo();
 }
 
 u32 backlightMenu() {  
 	if (isGSPPatchRequired) {
+		releaseVideo();
 		patchGSP();
+		acquireVideo();
 	}
 	char buf[50];
 	while (1) {
@@ -768,10 +781,8 @@ u32 backlightMenu() {
 }
 
 u32 nightShiftUi() {
-	int configUpdated = 0;
-	acquireVideo();
 	char* entries[11];
-	int r = 0;
+	int r = g_plgInfo->nightShiftLevel;
 	entries[0] = plgTranslate("Disabled");
 	entries[1] = plgTranslate("Reduce Blue Light Level 1");
 	entries[2] = plgTranslate("Reduce Blue Light Level 2");
@@ -780,11 +791,7 @@ u32 nightShiftUi() {
 	entries[5] = plgTranslate("Reduce Blue Light Level 5");
 	entries[6] = plgTranslate("Invert Colors");
 	entries[7] = plgTranslate("Grayscale");
-	entries[8] = plgTranslate(
-		   "Hint: Must be enabled before       "
-		"starting game. Will set CPU to        "
-		"L2 + 804MHz on New 3DS."
-	);
+	entries[8] = plgTranslate("Hint: Must be enabled before\nstarting game. Will set CPU to\nL2 + 804MHz on New 3DS.");
 	while (1) {
 		blank(0, 0, 320, 240);
 		r = showMenuEx(plgTranslate("Screen Filter"), 9, entries, NULL, r);
@@ -793,19 +800,17 @@ u32 nightShiftUi() {
 
 		}
 		if ((r >= 0) && (r <= 7)) {
+			releaseVideo();
 			g_plgInfo->nightShiftLevel = r;
 			if (r > 0) {
 				if (ntrConfig->isNew3DS) {
 					setCpuClockLock(3);
 				}
 			}
-			configUpdated = 1;
+			plgTryUpdateConfig();
+			acquireVideo();
 			break;
 		}
-	}
-	releaseVideo();
-	if (configUpdated) {
-		plgTryUpdateConfig();
 	}
 	return 1;
 }

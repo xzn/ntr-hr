@@ -2,6 +2,7 @@
 #define FUNC_H
 
 
+extern int cpuClockLockValue;
 void setCpuClockLock(int v);
 void lockCpuClock(void);
 void setExitFlag(void);
