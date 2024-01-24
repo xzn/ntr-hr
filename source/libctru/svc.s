@@ -444,3 +444,9 @@ svc_kernelSetState:
 	bx lr
 
 
+	.global svcSetThreadPriority
+.type svcSetThreadPriority, %function
+svcSetThreadPriority:
+	svc 0x0C
+	bx  lr
+

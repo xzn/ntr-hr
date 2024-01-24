@@ -297,7 +297,23 @@ void threadStart() {
 	if (isFileExist("/debug.flag")) {
 		nsInit();
 	}
-	// svc_sleepThread(1000000000);
+	svc_sleepThread(1000000000);
+	FS_SdMmcSpeedInfo speedInfo;
+	{
+		s32 ret = FSUSER_GetSdmcSpeedInfo(fsUserHandle, &speedInfo);
+		if (ret == 0) {
+			nsDbgPrint("SMDC: high-speed %d; no clock divider %d; clock %d\n",
+				(int)speedInfo.highSpeedModeEnabled, (int)speedInfo.usesHighestClockRate, (int)speedInfo.sdClkCtrl
+			);
+		}
+		ret = FSUSER_GetNandSpeedInfo(fsUserHandle, &speedInfo);
+		if (ret == 0) {
+			nsDbgPrint("NAND: high-speed %d; no clock divider %d; clock %d\n",
+				(int)speedInfo.highSpeedModeEnabled, (int)speedInfo.usesHighestClockRate, (int)speedInfo.sdClkCtrl
+			);
+		}
+	}
+
 	plgInitFromInjectHOME();
 	screenshotMain();
 	//magicKillProcess(0x27);

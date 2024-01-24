@@ -17,24 +17,32 @@ typedef enum{
 	PATH_BINARY = 2,	// Specifies a binary path, which is non-text based.
 	PATH_CHAR = 3,		// Specifies a text based path with a 8-bit byte per character.
 	PATH_WCHAR = 4,		// Specifies a text based path with a 16-bit short per character.
-}FS_pathType;
+} FS_pathType;
 
 typedef struct{
 	FS_pathType type;
 	u32 size;
 	const void* data;
-}FS_path;
+} FS_path;
 
 typedef struct{
 	u32 id;
 	FS_path lowPath;
 	Handle handleLow, handleHigh;
-}FS_archive;
+} FS_archive;
 
 static inline FS_path FS_makePath(FS_pathType type, char* path)
 {
-	return (FS_path){type, strlen(path)+1, (u8*)path};
+	return (FS_path){type, strlen(path)+1, path};
 }
+
+/// SDMC/NAND speed information
+typedef struct
+{
+	bool highSpeedModeEnabled;  ///< Whether or not High Speed Mode is enabled.
+	bool usesHighestClockRate;  ///< Whether or not a clock divider of 2 is being used.
+	u16 sdClkCtrl;              ///< The value of the SD_CLK_CTRL register.
+} FS_SdMmcSpeedInfo;
 
 Result FSUSER_Initialize(Handle handle);
 Result FSUSER_OpenArchive(Handle handle, FS_archive* archive);
@@ -51,5 +59,8 @@ Result FSFILE_SetSize(Handle handle, u64 size);
 
 Result FSDIR_Read(Handle handle, u32 *entriesRead, u32 entrycount, u16 *buffer);
 Result FSDIR_Close(Handle handle);
+
+Result FSUSER_GetSdmcSpeedInfo(Handle handle, FS_SdMmcSpeedInfo *speedInfo);
+Result FSUSER_GetNandSpeedInfo(Handle handle, FS_SdMmcSpeedInfo *speedInfo);
 
 #endif

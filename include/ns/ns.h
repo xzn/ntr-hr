@@ -63,6 +63,7 @@ typedef struct _RP_CONFIG {
 	u32 coreCount;
 	u32 dstPort;
 	u32 dstAddr;
+	u32 threadPriority;
 } RP_CONFIG;
 
 typedef struct _NS_CONFIG {
@@ -90,7 +91,7 @@ typedef struct _NS_CONFIG {
 	RP_CONFIG rpConfig;
 	u32 rpConfigLock;
 	u32 rpGamePid;
-	u32 rpCapturePreviousFrameThanCurrent;
+	u32 rpCaptureMode;
 	u32 plgDisabled;
 	u32 plgNoCTRPFCompat;
 	u32 plgRemotePlayCallback;

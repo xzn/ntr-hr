@@ -63,6 +63,8 @@ struct rp_handles_t {
 	Handle portEvent[2];
 } *rp_syn;
 
+static Handle hRPThreadMain, hRPThreadAux1;
+
 void*  rpMalloc(j_common_ptr cinfo, u32 size)
 {
 	void* ret = cinfo->alloc.buf + cinfo->alloc.stats.offset;
@@ -213,6 +215,7 @@ RT_HOOK nwmValParamHook;
 #define rp_nwm_hdr_size (0x2a + 8)
 #define rp_data_hdr_size (4)
 
+#define RP_THREAD_PRIO_DEFAULT (0x10)
 #define RP_DST_PORT_DEFAULT (8001)
 static int rpInited = 0;
 static RP_CONFIG rpConfig;
@@ -1027,7 +1030,7 @@ void rpKernelCallback(int isTop) {
 		tl_pitch = REG(IoBasePdc + 0x490);
 		current_fb = REG(IoBasePdc + 0x478);
 		current_fb &= 1;
-		if (g_nsConfig->rpCapturePreviousFrameThanCurrent)
+		if (g_nsConfig->rpCaptureMode & 0x1)
 			current_fb = !current_fb;
 		tl_current = tl_fbaddr[current_fb];
 
@@ -1042,7 +1045,7 @@ void rpKernelCallback(int isTop) {
 		bl_pitch = REG(IoBasePdc + 0x590);
 		current_fb = REG(IoBasePdc + 0x578);
 		current_fb &= 1;
-		if (g_nsConfig->rpCapturePreviousFrameThanCurrent)
+		if (g_nsConfig->rpCaptureMode & 0x1)
 			current_fb = !current_fb;
 		bl_current = bl_fbaddr[current_fb];
 	}
@@ -1359,7 +1362,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		return;
 
 	rpKernelCallback(currentUpdating);
-	int captured = rpCaptureScreen(work_next, currentUpdating) == 0;
+	int captured = g_nsConfig->rpCaptureMode & 0x2 ? 1 : rpCaptureScreen(work_next, currentUpdating) == 0;
 	if (captured) {
 		if (screenBusyWait)
 			frameCount[currentUpdating] += 1;
@@ -1374,6 +1377,20 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 				nsDbgPrint("svc_releaseSemaphore sem_start failed: %d\n", res);
 				// return;
 			}
+		}
+	}
+}
+
+static void rpDoCopyScreen(BLIT_CONTEXT *ctx) {
+	u32 phys = ctx->isTop ? tl_current : bl_current;
+	u8 *dest = ctx->src;
+
+	u32 pitch = ctx->isTop ? tl_pitch : bl_pitch;
+	if ((int)pitch == ctx->src_pitch) {
+		memcpy_ctr(dest, (void *)(phys | 0x80000000), ctx->width * pitch);
+	} else {
+		for (int i = 0; i < ctx->width; ++i) {
+			memcpy_ctr(dest + i * ctx->src_pitch, (u8 *)(phys | 0x80000000) + i * pitch, ctx->src_pitch);
 		}
 	}
 }
@@ -1416,7 +1433,12 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			ctx->id = (u8)currentBottomId;
 		}
 
-		s32 res = svc_waitSynchronization1(rpHDma[work_next], 1000000000);
+		s32 res;
+		if (g_nsConfig->rpCaptureMode & 0x2) {
+			rpDoCopyScreen(ctx);
+		} else {
+			res = svc_waitSynchronization1(rpHDma[work_next], 1000000000);
+		}
 		// if (res) {
 			// nsDbgPrint("(%d) svc_waitSynchronization1 rpHDma (%d) failed: %d\n", thread_id, work_next, res);
 		// }
@@ -1628,6 +1650,21 @@ static void rpSendFrames() {
 		// 	jpeg_start_compress(ctxs[i]->cinfo, TRUE); /* alloc buffers */
 		// 	ctxs[i]->cinfo->global_state == JPEG_CSTATE_START;
 		// };
+	}
+
+	if (g_nsConfig->rpConfig.threadPriority != rpConfig.threadPriority) {
+		rpConfig.threadPriority = g_nsConfig->rpConfig.threadPriority;
+
+		s32 res = svcSetThreadPriority(hRPThreadMain, rpConfig.threadPriority);
+		if (res != 0) {
+			nsDbgPrint("set main encoding thread priority failed: %08x\n", res);
+		}
+		if (rpConfig.coreCount >= 2) {
+			res = svcSetThreadPriority(hRPThreadAux1, rpConfig.threadPriority);
+			if (res != 0) {
+				nsDbgPrint("set secondary encoding thread priority failed: %08x\n", res);
+			}
+		}
 	}
 
 	rpConfigChanged = 0;
@@ -1861,10 +1898,10 @@ static void rpThreadStart(void *) {
 			}
 		}
 
-		Handle hThreadAux1;
+		// Handle hThreadAux1;
 		if (rpConfig.coreCount >= 2) {
 
-			ret = svc_createThread(&hThreadAux1, (void*)rpAuxThreadStart, 1, &threadAux1Stack[(rpThreadStackSize / 4) - 10], 0x10, 3);
+			ret = svc_createThread(&hRPThreadAux1, (void*)rpAuxThreadStart, 1, &threadAux1Stack[(rpThreadStackSize / 4) - 10], RP_THREAD_PRIO_DEFAULT, 3);
 			if (ret != 0) {
 				nsDbgPrint("Create RemotePlay Aux Thread Failed: %08x\n", ret);
 				goto final;
@@ -1898,8 +1935,8 @@ static void rpThreadStart(void *) {
 			svc_closeHandle(hThreadAux2);
 		}
 		if (rpConfig.coreCount >= 2) {
-			svc_waitSynchronization1(hThreadAux1, S64_MAX);
-			svc_closeHandle(hThreadAux1);
+			svc_waitSynchronization1(hRPThreadAux1, S64_MAX);
+			svc_closeHandle(hRPThreadAux1);
 		}
 
 		svc_waitSynchronization1(hThreadNwm, S64_MAX);
@@ -2064,7 +2101,7 @@ static int nwmValParamCallback(u8* buf, int /*buflen*/) {
 	// int i;
 	u32* threadStack;
 	int ret;
-	Handle hThread;
+	// Handle hThread;
 	// u8 buf_tmp[22];
 
 	/*
@@ -2147,7 +2184,7 @@ static int nwmValParamCallback(u8* buf, int /*buflen*/) {
 		updateCurrentDstAddr((rpConfig.dstAddr = daddr));
 		rpDstAddrChanged = 0;
 		threadStack = (u32 *)plgRequestMemory(rpThreadStackSize);
-		ret = svc_createThread(&hThread, (void*)rpThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], 0x10, 2);
+		ret = svc_createThread(&hRPThreadMain, (void*)rpThreadStart, 0, &threadStack[(rpThreadStackSize / 4) - 10], RP_THREAD_PRIO_DEFAULT, 2);
 		if (ret != 0) {
 			nsDbgPrint("Create RemotePlay Thread Failed: %08x\n", ret);
 		}
@@ -2311,6 +2348,17 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 
 	config->dstAddr = 0; /* always update from nwm callback */
 
+	if (config->threadPriority == 0) {
+		if (rpConfig.threadPriority != 0)
+			config->threadPriority = rpConfig.threadPriority;
+		else
+			config->threadPriority = RP_THREAD_PRIO_DEFAULT;
+	} else if (config->threadPriority < 0x8) {
+		config->threadPriority = 0x8;
+	} else if (config->threadPriority > 0x3f) {
+		config->threadPriority = 0x3f;
+	}
+
 	if (__atomic_test_and_set(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
 		nsDbgPrint("remote play already started, updating params\n");
 		return nsRemotePlayControl(config, skipControl);
@@ -2335,7 +2383,7 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 	cfg.rpConfig = rpConfig = *config;
 
 	cfg.rpConfigLock = 1;
-	cfg.rpCapturePreviousFrameThanCurrent = g_nsConfig->rpCapturePreviousFrameThanCurrent;
+	cfg.rpCaptureMode = g_nsConfig->rpCaptureMode;
 
 	ret = svc_openProcess(&hProcess, pid);
 	if (ret != 0) {
@@ -2637,9 +2685,7 @@ static void ipAddrMenu(u32 *addr) {
 	}
 }
 
-static void rpChangeFrameCaptureMode(void) {
-	u32 capturePrevious = !g_nsConfig->rpCapturePreviousFrameThanCurrent;
-
+static void rpChangeFrameCaptureMode(u32 captureMode) {
 	if (__atomic_load_n(&nsIsRemotePlayStarted, __ATOMIC_RELAXED)) {
 		s32 ret;
 		Handle hProcess;
@@ -2651,9 +2697,9 @@ static void rpChangeFrameCaptureMode(void) {
 		}
 
 		ret = copyRemoteMemory(hProcess,
-			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpCapturePreviousFrameThanCurrent),
-			CURRENT_PROCESS_HANDLE, &capturePrevious,
-			sizeof(g_nsConfig->rpCapturePreviousFrameThanCurrent));
+			(u8 *)NS_CONFIGURE_ADDR + offsetof(NS_CONFIG, rpCaptureMode),
+			CURRENT_PROCESS_HANDLE, &captureMode,
+			sizeof(g_nsConfig->rpCaptureMode));
 		if (ret != 0) {
 			showDbg("Update frame capture mode setting failed: %08x", ret, 0);
 			svc_closeHandle(hProcess);
@@ -2662,7 +2708,7 @@ static void rpChangeFrameCaptureMode(void) {
 		svc_closeHandle(hProcess);
 	}
 update_final:
-	g_nsConfig->rpCapturePreviousFrameThanCurrent = capturePrevious;
+	g_nsConfig->rpCaptureMode = captureMode;
 	return;
 }
 
@@ -2686,6 +2732,7 @@ int remotePlayMenu(u32 localaddr) {
 		config.qosValueInBytes = 2 * 1024 * 1024;
 		config.dstPort = RP_DST_PORT_DEFAULT;
 		config.coreCount = rp_thread_count;
+		config.threadPriority = RP_THREAD_PRIO_DEFAULT;
 	}
 	if (config.dstAddr == 0) {
 		config.dstAddr = localaddr;
@@ -2708,6 +2755,9 @@ int remotePlayMenu(u32 localaddr) {
 		char coreCountCaption[50];
 		xsprintf(coreCountCaption, "Number of Encoding Cores: %d", config.coreCount);
 
+		char encoderPriorityCaption[50];
+		xsprintf(encoderPriorityCaption, "Encoder Priority: %d", (int)config.threadPriority);
+
 		char priorityScreenCaption[50];
 		xsprintf(priorityScreenCaption, "Priority Screen: %s", (config.currentMode & 0xff00) == 0 ? "Bottom" : "Top");
 
@@ -2728,10 +2778,15 @@ int remotePlayMenu(u32 localaddr) {
 		char dstPortCaption[50];
 		xsprintf(dstPortCaption, "Port: %d", (int)config.dstPort);
 
-		char *frameModeCaption = g_nsConfig->rpCapturePreviousFrameThanCurrent ? "Capture Which Frames: Previous" : "Capture Which Frames: Current";
+		char *frameModeCaption =
+			g_nsConfig->rpCaptureMode == 3 ? "Capture Mode: memcpy Previous" :
+			g_nsConfig->rpCaptureMode == 2 ? "Capture Mode: memcpy Current" :
+			g_nsConfig->rpCaptureMode == 1 ? "Capture Mode: DMA Previous" :
+			"Capture Mode: DMA Current";
 
 		char *captions[] = {
 			coreCountCaption,
+			encoderPriorityCaption,
 			priorityScreenCaption,
 			priorityFactorCaption,
 			qualityCaption,
@@ -2739,14 +2794,15 @@ int remotePlayMenu(u32 localaddr) {
 			dstAddrCaption,
 			dstPortCaption,
 			"Apply (Above Options)",
-			"NFC Patch",
-			frameModeCaption
+			frameModeCaption,
+			"NFC Patch"
 		};
 		u32 entryCount = sizeof(captions) / sizeof(*captions);
 
 		char *descs[entryCount];
 		memset(descs, 0, sizeof(*descs) * entryCount);
-		descs[9] = "Set to Previous if you experience\nwobble/staircase artifact.";
+		descs[1] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
+		descs[9] = "Try memcpy Previous if you experience\nwobble/staircase artifact.";
 
 		u32 key;
 		select = showMenuEx2(titleCurrent, entryCount, captions, descs, select, &key);
@@ -2772,7 +2828,24 @@ int remotePlayMenu(u32 localaddr) {
 			}
 		}
 
-		else if (select == 1) { /* screen priority */
+		else if (select == 1) { /* encoder priority */
+			int threadPriority = config.threadPriority;
+			if (key == BUTTON_X)
+				threadPriority = rpConfig.threadPriority;
+			else
+				menu_adjust_value_with_key(&threadPriority, key, 5, 10);
+
+			if (threadPriority < 0x8)
+				threadPriority = 0x8;
+			else if (threadPriority > 0x3f)
+				threadPriority = 0x3f;
+
+			if (threadPriority != (int)config.threadPriority) {
+				config.threadPriority = threadPriority;
+			}
+		}
+
+		else if (select == 2) { /* screen priority */
 			u32 mode = !!(config.currentMode & 0xff00);
 			if (key == BUTTON_X)
 				mode = !!(rpConfig.currentMode & 0xff00);
@@ -2790,7 +2863,7 @@ int remotePlayMenu(u32 localaddr) {
 			}
 		}
 
-		else if (select == 2) { /* priority factor */
+		else if (select == 3) { /* priority factor */
 			int factor = config.currentMode & 0xff;
 			if (key == BUTTON_X)
 				factor = rpConfig.currentMode & 0xff;
@@ -2808,7 +2881,7 @@ int remotePlayMenu(u32 localaddr) {
 			}
 		}
 
-		else if (select == 3) { /* quality */
+		else if (select == 4) { /* quality */
 			int quality = config.quality;
 			if (key == BUTTON_X)
 				quality = rpConfig.quality;
@@ -2825,7 +2898,7 @@ int remotePlayMenu(u32 localaddr) {
 			}
 		}
 
-		else if (select == 4) { /* qos */
+		else if (select == 5) { /* qos */
 			int qos_factor = 128 * 1024;
 			int qos = config.qosValueInBytes;
 			int qos_remainder = qos % qos_factor;
@@ -2850,7 +2923,7 @@ int remotePlayMenu(u32 localaddr) {
 			}
 		}
 
-		else if (select == 5) { /* dst addr */
+		else if (select == 6) { /* dst addr */
 			u32 dstAddr = config.dstAddr;
 			if (key == BUTTON_X)
 				dstAddr = rpConfig.dstAddr;
@@ -2867,7 +2940,7 @@ int remotePlayMenu(u32 localaddr) {
 			}
 		}
 
-		else if (select == 6) { /* dst port */
+		else if (select == 7) { /* dst port */
 			int dstPort = config.dstPort;
 			if (key == BUTTON_X)
 				dstPort = rpConfig.dstPort;
@@ -2884,7 +2957,7 @@ int remotePlayMenu(u32 localaddr) {
 			}
 		}
 
-		else if (select == 7 && key == BUTTON_A) { /* apply */
+		else if (select == 8 && key == BUTTON_A) { /* apply */
 			releaseVideo();
 
 			int updateDstAddr = !rpStarted || rpConfig.dstAddr != config.dstAddr || daddrCurrent == 0;
@@ -2900,15 +2973,28 @@ int remotePlayMenu(u32 localaddr) {
 			return 1;
 		}
 
-		else if (select == 8 && key == BUTTON_A) { /* nfc patch */
-			releaseVideo();
-			rpDoNFCPatch();
-			acquireVideo();
+		else if (select == 9) { /* frame capture mode */
+			int captureMode = g_nsConfig->rpCaptureMode;
+			if (key == BUTTON_X)
+				captureMode = 0;
+			else
+				menu_adjust_value_with_key(&captureMode, key, 1, 1);
+
+			if (captureMode < 0)
+				captureMode = 3;
+			else if (captureMode > 3)
+				captureMode = 0;
+
+			if (captureMode != (int)g_nsConfig->rpCaptureMode) {
+				releaseVideo();
+				rpChangeFrameCaptureMode(captureMode);
+				acquireVideo();
+			}
 		}
 
-		else if (select == 9 && key == BUTTON_A) { /* frame capture mode */
+		else if (select == 10 && key == BUTTON_A) { /* nfc patch */
 			releaseVideo();
-			rpChangeFrameCaptureMode();
+			rpDoNFCPatch();
 			acquireVideo();
 		}
 	}

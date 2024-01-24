@@ -237,3 +237,30 @@ Result FSDIR_Close(Handle handle)
 
 	return cmdbuf[1];
 }
+
+Result FSUSER_GetSdmcSpeedInfo(Handle handle, FS_SdMmcSpeedInfo *speedInfo)
+{
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x81B,0,0); // 0x81B0000
+
+	Result ret = 0;
+	if ((ret = svc_sendSyncRequest(handle)) < 0) return ret;
+
+	if (speedInfo) memcpy(speedInfo, &cmdbuf[2], sizeof(FS_SdMmcSpeedInfo));
+	return cmdbuf[1];
+}
+
+Result FSUSER_GetNandSpeedInfo(Handle handle, FS_SdMmcSpeedInfo *speedInfo)
+{
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x81C,0,0); // 0x81C0000
+
+	Result ret = 0;
+	if ((ret = svc_sendSyncRequest(handle)) < 0) return ret;
+
+	if (speedInfo) memcpy(speedInfo, &cmdbuf[2], sizeof(FS_SdMmcSpeedInfo));
+
+	return cmdbuf[1];
+}
