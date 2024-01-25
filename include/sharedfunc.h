@@ -1,6 +1,10 @@
 #ifndef SHARED_FUNC_H
 #define SHARED_FUNC_H
 
+#include "constants.h"
+u32 getCurrentProcessId();
+u32 getCurrentProcessHandle();
+
 #if IS_PLUGIN
 #define INIT_SHARED_FUNC(name,id) rtGenerateJumpCode(((NS_CONFIG*)(NS_CONFIGURE_ADDR))->sharedFunc[id], (void*) name);rtFlushInstructionCache((void*) name, 8);
 #else

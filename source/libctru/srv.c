@@ -54,3 +54,8 @@ Result srv_getServiceHandle(Handle* handleptr, Handle* out, char* server)
 
 	return cmdbuf[1];
 }
+
+Result srvGetServiceHandle(Handle* out, char* server)
+{
+	return srv_getServiceHandle(NULL, out, server);
+}

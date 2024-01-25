@@ -21,8 +21,6 @@ u32 mapRemoteMemoryInSysRegion(Handle hProcess, u32 addr, u32 size, u32 op);
 u32 writeRemoteProcessMemory(int pid, u32 addr, u32 size, u32* buf);
 
 u32 getProcessTIDByHandle(u32 hProcess, u32 tid[]);
-u32 getCurrentProcessId();
-u32 getCurrentProcessHandle();
 // Result getMemRegion(u32 *region, Handle hProcess);
 
 int isInDebugMode(void);

@@ -117,6 +117,8 @@ svc_releaseSemaphore:
 	str r1, [r2]
 	bx lr
 
+.global svcCreateEvent
+svcCreateEvent:
 .global svc_createEvent
 .type svc_createEvent, %function
 svc_createEvent:
@@ -126,12 +128,16 @@ svc_createEvent:
 	str r1, [r2]
 	bx lr
 
+.global svcSignalEvent
+svcSignalEvent:
 .global svc_signalEvent
 .type svc_signalEvent, %function
 svc_signalEvent:
 	svc 0x18
 	bx lr
 
+.global svcClearEvent
+svcClearEvent:
 .global svc_clearEvent
 .type svc_clearEvent, %function
 svc_clearEvent:
@@ -160,18 +166,24 @@ svc_unmapMemoryBlock:
 	svc 0x20
 	bx lr
 
+.global svcArbitrateAddress
+svcArbitrateAddress:
 .global svc_arbitrateAddress
 .type svc_arbitrateAddress, %function
 svc_arbitrateAddress:
 		svc 0x22
 		bx lr
 
+.global svcCloseHandle
+svcCloseHandle:
 .global svc_closeHandle
 .type svc_closeHandle, %function
 svc_closeHandle:
 	svc 0x23
 	bx lr
 
+.global svcWaitSynchronization
+svcWaitSynchronization:
 .global svc_waitSynchronization1
 .type svc_waitSynchronization1, %function
 svc_waitSynchronization1:
@@ -230,6 +242,8 @@ svc_connectToPort:
 	str r1, [r3]
 	bx lr
 
+.global svcSendSyncRequest
+svcSendSyncRequest:
 .global svc_sendSyncRequest
 .type svc_sendSyncRequest, %function
 svc_sendSyncRequest:
@@ -443,4 +457,68 @@ svc_kernelSetState:
 svcSetThreadPriority:
 	svc 0x0C
 	bx  lr
+
+
+.macro BEGIN_ASM_FUNC name, linkage=global, section=text
+	.section        .\section\().\name, "ax", %progbits
+	.align          2
+	.\linkage       \name
+	.type           \name, %function
+	.func           \name
+	.cfi_sections   .debug_frame
+	.cfi_startproc
+	\name:
+.endm
+
+.macro END_ASM_FUNC
+	.cfi_endproc
+	.endfunc
+.endm
+
+.macro SVC_BEGIN name
+	BEGIN_ASM_FUNC \name
+.endm
+
+.macro SVC_END
+	END_ASM_FUNC
+.endm
+
+
+SVC_BEGIN svcCreateAddressArbiter
+	push {r0}
+	svc 0x21
+	pop {r2}
+	str r1, [r2]
+	bx  lr
+SVC_END
+
+SVC_BEGIN svcArbitrateAddressNoTimeout
+	svc 0x22
+	bx  lr
+SVC_END
+
+SVC_BEGIN svcQueryMemory
+	push {r0, r1, r4-r6}
+	svc  0x02
+	ldr  r6, [sp]
+	str  r1, [r6]
+	str  r2, [r6, #4]
+	str  r3, [r6, #8]
+	str  r4, [r6, #0xc]
+	ldr  r6, [sp, #4]
+	str  r5, [r6]
+	add  sp, sp, #8
+	pop  {r4-r6}
+	bx   lr
+SVC_END
+
+SVC_BEGIN svcMapMemoryBlock
+	svc 0x1F
+	bx  lr
+SVC_END
+
+SVC_BEGIN svcUnmapMemoryBlock
+	svc 0x20
+	bx  lr
+SVC_END
 

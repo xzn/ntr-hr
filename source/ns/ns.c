@@ -809,6 +809,7 @@ static color_buffer_t color_buffers[rp_work_count][rp_thread_count];
 static MCU_buffer_t MCU_buffers[rp_work_count][rp_thread_count];
 #endif
 
+static int screenBusyWait;
 static u32 currentUpdating;
 static u32 frameCount[2];
 static u32 isPriorityTop;
@@ -1263,6 +1264,10 @@ static u32 rpGetPrioScaled(u32 isTop) {
 	return isTop == isPriorityTop ? 1 << SCALEBITS : priorityFactorLogScaled;
 }
 
+static void rpDoWaitForVBlank(int isTop) {
+	gspWaitForEvent(isTop ? GSPGPU_EVENT_VBlank0 : GSPGPU_EVENT_VBlank1, 0);
+}
+
 void rpCaptureNextScreen(int work_next, int wait_sync) {
 	if (__atomic_load_n(&g_nsConfig->rpConfigLock, __ATOMIC_RELAXED)) {
 		rpConfigChanged = 1;
@@ -1283,7 +1288,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 	}
 
 	currentUpdating = isPriorityTop;
-	int screenBusyWait = 0;
+	screenBusyWait = 0;
 
 	while (!rpResetThreads) {
 		if (!__atomic_load_n(&rpPortGamePid, __ATOMIC_RELAXED)) {
@@ -1364,7 +1369,12 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 
 	int captured = g_nsConfig->rpCaptureMode & 0x2 ?
 		1 :
-		(rpKernelCallback(currentUpdating), rpCaptureScreen(work_next, currentUpdating) == 0);
+		(
+			screenBusyWait ? 
+				rpDoWaitForVBlank(currentUpdating) : (void)0,
+			rpKernelCallback(currentUpdating),
+			rpCaptureScreen(work_next, currentUpdating) == 0
+		);
 	if (captured) {
 		if (screenBusyWait)
 			frameCount[currentUpdating] += 1;
@@ -1437,6 +1447,8 @@ int rpSendFramesStart(int thread_id, int work_next) {
 
 		s32 res;
 		if (g_nsConfig->rpCaptureMode & 0x2) {
+			if (screenBusyWait)
+				rpDoWaitForVBlank(ctx->isTop);
 			rpKernelCallback(ctx->isTop);
 			rpDoCopyScreen(ctx);
 		} else {
@@ -1768,6 +1780,17 @@ static void rpNwmThread(u32) {
 
 static void rpPortThread(u32);
 static void rpThreadStart(void *) {
+	s32 res;
+	if ((res = __sync_init()) != 0) {
+		nsDbgPrint("sync init failed: %08x\n", res);
+	}
+	mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
+	u32 *threadGspStack = (u32 *)plgRequestMemory(GSP_EVENT_STACK_SIZE);
+	if ((res = gspInit(&threadGspStack[(GSP_EVENT_STACK_SIZE / 4) - 10])) != 0) {
+		nsDbgPrint("gsp init failed: %08x\n", res);
+	}
+	nsDbgPrint("gsp initted\n");
+
 	u32 i, j, ret;
 
 	for (i = 0; i < rp_work_count; ++i) {
@@ -2805,7 +2828,7 @@ int remotePlayMenu(u32 localaddr) {
 		char *descs[entryCount];
 		memset(descs, 0, sizeof(*descs) * entryCount);
 		descs[1] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
-		descs[9] = "Try memcpy Previous if you experience\nwobble/staircase artifact.";
+		descs[9] = "mcmcpy is slower but may lead to\nsmoother frames than DMA. Could be\nplacebo.";
 
 		u32 key;
 		select = showMenuEx2(titleCurrent, entryCount, captions, descs, select, &key);

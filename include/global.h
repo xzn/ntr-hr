@@ -22,6 +22,8 @@
 #include <ctr/FS.h>
 #include <ctr/svc.h>
 #include <ctr/soc.h>
+#include <ctr/synchronization.h>
+#include <ctr/mappable.h>
 #include "csvc.h"
 
 #include "func.h"
