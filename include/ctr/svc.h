@@ -105,7 +105,6 @@ typedef struct {
 	Result svc_duplicateHandle(Handle* out, Handle original);
 	Result svc_mapProcessMemory(Handle process, u32 destAddress, u32 size);
 
-	Result svcMapProcessMemoryEx(Handle process, u32 destAddr, u32 srcAddr, u32 size);
 	Result svcCreatePort(Handle* portServer, Handle* portClient, const char* name, s32 maxSessions);
 	Result svcAcceptSession(Handle* session, Handle port);
 	Result svcReplyAndReceive(s32* index, const Handle* handles, s32 handleCount, Handle replyTarget);

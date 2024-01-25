@@ -22,6 +22,7 @@
 #include <ctr/FS.h>
 #include <ctr/svc.h>
 #include <ctr/soc.h>
+#include "csvc.h"
 
 #include "func.h"
 #include "sharedfunc.h"

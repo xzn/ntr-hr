@@ -466,9 +466,9 @@ void plgShowMainMenu(void) {
 		pos++;
 	}
 	acquireVideo();
+	s32 r = 0;
 	while (1) {
-		s32 r;
-		r = showMenu(NTR_CFW_VERSION, pos, entries);
+		r = showMenuEx(NTR_CFW_VERSION, pos, entries, NULL, r);
 		if (r == -1) {
 			break;
 		}

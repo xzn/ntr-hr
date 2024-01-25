@@ -1023,12 +1023,13 @@ void rpKernelCallback(int isTop) {
 	// u32 fbP2VOffset = 0xc0000000;
 	u32 current_fb;
 
+	u32 myIoBasePdc = 0x10400000 | 0x80000000;
 	if (isTop) {
-		tl_fbaddr[0] = REG(IoBasePdc + 0x468);
-		tl_fbaddr[1] = REG(IoBasePdc + 0x46c);
-		tl_format = REG(IoBasePdc + 0x470);
-		tl_pitch = REG(IoBasePdc + 0x490);
-		current_fb = REG(IoBasePdc + 0x478);
+		tl_fbaddr[0] = REG(myIoBasePdc + 0x468);
+		tl_fbaddr[1] = REG(myIoBasePdc + 0x46c);
+		tl_format = REG(myIoBasePdc + 0x470);
+		tl_pitch = REG(myIoBasePdc + 0x490);
+		current_fb = REG(myIoBasePdc + 0x478);
 		current_fb &= 1;
 		if (g_nsConfig->rpCaptureMode & 0x1)
 			current_fb = !current_fb;
@@ -1039,11 +1040,11 @@ void rpKernelCallback(int isTop) {
 		if (full_width)
 			tl_pitch *= 2;
 	} else {
-		bl_fbaddr[0] = REG(IoBasePdc + 0x568);
-		bl_fbaddr[1] = REG(IoBasePdc + 0x56c);
-		bl_format = REG(IoBasePdc + 0x570);
-		bl_pitch = REG(IoBasePdc + 0x590);
-		current_fb = REG(IoBasePdc + 0x578);
+		bl_fbaddr[0] = REG(myIoBasePdc + 0x568);
+		bl_fbaddr[1] = REG(myIoBasePdc + 0x56c);
+		bl_format = REG(myIoBasePdc + 0x570);
+		bl_pitch = REG(myIoBasePdc + 0x590);
+		current_fb = REG(myIoBasePdc + 0x578);
 		current_fb &= 1;
 		if (g_nsConfig->rpCaptureMode & 0x1)
 			current_fb = !current_fb;
@@ -1361,8 +1362,9 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 	if (rpResetThreads)
 		return;
 
-	rpKernelCallback(currentUpdating);
-	int captured = g_nsConfig->rpCaptureMode & 0x2 ? 1 : rpCaptureScreen(work_next, currentUpdating) == 0;
+	int captured = g_nsConfig->rpCaptureMode & 0x2 ?
+		1 :
+		(rpKernelCallback(currentUpdating), rpCaptureScreen(work_next, currentUpdating) == 0);
 	if (captured) {
 		if (screenBusyWait)
 			frameCount[currentUpdating] += 1;
@@ -1435,6 +1437,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 
 		s32 res;
 		if (g_nsConfig->rpCaptureMode & 0x2) {
+			rpKernelCallback(ctx->isTop);
 			rpDoCopyScreen(ctx);
 		} else {
 			res = svc_waitSynchronization1(rpHDma[work_next], 1000000000);

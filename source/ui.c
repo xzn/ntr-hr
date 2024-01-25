@@ -8,7 +8,7 @@ u32 bottomFrameBuffer = 0x1F000000;
 u32 bottomRenderingFrameBuffer = 0x1F000000;
 u32 bottomAllocFrameBuffer = 0;
 u32 bottomFrameBufferPitch = BOTTOM_UI_PITCH;
-u32 hGSPProcess = 0;
+u32 hGameProcess = 0;
 
 u32 bottomFrameIsVid = 0;
 u32 bottomFrameSavedVid = 0;
@@ -342,6 +342,22 @@ u32 decideBottomFrameBufferAddr() {
 
 void acquireVideo(void) {
 	if (videoRef == 0) {
+		svc_kernelSetState(0x10000, 4, 0, 0);
+		if (g_plgInfo && g_plgInfo->gamePluginPid) {
+			s32 res = svc_openProcess(&hGameProcess, g_plgInfo->gamePluginPid);
+			if (res == 0) {
+				res = svcControlProcess(hGameProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
+				if (res != 0) {
+					nsDbgPrint("locking game process failed: %08x\n", res);
+				}
+			} else {
+				nsDbgPrint("open game process failed: %08x\n", res);
+				hGameProcess = 0;
+			}
+		} else {
+			nsDbgPrint("no game process to lock\n");
+		}
+
 		bottomFrameBuffer = decideBottomFrameBufferAddr();
 		bottomRenderingFrameBuffer = bottomFrameBuffer;
 		*(vu32*)(IoBaseLcd + 0x204) = 0;
@@ -395,6 +411,16 @@ void releaseVideo(void) {
 				BOTTOM_FRAME_VID_SIZE
 			);
 		}
+
+		if (hGameProcess) {
+			s32 res = svcControlProcess(hGameProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
+			if (res != 0) {
+				nsDbgPrint("unlocking game process failed: %08x\n", res);
+			}
+			svc_closeHandle(hGameProcess);
+			hGameProcess = 0;
+		}
+		svc_kernelSetState(0x10000, 4, 0, 0);
 	}
 }
 

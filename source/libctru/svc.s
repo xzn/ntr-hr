@@ -52,12 +52,6 @@ svc_sleepThread:
 	svc 0x0A
 	bx lr
 
-.global svcMapProcessMemoryEx
-.type svcMapProcessMemoryEx, %function
-svcMapProcessMemoryEx:
-	svc 0xA0
-	bx lr
-
 .global svcCreatePort
 .type svcCreatePort, %function
 svcCreatePort:
