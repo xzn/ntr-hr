@@ -448,9 +448,12 @@ int rpDataBufFilled(struct rpDataBufInfo_t *info, u8 **pos, int *flag) {
 	return info->sendPos < *pos || *flag;
 }
 
-void rpReadyNwm(int /* thread_id */, int work_next, int id, int isTop) {
+int rpReadyNwm(int /* thread_id */, int work_next, int id, int isTop) {
 	while (1) {
-		s32 res = svc_waitSynchronization1(rp_syn->work[work_next].sem_nwm, 100000000 /* 1000000000 */);
+		s32 res = svc_waitSynchronization1(rp_syn->work[work_next].sem_nwm, 100000000);
+		if (__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED)) {
+			return -1;
+		}
 		if (res) {
 			// nsDbgPrint("(%d) svc_waitSynchronization1 sem_nwm (%d) failed: %d\n", thread_id, work_next, res);
 			checkExitFlag();
@@ -478,6 +481,7 @@ void rpReadyNwm(int /* thread_id */, int work_next, int id, int isTop) {
 	rpDataBufHdr[work_next][1] = isTop;
 	rpDataBufHdr[work_next][2] = 2;
 	rpDataBufHdr[work_next][3] = 0;
+	return 0;
 }
 
 int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
@@ -663,7 +667,7 @@ static int rpTrySendNextBufferMaybe(int work_flush, int may_skip) {
 		struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][thread_id];
 
 		if (rp_nwm_syn_next[work_next]) {
-			s32 res = svc_waitSynchronization1(rp_syn->work[work_next].sem_send, work_flush ? 1000000000 : 0);
+			s32 res = svc_waitSynchronization1(rp_syn->work[work_next].sem_send, work_flush ? 100000000 : 0);
 			if (res) {
 				if (res != 0x09401BFE) {
 					nsDbgPrint("svc_waitSynchronization1 sem_send (%d) failed: %d\n", work_next, res);
@@ -1273,7 +1277,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 	struct rp_work_syn_t *syn = &rp_syn->work[work_next];
 	s32 res;
 	if (!nextScreenSynced[work_next]) {
-		res = svc_waitSynchronization1(syn->sem_end, wait_sync ? 1000000000 : 0);
+		res = svc_waitSynchronization1(syn->sem_end, wait_sync ? 100000000 : 0);
 		if (res) {
 			// if (wait_sync || res < 0)
 			// 	nsDbgPrint("svc_waitSynchronization1 sem_end (%d) failed: %d\n", work_next, res);
@@ -1287,7 +1291,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 	currentUpdating = isPriorityTop;
 	__atomic_store_n(&screenBusyWait[work_next], 0, __ATOMIC_RELAXED);
 
-	while (!rpResetThreads) {
+	while (!__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED)) {
 		if (!__atomic_load_n(&rpPortGamePid, __ATOMIC_RELAXED)) {
 			if (priorityFactor != 0) {
 				if (frameCount[currentUpdating] >= priorityFactor) {
@@ -1361,7 +1365,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 		}
 		break;
 	}
-	if (rpResetThreads)
+	if (__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED))
 		return;
 
 	int captured = g_nsConfig->rpCaptureMode & 0x2 ?
@@ -1465,12 +1469,15 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			--imgBuffer_work_prev;
 
 		skip_frame = !format_changed && memcmp(ctx->src, imgBuffer[ctx->isTop][imgBuffer_work_prev], ctx->width * ctx->src_pitch) == 0;
-		__atomic_store_n(&rp_skip_frame[work_next], skip_frame, __ATOMIC_RELAXED);
 		if (!skip_frame) {
-			imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % rp_screen_work_count;
-			ctx->isTop ? ++currentTopId : ++currentBottomId;
-			rpReadyWork(ctx, work_next);
-			rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
+			res = rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
+			if (res != 0) {
+				skip_frame = 1;
+			} else {
+				imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % rp_screen_work_count;
+				ctx->isTop ? ++currentTopId : ++currentBottomId;
+				rpReadyWork(ctx, work_next);
+			}
 		} else {
 			s32 count;
 
@@ -1487,6 +1494,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			}
 		}
 
+		__atomic_store_n(&rp_skip_frame[work_next], skip_frame, __ATOMIC_RELAXED);
 		s32 count;
 		for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
 			if (j != thread_id) {
@@ -1499,7 +1507,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		}
 	} else {
 		while (1) {
-			s32 res = svc_waitSynchronization1(rp_syn->thread[thread_id].sem_work, 1000000000);
+			s32 res = svc_waitSynchronization1(rp_syn->thread[thread_id].sem_work, 100000000);
 			if (res) {
 				// nsDbgPrint("(%d) svc_waitSynchronization1 sem_work (%d) failed: %d\n", thread_id, work_next, res);
 				checkExitFlag();
@@ -1572,7 +1580,7 @@ static void rpSendFrames() {
 		g_nsConfig->rpConfig.coreCount != rpConfig.coreCount ||
 		g_nsConfig->rpConfig.currentMode != rpConfig.currentMode
 	) {
-		rpResetThreads = 1;
+		__atomic_store_n(&rpResetThreads, 1, __ATOMIC_RELAXED);
 		return;
 	}
 
@@ -1710,11 +1718,15 @@ static void rpSendFrames() {
 
 		if (__atomic_load_n(&g_nsConfig->rpConfigLock, __ATOMIC_RELAXED)) {
 			__atomic_store_n(&rpConfigChanged, 1, __ATOMIC_RELAXED);
+
+			/* quick update options quite difficult with all the threads,
+			   taking the slow route for now... */
+			__atomic_store_n(&rpResetThreads, 1, __ATOMIC_RELAXED);
 			break;
 		}
 
 		struct rp_thread_syn_t *syn = &rp_syn->thread[0];
-		s32 res = svc_waitSynchronization1(syn->sem_start, 100000000 /* 1000000000 */);
+		s32 res = svc_waitSynchronization1(syn->sem_start, 100000000);
 		if (res) {
 			// nsDbgPrint("(%d) svc_waitSynchronization1 sem_start (%d) failed: %d\n", 0, rp_work_next, res);
 			continue;
@@ -1750,14 +1762,14 @@ static void rpSendFrames() {
 
 static void rpAuxThreadStart(u32 thread_id) {
 	int work_next = 0;
-	while (!rpResetThreads) {
+	while (!__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED)) {
 		checkExitFlag();
 
 		int res;
 
 		struct rp_thread_syn_t *syn = &rp_syn->thread[thread_id];
 
-		res = svc_waitSynchronization1(syn->sem_start, 100000000 /* 1000000000 */);
+		res = svc_waitSynchronization1(syn->sem_start, 100000000);
 		if (res) {
 			// nsDbgPrint("(%d) svc_waitSynchronization1 sem_start (%d) failed: %d\n", thread_id, work_next, res);
 			continue;
@@ -1773,8 +1785,10 @@ static void rpAuxThreadStart(u32 thread_id) {
 }
 
 static void rpNwmThread(u32) {
-	while (!rpResetThreads) {
+	while (!__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED)) {
 		while (rpTrySendNextBuffer(1) == 0) svc_sleepThread(rpMinIntervalBetweenPacketsInNS);
+		if (__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED))
+			break;
 		int ret = svc_waitSynchronization1(rp_syn->nwmEvent, 100000000);
 		if (ret != 0) {
 			if (ret != 0x09401BFE) {
@@ -1787,7 +1801,7 @@ static void rpNwmThread(u32) {
 }
 
 static void rpScreenCaptureThread(u32) {
-	while (!rpResetThreads) {
+	while (!__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED)) {
 		int ret = svc_waitSynchronization1(rp_syn->screenCapSem, 100000000);
 		if (ret != 0) {
 			if (ret != 0x09401BFE) {
@@ -1797,7 +1811,7 @@ static void rpScreenCaptureThread(u32) {
 			continue;
 		}
 		int work_next = __atomic_load_n(&screenCapNext, __ATOMIC_RELAXED);
-		while (!nextScreenCaptured[work_next] && !rpResetThreads)
+		while (!nextScreenCaptured[work_next] && !__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED))
 			rpCaptureNextScreen(work_next, 1);
 		nextScreenCaptured[work_next] = 0;
 	}
@@ -1945,7 +1959,7 @@ static void rpThreadStart(void *) {
 			rpShowNextFrameBothScreen();
 		}
 
-		rpResetThreads = 0;
+		__atomic_store_n(&rpResetThreads, 0, __ATOMIC_RELAXED);
 
 		for (int i = 0; i < rp_work_count; ++i) {
 			// rp_nwm_work_skip[i] = 0;
@@ -2041,12 +2055,10 @@ static void rpThreadStart(void *) {
 			goto final;
 		}
 
-		while (!rpResetThreads) {
+		while (!__atomic_load_n(&rpResetThreads, __ATOMIC_RELAXED)) {
 			checkExitFlag();
 
 			rpSendFrames();
-
-			rpResetThreads = 1; /* quick update options quite difficult with all these threads... */
 		}
 
 		if (rpConfig.coreCount >= 3) {
