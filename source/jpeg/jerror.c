@@ -54,7 +54,7 @@ const char * const jpeg_std_message_table[] = {
 #include "3ds/types.h"
 #include "3ds/svc.h"
 #include "xprintf.h"
-#include "sharedfunc.h"
+#include "ns.h"
 
 /*
  * Error exit handler: must not return to caller.

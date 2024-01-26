@@ -3,6 +3,7 @@
 
 #include <stdarg.h>
 #include <stddef.h>
-void xsnprintf(char* buff, size_t buff_len, const char* fmt, ...);
+int xsnprintf(char* buff, size_t buff_len, const char* fmt, ...);
+int strnjoin(char *dst, size_t dst_len, const char *s1, const char *s2);
 
 #endif
