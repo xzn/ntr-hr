@@ -36,8 +36,11 @@ CP_CMD = $(CP) $< $@
 $(PAYLOAD_TARGET_BIN): $(PAYLOAD_LOCAL_BIN)
 	$(CP_CMD)
 
-$(PAYLOAD_LOCAL_BIN): $(PAYLOAD_LOCAL_ELF)
+$(PAYLOAD_LOCAL_BIN): $(PAYLOAD_LOCAL_ELF) | release
 	$(OBJCOPY) -O binary $< $@ -S
+
+release:
+	mkdir $@
 
 $(PAYLOAD_LOCAL_ELF): $(OBJ)
 	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
