@@ -151,7 +151,7 @@ static void gspHardwareInit(void)
 	gspWriteGxReg(0x0574, 0x10501);
 }
 
-Result gspInit(u32 *t)
+Result gspInit(u32 *threadStackBase, u32 acquireRight)
 {
 	Result ret=0;
 	if (AtomicPostIncrement(&gspRefCount)) return 0;
@@ -167,14 +167,14 @@ Result gspInit(u32 *t)
 		goto _fail0;
 	}
 
-#if 0
-	// Acquire GPU rights
-	ret = GSPGPU_AcquireRight(0);
-	if (R_FAILED(ret)) {
-		nsDbgPrint("gsp acquire right failed: %08x\n", ret);
-		goto _fail1;
+	if (acquireRight) {
+		// Acquire GPU rights
+		ret = GSPGPU_AcquireRight(0);
+		if (R_FAILED(ret)) {
+			nsDbgPrint("gsp acquire right failed: %08x\n", ret);
+			goto _fail1;
+		}
 	}
-#endif
 
 	// Register ourselves as a user of graphics hardware
 	svcCreateEvent(&gspEvent, RESET_ONESHOT);
@@ -200,14 +200,12 @@ Result gspInit(u32 *t)
 	// Start event handling thread
 	gspRunEvents = true;
 	gspLastEvent = -1;
-	svc_createThread(&gspEventThread, gspEventThreadMain, 0x0, t, 0x1A, -2);
+	svc_createThread(&gspEventThread, gspEventThreadMain, 0x0, threadStackBase, 0x1A, -2);
 	return 0;
 
 _fail2:
-#if 0
 	GSPGPU_ReleaseRight();
 _fail1:
-#endif
 	svcCloseHandle(gspGpuHandle);
 _fail0:
 	AtomicDecrement(&gspRefCount);
@@ -232,9 +230,7 @@ void gspExit(void)
 	GSPGPU_UnregisterInterruptRelayQueue();
 
 	// Release GPU rights and close the service handle
-#if 0
 	GSPGPU_ReleaseRight();
-#endif
 	svcCloseHandle(gspGpuHandle);
 }
 

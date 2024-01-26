@@ -128,6 +128,22 @@ typedef struct {
 	u32 flags; ///< Page flags.
 } PageInfo;
 
+/// Types of resource limit
+typedef enum {
+	RESLIMIT_PRIORITY       = 0,        ///< Thread priority
+	RESLIMIT_COMMIT         = 1,        ///< Quantity of allocatable memory
+	RESLIMIT_THREAD         = 2,        ///< Number of threads
+	RESLIMIT_EVENT          = 3,        ///< Number of events
+	RESLIMIT_MUTEX          = 4,        ///< Number of mutexes
+	RESLIMIT_SEMAPHORE      = 5,        ///< Number of semaphores
+	RESLIMIT_TIMER          = 6,        ///< Number of timers
+	RESLIMIT_SHAREDMEMORY   = 7,        ///< Number of shared memory objects, see @ref svcCreateMemoryBlock
+	RESLIMIT_ADDRESSARBITER = 8,        ///< Number of address arbiters
+	RESLIMIT_CPUTIME        = 9,        ///< CPU time. Value expressed in percentage regular until it reaches 90.
+
+	RESLIMIT_BIT            = BIT(31),  ///< Forces enum size to be 32 bits
+} ResourceLimitType;
+
 static inline void* getThreadLocalStorage(void)
 {
 	void* ret;
@@ -204,6 +220,10 @@ Result svcSignalEvent(Handle handle);
 Result svcClearEvent(Handle handle);
 Result svcWaitSynchronization(Handle handle, s64 nanoseconds);
 Result svcSendSyncRequest(Handle session);
+Result svcGetResourceLimit(Handle* resourceLimit, Handle process);
+Result svcGetResourceLimitLimitValues(s64* values, Handle resourceLimit, ResourceLimitType* names, s32 nameCount);
+Result svcGetResourceLimitCurrentValues(s64* values, Handle resourceLimit, ResourceLimitType* names, s32 nameCount);
+Result svcSetResourceLimitValues(Handle resourceLimit, const ResourceLimitType* names, const s64* values, s32 nameCount);
 
 static inline u32 IPC_MakeHeader(u16 command_id, unsigned normal_params, unsigned translate_params) {
 	return ((u32) command_id << 16) | (((u32) normal_params & 0x3F) << 6) | (((u32) translate_params & 0x3F) << 0);

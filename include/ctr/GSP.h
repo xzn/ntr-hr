@@ -85,7 +85,7 @@ static inline unsigned gspGetBytesPerPixel(GSPGPU_FramebufferFormat format)
 
 /// Initializes GSPGPU.
 #define GSP_EVENT_STACK_SIZE 0x1000
-Result gspInit(u32 *t);
+Result gspInit(u32 *threadStackBase, u32 acquireRight);
 
 /// Exits GSPGPU.
 void gspExit(void);

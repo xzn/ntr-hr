@@ -118,7 +118,9 @@ svc_releaseSemaphore:
 	bx lr
 
 .global svcCreateEvent
+.type svcCreateEvent, %function
 svcCreateEvent:
+
 .global svc_createEvent
 .type svc_createEvent, %function
 svc_createEvent:
@@ -129,7 +131,9 @@ svc_createEvent:
 	bx lr
 
 .global svcSignalEvent
+.type svcSignalEvent, %function
 svcSignalEvent:
+
 .global svc_signalEvent
 .type svc_signalEvent, %function
 svc_signalEvent:
@@ -137,7 +141,9 @@ svc_signalEvent:
 	bx lr
 
 .global svcClearEvent
+.type svcClearEvent, %function
 svcClearEvent:
+
 .global svc_clearEvent
 .type svc_clearEvent, %function
 svc_clearEvent:
@@ -167,7 +173,9 @@ svc_unmapMemoryBlock:
 	bx lr
 
 .global svcArbitrateAddress
+.type svcArbitrateAddress, %function
 svcArbitrateAddress:
+
 .global svc_arbitrateAddress
 .type svc_arbitrateAddress, %function
 svc_arbitrateAddress:
@@ -175,7 +183,9 @@ svc_arbitrateAddress:
 		bx lr
 
 .global svcCloseHandle
+.type svcCloseHandle, %function
 svcCloseHandle:
+
 .global svc_closeHandle
 .type svc_closeHandle, %function
 svc_closeHandle:
@@ -183,7 +193,9 @@ svc_closeHandle:
 	bx lr
 
 .global svcWaitSynchronization
+.type svcWaitSynchronization, %function
 svcWaitSynchronization:
+
 .global svc_waitSynchronization1
 .type svc_waitSynchronization1, %function
 svc_waitSynchronization1:
@@ -243,7 +255,9 @@ svc_connectToPort:
 	bx lr
 
 .global svcSendSyncRequest
+.type svcSendSyncRequest, %function
 svcSendSyncRequest:
+
 .global svc_sendSyncRequest
 .type svc_sendSyncRequest, %function
 svc_sendSyncRequest:
@@ -522,3 +536,27 @@ SVC_BEGIN svcUnmapMemoryBlock
 	bx  lr
 SVC_END
 
+
+SVC_BEGIN svcGetResourceLimit
+	str r0, [sp, #-0x4]!
+	svc 0x38
+	ldr r3, [sp], #4
+	str r1, [r3]
+	bx  lr
+SVC_END
+
+SVC_BEGIN svcGetResourceLimitLimitValues
+	svc 0x39
+	bx  lr
+SVC_END
+
+SVC_BEGIN svcGetResourceLimitCurrentValues
+	svc 0x3A
+	bx  lr
+SVC_END
+
+
+SVC_BEGIN svcSetResourceLimitValues
+	svc 0x79
+	bx  lr
+SVC_END

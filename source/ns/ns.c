@@ -61,8 +61,10 @@ struct rp_handles_t {
 
 	Handle nwmEvent;
 	Handle portEvent[2];
+	Handle screenCapSem;
 } *rp_syn;
 
+static int screenCapNext;
 static Handle hRPThreadMain, hRPThreadAux1;
 
 void*  rpMalloc(j_common_ptr cinfo, u32 size)
@@ -396,7 +398,7 @@ typedef struct _BLIT_CONTEXT {
 
 	int irow_start[rp_thread_count];
 	int irow_count[rp_thread_count];
-	int capture_next;
+	u8 capture_next;
 } BLIT_CONTEXT;
 
 
@@ -454,6 +456,7 @@ void rpReadyNwm(int /* thread_id */, int work_next, int id, int isTop) {
 			checkExitFlag();
 			continue;
 		}
+		// nsDbgPrint("nwm ready start: %d\n", work_next);
 		break;
 	}
 
@@ -465,6 +468,7 @@ void rpReadyNwm(int /* thread_id */, int work_next, int id, int isTop) {
 	}
 
 	s32 count, res;
+	// nsDbgPrint("nwm ready done: %d\n", work_next);
 	res = svc_releaseSemaphore(&count, rp_syn->work[work_next].sem_send, 1);
 	if (res) {
 		nsDbgPrint("svc_releaseSemaphore sem_send (%d) failed: %d\n", work_next, res);
@@ -592,14 +596,15 @@ int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 
 		if (rp_nwm_thread_next == 0) {
 			s32 count, res;
+			// nsDbgPrint("nwm work done: %d\n", work_next);
 			res = svc_releaseSemaphore(&count, rp_syn->work[work_next].sem_nwm, 1);
 			if (res) {
 				nsDbgPrint("svc_releaseSemaphore sem_nwm (%d) failed: %d\n", work_next, res);
 			}
 
+			rp_nwm_syn_next[work_next] = 1;
 			work_next = (work_next + 1) % rp_work_count;
 			rp_nwm_work_next = work_next;
-			rp_nwm_syn_next[work_next] = 1;
 		}
 
 		return 0;
@@ -636,14 +641,15 @@ int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, int data_buf_flag) {
 
 		if (rp_nwm_thread_next == 0) {
 			s32 count, res;
+			// nsDbgPrint("nwm work done: %d\n", work_next);
 			res = svc_releaseSemaphore(&count, rp_syn->work[work_next].sem_nwm, 1);
 			if (res) {
 				nsDbgPrint("svc_releaseSemaphore sem_nwm (%d) failed: %d\n", work_next, res);
 			}
 
+			rp_nwm_syn_next[work_next] = 1;
 			work_next = (work_next + 1) % rp_work_count;
 			rp_nwm_work_next = work_next;
-			rp_nwm_syn_next[work_next] = 1;
 		}
 	}
 	return 0;
@@ -657,7 +663,7 @@ static int rpTrySendNextBufferMaybe(int work_flush, int may_skip) {
 		struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][thread_id];
 
 		if (rp_nwm_syn_next[work_next]) {
-			s32 res = svc_waitSynchronization1(rp_syn->work[work_next].sem_send, 0);
+			s32 res = svc_waitSynchronization1(rp_syn->work[work_next].sem_send, work_flush ? 1000000000 : 0);
 			if (res) {
 				if (res != 0x09401BFE) {
 					nsDbgPrint("svc_waitSynchronization1 sem_send (%d) failed: %d\n", work_next, res);
@@ -665,6 +671,7 @@ static int rpTrySendNextBufferMaybe(int work_flush, int may_skip) {
 				return -1;
 			}
 			rp_nwm_syn_next[work_next] = 0;
+			// nsDbgPrint("nwm work start: %d\n", work_next);
 		}
 
 		u8 *data_buf_pos;
@@ -809,7 +816,7 @@ static color_buffer_t color_buffers[rp_work_count][rp_thread_count];
 static MCU_buffer_t MCU_buffers[rp_work_count][rp_thread_count];
 #endif
 
-static int screenBusyWait;
+static int screenBusyWait[rp_work_count];
 static u32 currentUpdating;
 static u32 frameCount[2];
 static u32 isPriorityTop;
@@ -822,16 +829,14 @@ static BLIT_CONTEXT blit_context[rp_work_count];
 static int rpConfigChanged;
 static int rpDstAddrChanged;
 
-void rpCaptureNextScreen(int work_next, int wait_sync);
-
-static void rpTryCaptureNextScreen(int *need_capture_next, int *capture_next, int work_next) {
-	if (*need_capture_next) {
-		if (__atomic_load_n(capture_next, __ATOMIC_RELAXED)) {
-			work_next = (work_next + 1) % rp_work_count;
-			rpCaptureNextScreen(work_next, 0);
-			if (nextScreenCaptured[work_next]) {
-				*need_capture_next = 0;
-			}
+void rpTryCaptureNextScreen(int thread_id, u8 *capture_next, int work_next) {
+	if (!__atomic_test_and_set(capture_next, __ATOMIC_RELAXED)) {
+		work_next = (work_next + 1) % rp_work_count;
+		__atomic_store_n(&screenCapNext, work_next, __ATOMIC_RELAXED);
+		s32 count;
+		s32 res = svc_releaseSemaphore(&count, rp_syn->screenCapSem, 1);
+		if (res != 0) {
+			nsDbgPrint("(%d) svc_releaseSemaphore screenCapSem (%d) failed: %d\n", thread_id, work_next, res);
 		}
 	}
 }
@@ -839,7 +844,7 @@ static void rpTryCaptureNextScreen(int *need_capture_next, int *capture_next, in
 void rpJPEGCompress0(j_compress_ptr cinfo,
 	u8* src, u32 pitch,
 	int irow_start, int irow_count,
-	int work_next, int thread_id, int *capture_next
+	int work_next, int thread_id, u8 *capture_next
 ) {
 	JDIMENSION in_rows_blk = DCTSIZE * cinfo->max_v_samp_factor;
 	JDIMENSION in_rows_blk_half = in_rows_blk / 2;
@@ -849,8 +854,6 @@ void rpJPEGCompress0(j_compress_ptr cinfo,
 
 	JSAMPROW input_buf[in_rows_blk_half];
 
-	int need_capture_next = thread_id == 0;
-
 	int j_max = in_rows_blk * (irow_start + irow_count);
 	j_max = j_max < (int)cinfo->image_height ? j_max : (int)cinfo->image_height;
 	int j_max_half = in_rows_blk * (irow_start + irow_count / 2);
@@ -858,8 +861,7 @@ void rpJPEGCompress0(j_compress_ptr cinfo,
 
 	int j_start = in_rows_blk * irow_start;
 	if (j_max_half == j_start)
-		__atomic_store_n(capture_next, 1, __ATOMIC_RELAXED);
-	rpTryCaptureNextScreen(&need_capture_next, capture_next, work_next);
+		rpTryCaptureNextScreen(thread_id, capture_next, work_next);
 
 	for (int j = j_start, progress = 0; j < j_max;) {
 		for (int i = 0; i < (int)in_rows_blk_half; ++i, ++j)
@@ -871,8 +873,7 @@ void rpJPEGCompress0(j_compress_ptr cinfo,
 		jpeg_pre_process(cinfo, input_buf, color_buf, output_buf, 1);
 
 		if (j_max_half == j)
-			__atomic_store_n(capture_next, 1, __ATOMIC_RELAXED);
-		rpTryCaptureNextScreen(&need_capture_next, capture_next, work_next);
+			rpTryCaptureNextScreen(thread_id, capture_next, work_next);
 
 		JBLOCKROW *MCU_buffer = MCU_buffers[work_next][thread_id];
 		for (int k = 0; k < (int)cinfo->MCUs_per_row; ++k) {
@@ -973,7 +974,7 @@ void rpReadyWork(BLIT_CONTEXT* ctx, int work_next) {
 		ctx->irow_start[j] = cinfo->restart_in_rows * j;
 		ctx->irow_count[j] = j == (int)rpConfig.coreCount - 1 ? jpeg_adjusted_rows_last[work_next] : cinfo->restart_in_rows;
 	}
-	ctx->capture_next = 0;
+	__atomic_clear(&ctx->capture_next, __ATOMIC_RELAXED);
 
 #if 0
 	struct rp_work_t *work = rp_work[work_next];
@@ -1269,26 +1270,22 @@ static void rpDoWaitForVBlank(int isTop) {
 }
 
 void rpCaptureNextScreen(int work_next, int wait_sync) {
-	if (__atomic_load_n(&g_nsConfig->rpConfigLock, __ATOMIC_RELAXED)) {
-		rpConfigChanged = 1;
-		return;
-	}
-
 	struct rp_work_syn_t *syn = &rp_syn->work[work_next];
 	s32 res;
 	if (!nextScreenSynced[work_next]) {
 		res = svc_waitSynchronization1(syn->sem_end, wait_sync ? 1000000000 : 0);
 		if (res) {
 			// if (wait_sync || res < 0)
-				// nsDbgPrint("svc_waitSynchronization1 sem_end (%d) failed: %d\n", work_next, res);
+			// 	nsDbgPrint("svc_waitSynchronization1 sem_end (%d) failed: %d\n", work_next, res);
 			return;
 		}
+		// nsDbgPrint("svc_waitSynchronization1 sem_end (%d) done\n", work_next);
 
 		nextScreenSynced[work_next] = 1;
 	}
 
 	currentUpdating = isPriorityTop;
-	screenBusyWait = 0;
+	__atomic_store_n(&screenBusyWait[work_next], 0, __ATOMIC_RELAXED);
 
 	while (!rpResetThreads) {
 		if (!__atomic_load_n(&rpPortGamePid, __ATOMIC_RELAXED)) {
@@ -1301,7 +1298,7 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 					}
 				}
 			}
-			screenBusyWait = 1;
+			__atomic_store_n(&screenBusyWait[work_next], 1, __ATOMIC_RELAXED);
 			break;
 		}
 
@@ -1370,19 +1367,18 @@ void rpCaptureNextScreen(int work_next, int wait_sync) {
 	int captured = g_nsConfig->rpCaptureMode & 0x2 ?
 		1 :
 		(
-			screenBusyWait ? 
+			screenBusyWait[work_next] ?
 				rpDoWaitForVBlank(currentUpdating) : (void)0,
 			rpKernelCallback(currentUpdating),
 			rpCaptureScreen(work_next, currentUpdating) == 0
 		);
 	if (captured) {
-		if (screenBusyWait)
+		if (screenBusyWait[work_next])
 			frameCount[currentUpdating] += 1;
 		nextScreenCaptured[work_next] = captured;
 		nextScreenSynced[work_next] = 0;
-		__atomic_clear(&syn->sem_set, __ATOMIC_RELAXED);
 
-		for (int j = 1; j < (int)rpConfig.coreCount; ++j) {
+		for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
 			s32 count;
 			res = svc_releaseSemaphore(&count, rp_syn->thread[j].sem_start, 1);
 			if (res) {
@@ -1407,7 +1403,7 @@ static void rpDoCopyScreen(BLIT_CONTEXT *ctx) {
 	}
 }
 
-static int rp_work_next = 0;
+static int rp_work_next = 0, rp_work_last = -1;
 static u8 rp_skip_frame[rp_work_count] = { 0 };
 
 int rpSendFramesStart(int thread_id, int work_next) {
@@ -1425,6 +1421,13 @@ int rpSendFramesStart(int thread_id, int work_next) {
 	if (!__atomic_test_and_set(&syn->sem_set, __ATOMIC_RELAXED)) {
 		int format_changed = 0;
 		ctx->isTop = currentUpdating;
+
+		if (g_nsConfig->rpCaptureMode & 0x2) {
+			if (__atomic_load_n(&screenBusyWait[work_next], __ATOMIC_RELAXED))
+				rpDoWaitForVBlank(ctx->isTop);
+			rpKernelCallback(ctx->isTop);
+		}
+
 		if (ctx->isTop) {
 			// send top
 			for (int j = 0; j < (int)rpConfig.coreCount; ++j) {
@@ -1447,16 +1450,13 @@ int rpSendFramesStart(int thread_id, int work_next) {
 
 		s32 res;
 		if (g_nsConfig->rpCaptureMode & 0x2) {
-			if (screenBusyWait)
-				rpDoWaitForVBlank(ctx->isTop);
-			rpKernelCallback(ctx->isTop);
 			rpDoCopyScreen(ctx);
 		} else {
 			res = svc_waitSynchronization1(rpHDma[work_next], 1000000000);
+			// if (res) {
+				// nsDbgPrint("(%d) svc_waitSynchronization1 rpHDma (%d) failed: %d\n", thread_id, work_next, res);
+			// }
 		}
-		// if (res) {
-			// nsDbgPrint("(%d) svc_waitSynchronization1 rpHDma (%d) failed: %d\n", thread_id, work_next, res);
-		// }
 
 		int imgBuffer_work_prev = imgBuffer_work_next[ctx->isTop];
 		if (imgBuffer_work_prev == 0)
@@ -1471,6 +1471,13 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			ctx->isTop ? ++currentTopId : ++currentBottomId;
 			rpReadyWork(ctx, work_next);
 			rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
+		} else {
+			s32 count;
+			__atomic_store_n(&screenCapNext, work_next, __ATOMIC_RELAXED);
+			res = svc_releaseSemaphore(&count, rp_syn->screenCapSem, 1);
+			if (res != 0) {
+				nsDbgPrint("(%d) svc_releaseSemaphore screenCapSem (%d) failed: %d\n", thread_id, work_next, res);
+			}
 		}
 
 		s32 count;
@@ -1478,7 +1485,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			if (j != thread_id) {
 				res = svc_releaseSemaphore(&count, rp_syn->thread[j].sem_work, 1);
 				if (res) {
-					nsDbgPrint("(%d) svc_releaseSemaphore sem_work[j] (%d) failed: %d\n", thread_id, j, work_next, res);
+					nsDbgPrint("(%d) svc_releaseSemaphore sem_work[%d] (%d) failed: %d\n", thread_id, j, work_next, res);
 					// goto final;
 				}
 			}
@@ -1487,7 +1494,7 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		while (1) {
 			s32 res = svc_waitSynchronization1(rp_syn->thread[thread_id].sem_work, 1000000000);
 			if (res) {
-				nsDbgPrint("(%d) svc_waitSynchronization1 sem_work (%d) failed: %d\n", thread_id, work_next, res);
+				// nsDbgPrint("(%d) svc_waitSynchronization1 sem_work (%d) failed: %d\n", thread_id, work_next, res);
 				checkExitFlag();
 				continue;
 			}
@@ -1518,11 +1525,13 @@ int rpSendFramesStart(int thread_id, int work_next) {
 // final:
 	if (__atomic_add_fetch(&syn->sem_count, 1, __ATOMIC_RELAXED) == (int)rpConfig.coreCount) {
 		__atomic_store_n(&syn->sem_count, 0, __ATOMIC_RELAXED);
+		__atomic_clear(&syn->sem_set, __ATOMIC_RELAXED);
+
 		s32 count;
 		// nsDbgPrint("(%d) svc_releaseSemaphore sem_end (%d):\n", thread_id, work_next);
 		s32 res = svc_releaseSemaphore(&count, syn->sem_end, 1);
 		if (res) {
-			nsDbgPrint("svc_releaseSemaphore sem_end (%d) failed: %d\n", work_next, res);
+			// nsDbgPrint("svc_releaseSemaphore sem_end (%d) failed: %d\n", work_next, res);
 		}
 	}
 
@@ -1550,7 +1559,10 @@ static u32 log_scaled_tab[] = {
 };
 
 static void rpSendFrames() {
-	if (g_nsConfig->rpConfig.coreCount != rpConfig.coreCount) {
+	if (
+		g_nsConfig->rpConfig.coreCount != rpConfig.coreCount ||
+		g_nsConfig->rpConfig.currentMode != rpConfig.currentMode
+	) {
 		rpResetThreads = 1;
 		return;
 	}
@@ -1571,21 +1583,6 @@ static void rpSendFrames() {
 		g_nsConfig->rpConfig.qosValueInBytes = 5 * 1024 * 1024 / 2;
 	rpMinIntervalBetweenPacketsInTick = (1000000 / (g_nsConfig->rpConfig.qosValueInBytes / PACKET_SIZE)) * SYSTICK_PER_US;
 	rpMinIntervalBetweenPacketsInNS = rpMinIntervalBetweenPacketsInTick * 1000 / SYSTICK_PER_US;
-
-	{
-		u32 isTop = 1;
-		priorityFactor = 0;
-		u32 mode = (g_nsConfig->rpConfig.currentMode & 0xff00) >> 8;
-		u32 factor = (g_nsConfig->rpConfig.currentMode & 0xff);
-		if (mode == 0) {
-			isTop = 0;
-		}
-		isPriorityTop = isTop;
-		priorityFactor = factor;
-		priorityFactorLogScaled = log_scaled_tab[factor];
-
-		rpShowNextFrameBothScreen();
-	}
 
 	if (g_nsConfig->rpConfig.quality < 10)
 		g_nsConfig->rpConfig.quality = 10;
@@ -1682,14 +1679,22 @@ static void rpSendFrames() {
 		}
 	}
 
-	rpConfigChanged = 0;
+	if (rp_work_last >= 0) {
+		s32 count;
+		s32 res = svc_releaseSemaphore(&count, rp_syn->work[rp_work_last].sem_end, 1);
+		if (res) {
+			nsDbgPrint("svc_releaseSemaphore sem_end (%d) join failed: %d\n", rp_work_last, res);
+			// return;
+		}
+	}
+	__atomic_store_n(&rpConfigChanged, 0, __ATOMIC_RELAXED);
 	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELAXED);
 
 	currentUpdating = isPriorityTop;
 	frameCount[0] = frameCount[1] = 1;
 	frameQueued[0] = frameQueued[1] = priorityFactorLogScaled;
 	for (int i = 0; i < rp_work_count; ++i) {
-		nextScreenCaptured[i] = 0;
+		__atomic_store_n(&nextScreenCaptured[i], 0, __ATOMIC_RELAXED);
 	}
 
 	rpLastSendTick = svc_getSystemTick();
@@ -1702,42 +1707,45 @@ static void rpSendFrames() {
 			rpDstAddrChanged = 1;
 		}
 
-		if (rpConfigChanged) {
+		if (__atomic_load_n(&g_nsConfig->rpConfigLock, __ATOMIC_RELAXED)) {
+			__atomic_store_n(&rpConfigChanged, 1, __ATOMIC_RELAXED);
 			break;
 		}
 
-		if (!nextScreenCaptured[rp_work_next]) {
-			rpCaptureNextScreen(rp_work_next, 1);
+		struct rp_thread_syn_t *syn = &rp_syn->thread[0];
+		s32 res = svc_waitSynchronization1(syn->sem_start, 100000000 /* 1000000000 */);
+		if (res) {
+			// nsDbgPrint("(%d) svc_waitSynchronization1 sem_start (%d) failed: %d\n", 0, rp_work_next, res);
 			continue;
 		}
-		nextScreenCaptured[rp_work_next] = 0;
 
 		int ret =
 			rpSendFramesStart(0, rp_work_next);
 
+		rp_work_last = rp_work_next;
 		if (ret == 0)
 			rp_work_next = (rp_work_next + 1) % rp_work_count;
 	}
 
-	for (int i = 0; i < rp_work_count; ++i) {
-		s32 res;
-		while (1) {
-			res = svc_waitSynchronization1(rp_syn->work[i].sem_end, 1000000000);
-			if (res) {
-				nsDbgPrint("svc_waitSynchronization1 sem_end (%d) join failed: %d\n", i, res);
-				checkExitFlag();
-				continue;
-			}
-			break;
-		}
+	// for (int i = 0; i < rp_work_count; ++i) {
+	// 	s32 res;
+	// 	while (1) {
+	// 		res = svc_waitSynchronization1(rp_syn->work[i].sem_end, 1000000000);
+	// 		if (res) {
+	// 			nsDbgPrint("svc_waitSynchronization1 sem_end (%d) join failed: %d\n", i, res);
+	// 			checkExitFlag();
+	// 			continue;
+	// 		}
+	// 		break;
+	// 	}
 
-		s32 count;
-		res = svc_releaseSemaphore(&count, rp_syn->work[i].sem_end, 1);
-		if (res) {
-			nsDbgPrint("svc_releaseSemaphore sem_end (%d) join failed: %d\n", i, res);
-			// return;
-		}
-	}
+	// 	s32 count;
+	// 	res = svc_releaseSemaphore(&count, rp_syn->work[i].sem_end, 1);
+	// 	if (res) {
+	// 		nsDbgPrint("svc_releaseSemaphore sem_end (%d) join failed: %d\n", i, res);
+	// 		// return;
+	// 	}
+	// }
 }
 
 static void rpAuxThreadStart(u32 thread_id) {
@@ -1778,6 +1786,58 @@ static void rpNwmThread(u32) {
 	svc_exitThread();
 }
 
+static void rpScreenCaptureThread(u32) {
+	while (!rpResetThreads) {
+		int ret = svc_waitSynchronization1(rp_syn->screenCapSem, 100000000);
+		if (ret != 0) {
+			if (ret != 0x09401BFE) {
+				// nsDbgPrint("screenCapEvent wait error: %08x\n", ret);
+				svc_sleepThread(1000000000);
+			}
+			continue;
+		}
+		int work_next = __atomic_load_n(&screenCapNext, __ATOMIC_RELAXED);
+		while (!nextScreenCaptured[work_next] && !rpResetThreads)
+			rpCaptureNextScreen(work_next, 1);
+		nextScreenCaptured[work_next] = 0;
+	}
+	svc_exitThread();
+}
+
+static void rp_svc_print_limits(void) {
+	Handle resLim;
+	Result res;
+	if ((res = svcGetResourceLimit(&resLim, CURRENT_PROCESS_HANDLE))) {
+		nsDbgPrint("svcGetResourceLimit failed\n");
+		return;
+	}
+	ResourceLimitType types[] = {RESLIMIT_THREAD, RESLIMIT_EVENT, RESLIMIT_MUTEX, RESLIMIT_SEMAPHORE};
+	int count = sizeof(types) / sizeof(*types);
+	const char *names[] = {"thread", "event", "mutex", "sem"};
+	s64 values[count];
+
+	if ((res = svcGetResourceLimitCurrentValues(values, resLim, types, count))) {
+		nsDbgPrint("svcGetResourceLimitCurrentValues failed\n");
+		goto final;
+	}
+
+	for (int i = 0; i < count; ++i) {
+		nsDbgPrint("%s res current %d\n", names[i], (s32)values[i]);
+	}
+
+	if ((res = svcGetResourceLimitLimitValues(values, resLim, types, count))) {
+		nsDbgPrint("svcGetResourceLimitLimitValues failed\n");
+		goto final;
+	}
+
+	for (int i = 0; i < count; ++i) {
+		nsDbgPrint("%s res limit %d\n", names[i], (s32)values[i]);
+	}
+
+final:
+	svc_closeHandle(resLim);
+}
+
 static void rpPortThread(u32);
 static void rpThreadStart(void *) {
 	s32 res;
@@ -1785,8 +1845,9 @@ static void rpThreadStart(void *) {
 		nsDbgPrint("sync init failed: %08x\n", res);
 	}
 	mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
+	rp_svc_print_limits();
 	u32 *threadGspStack = (u32 *)plgRequestMemory(GSP_EVENT_STACK_SIZE);
-	if ((res = gspInit(&threadGspStack[(GSP_EVENT_STACK_SIZE / 4) - 10])) != 0) {
+	if ((res = gspInit(&threadGspStack[(GSP_EVENT_STACK_SIZE / 4) - 10], 0)) != 0) {
 		nsDbgPrint("gsp init failed: %08x\n", res);
 	}
 	nsDbgPrint("gsp initted\n");
@@ -1858,6 +1919,7 @@ static void rpThreadStart(void *) {
 	u32 *threadAux1Stack = (u32 *)plgRequestMemory(rpThreadStackSize);
 	u32 *threadAux2Stack = (u32 *)plgRequestMemory(rpThreadStackSize);
 	u32 *threadNwmStack = (u32 *)plgRequestMemory(STACK_SIZE);
+	u32 *threadScreenCapStack = (u32 *)plgRequestMemory(STACK_SIZE);
 
 	while (1) {
 		if (g_nsConfig->rpConfig.coreCount < 1)
@@ -1866,6 +1928,23 @@ static void rpThreadStart(void *) {
 			g_nsConfig->rpConfig.coreCount = rp_thread_count;
 		if (rpConfig.coreCount != g_nsConfig->rpConfig.coreCount)
 			rpConfig.coreCount = g_nsConfig->rpConfig.coreCount;
+
+		{
+			rpConfig.currentMode = g_nsConfig->rpConfig.currentMode;
+			u32 isTop = 1;
+			priorityFactor = 0;
+			u32 mode = (rpConfig.currentMode & 0xff00) >> 8;
+			u32 factor = (rpConfig.currentMode & 0xff);
+			if (mode == 0) {
+				isTop = 0;
+			}
+			isPriorityTop = isTop;
+			priorityFactor = factor;
+			priorityFactorLogScaled = log_scaled_tab[factor];
+
+			rpShowNextFrameBothScreen();
+		}
+
 		rpResetThreads = 0;
 
 		for (int i = 0; i < rp_work_count; ++i) {
@@ -1888,6 +1967,13 @@ static void rpThreadStart(void *) {
 		// rp_nwm_frame_skipped = 0;
 		rp_nwm_work_next = rp_nwm_thread_next = 0;
 		rp_work_next = 0;
+		screenCapNext = 0;
+
+		ret = svc_createSemaphore(&rp_syn->screenCapSem, 1, 1);
+		if (ret != 0) {
+			nsDbgPrint("svc_createSemaphore screenCapSem failed: %08x\n", ret);
+			goto final;
+		}
 
 		for (i = 0; i < rp_work_count; ++i) {
 			ret = svc_createSemaphore(&rp_syn->work[i].sem_end, 1, 1);
@@ -1900,7 +1986,7 @@ static void rpThreadStart(void *) {
 				nsDbgPrint("svc_createSemaphore sem_nwm (%d) failed: %08x\n", i, ret);
 				goto final;
 			}
-			ret = svc_createSemaphore(&rp_syn->work[i].sem_send, 1, 1);
+			ret = svc_createSemaphore(&rp_syn->work[i].sem_send, 0, 1);
 			if (ret != 0) {
 				nsDbgPrint("svc_createSemaphore sem_send (%d) failed: %08x\n", i, ret);
 				goto final;
@@ -1910,12 +1996,10 @@ static void rpThreadStart(void *) {
 			rp_syn->work[i].sem_set = 0;
 		}
 		for (j = 0; j < rpConfig.coreCount; ++j) {
-			if (j != 0) {
-				ret = svc_createSemaphore(&rp_syn->thread[j].sem_start, 0, rp_work_count);
-				if (ret != 0) {
-					nsDbgPrint("svc_createSemaphore sem_start (%d) failed: %08x\n", i, ret);
-					goto final;
-				}
+			ret = svc_createSemaphore(&rp_syn->thread[j].sem_start, 0, rp_work_count);
+			if (ret != 0) {
+				nsDbgPrint("svc_createSemaphore sem_start (%d) failed: %08x\n", i, ret);
+				goto final;
 			}
 			ret = svc_createSemaphore(&rp_syn->thread[j].sem_work, 0, rp_work_count);
 			if (ret != 0) {
@@ -1950,10 +2034,20 @@ static void rpThreadStart(void *) {
 			goto final;
 		}
 
+		Handle hThreadScreenCap;
+		ret = svc_createThread(&hThreadScreenCap, (void*)rpScreenCaptureThread, 0, &threadScreenCapStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+		if (ret != 0) {
+			nsDbgPrint("Create remote play screen capture thread Failed: %08x\n", ret);
+			goto final;
+		}
+
+		rp_work_last = -1;
 		while (!rpResetThreads) {
 			checkExitFlag();
 
 			rpSendFrames();
+
+			rpResetThreads = 1; /* quick update options quite difficult with all these threads... */
 		}
 
 		if (rpConfig.coreCount >= 3) {
@@ -1968,16 +2062,20 @@ static void rpThreadStart(void *) {
 		svc_waitSynchronization1(hThreadNwm, S64_MAX);
 		svc_closeHandle(hThreadNwm);
 
+		svc_waitSynchronization1(hThreadScreenCap, S64_MAX);
+		svc_closeHandle(hThreadScreenCap);
+
 		for (i = 0; i < rp_work_count; ++i) {
 			svc_closeHandle(rp_syn->work[i].sem_end);
 			svc_closeHandle(rp_syn->work[i].sem_nwm);
 			svc_closeHandle(rp_syn->work[i].sem_send);
 		}
 		for (j = 0; j < rpConfig.coreCount; ++j) {
-			if (j != 0)
-				svc_closeHandle(rp_syn->thread[j].sem_start);
+			svc_closeHandle(rp_syn->thread[j].sem_start);
 			svc_closeHandle(rp_syn->thread[j].sem_work);
 		}
+
+		svc_closeHandle(rp_syn->screenCapSem);
 	}
 final:
 	svc_exitThread();
