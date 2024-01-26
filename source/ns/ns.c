@@ -2049,7 +2049,7 @@ static void rpThreadStart(void *) {
 		}
 
 		Handle hThreadScreenCap;
-		ret = svc_createThread(&hThreadScreenCap, (void*)rpScreenCaptureThread, 0, &threadScreenCapStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+		ret = svc_createThread(&hThreadScreenCap, (void*)rpScreenCaptureThread, 0, &threadScreenCapStack[(STACK_SIZE / 4) - 10], 0x8, 1);
 		if (ret != 0) {
 			nsDbgPrint("Create remote play screen capture thread Failed: %08x\n", ret);
 			goto final;
@@ -2488,8 +2488,8 @@ static int nsInitRemotePlay(RP_CONFIG *config, u32 skipControl) {
 			config->threadPriority = rpConfig.threadPriority;
 		else
 			config->threadPriority = RP_THREAD_PRIO_DEFAULT;
-	} else if (config->threadPriority < 0x8) {
-		config->threadPriority = 0x8;
+	} else if (config->threadPriority < 0x10) {
+		config->threadPriority = 0x10;
 	} else if (config->threadPriority > 0x3f) {
 		config->threadPriority = 0x3f;
 	}
@@ -2970,8 +2970,8 @@ int remotePlayMenu(u32 localaddr) {
 			else
 				menu_adjust_value_with_key(&threadPriority, key, 5, 10);
 
-			if (threadPriority < 0x8)
-				threadPriority = 0x8;
+			if (threadPriority < 0x10)
+				threadPriority = 0x10;
 			else if (threadPriority > 0x3f)
 				threadPriority = 0x3f;
 
