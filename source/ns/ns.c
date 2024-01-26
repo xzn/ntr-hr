@@ -1403,7 +1403,7 @@ static void rpDoCopyScreen(BLIT_CONTEXT *ctx) {
 	}
 }
 
-static int rp_work_next = 0, rp_work_last = -1;
+static int rp_work_next = 0;
 static u8 rp_skip_frame[rp_work_count] = { 0 };
 
 int rpSendFramesStart(int thread_id, int work_next) {
@@ -1473,7 +1473,14 @@ int rpSendFramesStart(int thread_id, int work_next) {
 			rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
 		} else {
 			s32 count;
-			__atomic_store_n(&screenCapNext, work_next, __ATOMIC_RELAXED);
+
+			// nsDbgPrint("(%d) svc_releaseSemaphore sem_end (%d):\n", thread_id, work_next);
+			res = svc_releaseSemaphore(&count, syn->sem_end, 1);
+			if (res) {
+				// nsDbgPrint("svc_releaseSemaphore sem_end (%d) failed: %d\n", work_next, res);
+			}
+
+			// __atomic_store_n(&screenCapNext, work_next, __ATOMIC_RELAXED);
 			res = svc_releaseSemaphore(&count, rp_syn->screenCapSem, 1);
 			if (res != 0) {
 				nsDbgPrint("(%d) svc_releaseSemaphore screenCapSem (%d) failed: %d\n", thread_id, work_next, res);
@@ -1527,11 +1534,13 @@ int rpSendFramesStart(int thread_id, int work_next) {
 		__atomic_store_n(&syn->sem_count, 0, __ATOMIC_RELAXED);
 		__atomic_clear(&syn->sem_set, __ATOMIC_RELAXED);
 
-		s32 count;
-		// nsDbgPrint("(%d) svc_releaseSemaphore sem_end (%d):\n", thread_id, work_next);
-		s32 res = svc_releaseSemaphore(&count, syn->sem_end, 1);
-		if (res) {
-			// nsDbgPrint("svc_releaseSemaphore sem_end (%d) failed: %d\n", work_next, res);
+		if (!skip_frame) {
+			s32 count;
+			// nsDbgPrint("(%d) svc_releaseSemaphore sem_end (%d):\n", thread_id, work_next);
+			s32 res = svc_releaseSemaphore(&count, syn->sem_end, 1);
+			if (res) {
+				// nsDbgPrint("svc_releaseSemaphore sem_end (%d) failed: %d\n", work_next, res);
+			}
 		}
 	}
 
@@ -1679,14 +1688,6 @@ static void rpSendFrames() {
 		}
 	}
 
-	if (rp_work_last >= 0) {
-		s32 count;
-		s32 res = svc_releaseSemaphore(&count, rp_syn->work[rp_work_last].sem_end, 1);
-		if (res) {
-			nsDbgPrint("svc_releaseSemaphore sem_end (%d) join failed: %d\n", rp_work_last, res);
-			// return;
-		}
-	}
 	__atomic_store_n(&rpConfigChanged, 0, __ATOMIC_RELAXED);
 	__atomic_store_n(&g_nsConfig->rpConfigLock, 0, __ATOMIC_RELAXED);
 
@@ -1722,7 +1723,6 @@ static void rpSendFrames() {
 		int ret =
 			rpSendFramesStart(0, rp_work_next);
 
-		rp_work_last = rp_work_next;
 		if (ret == 0)
 			rp_work_next = (rp_work_next + 1) % rp_work_count;
 	}
@@ -2041,7 +2041,6 @@ static void rpThreadStart(void *) {
 			goto final;
 		}
 
-		rp_work_last = -1;
 		while (!rpResetThreads) {
 			checkExitFlag();
 
