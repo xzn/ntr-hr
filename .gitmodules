@@ -1,0 +1,4 @@
+[submodule "libctru"]
+	path = libctru
+	url = https://github.com/xzn/libctru.git
+	branch = ntr_bins

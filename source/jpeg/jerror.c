@@ -51,11 +51,10 @@ const char * const jpeg_std_message_table[] = {
   NULL
 };
 
-#include "ctr/types.h"
-#include "ctr/svc.h"
-extern void setExitFlag();
-#include "sharedfunc.h"
+#include "3ds/types.h"
+#include "3ds/svc.h"
 #include "xprintf.h"
+#include "sharedfunc.h"
 
 /*
  * Error exit handler: must not return to caller.
@@ -81,8 +80,7 @@ error_exit(j_common_ptr cinfo)
 
   // exit(EXIT_FAILURE);
   // *((struct rp_jpeg_client_data_t *)(cinfo->client_data))->exit_thread = 1;
-  // setExitFlag();
-  svc_exitThread();
+  svcExitThread();
   __builtin_unreachable();
 }
 
@@ -117,7 +115,7 @@ output_message(j_common_ptr cinfo)
 #else
   /* Send it to stderr, adding a newline */
   // fprintf(stderr, "%s\n", buffer);
-  nsDbgPrintShared("%s\n", buffer);
+  nsDbgPrintRaw("%s\n", buffer);
 #endif
 }
 
@@ -198,7 +196,7 @@ format_message(j_common_ptr cinfo, char *buffer)
   }
 
 #undef SNPRINTF
-#define SNPRINTF(d, n, s, ...) xsprintf(d, s, __VA_ARGS__)
+#define SNPRINTF xsnprintf
 
   /* Format the message into the passed buffer */
   if (isstring)

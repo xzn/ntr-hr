@@ -6,10 +6,12 @@ OBJCOPY := $(DEV_BIN_DIR)/arm-none-eabi-objcopy
 LD := $(DEV_BIN_DIR)/arm-none-eabi-ld
 CP := cp
 
+CTRU_DIR := libctru/libctru
+
 CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing
-CPPFLAGS := -Iinclude
-LDFLAGS := -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map
-LDLIBS := -lc -lm -lgcc -nostdlib
+CPPFLAGS := -Iinclude -Ilibctru/libctru/include
+LDFLAGS := -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=test.map,--no-warn-rwx-segments
+LDLIBS := -lc -lm -lgcc -nostdlib -L. -lctru_ntr
 
 SRC_C := $(wildcard source/dsp/*.c) $(wildcard source/*.c) $(wildcard source/libctru/*.c)
 SRC_S := $(wildcard source/*.s) $(wildcard source/libctru/*.s)
@@ -42,8 +44,12 @@ $(PAYLOAD_LOCAL_BIN): $(PAYLOAD_LOCAL_ELF) | release
 release:
 	mkdir $@
 
-$(PAYLOAD_LOCAL_ELF): $(OBJ)
+$(PAYLOAD_LOCAL_ELF): $(OBJ) | libctru_ntr.a
 	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+
+libctru_ntr.a:
+	$(MAKE) -C $(CTRU_DIR) lib/libctru.a
+	$(CP) $(CTRU_DIR)/lib/libctru.a $@
 
 CC_WARNS = -Wall -Wextra
 
@@ -79,4 +85,5 @@ obj/ns_lto.o: $(NS_OBJ)
 .PHONY: clean all install
 
 clean:
-	-rm test.map $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF) obj/*.d obj/*.o
+	-rm test.map $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF) obj/*.d obj/*.o lib*.a
+	$(MAKE) -C $(CTRU_DIR) clean

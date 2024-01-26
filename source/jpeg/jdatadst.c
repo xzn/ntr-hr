@@ -104,7 +104,7 @@ init_mem_destination(j_compress_ptr cinfo)
  * write it out when emptying the buffer externally.
  */
 
-#include "3dstypes.h"
+#include "3ds/types.h"
 
 EXTERN(void)
 rpSendBuffer(j_compress_ptr cinfo, u8* buf, u32 size, u32 flag);

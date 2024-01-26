@@ -1,25 +1,14 @@
 #ifndef MAIN_H
 #define MAIN_H
 
-#include "3dstypes.h"
+#include "3ds/types.h"
 #include "ntr_config.h"
 
-void createpad(void *counter, void *keyY, void *filename, u32 megabytes, u8 padnum);
 int main(void);
 
-extern u32 IoBasePad;
-extern u32 IoBaseLcd;
-extern u32 IoBasePdc;
+extern NTR_CONFIG *ntrConfig;
 
-extern u32 ShowDbgFunc;
+typedef void (*showDbgFunc_t)(char *);
+extern showDbgFunc_t showDbgFunc;
 
-extern u32 KProcessCodesetOffset;
-extern u32 KProcessPIDOffset ;
-extern u32 KProcessHandleDataOffset;
-extern u32 HomeAptStartAppletAddr;
-
-
-extern NTR_CONFIG* ntrConfig;
- 
 #endif
-

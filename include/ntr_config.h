@@ -1,4 +1,9 @@
-typedef struct _NTR_CONFIG {
+#ifndef NTR_CONFIG_H
+#define NTR_CONFIG_H
+
+#include "3ds/types.h"
+
+typedef struct {
 	u32 bootNTRVersion;
 	u32 isNew3DS;
 	u32 firmVersion;
@@ -11,11 +16,11 @@ typedef struct _NTR_CONFIG {
 	u32 HomeMenuPid;
 
 	u32 HomeMenuVersion;
-	u32 HomeMenuInjectAddr ; // FlushDataCache Function
-	u32 HomeFSReadAddr ;
+	u32 HomeMenuInjectAddr; // FlushDataCache Function
+	u32 HomeFSReadAddr;
 	u32 HomeFSUHandleAddr;
 	u32 HomeCardUpdateInitAddr;
-	u32 HomeAptStartAppletAddr ;
+	u32 HomeAptStartAppletAddr;
 
 	u32 KProcessHandleDataOffset;
 	u32 KProcessPIDOffset;
@@ -29,28 +34,12 @@ typedef struct _NTR_CONFIG {
 	u32 fsUserHandle;
 	u32 arm11BinStart;
 	u32 arm11BinSize;
-	u32 ShowDbgFunc;
+	u32 showDbgFunc;
 
 	u32 memMode;
 	char ntrFilePath[0x100];
 
 	/* BootNTR's NTR_CONFIG ends here */
-	u32 debugMore;
-	u32 gameHasPlugins;
-	u32 noCTRPFCompat;
-	u32 remotePlayBoost;
-	u32 nightShiftLevel;
 } NTR_CONFIG;
 
-#define NTR_MEMMODE_DEFAULT (0)
-#define NTR_MEMMODE_BASE (3)
-
-
-typedef struct _BOOTNTR_CONFIG {
-	u32 FSPatchAddr;
-	u32 SMPatchAddr;
-	u32 SvcPatchAddr;
-	u32 FSPid;
-	u32 SMPid;
-	u32 requireKernelHax;
-} BOOTNTR_CONFIG;
+#endif

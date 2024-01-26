@@ -1,4 +1,3 @@
-
 OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")
 OUTPUT_ARCH(arm)
 ENTRY(_Reset)
@@ -11,7 +10,7 @@ SECTIONS
 	obj/bootloader.o (.text*)
 	*(.text*)
 }
-. = ALIGN(CONSTANT(COMMONPAGESIZE));
+. = ALIGN(4);
 .data : { 
 	*(.data) 
 }
