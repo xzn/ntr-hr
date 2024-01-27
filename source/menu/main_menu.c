@@ -104,7 +104,15 @@ static void menuThread(void *) {
 	}
 
 	Handle fsUserHandle = *(u32 *)ntrConfig->HomeFSUHandleAddr;
-	fsUseSession(fsUserHandle);
+	if (fsUserHandle == 0) {
+		ret = fsInit();
+		if (ret != 0) {
+			showMsg("Failed to initialize fs.");
+			goto final;
+		}
+	} else {
+		fsUseSession(fsUserHandle);
+	}
 	ret = loadPayloadBin(NTR_BIN_PM, 0);
 	if (ret != 0) {
 		showMsg("Loading pm payload failed.");

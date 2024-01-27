@@ -167,8 +167,11 @@ int main(void) {
 	if (ntrConfig->ex.nsUseDbg)
 		nsStartup();
 
-	Handle fsUserHandle = *(u32 *)ntrConfig->HomeFSUHandleAddr;
-	fsUseSession(fsUserHandle);
+	s32 res = fsInit();
+	if (res != 0) {
+		nsDbgPrint("fs init failed: %08x\n", res);
+		return 0;
+	}
 
 	rtInitHook(&svcRunHook, ntrConfig->PMSvcRunAddr, (u32)svcRunCallback);
 	rtEnableHook(&svcRunHook);

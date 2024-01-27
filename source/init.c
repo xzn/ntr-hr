@@ -211,7 +211,14 @@ u32 plgRegisterMenuEntry(u32, char *, void *) { return -1; }
 
 u32 plgGetSharedServiceHandle(char* servName, u32* handle) {
 	if (strcmp(servName, "fs:USER") == 0) {
-		*handle = *(u32 *)ntrConfig->HomeFSUHandleAddr;
+		Handle fsuHandle = *fsGetSessionHandle();
+		if (fsuHandle == 0) {
+			s32 res = fsInit();
+			if (res == 0) {
+				fsuHandle = *fsGetSessionHandle();
+			}
+		}
+		*handle = fsuHandle;
 		return 0;
 	}
 	return 1;
