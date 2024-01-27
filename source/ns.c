@@ -370,3 +370,7 @@ int nsDbgNext(void) {
 	}
 	return 0;
 }
+
+void __attribute__((weak)) nsHandlePacket(void) {
+	nsHandleDbgPrintPacket();
+}
