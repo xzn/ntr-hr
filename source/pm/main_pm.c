@@ -1,5 +1,7 @@
 #include "global.h"
 
+#include "3ds/services/fs.h"
+
 #include <memory.h>
 
 static Handle hMenuProcess = 0;
@@ -164,6 +166,9 @@ int main(void) {
 
 	if (ntrConfig->ex.nsUseDbg)
 		nsStartup();
+
+	Handle fsUserHandle = *(u32 *)ntrConfig->HomeFSUHandleAddr;
+	fsUseSession(fsUserHandle);
 
 	rtInitHook(&svcRunHook, ntrConfig->PMSvcRunAddr, (u32)svcRunCallback);
 	rtEnableHook(&svcRunHook);

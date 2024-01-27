@@ -1,5 +1,10 @@
 #include "xprintf.h"
 
+int xsprintf(char*, const char*, ...) {
+	// TODO
+	return 0;
+}
+
 int xsnprintf(char*, size_t, const char*, ...) {
 	// TODO
 	return 0;

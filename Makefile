@@ -1,6 +1,7 @@
 DEV_BIN_DIR := $(DEVKITARM)/bin
 
-CC := $(DEV_BIN_DIR)/arm-none-eabi-gcc
+CC_NAME = @echo $(notdir $@);
+CC = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-gcc
 CXX := $(DEV_BIN_DIR)/arm-none-eabi-g++
 OBJCOPY := $(DEV_BIN_DIR)/arm-none-eabi-objcopy
 LD := $(DEV_BIN_DIR)/arm-none-eabi-ld
@@ -54,13 +55,13 @@ all: $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF)
 
 install: $(PAYLOAD_TARGET_BIN)
 
-CP_CMD = $(CP) $< $@
+CP_CMD = $(CC_NAME) $(CP) $< $@
 
 $(PAYLOAD_TARGET_DIR)/%.bin: release/%.bin
 	$(CP_CMD)
 
 release/%.bin: bin/%.elf | release
-	$(OBJCOPY) -O binary $< $@ -S
+	$(CC_NAME) $(OBJCOPY) -O binary $< $@ -S
 
 release:
 	mkdir $@
@@ -81,7 +82,7 @@ bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) $(OBJ_NWM) obj/rp_lto.o | libctru_ntr.a
 	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
 libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
-	$(CP) $< $@
+	$(CP_CMD)
 
 $(CTRU_DIR)/lib/libctru.a:
 	$(MAKE) -C $(CTRU_DIR) lib/libctru.a

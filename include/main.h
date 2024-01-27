@@ -50,5 +50,8 @@ extern PLGLOADER_INFO *plgLoaderInfo;
 
 void rpSetGamePid(u32 gamePid);
 int nsDbgNext(void);
+u32 plgRegisterCallback(u32 type, void* callback, u32);
+u32 plgSetValue(u32 index, u32 value);
+u32 plgGetIoBase(u32 IoBase);
 
 #endif

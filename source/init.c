@@ -204,4 +204,39 @@ void unloadPayloadBin(void) {
 }
 
 void rpSetGamePid(u32) {
+	// TODO
+}
+
+u32 plgRegisterMenuEntry(u32, char *, void *) { return -1; }
+
+u32 plgGetSharedServiceHandle(char* servName, u32* handle) {
+	if (strcmp(servName, "fs:USER") == 0) {
+		*handle = *(u32 *)ntrConfig->HomeFSUHandleAddr;
+		return 0;
+	}
+	return 1;
+}
+
+u32 controlVideo(u32, u32, u32, u32) {
+	return 0;
+}
+
+s32 showMenuEx(char *, u32, char *[], char *[],  u32) {
+	return -1;
+}
+
+#define INIT_SHARED_FUNC(name, id) (nsConfig->sharedFunc[id] = (u32)name)
+void initSharedFunc(void) {
+	INIT_SHARED_FUNC(showDbgRaw, 0);
+	INIT_SHARED_FUNC(nsDbgPrintRaw, 1);
+	INIT_SHARED_FUNC(plgRegisterMenuEntry, 2);
+	INIT_SHARED_FUNC(plgGetSharedServiceHandle, 3);
+	INIT_SHARED_FUNC(plgRequestMemory, 4);
+	INIT_SHARED_FUNC(plgRegisterCallback, 5);
+	INIT_SHARED_FUNC(xsprintf, 6);
+	INIT_SHARED_FUNC(controlVideo, 7);
+	INIT_SHARED_FUNC(plgGetIoBase, 8);
+	INIT_SHARED_FUNC(copyRemoteMemory, 9);
+	INIT_SHARED_FUNC(plgSetValue, 10);
+	INIT_SHARED_FUNC(showMenuEx, 11);
 }
