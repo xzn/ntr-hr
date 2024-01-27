@@ -6,6 +6,7 @@
 #include "svc7b.h"
 #include "proc.h"
 #include "ns.h"
+#include "init.h"
 
 #include "ntr_config.h"
 

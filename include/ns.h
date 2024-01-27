@@ -4,6 +4,7 @@
 #include "3ds/types.h"
 #include "ntr_config.h"
 #include "rt.h"
+#include "constants.h"
 
 void nsDbgPrintRaw(const char* fmt, ...);
 #define nsDbgPrint(fmt, ...) do { \
@@ -18,7 +19,7 @@ typedef enum {
 	NS_INITMODE_FROMHOOK = 2,
 } NS_INITMODE;
 
-typedef struct _NS_CONFIG {
+typedef struct {
 	NS_INITMODE initMode;
 	u32 startupCommand;
 	u32 hSOCU;
@@ -40,6 +41,12 @@ typedef struct _NS_CONFIG {
 	NTR_CONFIG ntrConfig;
 } NS_CONFIG;
 
+extern NS_CONFIG* nsConfig;
+
+void nsStartup(void);
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, u32 binStart, u32 binSize);
+void nsHandlePacket(void);
+void nsHandleDbgPrintPacket(void);
+void nsHandleMenuPacket(void);
 
 #endif

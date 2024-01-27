@@ -1,6 +1,9 @@
 #include "global.h"
 
+u32 allowDirectScreenAccess;
+
 int showMsgVerbose(char*, const char *, int, const char *) {
+	// TODO
 	return 0;
 }
 
@@ -10,6 +13,7 @@ int showMsgRaw(char* msg) {
 		svcSleepThread(1000000000);
 		return 0;
 	}
+	// TODO
 	return 0;
 }
 
@@ -29,4 +33,12 @@ void disp(u32 t, u32 cl) {
 		svcSleepThread(5000000);
 	}
 	REG(IoBaseLcd + 0x204) = 0;
+}
+
+int initDirectScreenAccess(void) {
+	return 0;
+}
+
+u32 getKey(void) {
+	return (REG(IoBasePad) ^ 0xFFF) & 0xFFF;
 }

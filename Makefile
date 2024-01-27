@@ -8,10 +8,10 @@ CP := cp
 
 CTRU_DIR := libctru/libctru
 
-CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing
+CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing -ffunction-sections -fdata-sections
 CPPFLAGS := -Iinclude -Ilibctru/libctru/include
 LDFLAGS = -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=$(basename $(notdir $@)).map,--no-warn-rwx-segments
-LDLIBS := -lc -lm -lgcc -nostdlib -L. -lctru_ntr
+LDLIBS := -lc -lm -lgcc -nostartfiles -L. -lctru_ntr
 
 SRC_C := $(wildcard source/*.c)
 SRC_S := $(wildcard source/*.s)
@@ -96,10 +96,10 @@ obj/%.o: source/%.c
 	$(CC_CMD)
 
 obj/%.o: source/boot/%.c
-	$(CC_CMD) -DNTR_BIN_MENU=\"$(NTR_BIN_MENU)\"
+	$(CC_CMD)
 
 obj/%.o: source/menu/%.c
-	$(CC_CMD)
+	$(CC_CMD) -DNTR_BIN_PM=\"$(NTR_BIN_PM)\"
 
 obj/%.o: source/pm/%.c
 	$(CC_CMD)

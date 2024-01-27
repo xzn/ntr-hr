@@ -17,4 +17,9 @@ void showDbgRaw(char* fmt, u32 v1, u32 v2);
 
 void disp(u32 t, u32 cl);
 
+extern u32 allowDirectScreenAccess;
+int initDirectScreenAccess(void);
+
+u32 getKey(void);
+
 #endif

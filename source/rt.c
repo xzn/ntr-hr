@@ -1,9 +1,65 @@
 #include "global.h"
 
-u32 rtGenerateJumpCode(u32 dst, u32* buf) {
+#include "3ds/services/soc.h"
+
+#include <memory.h>
+#include <errno.h>
+
+void rtInitLock(RT_LOCK *lock) {
+	__atomic_clear(lock, __ATOMIC_RELEASE);
+}
+
+void rtAcquireLock(RT_LOCK *lock) {
+	while( __atomic_test_and_set(lock, __ATOMIC_ACQUIRE)) {
+		svcSleepThread(1000000);
+	}
+}
+
+void rtReleaseLock(RT_LOCK *lock) {
+	__atomic_clear(lock, __ATOMIC_RELEASE);
+}
+
+void rtGenerateJumpCode(u32 dst, u32* buf) {
 	buf[0] = 0xe51ff004;
 	buf[1] = dst;
-	return 8;
+}
+
+void rtInitHook(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr) {
+	hook->model = 0;
+	hook->isEnabled = 0;
+	hook->funcAddr = funcAddr;
+
+	rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), funcAddr, 8);
+	memcpy(hook->bakCode, (void *)funcAddr, 8);
+	rtGenerateJumpCode(callbackAddr, hook->jmpCode);
+	memcpy(hook->callCode, (void *)funcAddr, 8);
+	rtGenerateJumpCode(funcAddr + 8, &hook->callCode[2]);
+	rtFlushInstructionCache(hook->callCode, 16);
+}
+
+void rtEnableHook(RT_HOOK *hook) {
+	if (hook->isEnabled) {
+		return;
+	}
+	memcpy((void *)hook->funcAddr, hook->jmpCode, 8);
+	rtFlushInstructionCache((void *)hook->funcAddr, 8);
+	hook->isEnabled = 1;
+}
+
+void rtDisableHook(RT_HOOK *hook) {
+	if (!hook->isEnabled) {
+		return;
+	}
+	memcpy((void *)hook->funcAddr, hook->bakCode, 8);
+	rtFlushInstructionCache((void *)hook->funcAddr, 8);
+	hook->isEnabled = 0;
+}
+
+u32 rtAlignToPageSize(u32 size) {
+	if (size == 0) {
+		return 0;
+	}
+	return (((size - 1) / 0x1000) + 1) * 0x1000;
 }
 
 u32 rtGetPageOfAddress(u32 addr) {
@@ -37,4 +93,56 @@ u32 rtGetThreadReg(Handle hProcess, u32 tid, u32 *ctx) {
 	kmemcpy(ctx, (void *)pContext, 0x10c);
 	svcCloseHandle(hThread);
 	return 0;
+}
+
+u32 rtFlushInstructionCache(void *ptr, u32 size) {
+	return svcFlushProcessDataCache(0xffff8001, (u32)ptr, size);
+}
+
+int rtRecvSocket(u32 sockfd, u8 *buf, int size)
+{
+	int ret, pos = 0;
+	int tmpsize = size;
+
+	while(tmpsize)
+	{
+		if((ret = recv(sockfd, &buf[pos], tmpsize, 0)) <= 0)
+		{
+			if (ret < 0) {
+				ret = errno;
+				if (ret == -EWOULDBLOCK || ret == -EAGAIN) {
+					svcSleepThread(50000000);
+					continue;
+				}
+			}
+			return ret;
+		}
+		pos += ret;
+		tmpsize -= ret;
+	}
+
+	return size;
+}
+
+int rtSendSocket(u32 sockfd, u8 *buf, int size)
+{
+	int ret, pos = 0;
+	int tmpsize = size;
+
+	while(tmpsize)
+	{
+		if((ret = send(sockfd, &buf[pos], tmpsize, 0)) < 0)
+		{
+			ret = errno;
+			if (ret == -EWOULDBLOCK || ret == -EAGAIN) {
+				svcSleepThread(50000000);
+				continue;
+			}
+			return ret;
+		}
+		pos += ret;
+		tmpsize -= ret;
+	}
+
+	return size;
 }

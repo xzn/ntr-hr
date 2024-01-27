@@ -4,9 +4,6 @@
 
 extern int _BootArgs[];
 
-NTR_CONFIG *ntrConfig;
-showDbgFunc_t showDbgFunc;
-
 static u32 arm11BinStart;
 static u32 arm11BinSize;
 

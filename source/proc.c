@@ -8,6 +8,23 @@ u32 getCurrentProcessId() {
 	return currentPid;
 }
 
+static Handle hCurrentProcess = 0;
+u32 getCurrentProcessHandle() {
+	u32 handle = 0;
+	u32 ret;
+
+	if (hCurrentProcess != 0) {
+		return hCurrentProcess;
+	}
+	ret = svcOpenProcess(&handle, getCurrentProcessId());
+	if (ret != 0) {
+		return 0;
+	}
+	hCurrentProcess = handle;
+	return hCurrentProcess;
+}
+
+
 u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 	u32 outAddr = 0;
 	u32 ret;
@@ -16,7 +33,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 	u32 oldKP = kGetCurrentKProcess();
 
 	kSetCurrentKProcess(newKP);
-	ret = svcControlMemory(&outAddr, addr, 0, size, 3, 3);
+	ret = svcControlMemory(&outAddr, addr, 0, size, MEMOP_ALLOC, MEMPERM_READWRITE);
 	kSetCurrentKProcess(oldKP);
 
 	if (ret != 0) {
@@ -31,6 +48,10 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 
 u32 protectRemoteMemory(Handle hProcess, void* addr, u32 size) {
 	return svcControlProcessMemory(hProcess, (u32)addr, 0, size, 6, 7);
+}
+
+u32 protectMemory(void *addr, u32 size) {
+	return protectRemoteMemory(getCurrentProcessHandle(), addr, size);
 }
 
 u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 size) {
