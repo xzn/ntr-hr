@@ -1,10 +1,13 @@
 #include "global.h"
 
 int main(void) {
-	startupInit();
+	if (startupInit(1) != 0)
+		return 0;
 
 	// TODO
-	nsStartup();
+	if (ntrConfig->ex.nsUseDbg)
+		nsStartup();
+	disp(100, 0x1ff0000);
 
 	return 0;
 }

@@ -8,14 +8,15 @@
 static u32 NTRMenuHotkey = 0x0C00;
 static int cpuClockLockValue = -1;
 
-static u32 arm11BinStart;
-static u32 arm11BinSize;
-
 static void lockCpuClock(void) {
 	if (cpuClockLockValue < 0) {
 		return;
 	}
 	svcKernelSetState(10, cpuClockLockValue);
+}
+
+void setCpuClockLock(int v) {
+	cpuClockLockValue = v;
 }
 
 typedef u32 (*FSReadTypeDef)(u32 a1, u32 a2, u32 a3, u32 a4, u32 buffer, u32 size);
@@ -41,15 +42,23 @@ static u32 HomeCardUpdateInitCallback(void) {
 	return 0xc821180b; // card update is not needed
 }
 
+static u32 gamePluginMenuSelect = 0;
+
 static u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
-	// TODO
+	u32* tid = (u32*)a1;
+	nsDbgPrint("Starting app (title ID): %08x%08x\n", tid[1], tid[0]);
+	*plgLoaderInfo = (PLGLOADER_INFO){ 0 };
+	plgLoaderInfo->tid[0] = tid[0];
+	plgLoaderInfo->tid[1] = tid[1];
+	gamePluginMenuSelect = 0;
+
+	rpSetGamePid(0);
 
 	s32 res = ((aptPrepareToStartApplicationTypeDef)aptPrepareToStartApplicationHook.callCode)(a1, a2, a3);
 	return res;
 }
 
 static int injectPM() {
-	NS_CONFIG cfg;
 	u32 pid = ntrConfig->PMPid;
 	s32 ret;
 	Handle hProcess;
@@ -60,10 +69,10 @@ static int injectPM() {
 		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
 		return ret;
 	}
-	memset(&cfg, 0, sizeof(NS_CONFIG));
-	memcpy(&cfg.ntrConfig, ntrConfig, sizeof(NTR_CONFIG));
+	NS_CONFIG cfg = { 0 };
+	cfg.ntrConfig = *ntrConfig;
 
-	ret = nsAttachProcess(hProcess, remotePC, &cfg, arm11BinStart, arm11BinSize);
+	ret = nsAttachProcess(hProcess, remotePC, &cfg);
 	svcCloseHandle(hProcess);
 	return ret;
 }
@@ -87,70 +96,6 @@ static void showMainMenu(void) {
 	// TODO
 }
 
-static int loadPayloadBin(char *name) {
-	int fileLoaded = 0;
-	Result ret;
-
-	char fileName[PATH_MAX];
-	ret = strnjoin(fileName, PATH_MAX, ntrConfig->ntrFilePath, name);
-	if (ret != 0) {
-		showDbg("pm payload file name too long.", 0, 0);
-		goto final;
-	}
-
-	Handle file;
-	ret = FSUSER_OpenFileDirectly(&file, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL), fsMakePath(PATH_ASCII, fileName), FS_OPEN_READ, 0);
-	if (ret != 0) {
-		showDbg("Failed to open pm payload file: %08x.", ret, 0);
-		goto final;
-	}
-
-	u64 fileSize;
-	ret = FSFILE_GetSize(file, &fileSize);
-	if (ret != 0) {
-		showDbg("Failed to get pm payload file size: %08x.", ret, 0);
-		goto file_final;
-	}
-
-	u32 outAddr;
-	u32 addr = LOCAL_POOL_ADDR;
-	u32 fileSizePage = rtAlignToPageSize(fileSize);
-	ret = svcControlMemory(&outAddr, addr, 0, fileSizePage, MEMOP_ALLOC, MEMPERM_READWRITE);
-	if (ret != 0) {
-		showDbg("Failed to get allocate memory for pm payload: %08x.", ret, 0);
-		goto file_final;
-	}
-
-	u32 bytesRead;
-	ret = FSFILE_Read(file, &bytesRead, 0, (void *)addr, fileSize);
-	if (ret != 0) {
-		showDbg("Failed to read pm payload: %08x.", ret, 0);
-		svcControlMemory(NULL, addr, 0, fileSizePage, MEMOP_FREE, 0);
-		goto file_final;
-	}
-
-	fileLoaded = 1;
-
-file_final:
-	FSFILE_Close(file);
-	if (!fileLoaded)
-		goto final;
-
-	arm11BinStart = addr;
-	arm11BinSize = fileSize;
-
-final:
-	return fileLoaded ? 0 : -1;
-}
-
-static void unloadPayloadBin(void) {
-	if (arm11BinStart) {
-		svcControlMemory(NULL, arm11BinStart, 0, rtAlignToPageSize(arm11BinSize), MEMOP_FREE, 0);
-		arm11BinStart = 0;
-		arm11BinSize = 0;
-	}
-}
-
 static void menuThread(void *) {
 	Result ret;
 	ret = initDirectScreenAccess();
@@ -160,9 +105,11 @@ static void menuThread(void *) {
 
 	Handle fsUserHandle = *(u32 *)ntrConfig->HomeFSUHandleAddr;
 	fsUseSession(fsUserHandle);
-	ret = loadPayloadBin(NTR_BIN_PM);
-	if (ret != 0)
+	ret = loadPayloadBin(NTR_BIN_PM, 0);
+	if (ret != 0) {
+		showMsg("Loading pm payload failed.");
 		goto final;
+	}
 
 	rtInitHook(&HomeFSReadHook, ntrConfig->HomeFSReadAddr, (u32)HomeFSReadCallback);
 	rtEnableHook(&HomeFSReadHook);
@@ -202,7 +149,8 @@ void nsHandlePacket(void) {
 }
 
 int main(void) {
-	startupInit();
+	if (startupInit(1) != 0)
+		return 0;
 
 	Handle hThread;
 	u32 *threadStack = (void *)(NS_CONFIG_ADDR + NS_CONFIG_MAX_SIZE);

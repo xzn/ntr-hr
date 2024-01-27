@@ -1,6 +1,6 @@
 #ifndef INIT_H
 #define INIT_H
 
-void startupInit(void);
+int startupInit(int initPlgLoaderInfo);
 
 #endif

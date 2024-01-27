@@ -6,17 +6,17 @@
 #include <errno.h>
 
 void rtInitLock(RT_LOCK *lock) {
-	__atomic_clear(lock, __ATOMIC_RELEASE);
+	ACL(lock);
 }
 
 void rtAcquireLock(RT_LOCK *lock) {
-	while( __atomic_test_and_set(lock, __ATOMIC_ACQUIRE)) {
+	while(ATSL(lock)) {
 		svcSleepThread(1000000);
 	}
 }
 
 void rtReleaseLock(RT_LOCK *lock) {
-	__atomic_clear(lock, __ATOMIC_RELEASE);
+	ACL(lock);
 }
 
 void rtGenerateJumpCode(u32 dst, u32* buf) {
@@ -96,7 +96,7 @@ u32 rtGetThreadReg(Handle hProcess, u32 tid, u32 *ctx) {
 }
 
 u32 rtFlushInstructionCache(void *ptr, u32 size) {
-	return svcFlushProcessDataCache(0xffff8001, (u32)ptr, size);
+	return svcFlushProcessDataCache(CUR_PROCESS_HANDLE, (u32)ptr, size);
 }
 
 int rtRecvSocket(u32 sockfd, u8 *buf, int size)

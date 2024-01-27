@@ -3,6 +3,7 @@
 
 #include "3ds/types.h"
 #include "ntr_config.h"
+#include "rp.h"
 #include "rt.h"
 #include "constants.h"
 
@@ -37,14 +38,15 @@ typedef struct {
 
 	u32 sharedFunc[100];
 
-	/* Plugins NS_CONFIG end here */
+	/* Plugin's NS_CONFIG ends here */
 	NTR_CONFIG ntrConfig;
+	RP_CONFIG rpConfig;
 } NS_CONFIG;
 
 extern NS_CONFIG* nsConfig;
 
 void nsStartup(void);
-u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, u32 binStart, u32 binSize);
+u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg);
 void nsHandlePacket(void);
 void nsHandleDbgPrintPacket(void);
 void nsHandleMenuPacket(void);

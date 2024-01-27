@@ -4,6 +4,19 @@
 #include "3ds/types.h"
 
 typedef struct {
+	u32 noPlugins;
+	u32 noCTRPFCompat;
+	u32 remotePlayBoost;
+	u32 noLoaderMem;
+	u32 plgMemSizeTotal;
+} PLGLOADER_EX_INFO;
+
+typedef struct {
+	u32 nsUseDbg;
+	PLGLOADER_EX_INFO plg;
+} NTR_EX_CONFIG;
+
+typedef struct {
 	u32 bootNTRVersion;
 	u32 isNew3DS;
 	u32 firmVersion;
@@ -40,6 +53,7 @@ typedef struct {
 	char ntrFilePath[0x100];
 
 	/* BootNTR's NTR_CONFIG ends here */
+	NTR_EX_CONFIG ex;
 } NTR_CONFIG;
 
 #endif

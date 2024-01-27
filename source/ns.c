@@ -1,6 +1,7 @@
 #include "global.h"
 
 #include "3ds/services/soc.h"
+#include "3ds/services/hid.h"
 
 #include <memory.h>
 #include <arpa/inet.h>
@@ -75,7 +76,7 @@ static int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC) {
 	return 0;
 }
 
-u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, u32 binStart, u32 binSize) {
+u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	u32 size = 0;
 	u32* buf = 0;
 	u32 baseAddr = NS_CONFIG_ADDR;
@@ -89,8 +90,8 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, u32 binStart,
 	u32 pcTries;
 
 	arm11StartAddress = baseAddr + offset;
-	buf = (u32*)binStart;
-	size = binSize;
+	buf = (u32 *)arm11BinStart;
+	size = arm11BinSize;
 	nsDbgPrint("buf: %08x, size: %08x\n", buf, size);
 
 	if (!buf) {
@@ -112,7 +113,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, u32 binStart,
 		goto final;
 	}
 	// load arm11.bin code at arm11StartAddress
-	ret = copyRemoteMemory(hProcess, (void *)arm11StartAddress, 0xffff8001, buf, size);
+	ret = copyRemoteMemory(hProcess, (void *)arm11StartAddress, CUR_PROCESS_HANDLE, buf, size);
 	if (ret != 0) {
 		showDbg("copyRemoteMemory payload failed: %08x", ret, 0);
 		goto final;
@@ -127,7 +128,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, u32 binStart,
 	cfg->initMode = NS_INITMODE_FROMHOOK;
 
 	// store original 8-byte code
-	ret = copyRemoteMemory(0xffff8001, &(cfg->startupInfo[0]), hProcess, (void *)remotePC, 8);
+	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, &(cfg->startupInfo[0]), hProcess, (void *)remotePC, 8);
 	if (ret != 0) {
 		showDbg("copyRemoteMemory original code to be hooked failed: %08x", ret, 0);
 		goto final;
@@ -135,7 +136,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, u32 binStart,
 	cfg->startupInfo[2] = remotePC;
 
 	// copy cfg structure to remote process
-	ret = copyRemoteMemory(hProcess, (void *)baseAddr, 0xffff8001, cfg, sizeof(NS_CONFIG));
+	ret = copyRemoteMemory(hProcess, (void *)baseAddr, CUR_PROCESS_HANDLE, cfg, sizeof(NS_CONFIG));
 	if (ret != 0) {
 		showDbg("copyRemoteMemory ns_config failed: %08x", ret, 0);
 		goto final;
@@ -157,7 +158,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, u32 binStart,
 			goto lock_failed;
 		}
 
-		ret = copyRemoteMemory(hProcess, (void *)remotePC, 0xffff8001, &tmp, 8);
+		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &tmp, 8);
 		if (ret != 0) {
 			showDbg("copyRemoteMemory hook instruction failed: %08x", ret, 0);
 			goto lock_failed;
@@ -212,7 +213,14 @@ void nsHandleDbgPrintPacket(void) {
 }
 
 static void nsHandleRemotePlay(void) {
-	// TODO
+	NS_PACKET* pac = &nsContext->packetBuf;
+	RP_CONFIG config = {};
+	config.mode = pac->args[0];
+	config.quality = pac->args[1];
+	config.qos = pac->args[2];
+	if (pac->args[3] == 1404036572) /* guarding magic */
+		config.dstPort = pac->args[4];
+	rpStartupFromMenu(&config);
 }
 
 void nsHandleMenuPacket(void) {
@@ -353,5 +361,12 @@ void nsStartup(void) {
 }
 
 Handle envGetHandle(const char*) {
+	return 0;
+}
+
+int nsDbgNext(void) {
+	if ((getKey() & KEY_DDOWN)) {
+		return 1;
+	}
 	return 0;
 }

@@ -4,9 +4,6 @@
 
 extern int _BootArgs[];
 
-static u32 arm11BinStart;
-static u32 arm11BinSize;
-
 static void initBootVars(void) {
 	ntrConfig = (void *)_BootArgs[0];
 	showDbgFunc = (void *)ntrConfig->showDbgFunc;
@@ -24,7 +21,7 @@ static void doKernelHax(void) {
 }
 
 static int injectToHomeMenu(void) {
-	NS_CONFIG cfg;
+	NS_CONFIG cfg = { 0 };
 	Handle hProcess = 0;
 	int ret = 0;
 	ret = svcOpenProcess(&hProcess, ntrConfig->HomeMenuPid);
@@ -33,9 +30,13 @@ static int injectToHomeMenu(void) {
 		goto final;
 	}
 
-	memset(&cfg, 0, sizeof(NS_CONFIG));
-	memcpy(&cfg.ntrConfig, ntrConfig, sizeof(NTR_CONFIG));
-	ret = nsAttachProcess(hProcess, ntrConfig->HomeMenuInjectAddr, &cfg, arm11BinSize, arm11BinSize);
+	memcpy(&cfg.ntrConfig, ntrConfig, offsetof(NTR_CONFIG, ex));
+	cfg.ntrConfig.ex.nsUseDbg = nsDbgNext();
+	if (cfg.ntrConfig.ex.nsUseDbg) {
+		disp(100, 0x17f7f7f);
+	}
+
+	ret = nsAttachProcess(hProcess, ntrConfig->HomeMenuInjectAddr, &cfg);
 
 	svcCloseHandle(hProcess);
 

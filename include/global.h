@@ -7,6 +7,7 @@
 #include "proc.h"
 #include "ns.h"
 #include "init.h"
+#include "rp.h"
 
 #include "ntr_config.h"
 

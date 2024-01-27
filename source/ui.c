@@ -36,6 +36,7 @@ void disp(u32 t, u32 cl) {
 }
 
 int initDirectScreenAccess(void) {
+	// TODO
 	return 0;
 }
 
