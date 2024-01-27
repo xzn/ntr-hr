@@ -1,7 +1,6 @@
 #ifndef FUNC_H
 #define FUNC_H
 
-#include <stdarg.h>
 #include "3ds/types.h"
 
 #define REG(x)   (*(volatile u32*)(x))

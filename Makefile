@@ -80,9 +80,11 @@ bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) | libctru_ntr.a
 bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) $(OBJ_NWM) obj/rp_lto.o | libctru_ntr.a
 	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
-libctru_ntr.a:
+libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
+	$(CP) $< $@
+
+$(CTRU_DIR)/lib/libctru.a:
 	$(MAKE) -C $(CTRU_DIR) lib/libctru.a
-	$(CP) $(CTRU_DIR)/lib/libctru.a $@
 
 CC_WARNS = -Wall -Wextra
 

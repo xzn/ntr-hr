@@ -72,7 +72,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 	}
 	plgLoader->gamePluginPid = pid;
 	ret = copyRemoteMemory(
-		hProcess, (u8 *)plgLoader + offsetof(PLGLOADER_INFO, gamePluginPid),
+		hProcess, &plgLoader->gamePluginPid,
 		CUR_PROCESS_HANDLE, &plgLoader->gamePluginPid,
 		sizeof(plgLoader->gamePluginPid));
 	if (ret != 0) {

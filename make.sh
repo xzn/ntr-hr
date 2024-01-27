@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
-rm libctru_ntr.a
+make -j$(nproc) -C libctru/libctru lib/libctru.a
 make -j$(nproc)
