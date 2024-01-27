@@ -309,31 +309,31 @@ static void nsThread(void *arg) {
 	svcExitThread();
 }
 
-void nsStartup(void) {
+int nsStartup(void) {
 	u32 socuSharedBufferSize;
 	u32 bufferSize;
 	socuSharedBufferSize = 0x10000;
 	bufferSize = socuSharedBufferSize + rtAlignToPageSize(sizeof(NS_CONTEXT)) + STACK_SIZE;
 	u32 base = NS_SOC_ADDR;
-	s32 ret;
+	s32 ret, res;
 	u32 outAddr;
 
 	ret = svcControlMemory(&outAddr, base, 0, bufferSize, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
-		showDbg("svcControlMemory failed: %08x", ret, 0);
-		return;
+		showDbg("svcControlMemory alloc failed: %08x", ret, 0);
+		goto fail;
 	}
 
 	ret = rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), base, bufferSize);
 	if (ret != 0) {
 		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08x", ret, 0);
-		return;
+		goto fail_alloc;
 	}
 
 	ret = socInit((u32 *)outAddr, socuSharedBufferSize);
 	if (ret != 0) {
 		showDbg("socInit failed: %08x", ret, 0);
-		return;
+		goto fail_alloc;
 	}
 
 	nsContext = (void*)(outAddr + socuSharedBufferSize);
@@ -345,19 +345,37 @@ void nsStartup(void) {
 	}
 
 
-	nsConfig->debugBuf = nsContext->debugBuf;
-	nsConfig->debugPtr = 0;
-	nsConfig->debugBufSize = DEBUG_BUF_SIZE;
-	rtInitLock(&nsConfig->debugBufferLock);
-	nsConfig->debugReady = 1;
+	if (!ATSR(nsConfig->debugReady)) {
+		rtInitLock(&nsConfig->debugBufferLock);
+		nsConfig->debugBuf = nsContext->debugBuf;
+		nsConfig->debugPtr = 0;
+		nsConfig->debugBufSize = DEBUG_BUF_SIZE;
+	}
 
 	Handle hThread;
 	u32 *threadStack = (void *)(outAddr + socuSharedBufferSize + rtAlignToPageSize(sizeof(NS_CONTEXT)));
 	ret = svcCreateThread(&hThread, nsThread, listenPort, &threadStack[(STACK_SIZE / 4) - 10], 0x10, -2);
 	if (ret != 0) {
 		showDbg("svcCreateThread failed: %08x", ret, 0);
-		return;
+		goto fail_soc;
 	}
+
+	return 0;
+
+fail_soc:
+	res = socExit();
+	if (res != 0) {
+		nsDbgPrint("socExit failed: %08x\n", ret);
+	}
+
+fail_alloc:
+	res = svcControlMemory(NULL, base, 0, bufferSize, MEMOP_FREE, 0);
+	if (res != 0) {
+		nsDbgPrint("svcControlMemory free failed: %08x\n", ret);
+	}
+
+fail:
+	return ret;
 }
 
 Handle envGetHandle(const char*) {

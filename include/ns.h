@@ -45,7 +45,7 @@ typedef struct {
 
 extern NS_CONFIG* nsConfig;
 
-void nsStartup(void);
+int nsStartup(void);
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg);
 void nsHandlePacket(void);
 void nsHandleDbgPrintPacket(void);
