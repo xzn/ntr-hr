@@ -10,7 +10,7 @@ void rtInitLock(RT_LOCK *lock) {
 }
 
 void rtAcquireLock(RT_LOCK *lock) {
-	while(ATSL(lock)) {
+	while (ATSL(lock)) {
 		svcSleepThread(1000000);
 	}
 }

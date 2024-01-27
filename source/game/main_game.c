@@ -1,7 +1,7 @@
 #include "global.h"
 
 int main(void) {
-	if (startupInit(1) != 0)
+	if (startupInit(0) != 0)
 		return 0;
 
 	// TODO
