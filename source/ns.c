@@ -78,30 +78,6 @@ void __attribute__((weak)) nsDbgPrintRaw(const char *fmt, ...) {
 	va_end(arp);
 }
 
-static int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC) {
-	s32 ret, i;
-	u32 tids[LOCAL_TID_BUF_COUNT];
-	s32 tidCount;
-	u32 ctx[400];
-
-	ret = svcGetThreadList(&tidCount, tids, LOCAL_TID_BUF_COUNT, hProcess);
-	if (ret != 0) {
-		return -1;
-	}
-
-	for (i = 0; i < tidCount; ++i) {
-		u32 tid = tids[i];
-		memset(ctx, 0x33, sizeof(ctx));
-		if (rtGetThreadReg(hProcess, tid, ctx) != 0)
-			return -1;
-		u32 pc = ctx[15];
-		if (remotePC >= pc - 16 && remotePC < pc + 8)
-			return -1;
-	}
-
-	return 0;
-}
-
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	u32 size = 0;
 	u32* buf = 0;
@@ -112,8 +88,6 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	u32 tmp[20];
 	u32 arm11StartAddress;
 	u32 offset = NS_CONFIG_MAX_SIZE + stackSize;
-	u32 pcDone = 0;
-	u32 pcTries;
 
 	arm11StartAddress = baseAddr + offset;
 	buf = (u32 *)arm11BinStart;
@@ -129,25 +103,25 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 
 	ret = mapRemoteMemory(hProcess, baseAddr, totalSize, MEMOP_ALLOC);
 	if (ret != 0) {
-		showDbg("mapRemoteMemory failed: %08"PRIx32"", ret);
+		showDbg("mapRemoteMemory failed: %08"PRIx32, ret);
 		return ret;
 	}
 	// set rwx
 	ret = protectRemoteMemory(hProcess, (void *)baseAddr, totalSize);
 	if (ret != 0) {
-		showDbg("protectRemoteMemory failed: %08"PRIx32"", ret);
+		showDbg("protectRemoteMemory failed: %08"PRIx32, ret);
 		goto final;
 	}
 	// load arm11.bin code at arm11StartAddress
 	ret = copyRemoteMemory(hProcess, (void *)arm11StartAddress, CUR_PROCESS_HANDLE, buf, size);
 	if (ret != 0) {
-		showDbg("copyRemoteMemory payload failed: %08"PRIx32"", ret);
+		showDbg("copyRemoteMemory payload failed: %08"PRIx32, ret);
 		goto final;
 	}
 
 	ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, remotePC, 8);
 	if (ret != 0) {
-		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08"PRIx32"", ret);
+		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08"PRIx32, ret);
 		goto final;
 	}
 
@@ -156,7 +130,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	// store original 8-byte code
 	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, &(cfg->startupInfo[0]), hProcess, (void *)remotePC, 8);
 	if (ret != 0) {
-		showDbg("copyRemoteMemory original code to be hooked failed: %08"PRIx32"", ret);
+		showDbg("copyRemoteMemory original code to be hooked failed: %08"PRIx32, ret);
 		goto final;
 	}
 	cfg->startupInfo[2] = remotePC;
@@ -164,50 +138,26 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	// copy cfg structure to remote process
 	ret = copyRemoteMemory(hProcess, (void *)baseAddr, CUR_PROCESS_HANDLE, cfg, sizeof(NS_CONFIG));
 	if (ret != 0) {
-		showDbg("copyRemoteMemory ns_config failed: %08"PRIx32"", ret);
+		showDbg("copyRemoteMemory ns_config failed: %08"PRIx32, ret);
 		goto final;
 	}
 
 	// write hook instructions to remote process
 	tmp[0] = 0xe51ff004;
 	tmp[1] = arm11StartAddress;
-	pcTries = 20;
-	while (!pcDone && pcTries) {
-		ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
-		if (ret != 0) {
-			showDbg("locking remote process failed: %08"PRIx32"", ret);
-			goto final;
-		}
-
-		ret = nsCheckPCSafeToWrite(hProcess, remotePC);
-		if (ret != 0) {
-			goto lock_failed;
-		}
-
-		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &tmp, 8);
-		if (ret != 0) {
-			showDbg("copyRemoteMemory hook instruction failed: %08"PRIx32"", ret);
-			goto lock_failed;
-		}
-
-		pcDone = 1;
-		goto lock_final;
-
-lock_failed:
-		svcSleepThread(50000000);
-		--pcTries;
-
-lock_final:
-		ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
-		if (ret != 0) {
-			showDbg("unlocking remote process failed: %08"PRIx32"", ret);
-			goto final;
-		}
+	ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &tmp, 8);
+	if (ret != 0) {
+		showDbg("copyRemoteMemory hook instruction failed: %08"PRIx32, ret);
+		goto final;
 	}
-	return ret;
+
+	return 0;
 
 final:
-	mapRemoteMemory(hProcess, baseAddr, totalSize, MEMOP_FREE);
+	s32 res = mapRemoteMemory(hProcess, baseAddr, totalSize, MEMOP_FREE);
+	if (res != 0) {
+		nsDbgPrint("mapRemoteMemory free failed: %08"PRIx32, res);
+	}
 	return ret;
 }
 
@@ -280,7 +230,7 @@ static void nsMainLoop(u32 listenPort) {
 
 		ret = bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr));
 		if (ret < 0) {
-			showDbg("bind failed: %08"PRIx32"", ret);
+			showDbg("bind failed: %08"PRIx32, (u32)errno);
 			goto end_listen;
 		}
 
@@ -291,7 +241,7 @@ static void nsMainLoop(u32 listenPort) {
 
 		ret = listen(listen_sock, 1);
 		if (ret < 0) {
-			showDbg("listen failed: %08"PRIx32"", ret);
+			showDbg("listen failed: %08"PRIx32, (u32)errno);
 			goto end_listen;
 		}
 
@@ -341,32 +291,33 @@ int nsStartup(void) {
 	u32 socuSharedBufferSize;
 	u32 bufferSize;
 	socuSharedBufferSize = NS_SOC_SHARED_BUF_SIZE;
-	bufferSize = socuSharedBufferSize + rtAlignToPageSize(sizeof(NS_CONTEXT)) + STACK_SIZE;
+	u32 offset = STACK_SIZE + rtAlignToPageSize(sizeof(NS_CONTEXT));
+	bufferSize = socuSharedBufferSize + offset;
 	u32 base = NS_SOC_ADDR;
 	s32 ret, res;
 	u32 outAddr;
 
 	ret = svcControlMemory(&outAddr, base, base, bufferSize, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
-		showDbg("svcControlMemory alloc failed: %08"PRIx32"", ret);
+		showDbg("svcControlMemory alloc failed: %08"PRIx32, ret);
 		goto fail;
 	}
 
 	ret = rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), base, bufferSize);
 	if (ret != 0) {
-		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08"PRIx32"", ret);
+		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08"PRIx32, ret);
 		goto fail_alloc;
 	}
 
 	ret = srvInit();
 	if (ret != 0) {
-		showDbg("srvInit failed: %08"PRIx32"", ret);
+		showDbg("srvInit failed: %08"PRIx32, ret);
 		goto fail_alloc;
 	}
 
-	ret = socInit((u32 *)base, socuSharedBufferSize);
+	ret = socInit((u32 *)(base + offset), socuSharedBufferSize);
 	if (ret != 0) {
-		showDbg("socInit failed: %08"PRIx32"", ret);
+		showDbg("socInit failed: %08"PRIx32, ret);
 		goto fail_srv;
 	}
 
@@ -386,10 +337,10 @@ int nsStartup(void) {
 	}
 
 	Handle hThread;
-	u32 *threadStack = (void *)(base + socuSharedBufferSize + rtAlignToPageSize(sizeof(NS_CONTEXT)));
+	u32 *threadStack = (u32 *)base;
 	ret = svcCreateThread(&hThread, nsThread, listenPort, &threadStack[(STACK_SIZE / 4) - 10], 0x10, -2);
 	if (ret != 0) {
-		showDbg("svcCreateThread failed: %08"PRIx32"", ret);
+		showDbg("svcCreateThread failed: %08"PRIx32, ret);
 		goto fail_soc;
 	}
 

@@ -200,7 +200,7 @@ static int pmLoadPluginsForGame(void) {
 
 	plgAddPluginsFromDirectory("game");
 	char buf[32];
-	xsnprintf(buf, sizeof(buf), "%08"PRIx32"%08"PRIx32"", plgLoader->tid[1], plgLoader->tid[0]);
+	xsnprintf(buf, sizeof(buf), "%08"PRIx32"%08"PRIx32, plgLoader->tid[1], plgLoader->tid[0]);
 	plgAddPluginsFromDirectory(buf);
 	return 0;
 }

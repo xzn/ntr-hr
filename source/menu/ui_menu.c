@@ -122,7 +122,6 @@ void acquireVideo(void) {
 		svcKernelSetState(0x10000, 4, 0, 0);
 		lockGameProcess();
 
-		while((GPU_PSC0_CNT | GPU_PSC1_CNT | GPU_TRANSFER_CNT | GPU_CMDLIST_CNT) & 1) {}
 		backupGpuRegs();
 		backupVRAMBuffer();
 

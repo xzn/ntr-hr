@@ -279,14 +279,14 @@ static void menuThread(void *) {
 	rtInitHook(&HomeCardUpdateInitHook, ntrConfig->HomeCardUpdateInitAddr, (u32)HomeCardUpdateInitCallback);
 	rtEnableHook(&HomeCardUpdateInitHook);
 
-	nsConfig->initMode = NS_INITMODE_FROMBOOT;
-
-	nsStartup();
 	ret = injectToPM();
 	unloadPayloadBin();
 
 	if (ret != 0)
 		goto final;
+
+	nsConfig->initMode = NS_INITMODE_FROMBOOT;
+	nsStartup();
 
 	int waitCnt = 0;
 	while (1) {

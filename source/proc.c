@@ -59,7 +59,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size, u32 op) {
 		return ret;
 	}
 	if (outAddr != addr) {
-		nsDbgPrint("outAddr: %08"PRIx32", addr: %08"PRIx32"", outAddr, addr);
+		nsDbgPrint("outAddr: %08"PRIx32", addr: %08"PRIx32, outAddr, addr);
 		return 0;
 	}
 	return 0;
@@ -118,7 +118,7 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 	}
 	ret = svcWaitSynchronization(hdma, COPY_REMOTE_MEMORY_TIMEOUT);
 	if (ret != 0) {
-		showDbg("copyRemoteMemory time out (or error) %08"PRIx32"", ret);
+		showDbg("copyRemoteMemory time out (or error) %08"PRIx32, ret);
 		svcCloseHandle(hdma);
 		return 1;
 	}
