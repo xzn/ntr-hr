@@ -3,7 +3,6 @@
 #include "3ds/services/fs.h"
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
-#include "3ds/srv.h"
 
 #include <memory.h>
 
@@ -281,7 +280,6 @@ static void menuThread(void *) {
 	rtEnableHook(&HomeCardUpdateInitHook);
 
 	nsConfig->initMode = NS_INITMODE_FROMBOOT;
-	srvInit();
 
 	nsStartup();
 	ret = injectToPM();
