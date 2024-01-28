@@ -67,3 +67,5 @@ int showMsgVerbose(const char *msg, const char *, int, const char *) {
 int showMsgRaw(const char *msg) {
 	return showMsgDbgFunc(msg);
 }
+
+void nsDbgPrintRaw(const char *, ...) {}

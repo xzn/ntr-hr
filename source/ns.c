@@ -70,7 +70,7 @@ void nsDbgPrintVA(const char *fmt, va_list arp) {
 	}
 }
 
-void nsDbgPrintRaw(const char *fmt, ...) {
+void __attribute__((weak)) nsDbgPrintRaw(const char *fmt, ...) {
 	va_list arp;
 	va_start(arp, fmt);
 	nsDbgPrintVA(fmt, arp);

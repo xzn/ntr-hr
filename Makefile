@@ -45,8 +45,8 @@ NTR_BIN_NWM := ntr.hr.nwm.bin
 NTR_BIN_GAME := ntr.hr.game.bin
 
 PAYLOAD_BIN := $(NTR_BIN_BOOT) $(NTR_BIN_MENU) $(NTR_BIN_PM) $(NTR_BIN_NWM) $(NTR_BIN_GAME)
-PAYLOAD_TARGET_DIR := ../BootNTR-Selector/romfs/
-PAYLOAD_TARGET_BIN := $(addprefix $(PAYLOAD_TARGET_DIR),$(PAYLOAD_BIN))
+PAYLOAD_TARGET_DIR := ../BootNTR-Bins/romfs
+PAYLOAD_TARGET_BIN := $(addprefix $(PAYLOAD_TARGET_DIR)/,$(PAYLOAD_BIN))
 
 PAYLOAD_LOCAL_BIN := $(addprefix release/,$(PAYLOAD_BIN))
 PAYLOAD_LOCAL_ELF := $(addprefix bin/,$(PAYLOAD_BIN:.bin=.elf))
