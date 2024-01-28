@@ -55,7 +55,7 @@ all: $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF)
 
 install: $(PAYLOAD_TARGET_BIN)
 
-CP_CMD = @echo \*$(notdir $@); $(CP) $< $@
+CP_CMD = @echo \* $(notdir $@) \*; $(CP) $< $@
 
 $(PAYLOAD_TARGET_DIR)/%.bin: release/%.bin
 	$(CP_CMD)

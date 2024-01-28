@@ -346,7 +346,7 @@ int nsStartup(void) {
 	s32 ret, res;
 	u32 outAddr;
 
-	ret = svcControlMemory(&outAddr, base, 0, bufferSize, MEMOP_ALLOC, MEMPERM_READWRITE);
+	ret = svcControlMemory(&outAddr, base, base, bufferSize, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
 		showDbg("svcControlMemory alloc failed: %08"PRIx32"", ret);
 		goto fail;
@@ -405,7 +405,7 @@ fail_srv:
 	srvExit();
 
 fail_alloc:
-	res = svcControlMemory(NULL, base, 0, bufferSize, MEMOP_FREE, 0);
+	res = svcControlMemory(&outAddr, base, base, bufferSize, MEMOP_FREE, 0);
 	if (res != 0) {
 		nsDbgPrint("svcControlMemory free failed: %08"PRIx32"\n", ret);
 	}

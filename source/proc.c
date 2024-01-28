@@ -52,7 +52,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size, u32 op) {
 	u32 oldKP = kGetCurrentKProcess();
 
 	kSetCurrentKProcess(newKP);
-	ret = svcControlMemory(&outAddr, addr, 0, size, op, MEMPERM_READWRITE);
+	ret = svcControlMemory(&outAddr, addr, addr, size, op, MEMPERM_READWRITE);
 	kSetCurrentKProcess(oldKP);
 
 	if (ret != 0) {
@@ -74,7 +74,7 @@ u32 mapRemoteMemoryInLoader(Handle hProcess, u32 addr, u32 size, u32 op) {
 	u32 oldPid = kSwapProcessPid(newKP, 1);
 
 	kSetCurrentKProcess(newKP);
-	ret = svcControlMemory(&outAddr, addr, 0, size, op, MEMPERM_READWRITE);
+	ret = svcControlMemory(&outAddr, addr, addr, size, op, MEMPERM_READWRITE);
 	kSetCurrentKProcess(oldKP);
 	kSwapProcessPid(newKP, oldPid);
 	if (ret != 0) {
