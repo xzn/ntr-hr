@@ -203,7 +203,7 @@ void rpSetGamePid(u32) {
 	// TODO
 }
 
-static u32 plgRegisterMenuEntry(u32, const char *, const void *) { return -1; }
+static u32 plgRegisterMenuEntryStub(u32, const char *, const void *) { return -1; }
 
 static u32 plgGetSharedServiceHandle(const char* servName, u32* handle) {
 	if (strcmp(servName, "fs:USER") == 0) {
@@ -220,30 +220,30 @@ static u32 plgGetSharedServiceHandle(const char* servName, u32* handle) {
 	return 1;
 }
 
-static u32 controlVideo(u32, u32, u32, u32) {
+static u32 controlVideoStub(u32, u32, u32, u32) {
 	return 0;
 }
 
-static s32 showMenuEx(const char *, u32, const char *[], const char *[],  u32) {
+static s32 showMenuExStub(const char *, u32, const char *[], const char *[],  u32) {
 	return -1;
 }
 
-static void showDbgRawA2(const char *fmt, u32 v1, u32 v2) {
-	showDbgRaw(fmt, v1, v2);
-}
+static void showDbgRawA2Stub(const char *, u32, u32) {}
+
+static void nsDbgPrintRawStub(const char *, ...) {}
 
 #define INIT_SHARED_FUNC(name, id) (nsConfig->sharedFunc[id] = (u32)name)
 void initSharedFunc(void) {
-	INIT_SHARED_FUNC(showDbgRawA2, 0);
-	INIT_SHARED_FUNC(nsDbgPrintRaw, 1);
-	INIT_SHARED_FUNC(plgRegisterMenuEntry, 2);
+	INIT_SHARED_FUNC(showDbgRawA2Stub, 0);
+	INIT_SHARED_FUNC(nsDbgPrintRawStub, 1);
+	INIT_SHARED_FUNC(plgRegisterMenuEntryStub, 2);
 	INIT_SHARED_FUNC(plgGetSharedServiceHandle, 3);
 	INIT_SHARED_FUNC(plgRequestMemory, 4);
 	INIT_SHARED_FUNC(plgRegisterCallback, 5);
 	INIT_SHARED_FUNC(xsprintf, 6);
-	INIT_SHARED_FUNC(controlVideo, 7);
+	INIT_SHARED_FUNC(controlVideoStub, 7);
 	INIT_SHARED_FUNC(plgGetIoBase, 8);
 	INIT_SHARED_FUNC(copyRemoteMemory, 9);
 	INIT_SHARED_FUNC(plgSetValue, 10);
-	INIT_SHARED_FUNC(showMenuEx, 11);
+	INIT_SHARED_FUNC(showMenuExStub, 11);
 }
