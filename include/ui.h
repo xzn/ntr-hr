@@ -25,7 +25,13 @@ void disp(u32 t, u32 cl);
 
 extern u32 allowDirectScreenAccess;
 int initDirectScreenAccess(void);
+void acquireVideo(void);
+void releaseVideo(void);
+void updateScreen(void);
+
+int print(char *s, int x, int y, u8 r, u8 g, u8 b);
 
 u32 getKey(void);
+u32 waitKey(void);
 
 #endif

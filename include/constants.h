@@ -13,6 +13,7 @@
 #define IoBasePdc (0x10400000 + 0x80000000)
 
 // From Luma3DS
+#define GPU_FB_TOP_SIZE             (IoBasePdc + 0x45c)
 #define GPU_FB_TOP_LEFT_ADDR_1      (IoBasePdc + 0x468)
 #define GPU_FB_TOP_LEFT_ADDR_2      (IoBasePdc + 0x46C)
 #define GPU_FB_TOP_FMT              (IoBasePdc + 0x470)
@@ -23,6 +24,7 @@
 #define GPU_FB_TOP_RIGHT_ADDR_1     (IoBasePdc + 0x494)
 #define GPU_FB_TOP_RIGHT_ADDR_2     (IoBasePdc + 0x498)
 
+#define GPU_FB_BOTTOM_SIZE          (IoBasePdc + 0x55c)
 #define GPU_FB_BOTTOM_ADDR_1        (IoBasePdc + 0x568)
 #define GPU_FB_BOTTOM_ADDR_2        (IoBasePdc + 0x56C)
 #define GPU_FB_BOTTOM_FMT           (IoBasePdc + 0x570)

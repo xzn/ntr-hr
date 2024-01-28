@@ -61,7 +61,7 @@ static void nsDbgLn() {
 }
 
 void nsDbgPrintVA(const char *fmt, va_list arp) {
-	if (nsConfig->debugReady) {
+	if (ALR(nsConfig->debugReady)) {
 		rtAcquireLock(&nsConfig->debugBufferLock);
 		nsDbgLn();
 		struct ostrm const ostrm = { .func = nsDbgPutc };
