@@ -21,17 +21,20 @@ static int pmLoadPluginsForGame(PLGLOADER_INFO *, u32[2], PLGLOADER_EX_INFO *) {
 	return 0;
 }
 
+static void pmUnloadPluginsForGame(PLGLOADER_INFO *) {
+}
+
 static Handle loaderMemGameHandle;
 static u32 loaderMemPoolSize;
 
-static void pmFreeLoaderMemPool(int closeHandle) {
+static void pmFreeLoaderMemPool(int keepHandle) {
 	if (loaderMemGameHandle) {
 		u32 ret;
 		ret = mapRemoteMemoryInLoader(loaderMemGameHandle, PLG_LOADER_ADDR, loaderMemPoolSize, MEMOP_FREE);
 		if (ret != 0) {
 			nsDbgPrint("Free loader mem failed: %08x\n", ret);
 		}
-		if (closeHandle)
+		if (!keepHandle)
 			svcCloseHandle(loaderMemGameHandle);
 		loaderMemGameHandle = 0;
 		loaderMemPoolSize = 0;
@@ -64,7 +67,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 		return -1;
 	}
 
-	pmFreeLoaderMemPool(1);
+	pmFreeLoaderMemPool(0);
 
 	u32 pid = 0;
 	ret = svcGetProcessId(&pid, hProcess);
@@ -106,7 +109,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 				ret = mapRemoteMemory(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal);
 			if (ret != 0) {
 				nsDbgPrint("Alloc plugin memory failed: %08x\n", ret);
-				return ret;
+				goto error_alloc;
 			}
 
 			if (loaderMem) {
@@ -115,8 +118,8 @@ static int pmInjectToGame(Handle hGameProcess) {
 				if (ret != 0) {
 					nsDbgPrint("Dupping process handle failed: %08x\n", ret);
 					loaderMemGameHandle = hGameProcess;
-					pmFreeLoaderMemPool(0);
-					return ret;
+					pmFreeLoaderMemPool(1);
+					goto error_alloc;
 				}
 			}
 
@@ -129,6 +132,13 @@ static int pmInjectToGame(Handle hGameProcess) {
 			if (ret != 0) {
 				nsDbgPrint("Copy plugin loader ingo failed: %08x\n", ret);
 				goto error_alloc;
+			}
+
+error_alloc:
+			pmUnloadPluginsForGame(plgLoader);
+			if (ret) {
+				pmFreeLoaderMemPool(0);
+				return ret;
 			}
 		}
 
@@ -145,10 +155,6 @@ static int pmInjectToGame(Handle hGameProcess) {
 			goto error_alloc;
 		}
 	}
-	return 0;
-
-error_alloc:
-	pmFreeLoaderMemPool(1);
 	return 0;
 }
 
