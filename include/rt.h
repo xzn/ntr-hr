@@ -31,4 +31,9 @@ u32 rtFlushInstructionCache(void *ptr, u32 size);
 int rtRecvSocket(u32 sockfd, u8 *buf, int size);
 int rtSendSocket(u32 sockfd, u8 *buf, int size);
 
+Handle rtOpenFile(char *fileName);
+u32 rtGetFileSize(Handle file);
+u32 rtLoadFileToBuffer(Handle file, u32 *pBuf, u32 bufSize);
+void rtCloseFile(Handle file);
+
 #endif

@@ -16,7 +16,7 @@ static Handle getMenuProcess(void) {
 	return hMenuProcess;
 }
 
-static int pmLoadPluginsForGame(PLGLOADER_INFO *, u32[2], PLGLOADER_EX_INFO *) {
+static int pmLoadPluginsForGame(PLGLOADER_INFO *, PLGLOADER_EX_INFO *) {
 	// TODO
 	return 0;
 }
@@ -86,7 +86,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 	}
 	rpSetGamePid(pid);
 
-	ret = pmLoadPluginsForGame(plgLoader, tid, plgLoaderEx);
+	ret = pmLoadPluginsForGame(plgLoader, plgLoaderEx);
 	if (ret != 0) {
 		nsDbgPrint("Loading plugins for game %08x%08x failed\n", tid[1], tid[0]);
 	}

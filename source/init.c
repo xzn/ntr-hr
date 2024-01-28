@@ -154,17 +154,15 @@ int loadPayloadBin(char *name) {
 		goto final;
 	}
 
-	Handle file;
-	ret = FSUSER_OpenFileDirectly(&file, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL), fsMakePath(PATH_ASCII, fileName), FS_OPEN_READ, 0);
-	if (ret != 0) {
-		showDbg("Failed to open payload file: %08x.", ret, 0);
+	Handle file = rtOpenFile(fileName);
+	if (file == 0) {
+		showDbg("Failed to open payload file.", 0, 0);
 		goto final;
 	}
 
-	u64 fileSize;
-	ret = FSFILE_GetSize(file, &fileSize);
-	if (ret != 0) {
-		showDbg("Failed to get payload file size: %08x.", ret, 0);
+	u32 fileSize = rtGetFileSize(file);
+	if (fileSize == 0) {
+		showDbg("Failed to get payload file size/payload empty.", 0, 0);
 		goto file_final;
 	}
 
@@ -175,10 +173,9 @@ int loadPayloadBin(char *name) {
 		goto file_final;
 	}
 
-	u32 bytesRead;
-	ret = FSFILE_Read(file, &bytesRead, 0, (void *)addr, fileSize);
-	if (ret != 0) {
-		showDbg("Failed to read payload: %08x.", ret, 0);
+	u32 bytesRead = rtLoadFileToBuffer(file, (u32 *)addr, fileSize);
+	if (bytesRead == 0) {
+		showDbg("Failed to read payload.", 0, 0);
 		payloadBinFree(addr, fileSize);
 		goto file_final;
 	}
@@ -186,7 +183,7 @@ int loadPayloadBin(char *name) {
 	fileLoaded = 1;
 
 file_final:
-	FSFILE_Close(file);
+	rtCloseFile(file);
 	if (!fileLoaded)
 		goto final;
 

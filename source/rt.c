@@ -1,6 +1,7 @@
 #include "global.h"
 
 #include "3ds/services/soc.h"
+#include "3ds/services/fs.h"
 
 #include <memory.h>
 #include <errno.h>
@@ -145,4 +146,38 @@ int rtSendSocket(u32 sockfd, u8 *buf, int size)
 	}
 
 	return size;
+}
+
+Handle rtOpenFile(char *fileName) {
+	Handle file;
+	s32 ret = FSUSER_OpenFileDirectly(&file, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL), fsMakePath(PATH_ASCII, fileName), FS_OPEN_READ, 0);
+	if (ret != 0) {
+		nsDbgPrint("Failed to open file: %08x\n", ret);
+		return 0;
+	}
+	return file;
+}
+
+u32 rtGetFileSize(Handle file) {
+	u64 fileSize;
+	s32 ret = FSFILE_GetSize(file, &fileSize);
+	if (ret != 0) {
+		nsDbgPrint("Failed to get file size: %08x\n", ret);
+		return 0;
+	}
+	return (u32)fileSize;
+}
+
+u32 rtLoadFileToBuffer(Handle file, u32 *pBuf, u32 bufSize) {
+	u32 bytesRead;
+	s32 ret = FSFILE_Read(file, &bytesRead, 0, (void *)pBuf, bufSize);
+	if (ret != 0) {
+		nsDbgPrint("Failed to read file: %08x\n", ret);
+		return 0;
+	}
+	return bytesRead;
+}
+
+void rtCloseFile(Handle file) {
+	FSFILE_Close(file);
 }
