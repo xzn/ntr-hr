@@ -72,6 +72,9 @@ u32 plgPoolAlloc(u32 size) {
 	}
 
 	u32 addr = plgPoolEnd;
+	if (size == 0) {
+		return addr;
+	}
 	u32 outAddr;
 	u32 alignedSize = rtAlignToPageSize(size);
 	s32 ret = svcControlMemory(&outAddr, addr, 0, alignedSize, MEMOP_ALLOC, MEMPERM_READWRITE);
@@ -168,7 +171,7 @@ int loadPayloadBin(char *name) {
 	}
 
 	u32 bytesRead = rtLoadFileToBuffer(file, (u32 *)addr, fileSize);
-	if (bytesRead == 0) {
+	if (bytesRead != fileSize) {
 		showDbg("Failed to read payload.", 0, 0);
 		payloadBinFree(addr, fileSize);
 		goto file_final;

@@ -158,6 +158,16 @@ Handle rtOpenFile(char *fileName) {
 	return file;
 }
 
+Handle rtOpenFile16(u16 *fileName) {
+	Handle file;
+	s32 ret = FSUSER_OpenFileDirectly(&file, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL), fsMakePath(PATH_UTF16, fileName), FS_OPEN_READ, 0);
+	if (ret != 0) {
+		nsDbgPrint("Failed to open file: %08x\n", ret);
+		return 0;
+	}
+	return file;
+}
+
 u32 rtGetFileSize(Handle file) {
 	u64 fileSize;
 	s32 ret = FSFILE_GetSize(file, &fileSize);
@@ -168,7 +178,7 @@ u32 rtGetFileSize(Handle file) {
 	return (u32)fileSize;
 }
 
-u32 rtLoadFileToBuffer(Handle file, u32 *pBuf, u32 bufSize) {
+u32 rtLoadFileToBuffer(Handle file, void *pBuf, u32 bufSize) {
 	u32 bytesRead;
 	s32 ret = FSFILE_Read(file, &bytesRead, 0, (void *)pBuf, bufSize);
 	if (ret != 0) {

@@ -3,6 +3,9 @@
 #include "3ds/services/fs.h"
 
 #include <memory.h>
+#include <ctype.h>
+
+static FS_Archive sdmcArchive;
 
 static Handle hMenuProcess = 0;
 static Handle getMenuProcess(void) {
@@ -16,12 +19,203 @@ static Handle getMenuProcess(void) {
 	return hMenuProcess;
 }
 
-static int pmLoadPluginsForGame(void) {
-	// TODO
+static size_t wstrlen(const u16 *str) {
+	size_t len = 0;
+	while (*str) {
+		++len;
+		++str;
+	}
+	return len;
+}
+
+/* return len of str */
+static size_t wstrncpy(u16 *str, size_t len, const char *path) {
+	if (!len)
+		return 0;
+
+	size_t ret = 0;
+	while (1) {
+		*str = *path;
+		--len;
+		if (!len) {
+			*str = 0;
+			break;
+		}
+		if (!*str)
+			break;
+		++ret;
+		++str;
+		++path;
+	}
+	return ret;
+}
+
+static int wstricmp(const u16 *str, const char *suffix) {
+	while (*str || *suffix) {
+		if (toupper((u8)*str) != toupper((u8)*suffix)) {
+			if (*str < (u8)*suffix)
+				return -1;
+			if (*str > (u8)*suffix)
+				return 1;
+		}
+		++str;
+		++suffix;
+	}
 	return 0;
 }
 
-static void pmUnloadPluginsForGame(void) {
+static u32 plgListPluginsInDir(const char *path, u16 buf[LOCAL_DIR_LIST_BUF_COUNT], u16 *entries[MAX_PLUGIN_COUNT])  {
+	Handle hDir;
+	s32 res;
+	res = FSUSER_OpenDirectory(&hDir, sdmcArchive, fsMakePath(PATH_ASCII, path));
+	if (res != 0) {
+		return 0;
+	}
+	u32 entriesCount = 0;
+	u32 bufOffset = 0;
+	while (entriesCount < MAX_PLUGIN_COUNT) {
+		u32 nRead;
+		FS_DirectoryEntry dirEntry;
+		res = FSDIR_Read(hDir, &nRead, 1, &dirEntry);
+		if (res != 0 || nRead == 0)
+			break;
+		size_t count = wstrlen(dirEntry.name);
+		if (bufOffset + count >= LOCAL_DIR_LIST_BUF_COUNT)
+			break;
+		entries[entriesCount] = &buf[bufOffset];
+		memcpy(buf + bufOffset, dirEntry.name, count);
+		bufOffset += count;
+		buf[bufOffset] = 0;
+		++bufOffset;
+
+		++entriesCount;
+	}
+	FSDIR_Close(hDir);
+	return 0;
+}
+
+static int plgGetFileNamePluginType(const u16 *name) {
+	size_t len = wstrlen(name);
+
+	char suffix[] = ".plg";
+	size_t suffix_len = sizeof(suffix) - 1;
+
+	if (len <= suffix_len)
+		return -1;
+	if (name[0] == '.')
+		return -1;
+	if (wstricmp(name + len - suffix_len, suffix) != 0)
+		return -1;
+	return 0;
+}
+
+static int pathnjoin(u16 plgPath[PATH_MAX], const char *path, const u16 *entry) {
+	size_t count = wstrncpy(plgPath, PATH_MAX, path);
+	size_t len = wstrlen(entry);
+	if (count + 1 + len >= PATH_MAX) {
+		return -1;
+	}
+	plgPath += count;
+	*plgPath = '/';
+	++plgPath;
+
+	memcpy(plgPath, entry, len * sizeof(*entry));
+	plgPath += len;
+	*plgPath = 0;
+	return 0;
+}
+
+static u32 plgAddPluginsFromDirectory(const char *dir) {
+	char path[PATH_MAX];
+	u16 plgPath[PATH_MAX];
+	if (xsnprintf(path, PATH_MAX, "/plugin/%s", dir) != 0)
+		return 0;
+
+	u16 buf[LOCAL_DIR_LIST_BUF_COUNT];
+	u16 *entries[MAX_PLUGIN_COUNT];
+	u32 cnt = plgListPluginsInDir(path, buf, entries);
+
+	u32 outCnt = 0;
+	for (u32 i = 0; i < cnt; ++i) {
+		if (plgGetFileNamePluginType(entries[i]) != 0) {
+			continue;
+		}
+
+		if (pathnjoin(plgPath, path, entries[i]) != 0)
+			continue;
+
+		Handle file = rtOpenFile16(plgPath);
+		if (file == 0) {
+			continue;
+		}
+
+		u32 fileSize = rtGetFileSize(file);
+		if (fileSize == 0) {
+			goto fail_file;
+		}
+
+		u32 addr = plgPoolAlloc(fileSize);
+		if (addr == 0) {
+			goto fail_file;
+		}
+
+		u32 bytesRead = rtLoadFileToBuffer(file, (void *)addr, fileSize);
+		if (bytesRead != fileSize) {
+			plgPoolFree(addr, fileSize);
+			goto fail_file;
+		}
+		rtCloseFile(file);
+
+		plgLoader->plgBufferPtr[plgLoader->plgCount] = addr;
+		plgLoader->plgSize[plgLoader->plgCount] = fileSize;
+		++plgLoader->plgCount;
+
+		++outCnt;
+		continue;
+
+fail_file:
+		rtCloseFile(file);
+	}
+
+	return outCnt;
+}
+
+static u32 plgLoaderPluginsBegin(void) {
+	return (u32)((u8 *)plgLoader + rtAlignToPageSize(sizeof(PLGLOADER_INFO)));
+}
+
+static u32 plgLoaderPluginsEnd(void) {
+	return (u32)((u8 *)plgLoader + rtAlignToPageSize(plgLoaderEx->plgMemSizeTotal));
+}
+
+static int pmLoadPluginsForGame(void) {
+	plgLoaderEx->plgMemSizeTotal = 0;
+	if (plgLoaderEx->noPlugins)
+		return 0;
+
+	if (plgPoolAlloc(0) != plgLoaderPluginsBegin()) {
+		showDbg("Plugin loader memory pool at wrong address.", 0, 0);
+		return -1;
+	}
+
+	plgAddPluginsFromDirectory("game");
+	char buf[32];
+	xsnprintf(buf, sizeof(buf), "%08x%08x", plgLoader->tid[1], plgLoader->tid[0]);
+	plgAddPluginsFromDirectory(buf);
+	return 0;
+}
+
+static int pmUnloadPluginsForGame(void) {
+	u32 addr = plgLoaderPluginsBegin();
+	u32 addrEnd = plgLoaderPluginsEnd();
+	if (addrEnd != plgPoolAlloc(0)) {
+		showDbg("Plugin loader memory pool unexpected size.", 0, 0);
+		return -1;
+	}
+	plgPoolFree(addr, addrEnd - addr);
+
+	plgLoaderEx->plgMemSizeTotal = 0;
+	return 0;
 }
 
 static Handle loaderMemGameHandle;
@@ -200,16 +394,25 @@ int main(void) {
 		return 0;
 	}
 
+	res = FSUSER_OpenArchive(&sdmcArchive, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL));
+	if (res != 0) {
+		nsDbgPrint("Open sdmc failed: %08x\n", res);
+		goto fs_fail;
+	}
+
 	res = loadPayloadBin(NTR_BIN_GAME);
 	if (res != 0) {
 		nsDbgPrint("Load game payload failed: %08x\n", res);
-		fsExit();
-		return 0;
+		goto fs_fail;
 	}
 
 	rtInitHook(&svcRunHook, ntrConfig->PMSvcRunAddr, (u32)svcRunCallback);
 	rtEnableHook(&svcRunHook);
 
+	return 0;
+
+fs_fail:
+	fsExit();
 	return 0;
 }
 

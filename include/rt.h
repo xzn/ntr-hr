@@ -32,8 +32,9 @@ int rtRecvSocket(u32 sockfd, u8 *buf, int size);
 int rtSendSocket(u32 sockfd, u8 *buf, int size);
 
 Handle rtOpenFile(char *fileName);
+Handle rtOpenFile16(u16 *fileName);
 u32 rtGetFileSize(Handle file);
-u32 rtLoadFileToBuffer(Handle file, u32 *pBuf, u32 bufSize);
+u32 rtLoadFileToBuffer(Handle file, void *pBuf, u32 bufSize);
 void rtCloseFile(Handle file);
 
 #endif
