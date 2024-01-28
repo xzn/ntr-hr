@@ -29,10 +29,10 @@ void disp(u32 t, u32 cl) {
 	u32 i;
 
 	for (i = 0; i < t; ++i){
-		REG(IoBaseLcd + 0x204) = cl;
+		REG(LCD_TOP_FILLCOLOR) = cl;
 		svcSleepThread(5000000);
 	}
-	REG(IoBaseLcd + 0x204) = 0;
+	REG(LCD_TOP_FILLCOLOR) = 0;
 }
 
 int initDirectScreenAccess(void) {

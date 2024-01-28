@@ -6,8 +6,40 @@
 #define LOCAL_DBG_BUF_SIZE (0x200)
 #define LOCAL_TID_BUF_COUNT (0x80)
 
-#define IoBaseLcd (0x10202000 | 0x80000000)
-#define IoBasePad (10146000 | 0x80000000)
+// Require Luma3DS PA-VA mapping
+#define IoBaseLcd (0x10202000 + 0x80000000)
+#define IoBasePad (0x10146000 + 0x80000000)
+#define IoBasePdc (0x10400000 + 0x80000000)
+
+// From Luma3DS
+#define GPU_FB_TOP_LEFT_ADDR_1      (IoBasePdc + 0x468)
+#define GPU_FB_TOP_LEFT_ADDR_2      (IoBasePdc + 0x46C)
+#define GPU_FB_TOP_FMT              (IoBasePdc + 0x470)
+#define GPU_FB_TOP_SEL              (IoBasePdc + 0x478)
+#define GPU_FB_TOP_COL_LUT_INDEX    (IoBasePdc + 0x480)
+#define GPU_FB_TOP_COL_LUT_ELEM     (IoBasePdc + 0x484)
+#define GPU_FB_TOP_STRIDE           (IoBasePdc + 0x490)
+#define GPU_FB_TOP_RIGHT_ADDR_1     (IoBasePdc + 0x494)
+#define GPU_FB_TOP_RIGHT_ADDR_2     (IoBasePdc + 0x498)
+
+#define GPU_FB_BOTTOM_ADDR_1        (IoBasePdc + 0x568)
+#define GPU_FB_BOTTOM_ADDR_2        (IoBasePdc + 0x56C)
+#define GPU_FB_BOTTOM_FMT           (IoBasePdc + 0x570)
+#define GPU_FB_BOTTOM_SEL           (IoBasePdc + 0x578)
+#define GPU_FB_BOTTOM_COL_LUT_INDEX (IoBasePdc + 0x580)
+#define GPU_FB_BOTTOM_COL_LUT_ELEM  (IoBasePdc + 0x584)
+#define GPU_FB_BOTTOM_STRIDE        (IoBasePdc + 0x590)
+
+#define GPU_PSC0_CNT                (IoBasePdc + 0x01C)
+#define GPU_PSC1_CNT                (IoBasePdc + 0x02C)
+
+#define GPU_TRANSFER_CNT            (IoBasePdc + 0xC18)
+#define GPU_CMDLIST_CNT             (IoBasePdc + 0x18F0)
+
+#define LCD_TOP_BRIGHTNESS          (IoBaseLcd + 0x240)
+#define LCD_TOP_FILLCOLOR           (IoBaseLcd + 0x204)
+#define LCD_BOT_BRIGHTNESS          (IoBaseLcd + 0xA40)
+#define LCD_BOT_FILLCOLOR           (IoBaseLcd + 0xA04)
 
 #define COPY_REMOTE_MEMORY_TIMEOUT (5000000000LL)
 
