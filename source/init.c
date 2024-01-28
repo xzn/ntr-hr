@@ -21,7 +21,7 @@ static int initNSConfig(void) {
 	ret = protectMemory(nsConfig, NS_CONFIG_MAX_SIZE);
 
 	if (ret != 0) {
-		showDbgRaw("Init nsConfig failed for process %"PRIx32, getCurrentProcessId());
+		showMsgRaw("Init nsConfig failed for process %"PRIx32, getCurrentProcessId());
 		return ret;
 	}
 	return 0;
@@ -86,7 +86,7 @@ u32 plgPoolAlloc(u32 size) {
 	}
 	u32 outAddr;
 	u32 alignedSize = rtAlignToPageSize(size);
-	s32 ret = svcControlMemory(&outAddr, addr, 0, alignedSize, MEMOP_ALLOC, MEMPERM_READWRITE);
+	s32 ret = svcControlMemory(&outAddr, addr, addr, alignedSize, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
 		nsDbgPrint("Failed to allocate memory from pool: %08"PRIx32"\n", ret);
 		return 0;
@@ -107,7 +107,8 @@ int plgPoolFree(u32 addr, u32 size) {
 		showDbg("addr end %08"PRIx32" different from pool end %08"PRIx32"\n", addrEnd, plgPoolEnd);
 		return -1;
 	}
-	s32 ret = svcControlMemory(NULL, addr, 0, alignedSize, MEMOP_FREE, 0);
+	u32 outAddr;
+	s32 ret = svcControlMemory(&outAddr, addr, addr, alignedSize, MEMOP_FREE, 0);
 	if (ret != 0) {
 		nsDbgPrint("Failed to free memory to pool: %08"PRIx32"\n", ret);
 		return ret;

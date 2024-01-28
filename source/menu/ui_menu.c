@@ -26,7 +26,7 @@ int initDirectScreenAccess(void) {
 	if (!bottomFBBackup)
 		return -1;
 
-	bottomFB = 0x1F000000;
+	bottomFB = 0x1F000000 | 0x80000000;
 	allowDirectScreenAccess = 1;
 	return 0;
 }
@@ -48,24 +48,14 @@ static void paint_pixel(u32 x, u32 y, u8 r, u8 g, u8 b, u32 addr){
 	write_color(addr + coord, r, g, b);
 }
 
-static void paint_square(int x, int y, u8 r, u8 g, u8 b, int w, int h, u32 addr){
-	int x1, y1;
-
-	for (x1 = x; x1 < x + w; ++x1){
-		for (y1 = y; y1 < y + h; ++y1){
-			paint_pixel(x1, y1, r, g, b, addr);
-		}
-	}
-}
-
 static void blank(void) {
-	paint_square(0, 0, 255, 255, 255, BOTTOM_WIDTH, BOTTOM_HEIGHT, BOTTOM_FRAME);
+	memset((void *)BOTTOM_FRAME, 255, BOTTOM_UI_FRAME_SIZE);
 }
 
 void updateScreen(void) {
-	memcpy_ctr((void *)bottomFB, (void *)bottomFBRender, BOTTOM_UI_FRAME_SIZE);
-	REG(GPU_FB_BOTTOM_ADDR_1) = bottomFB;
-	REG(GPU_FB_BOTTOM_ADDR_2) = bottomFB;
+	memcpy_ctr((void *)bottomFB, (void *)BOTTOM_FRAME, BOTTOM_UI_FRAME_SIZE);
+	REG(GPU_FB_BOTTOM_ADDR_1) = bottomFB & ~0x80000000;
+	REG(GPU_FB_BOTTOM_ADDR_2) = bottomFB & ~0x80000000;
 	REG(GPU_FB_BOTTOM_FMT) = 0x00080300 | BOTTOM_UI_FORMAT;
 	REG(GPU_FB_BOTTOM_SIZE) = 0x014000f0;
 	REG(GPU_FB_BOTTOM_STRIDE) = BOTTOM_UI_PITCH;
@@ -199,7 +189,6 @@ u32 waitKey(void) {
 #define LINE_HEIGHT (CHAR_HEIGHT)
 
 static void paint_letter(char letter, int x, int y, u8 r, u8 g, u8 b, int addr) {
-
 	int i;
 	int k;
 	int c;
@@ -279,6 +268,8 @@ static void showMsgCommon(const char *msg, const char *title) {
 
 int showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
 	if (!allowDirectScreenAccess) {
+		disp(100, 0x10000ff);
+		svcSleepThread(1000000000);
 		return 0;
 	}
 

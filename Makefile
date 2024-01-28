@@ -87,7 +87,7 @@ libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
 $(CTRU_DIR)/lib/libctru.a:
 	$(MAKE) -C $(CTRU_DIR) lib/libctru.a
 
-CC_WARNS = -Wall -Wextra -Werror
+CC_WARNS = -Wall -Wextra
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
 RP_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS) -Iinclude/jpeg
