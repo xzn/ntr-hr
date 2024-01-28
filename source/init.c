@@ -6,6 +6,15 @@
 
 showDbgFunc_t showDbgFunc;
 
+int showMsgDbgFunc(const char *msg) {
+	if (showDbgFunc) {
+		showDbgFunc(msg);
+		svcSleepThread(1000000000);
+		return 0;
+	}
+	return -1;
+}
+
 static int initNSConfig(void) {
 	u32 ret;
 

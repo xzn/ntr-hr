@@ -59,3 +59,11 @@ int main(void) {
 
 	return 0;
 }
+
+int showMsgVerbose(const char *msg, const char *, int, const char *) {
+	return showMsgDbgFunc(msg);
+}
+
+int showMsgRaw(const char *msg) {
+	return showMsgDbgFunc(msg);
+}

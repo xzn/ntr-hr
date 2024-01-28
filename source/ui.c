@@ -1,28 +1,11 @@
 #include "global.h"
 
-u32 allowDirectScreenAccess;
-
-static int showMsgDbgFunc(const char *msg) {
-	if (showDbgFunc) {
-		showDbgFunc(msg);
-		svcSleepThread(1000000000);
-		return 0;
-	}
-	return -1;
-}
-
-int showMsgVerbose(const char *msg, const char *, int, const char *) {
-	if (showMsgDbgFunc(msg) == 0)
-		return 0;
-
+int __attribute__((weak)) showMsgVerbose(const char *, const char *, int, const char *) {
 	// TODO
 	return 0;
 }
 
-int showMsgRaw(const char *msg) {
-	if (showMsgDbgFunc(msg) == 0)
-		return 0;
-
+int __attribute__((weak)) showMsgRaw(const char *) {
 	// TODO
 	return 0;
 }
@@ -35,11 +18,6 @@ void disp(u32 t, u32 cl) {
 		svcSleepThread(5000000);
 	}
 	REG(LCD_TOP_FILLCOLOR) = 0;
-}
-
-int initDirectScreenAccess(void) {
-	// TODO
-	return 0;
 }
 
 u32 getKey(void) {
