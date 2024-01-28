@@ -84,7 +84,7 @@ static int injectToPM(void) {
 	int tries = 5;
 	while (injectPM() != 0) {
 		if (--tries == 0) {
-			showMsg("Injecting to PM process failed.");
+			showDbg("Injecting to PM process failed.", 0, 0);
 			return -1;
 		}
 		svcSleepThread(1000000000);
@@ -108,7 +108,7 @@ static void menuThread(void *) {
 	if (fsUserHandle == 0) {
 		ret = fsInit();
 		if (ret != 0) {
-			showMsg("Failed to initialize fs.");
+			showDbg("Failed to initialize fs.", 0, 0);
 			goto final;
 		}
 	} else {
@@ -116,7 +116,7 @@ static void menuThread(void *) {
 	}
 	ret = loadPayloadBin(NTR_BIN_PM);
 	if (ret != 0) {
-		showMsg("Loading pm payload failed.");
+		showDbg("Loading pm payload failed.", 0, 0);
 		goto final;
 	}
 

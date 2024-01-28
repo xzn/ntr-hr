@@ -41,7 +41,7 @@
 #define LCD_BOT_BRIGHTNESS          (IoBaseLcd + 0xA40)
 #define LCD_BOT_FILLCOLOR           (IoBaseLcd + 0xA04)
 
-#define COPY_REMOTE_MEMORY_TIMEOUT (5000000000LL)
+#define COPY_REMOTE_MEMORY_TIMEOUT (-1)
 
 #define NS_CONFIG_ADDR (0x06000000)
 #define NS_CONFIG_MAX_SIZE (0x1000)

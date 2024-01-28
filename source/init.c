@@ -46,7 +46,7 @@ static int setUpReturn(void) {
 int plgLoaderInfoAlloc(void) {
 	plgLoaderInfo = (void *)plgPoolAlloc(sizeof(PLGLOADER_INFO));
 	if (plgLoaderInfo != (void *)PLG_LOADER_ADDR) {
-		showMsg("Plugin loader info at wrong address.");
+		showDbg("Plugin loader info at wrong address.", 0, 0);
 		plgPoolFree((u32)plgLoaderInfo, sizeof(PLGLOADER_INFO));
 		plgLoaderInfo = 0;
 		return -1;
@@ -171,7 +171,7 @@ int loadPayloadBin(char *name) {
 	u32 addr;
 		addr = payloadBinAlloc(fileSize);
 	if (addr == 0) {
-		showMsg("Failed to get allocate memory for payload.");
+		showDbg("Failed to get allocate memory for payload.", 0, 0);
 		goto file_final;
 	}
 

@@ -120,7 +120,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 	s32 ret = 0;
 	ret = loadPayloadBin(NTR_BIN_NWM);
 	if (ret != 0) {
-		showMsg("Loading nwm payload failed.");
+		showDbg("Loading nwm payload failed.", 0, 0);
 		goto final;
 	}
 
@@ -128,7 +128,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 	u32 pid = 0x1a; // nwm process
 	ret = svcOpenProcess(&hProcess, pid);
 	if (ret != 0) {
-		nsDbgPrint("Open nwm process failed: %08x\n", ret);
+		showDbg("Open nwm process failed: %08x\n", ret, 0);
 		hProcess = 0;
 		goto final;
 	}
