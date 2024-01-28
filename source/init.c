@@ -27,10 +27,10 @@ static int initNSConfig(void) {
 	return 0;
 }
 
-static void loadParams(void) {
-	KProcessHandleDataOffset = ntrConfig->KProcessHandleDataOffset;
-	KProcessPIDOffset = ntrConfig->KProcessPIDOffset;
-	KProcessCodesetOffset = ntrConfig->KProcessCodesetOffset;
+void loadParams(NTR_CONFIG *ntrCfg) {
+	KProcessHandleDataOffset = ntrCfg->KProcessHandleDataOffset;
+	KProcessPIDOffset = ntrCfg->KProcessPIDOffset;
+	KProcessCodesetOffset = ntrCfg->KProcessCodesetOffset;
 }
 
 void _ReturnToUser(void);
@@ -60,7 +60,7 @@ int plgLoaderInfoAlloc(void) {
 void startupInit(void) {
 	if (initNSConfig() != 0)
 		goto fail;
-	loadParams();
+	loadParams(ntrConfig);
 	if (setUpReturn() != 0)
 		goto fail;
 

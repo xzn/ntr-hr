@@ -10,6 +10,7 @@ static void initBootVars(void) {
 	showDbgFunc = (void *)ntrCfg->showDbgFunc;
 	arm11BinStart = ntrCfg->arm11BinStart;
 	arm11BinSize = ntrCfg->arm11BinSize;
+	loadParams(ntrCfg);
 }
 
 static void doKernelHax(void) {

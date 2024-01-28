@@ -127,7 +127,6 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	totalSize = size + offset;
 
 	ret = mapRemoteMemory(hProcess, baseAddr, totalSize);
-
 	if (ret != 0) {
 		showDbg("mapRemoteMemory failed: %08"PRIx32"", ret);
 	}
