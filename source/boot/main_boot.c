@@ -61,11 +61,9 @@ int main(void) {
 	return 0;
 }
 
-int showMsgVerbose(const char *msg, const char *, int, const char *) {
-	return showMsgDbgFunc(msg);
-}
-
-int showMsgRaw(const char *msg) {
+int showMsgVA(const char *, int , const char *, const char *fmt, va_list va) {
+	char msg[LOCAL_MSG_BUF_SIZE];
+	xvsnprintf(msg, LOCAL_MSG_BUF_SIZE, fmt, va);
 	return showMsgDbgFunc(msg);
 }
 

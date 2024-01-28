@@ -4,7 +4,8 @@
 #include <stdarg.h>
 #include <stddef.h>
 size_t xsprintf(char *buf, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
-size_t xsnprintf(char *buf, size_t buff_len, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+size_t xsnprintf(char *buf, size_t bufLen, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+size_t xvsnprintf(char *buf, size_t bufLen, const char *fmt, va_list va);
 
 /** Holds a user defined output stream */
 struct ostrm

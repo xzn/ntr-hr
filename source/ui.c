@@ -1,11 +1,22 @@
 #include "global.h"
 
-int __attribute__((weak)) showMsgVerbose(const char *, const char *, int, const char *) {
-	// TODO
-	return 0;
+int showMsgVerbose(const char *file_name, int line_number, const char *func_name, const char *fmt, ...) {
+	va_list arp;
+	va_start(arp, fmt);
+	s32 ret = showMsgVA(file_name, line_number, func_name, fmt, arp);
+	va_end(arp);
+	return ret;
 }
 
-int __attribute__((weak)) showMsgRaw(const char *) {
+int showMsgRaw(const char *fmt, ...) {
+	va_list arp;
+	va_start(arp, fmt);
+	s32 ret = showMsgVA(NULL, 0, NULL, fmt, arp);
+	va_end(arp);
+	return ret;
+}
+
+int __attribute__((weak)) showMsgVA(const char *, int , const char *, const char *, va_list) {
 	// TODO
 	return 0;
 }

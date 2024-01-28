@@ -618,13 +618,18 @@ static void putnbuf(void *a, void const *s, size_t n) {
 }
 
 size_t xsnprintf(char *buf, size_t bufLen, const char *fmt, ...) {
+	va_list va;
+	va_start(va, fmt);
+	size_t n = xvsnprintf(buf, bufLen, fmt, va);
+	va_end(va);
+	return n;
+}
+
+size_t xvsnprintf(char *buf, size_t bufLen, const char *fmt, va_list va) {
 	char *tmp = buf;
 	struct putnbuf_ctx ctx = { .buf = &tmp, .remaining = bufLen };
 	struct ostrm const ostrm = { .p = &ctx, .func = putnbuf };
-	va_list va;
-	va_start(va, fmt);
 	size_t n = xvprintf(&ostrm, fmt, va);
-	va_end(va);
 	if (n == bufLen)
 		--n;
 	buf[n] = '\0';
