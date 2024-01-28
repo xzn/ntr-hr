@@ -3,7 +3,8 @@
 
 #define PATH_MAX (0x100)
 
-#define LOCAL_DBG_BUF_SIZE (0x200)
+#define LOCAL_TITLE_BUF_SIZE (0x80)
+#define LOCAL_MSG_BUF_SIZE (0x200)
 #define LOCAL_TID_BUF_COUNT (0x80)
 #define LOCAL_DIR_LIST_BUF_COUNT (0x1000)
 

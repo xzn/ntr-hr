@@ -1,5 +1,7 @@
 #include "global.h"
 
+#include "3ds/services/hid.h"
+
 #include <string.h>
 
 u32 allowDirectScreenAccess;
@@ -15,16 +17,6 @@ u32 allowDirectScreenAccess;
 u32 bottomFB;
 u32 bottomFBRender;
 u32 bottomFBBackup;
-
-int showMsgVerbose(const char *, const char *, int, const char *) {
-	// TODO
-	return 0;
-}
-
-int showMsgRaw(const char *) {
-	// TODO
-	return 0;
-}
 
 int initDirectScreenAccess(void) {
 	bottomFBRender = plgRequestMemory(BOTTOM_UI_FRAME_SIZE);
@@ -70,7 +62,7 @@ static void blank(void) {
 	paint_square(0, 0, 255, 255, 255, BOTTOM_WIDTH, BOTTOM_HEIGHT, BOTTOM_FRAME);
 }
 
-void updateScreen(void) {
+static void updateScreen(void) {
 	memcpy_ctr((void *)bottomFB, (void *)bottomFBRender, BOTTOM_UI_FRAME_SIZE);
 	REG(GPU_FB_BOTTOM_ADDR_1) = bottomFB;
 	REG(GPU_FB_BOTTOM_ADDR_2) = bottomFB;
@@ -135,7 +127,7 @@ static void restoreVRAMBuffer(void) {
 	memcpy_ctr((void *)bottomFB, (void *)bottomFBBackup, BOTTOM_UI_FRAME_SIZE);
 }
 
-void acquireVideo(void) {
+static void acquireVideo(void) {
 	if (AFAR(videoRef, 1) == 0) {
 		svcKernelSetState(0x10000, 4, 0, 0);
 		lockGameProcess();
@@ -151,7 +143,7 @@ void acquireVideo(void) {
 	}
 }
 
-void releaseVideo(void) {
+static void releaseVideo(void) {
 	if (ASFR(videoRef, 1) == 0) {
 		restoreVRAMBuffer();
 		restoreGpuRegs();
@@ -231,7 +223,7 @@ static void paint_letter(char letter, int x, int y, u8 r, u8 g, u8 b, int addr) 
 	}
 }
 
-static int drawString(char *str, int x, int y, u8 r, u8 g, u8 b, int newLine) {
+static int drawString(const char *str, int x, int y, u8 r, u8 g, u8 b, int newLine) {
 	int len = strlen(str);
 	int i, currentX = x, totalLen = 0;
 
@@ -257,6 +249,55 @@ static int drawString(char *str, int x, int y, u8 r, u8 g, u8 b, int newLine) {
 	return totalLen;
 }
 
-int print(char *s, int x, int y, u8 r, u8 g, u8 b) {
+static int print(const char *s, int x, int y, u8 r, u8 g, u8 b) {
 	return drawString(s, x, y, r, g, b, 1);
+}
+
+const char *plgTranslate(const char *msg) {
+	return msg;
+}
+
+static void showMsgCommon(const char *msg, const char *title) {
+	acquireVideo();
+	while(1) {
+		blank();
+		if (title) {
+			print(title, 10, 10, 255, 0, 255);
+			print(msg, 10, 44, 255, 0, 0);
+		} else {
+			print(msg, 10, 10, 255, 0, 0);
+		}
+		print(plgTranslate("Press [B] to close."), 10, 220, 0, 0, 255);
+		updateScreen();
+		u32 key = waitKey();
+		if (key == KEY_B) {
+			break;
+		}
+	}
+	releaseVideo();
+}
+
+int showMsgVerbose(const char *msg, const char *file_name, int line_number, const char *func_name) {
+	if (!allowDirectScreenAccess) {
+		return 0;
+	}
+
+	u64 ticks = svcGetSystemTick();
+	u64 mono_us = ticks * 1000000000ULL / SYSCLOCK_ARM11;
+	u32 pid = getCurrentProcessId();
+	char title[LOCAL_TITLE_BUF_SIZE];
+	xsnprintf(title, LOCAL_TITLE_BUF_SIZE, "[%"PRId32".%06"PRId32"][%"PRIx32"]%s:%d:%s", (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+
+	showMsgCommon(msg, title);
+
+	return 0;
+}
+
+int showMsgRaw(const char *msg) {
+	if (!allowDirectScreenAccess) {
+		return 0;
+	}
+	showMsgCommon(msg, NULL);
+
+	return 0;
 }
