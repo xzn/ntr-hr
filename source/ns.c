@@ -32,6 +32,19 @@ typedef struct {
 
 static NS_CONTEXT *nsContext;
 
+static void nsDbgPutc(void *, void const *src, size_t len) {
+	const char *s = src;
+	while (len) {
+		if (nsConfig->debugPtr >= nsConfig->debugBufSize)
+			return;
+		nsConfig->debugBuf[nsConfig->debugPtr] = *s;
+		nsConfig->debugPtr++;
+
+		++s;
+		--len;
+	}
+}
+
 static void nsDbgLn() {
 	if (nsConfig->debugPtr == 0)
 		return;
@@ -47,12 +60,21 @@ static void nsDbgLn() {
 	}
 }
 
-void nsDbgPrintVA(const char*, va_list) {
-	// TODO
+void nsDbgPrintVA(const char *fmt, va_list arp) {
+	if (nsConfig->debugReady) {
+		rtAcquireLock(&nsConfig->debugBufferLock);
+		nsDbgLn();
+		struct ostrm const ostrm = { .func = nsDbgPutc };
+		xvprintf(&ostrm, fmt, arp);
+		rtReleaseLock(&nsConfig->debugBufferLock);
+	}
 }
 
-void nsDbgPrintRaw(const char*, ...) {
-	// TODO
+void nsDbgPrintRaw(const char *fmt, ...) {
+	va_list arp;
+	va_start(arp, fmt);
+	nsDbgPrintVA(fmt, arp);
+	va_end(arp);
 }
 
 static int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC) {
