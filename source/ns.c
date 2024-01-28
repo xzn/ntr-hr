@@ -30,7 +30,7 @@ typedef struct {
 	u32 remainDataLen;
 } NS_CONTEXT;
 
-static NS_CONTEXT *nsContext;
+static NS_CONTEXT *const nsContext = (NS_CONTEXT *)NS_CTX_ADDR;
 
 static void nsDbgPutc(void *, void const *src, size_t len) {
 	const char *s = src;
@@ -61,7 +61,7 @@ static void nsDbgLn() {
 }
 
 void nsDbgPrintVA(const char *fmt, va_list arp) {
-	if (ALR(nsConfig->debugReady)) {
+	if (ALC(nsConfig->debugReady)) {
 		rtAcquireLock(&nsConfig->debugBufferLock);
 		nsDbgLn();
 		struct ostrm const ostrm = { .func = nsDbgPutc };
@@ -94,7 +94,7 @@ static int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC) {
 		if (rtGetThreadReg(hProcess, tid, ctx) != 0)
 			return -1;
 		u32 pc = ctx[15];
-		if (remotePC >= pc - 16 && remotePC < pc)
+		if (remotePC >= pc - 16 && remotePC < pc + 8)
 			return -1;
 	}
 
@@ -126,9 +126,10 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 
 	totalSize = size + offset;
 
-	ret = mapRemoteMemory(hProcess, baseAddr, totalSize);
+	ret = mapRemoteMemory(hProcess, baseAddr, totalSize, MEMOP_ALLOC);
 	if (ret != 0) {
 		showDbg("mapRemoteMemory failed: %08"PRIx32"", ret);
+		return ret;
 	}
 	// set rwx
 	ret = protectRemoteMemory(hProcess, (void *)baseAddr, totalSize);
@@ -202,8 +203,10 @@ lock_final:
 			goto final;
 		}
 	}
+	return ret;
 
 final:
+	mapRemoteMemory(hProcess, baseAddr, totalSize, MEMOP_FREE);
 	return ret;
 }
 
@@ -257,7 +260,7 @@ void nsHandleMenuPacket(void) {
 	}
 }
 
-void nsMainLoop(u32 listenPort) {
+static void nsMainLoop(u32 listenPort) {
 	while (1) {
 		s32 listen_sock, ret, tmp, sockfd;
 		struct sockaddr_in addr;
@@ -336,7 +339,7 @@ static void nsThread(void *arg) {
 int nsStartup(void) {
 	u32 socuSharedBufferSize;
 	u32 bufferSize;
-	socuSharedBufferSize = 0x10000;
+	socuSharedBufferSize = NS_SOC_SHARED_BUF_SIZE;
 	bufferSize = socuSharedBufferSize + rtAlignToPageSize(sizeof(NS_CONTEXT)) + STACK_SIZE;
 	u32 base = NS_SOC_ADDR;
 	s32 ret, res;
@@ -354,14 +357,13 @@ int nsStartup(void) {
 		goto fail_alloc;
 	}
 
-	ret = socInit((u32 *)outAddr, socuSharedBufferSize);
+	ret = socInit((u32 *)base, socuSharedBufferSize);
 	if (ret != 0) {
 		showDbg("socInit failed: %08"PRIx32"", ret);
 		goto fail_alloc;
 	}
 
-	nsContext = (void*)(outAddr + socuSharedBufferSize);
-	memset(nsContext, 0, sizeof(NS_CONTEXT));
+	*nsContext = (NS_CONTEXT){ 0 };
 
 	u32 listenPort = NS_MENU_LISTEN_PORT;
 	if (nsConfig->initMode == NS_INITMODE_FROMHOOK) {
@@ -369,15 +371,16 @@ int nsStartup(void) {
 	}
 
 
-	if (!ATSR(nsConfig->debugReady)) {
+	if (!ALR(nsConfig->debugReady)) {
 		rtInitLock(&nsConfig->debugBufferLock);
 		nsConfig->debugBuf = nsContext->debugBuf;
 		nsConfig->debugPtr = 0;
 		nsConfig->debugBufSize = DEBUG_BUF_SIZE;
+		ASL(nsConfig->debugReady, 1);
 	}
 
 	Handle hThread;
-	u32 *threadStack = (void *)(outAddr + socuSharedBufferSize + rtAlignToPageSize(sizeof(NS_CONTEXT)));
+	u32 *threadStack = (void *)(base + socuSharedBufferSize + rtAlignToPageSize(sizeof(NS_CONTEXT)));
 	ret = svcCreateThread(&hThread, nsThread, listenPort, &threadStack[(STACK_SIZE / 4) - 10], 0x10, -2);
 	if (ret != 0) {
 		showDbg("svcCreateThread failed: %08"PRIx32"", ret);
@@ -409,7 +412,7 @@ Handle envGetHandle(const char*) {
 void envDestroyHandles(void) {}
 
 int nsDbgNext(void) {
-	if ((getKey() & KEY_DDOWN)) {
+	if ((getKey() & KEY_DLEFT)) {
 		return 1;
 	}
 	return 0;

@@ -176,7 +176,7 @@ int loadPayloadBin(char *name) {
 	u32 addr;
 		addr = payloadBinAlloc(fileSize);
 	if (addr == 0) {
-		showDbg("Failed to get allocate memory for payload.");
+		showDbg("Failed to allocate memory for payload.");
 		goto file_final;
 	}
 
@@ -195,7 +195,7 @@ file_final:
 		goto final;
 
 	arm11BinStart = addr;
-	arm11BinSize = fileSize;
+	arm11BinSize = rtAlignToPageSize(fileSize);
 
 final:
 	return fileLoaded ? 0 : -1;

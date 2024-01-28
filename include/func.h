@@ -16,9 +16,12 @@
 
 #define ATSR(v) __atomic_test_and_set(&v, __ATOMIC_RELAXED)
 #define ACR(v) __atomic_clear(&v, __ATOMIC_RELAXED)
-#define ALR(v) __atomic_load_n(&v, __ATOMIC_RELAXED)
 
-#define ATSL(p) __atomic_test_and_set(p, __ATOMIC_CONSUME)
+#define ALR(v) __atomic_load_n(&v, __ATOMIC_RELAXED)
+#define ALC(v) __atomic_load_n(&v, __ATOMIC_CONSUME)
+#define ASL(v, n) __atomic_store_n(&v, n, __ATOMIC_RELEASE)
+
+#define ATSC(p) __atomic_test_and_set(p, __ATOMIC_CONSUME)
 #define ACL(p) __atomic_clear(p, __ATOMIC_RELEASE)
 
 void memcpy_ctr(void* dst, void* src, size_t size);

@@ -241,7 +241,7 @@ static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
 	if (loaderMem)
 		ret = mapRemoteMemoryInLoader(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal, MEMOP_ALLOC);
 	else
-		ret = mapRemoteMemory(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal);
+		ret = mapRemoteMemory(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal, MEMOP_ALLOC);
 	if (ret != 0) {
 		nsDbgPrint("Alloc plugin memory failed: %08"PRIx32"\n", ret);
 		return ret;

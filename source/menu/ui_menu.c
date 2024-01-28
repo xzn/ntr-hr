@@ -26,8 +26,8 @@ int initDirectScreenAccess(void) {
 	if (!bottomFBBackup)
 		return -1;
 
-	bottomFB = 0x1F000000 | 0x80000000;
-	allowDirectScreenAccess = 1;
+	bottomFB = 0x18000000 | 0x80000000;
+	ASL(allowDirectScreenAccess, 1);
 	return 0;
 }
 
@@ -267,7 +267,7 @@ static void showMsgCommon(const char *msg, const char *title) {
 }
 
 int showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
-	if (!allowDirectScreenAccess) {
+	if (!ALC(allowDirectScreenAccess)) {
 		disp(100, 0x10000ff);
 		svcSleepThread(1000000000);
 		return 0;
