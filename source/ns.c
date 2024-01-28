@@ -249,7 +249,7 @@ static void nsMainLoop(u32 listenPort) {
 			sockfd = accept(listen_sock, NULL, NULL);
 			if (sockfd < 0) {
 				int serr = errno;
-				if (serr == -EWOULDBLOCK || serr == -EAGAIN) {
+				if (serr == EWOULDBLOCK || serr == EAGAIN) {
 					svcSleepThread(100000000);
 					continue;
 				}
@@ -274,6 +274,7 @@ static void nsMainLoop(u32 listenPort) {
 				nsHandlePacket();
 				pac->magic = 0;
 			}
+
 			closesocket(sockfd);
 		}
 
