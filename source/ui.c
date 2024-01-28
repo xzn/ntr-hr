@@ -2,27 +2,29 @@
 
 u32 allowDirectScreenAccess;
 
-int showMsgVerbose(char*, const char *, int, const char *) {
-	// TODO
-	return 0;
-}
-
-int showMsgRaw(char* msg) {
+static int showMsgDbgFunc(const char *msg) {
 	if (showDbgFunc) {
 		showDbgFunc(msg);
 		svcSleepThread(1000000000);
 		return 0;
 	}
+	return -1;
+}
+
+int showMsgVerbose(const char *msg, const char *, int, const char *) {
+	if (showMsgDbgFunc(msg) == 0)
+		return 0;
+
 	// TODO
 	return 0;
 }
 
-void showDbgRaw(char* fmt, u32 v1, u32 v2) {
-	char buf[LOCAL_DBG_BUF_SIZE];
+int showMsgRaw(const char *msg) {
+	if (showMsgDbgFunc(msg) == 0)
+		return 0;
 
-	nsDbgPrintRaw(fmt, v1, v2);
-	xsnprintf(buf, sizeof(buf), fmt, v1, v2);
-	showMsgRaw(buf);
+	// TODO
+	return 0;
 }
 
 void disp(u32 t, u32 cl) {

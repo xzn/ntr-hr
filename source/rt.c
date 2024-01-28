@@ -152,7 +152,7 @@ Handle rtOpenFile(char *fileName) {
 	Handle file;
 	s32 ret = FSUSER_OpenFileDirectly(&file, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL), fsMakePath(PATH_ASCII, fileName), FS_OPEN_READ, 0);
 	if (ret != 0) {
-		nsDbgPrint("Failed to open file: %08x\n", ret);
+		nsDbgPrint("Failed to open file: %08"PRIx32"\n", ret);
 		return 0;
 	}
 	return file;
@@ -162,7 +162,7 @@ Handle rtOpenFile16(u16 *fileName) {
 	Handle file;
 	s32 ret = FSUSER_OpenFileDirectly(&file, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL), fsMakePath(PATH_UTF16, fileName), FS_OPEN_READ, 0);
 	if (ret != 0) {
-		nsDbgPrint("Failed to open file: %08x\n", ret);
+		nsDbgPrint("Failed to open file: %08"PRIx32"\n", ret);
 		return 0;
 	}
 	return file;
@@ -172,7 +172,7 @@ u32 rtGetFileSize(Handle file) {
 	u64 fileSize;
 	s32 ret = FSFILE_GetSize(file, &fileSize);
 	if (ret != 0) {
-		nsDbgPrint("Failed to get file size: %08x\n", ret);
+		nsDbgPrint("Failed to get file size: %08"PRIx32"\n", ret);
 		return 0;
 	}
 	return (u32)fileSize;
@@ -182,7 +182,7 @@ u32 rtLoadFileToBuffer(Handle file, void *pBuf, u32 bufSize) {
 	u32 bytesRead;
 	s32 ret = FSFILE_Read(file, &bytesRead, 0, (void *)pBuf, bufSize);
 	if (ret != 0) {
-		nsDbgPrint("Failed to read file: %08x\n", ret);
+		nsDbgPrint("Failed to read file: %08"PRIx32"\n", ret);
 		return 0;
 	}
 	return bytesRead;

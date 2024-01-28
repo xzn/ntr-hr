@@ -19,3 +19,5 @@
 #include "3ds/svc.h"
 #include "3ds/os.h"
 #include "csvc.h"
+
+#include <inttypes.h>

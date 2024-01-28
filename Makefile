@@ -12,7 +12,7 @@ CTRU_DIR := libctru/libctru
 CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing -ffunction-sections -fdata-sections
 CPPFLAGS := -Iinclude -Ilibctru/libctru/include
 LDFLAGS = -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=$(basename $(notdir $@)).map,--no-warn-rwx-segments
-LDLIBS := -lc -lm -lgcc -nostartfiles -L. -lctru_ntr
+LDLIBS := -nostartfiles -L. -lctru_ntr
 
 SRC_C := $(wildcard source/*.c)
 SRC_S := $(wildcard source/*.s)
@@ -87,7 +87,7 @@ libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
 $(CTRU_DIR)/lib/libctru.a:
 	$(MAKE) -C $(CTRU_DIR) lib/libctru.a
 
-CC_WARNS = -Wall -Wextra
+CC_WARNS = -Wall -Wextra -Werror
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
 RP_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS) -Iinclude/jpeg

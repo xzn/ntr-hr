@@ -59,7 +59,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size) {
 		return ret;
 	}
 	if (outAddr != addr) {
-		nsDbgPrint("outAddr: %08x, addr: %08x", outAddr, addr);
+		nsDbgPrint("outAddr: %08"PRIx32", addr: %08"PRIx32"", outAddr, addr);
 		return 0;
 	}
 	return 0;
@@ -81,7 +81,7 @@ u32 mapRemoteMemoryInLoader(Handle hProcess, u32 addr, u32 size, u32 op) {
 		return ret;
 	}
 	if (outAddr != addr) {
-		nsDbgPrint("outAddr: %08x, addr: %08x\n", outAddr, addr);
+		nsDbgPrint("outAddr: %08"PRIx32", addr: %08"PRIx32"\n", outAddr, addr);
 		return 0;
 	}
 	return 0;
@@ -102,23 +102,23 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 
 	ret = svcFlushProcessDataCache(hSrc, (u32)ptrSrc, size);
 	if (ret != 0) {
-		nsDbgPrint("svcFlushProcessDataCache src failed: %08x\n", ret);
+		nsDbgPrint("svcFlushProcessDataCache src failed: %08"PRIx32"\n", ret);
 		return ret;
 	}
 	ret = svcFlushProcessDataCache(hDst, (u32)ptrDst, size);
 	if (ret != 0) {
-		nsDbgPrint("svcFlushProcessDataCache dst failed: %08x\n", ret);
+		nsDbgPrint("svcFlushProcessDataCache dst failed: %08"PRIx32"\n", ret);
 		return ret;
 	}
 
 	ret = svcStartInterProcessDma(&hdma, hDst, (u32)ptrDst, hSrc, (u32)ptrSrc, size, (DmaConfig *)dmaConfig);
 	if (ret != 0) {
-        nsDbgPrint("svcStartInterProcessDma failed: %08x\n", ret);
+        nsDbgPrint("svcStartInterProcessDma failed: %08"PRIx32"\n", ret);
 		return ret;
 	}
 	ret = svcWaitSynchronization(hdma, COPY_REMOTE_MEMORY_TIMEOUT);
 	if (ret != 0) {
-		showDbg("copyRemoteMemory time out (or error) %08x", ret, 0);
+		showDbg("copyRemoteMemory time out (or error) %08"PRIx32"", ret);
 		svcCloseHandle(hdma);
 		return 1;
 	}
@@ -126,7 +126,7 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 	svcCloseHandle(hdma);
 	ret = svcInvalidateProcessDataCache(hDst, (u32)ptrDst, size);
 	if (ret != 0) {
-        nsDbgPrint("svcInvalidateProcessDataCache failed: %08x\n", ret);
+        nsDbgPrint("svcInvalidateProcessDataCache failed: %08"PRIx32"\n", ret);
 		return ret;
 	}
 	return 0;

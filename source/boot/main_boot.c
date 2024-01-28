@@ -23,10 +23,10 @@ static void doKernelHax(void) {
 static int injectToHomeMenu(void) {
 	NS_CONFIG cfg = { 0 };
 	Handle hProcess = 0;
-	int ret = 0;
+	s32 ret = 0;
 	ret = svcOpenProcess(&hProcess, ntrCfg->HomeMenuPid);
 	if (ret != 0) {
-		showDbgRaw("Failed to open home menu process: %d", ret, 0);
+		showDbgRaw("Failed to open home menu process: %08"PRIx32, ret);
 		goto final;
 	}
 
@@ -41,7 +41,7 @@ static int injectToHomeMenu(void) {
 	svcCloseHandle(hProcess);
 
 	if (ret != 0) {
-		showDbgRaw("Attach to home menu process failed: %d", ret, 0);
+		showDbgRaw("Attach to home menu process failed: %08"PRIx32, ret);
 		goto final;
 	}
 

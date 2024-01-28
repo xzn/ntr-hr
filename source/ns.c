@@ -47,6 +47,10 @@ static void nsDbgLn() {
 	}
 }
 
+void nsDbgPrintVA(const char*, va_list) {
+	// TODO
+}
+
 void nsDbgPrintRaw(const char*, ...) {
 	// TODO
 }
@@ -91,10 +95,10 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	arm11StartAddress = baseAddr + offset;
 	buf = (u32 *)arm11BinStart;
 	size = arm11BinSize;
-	nsDbgPrint("buf: %08x, size: %08x\n", buf, size);
+	nsDbgPrint("buf: %08"PRIx32", size: %08"PRIx32"\n", (u32)buf, size);
 
 	if (!buf) {
-		showDbg("arm11 not loaded", 0, 0);
+		showDbg("arm11 not loaded");
 		return -1;
 	}
 
@@ -103,24 +107,24 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	ret = mapRemoteMemory(hProcess, baseAddr, totalSize);
 
 	if (ret != 0) {
-		showDbg("mapRemoteMemory failed: %08x", ret, 0);
+		showDbg("mapRemoteMemory failed: %08"PRIx32"", ret);
 	}
 	// set rwx
 	ret = protectRemoteMemory(hProcess, (void *)baseAddr, totalSize);
 	if (ret != 0) {
-		showDbg("protectRemoteMemory failed: %08x", ret, 0);
+		showDbg("protectRemoteMemory failed: %08"PRIx32"", ret);
 		goto final;
 	}
 	// load arm11.bin code at arm11StartAddress
 	ret = copyRemoteMemory(hProcess, (void *)arm11StartAddress, CUR_PROCESS_HANDLE, buf, size);
 	if (ret != 0) {
-		showDbg("copyRemoteMemory payload failed: %08x", ret, 0);
+		showDbg("copyRemoteMemory payload failed: %08"PRIx32"", ret);
 		goto final;
 	}
 
 	ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, remotePC, 8);
 	if (ret != 0) {
-		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08x", ret, 0);
+		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08"PRIx32"", ret);
 		goto final;
 	}
 
@@ -129,7 +133,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	// store original 8-byte code
 	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, &(cfg->startupInfo[0]), hProcess, (void *)remotePC, 8);
 	if (ret != 0) {
-		showDbg("copyRemoteMemory original code to be hooked failed: %08x", ret, 0);
+		showDbg("copyRemoteMemory original code to be hooked failed: %08"PRIx32"", ret);
 		goto final;
 	}
 	cfg->startupInfo[2] = remotePC;
@@ -137,7 +141,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	// copy cfg structure to remote process
 	ret = copyRemoteMemory(hProcess, (void *)baseAddr, CUR_PROCESS_HANDLE, cfg, sizeof(NS_CONFIG));
 	if (ret != 0) {
-		showDbg("copyRemoteMemory ns_config failed: %08x", ret, 0);
+		showDbg("copyRemoteMemory ns_config failed: %08"PRIx32"", ret);
 		goto final;
 	}
 
@@ -148,7 +152,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	while (!pcDone && pcTries) {
 		ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
 		if (ret != 0) {
-			showDbg("locking remote process failed: %08x", ret, 0);
+			showDbg("locking remote process failed: %08"PRIx32"", ret);
 			goto final;
 		}
 
@@ -159,7 +163,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 
 		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &tmp, 8);
 		if (ret != 0) {
-			showDbg("copyRemoteMemory hook instruction failed: %08x", ret, 0);
+			showDbg("copyRemoteMemory hook instruction failed: %08"PRIx32"", ret);
 			goto lock_failed;
 		}
 
@@ -173,7 +177,7 @@ lock_failed:
 lock_final:
 		ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
 		if (ret != 0) {
-			showDbg("unlocking remote process failed: %08x", ret, 0);
+			showDbg("unlocking remote process failed: %08"PRIx32"", ret);
 			goto final;
 		}
 	}
@@ -251,7 +255,7 @@ void nsMainLoop(u32 listenPort) {
 
 		ret = bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr));
 		if (ret < 0) {
-			showDbg("bind failed: %08x", ret, 0);
+			showDbg("bind failed: %08"PRIx32"", ret);
 			goto end_listen;
 		}
 
@@ -262,7 +266,7 @@ void nsMainLoop(u32 listenPort) {
 
 		ret = listen(listen_sock, 1);
 		if (ret < 0) {
-			showDbg("listen failed: %08x", ret, 0);
+			showDbg("listen failed: %08"PRIx32"", ret);
 			goto end_listen;
 		}
 
@@ -284,12 +288,12 @@ void nsMainLoop(u32 listenPort) {
 			while (1) {
 				ret = rtRecvSocket(sockfd, (u8 *)&nsContext->packetBuf, sizeof(NS_PACKET));
 				if (ret != sizeof(NS_PACKET)) {
-					nsDbgPrint("rtRecvSocket failed: %08x\n", ret, 0);
+					nsDbgPrint("rtRecvSocket failed: %08"PRIx32"\n", ret);
 					break;
 				}
 				NS_PACKET *pac = &nsContext->packetBuf;
 				if (pac->magic != 0x12345678) {
-					nsDbgPrint("broken protocol: %08x, %08x\n", pac->magic, pac->seq);
+					nsDbgPrint("broken protocol: %08"PRIx32", %08"PRIx32"\n", pac->magic, pac->seq);
 					break;
 				}
 				nsHandlePacket();
@@ -319,19 +323,19 @@ int nsStartup(void) {
 
 	ret = svcControlMemory(&outAddr, base, 0, bufferSize, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
-		showDbg("svcControlMemory alloc failed: %08x", ret, 0);
+		showDbg("svcControlMemory alloc failed: %08"PRIx32"", ret);
 		goto fail;
 	}
 
 	ret = rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), base, bufferSize);
 	if (ret != 0) {
-		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08x", ret, 0);
+		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08"PRIx32"", ret);
 		goto fail_alloc;
 	}
 
 	ret = socInit((u32 *)outAddr, socuSharedBufferSize);
 	if (ret != 0) {
-		showDbg("socInit failed: %08x", ret, 0);
+		showDbg("socInit failed: %08"PRIx32"", ret);
 		goto fail_alloc;
 	}
 
@@ -355,7 +359,7 @@ int nsStartup(void) {
 	u32 *threadStack = (void *)(outAddr + socuSharedBufferSize + rtAlignToPageSize(sizeof(NS_CONTEXT)));
 	ret = svcCreateThread(&hThread, nsThread, listenPort, &threadStack[(STACK_SIZE / 4) - 10], 0x10, -2);
 	if (ret != 0) {
-		showDbg("svcCreateThread failed: %08x", ret, 0);
+		showDbg("svcCreateThread failed: %08"PRIx32"", ret);
 		goto fail_soc;
 	}
 
@@ -364,13 +368,13 @@ int nsStartup(void) {
 fail_soc:
 	res = socExit();
 	if (res != 0) {
-		nsDbgPrint("socExit failed: %08x\n", ret);
+		nsDbgPrint("socExit failed: %08"PRIx32"\n", ret);
 	}
 
 fail_alloc:
 	res = svcControlMemory(NULL, base, 0, bufferSize, MEMOP_FREE, 0);
 	if (res != 0) {
-		nsDbgPrint("svcControlMemory free failed: %08x\n", ret);
+		nsDbgPrint("svcControlMemory free failed: %08"PRIx32"\n", ret);
 	}
 
 fail:

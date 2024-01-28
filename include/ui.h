@@ -3,17 +3,23 @@
 
 #include "3ds/types.h"
 
-int showMsgRaw(char* msg);
+int showMsgRaw(const char *msg);
 #define showMsg(msg) showMsgVerbose(msg, __FILE__, __LINE__, __func__)
-int showMsgVerbose(char* msg, const char *file_name, int line_number, const char *func_name);
+int showMsgVerbose(const char *msg, const char *file_name, int line_number, const char *func_name);
 
-#define showDbg(fmt, v1, v2) do { \
+#define showDbg(fmt, ...) do { \
 	char showDbg_buf__[LOCAL_DBG_BUF_SIZE]; \
-	nsDbgPrint(fmt, v1, v2); \
-	xsnprintf(showDbg_buf__, sizeof(showDbg_buf__), fmt, v1, v2); \
+	nsDbgPrint(fmt, ## __VA_ARGS__); \
+	xsnprintf(showDbg_buf__, sizeof(showDbg_buf__), fmt, ## __VA_ARGS__); \
 	showMsgVerbose(showDbg_buf__, __FILE__, __LINE__, __func__); \
 } while (0)
-void showDbgRaw(char* fmt, u32 v1, u32 v2);
+
+#define showDbgRaw(fmt, ...) do { \
+	char showDbg_buf__[LOCAL_DBG_BUF_SIZE]; \
+	nsDbgPrintRaw(fmt, ## __VA_ARGS__); \
+	xsnprintf(showDbg_buf__, sizeof(showDbg_buf__), fmt, ## __VA_ARGS__); \
+	showMsg(showDbg_buf__); \
+} while (0)
 
 void disp(u32 t, u32 cl);
 

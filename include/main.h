@@ -9,7 +9,7 @@ int main(void);
 
 static NTR_CONFIG *const ntrConfig = &nsConfig->ntrConfig;
 
-typedef void (*showDbgFunc_t)(char *);
+typedef void (*showDbgFunc_t)(const char *);
 extern showDbgFunc_t showDbgFunc;
 
 extern u32 arm11BinStart;

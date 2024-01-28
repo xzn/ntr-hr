@@ -13,7 +13,7 @@ static Handle getMenuProcess(void) {
 		s32 ret = svcOpenProcess(&hMenuProcess, ntrConfig->HomeMenuPid);
 		if (ret != 0) {
 			hMenuProcess = 0;
-			nsDbgPrint("Open menu process failed: %08x\n", ret);
+			nsDbgPrint("Open menu process failed: %08"PRIx32"\n", ret);
 		}
 	}
 	return hMenuProcess;
@@ -194,13 +194,13 @@ static int pmLoadPluginsForGame(void) {
 		return 0;
 
 	if (plgPoolAlloc(0) != plgLoaderPluginsBegin()) {
-		showDbg("Plugin loader memory pool at wrong address.", 0, 0);
+		showDbg("Plugin loader memory pool at wrong address.");
 		return -1;
 	}
 
 	plgAddPluginsFromDirectory("game");
 	char buf[32];
-	xsnprintf(buf, sizeof(buf), "%08x%08x", plgLoader->tid[1], plgLoader->tid[0]);
+	xsnprintf(buf, sizeof(buf), "%08"PRIx32"%08"PRIx32"", plgLoader->tid[1], plgLoader->tid[0]);
 	plgAddPluginsFromDirectory(buf);
 	return 0;
 }
@@ -209,7 +209,7 @@ static int pmUnloadPluginsForGame(void) {
 	u32 addr = plgLoaderPluginsBegin();
 	u32 addrEnd = plgLoaderPluginsEnd();
 	if (addrEnd != plgPoolAlloc(0)) {
-		showDbg("Plugin loader memory pool unexpected size.", 0, 0);
+		showDbg("Plugin loader memory pool unexpected size.");
 		return -1;
 	}
 	plgPoolFree(addr, addrEnd - addr);
@@ -226,7 +226,7 @@ static int pmFreeLoaderMemPool(int keepHandle) {
 	if (loaderMemGameHandle) {
 		ret = mapRemoteMemoryInLoader(loaderMemGameHandle, (u32)plgLoader, loaderMemPoolSize, MEMOP_FREE);
 		if (ret != 0) {
-			nsDbgPrint("Free loader mem failed: %08x\n", ret);
+			nsDbgPrint("Free loader mem failed: %08"PRIx32"\n", ret);
 		}
 		if (!keepHandle)
 			svcCloseHandle(loaderMemGameHandle);
@@ -243,7 +243,7 @@ static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
 	else
 		ret = mapRemoteMemory(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal);
 	if (ret != 0) {
-		nsDbgPrint("Alloc plugin memory failed: %08x\n", ret);
+		nsDbgPrint("Alloc plugin memory failed: %08"PRIx32"\n", ret);
 		return ret;
 	}
 
@@ -251,7 +251,7 @@ static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
 		loaderMemPoolSize = plgLoaderEx->plgMemSizeTotal;
 		ret = svcDuplicateHandle(&loaderMemGameHandle, hGameProcess);
 		if (ret != 0) {
-			nsDbgPrint("Dupping process handle failed: %08x\n", ret);
+			nsDbgPrint("Dupping process handle failed: %08"PRIx32"\n", ret);
 			loaderMemGameHandle = hGameProcess;
 			pmFreeLoaderMemPool(1);
 			return ret;
@@ -280,12 +280,12 @@ static int pmInitGamePlg(Handle hGameProcess, int loaderMem) {
 
 	ret = protectRemoteMemory(hGameProcess, plgLoader, plgLoaderEx->plgMemSizeTotal);
 	if (ret != 0) {
-		nsDbgPrint("protectRemoteMemory failed: %08x\n", ret);
+		nsDbgPrint("protectRemoteMemory failed: %08"PRIx32"\n", ret);
 		goto error_alloc;
 	}
 	ret = copyRemoteMemory(hGameProcess, plgLoader, CUR_PROCESS_HANDLE, plgLoader, plgLoaderEx->plgMemSizeTotal);
 	if (ret != 0) {
-		nsDbgPrint("Copy plugin loader ingo failed: %08x\n", ret);
+		nsDbgPrint("Copy plugin loader ingo failed: %08"PRIx32"\n", ret);
 		goto error_alloc;
 	}
 	return 0;
@@ -302,13 +302,13 @@ static int pmInjectToGame(Handle hGameProcess) {
 	s32 ret;
 	ret = pmLoadFromMenu(plgLoader, sizeof(PLGLOADER_INFO));
 	if (ret != 0) {
-		nsDbgPrint("Loading plugin info failed:%08x\n", ret);
+		nsDbgPrint("Loading plugin info failed:%08"PRIx32"\n", ret);
 		return ret;
 	}
 
 	ret = pmLoadFromMenu(plgLoaderEx, sizeof(PLGLOADER_EX_INFO));
 	if (ret != 0) {
-		nsDbgPrint("Loading plugin extended info failed:%08x\n", ret);
+		nsDbgPrint("Loading plugin extended info failed:%08"PRIx32"\n", ret);
 		return ret;
 	}
 
@@ -323,20 +323,20 @@ static int pmInjectToGame(Handle hGameProcess) {
 	u32 pid = 0;
 	ret = svcGetProcessId(&pid, hGameProcess);
 	if (ret != 0) {
-		nsDbgPrint("Get game process ID failed:%08x\n", ret);
+		nsDbgPrint("Get game process ID failed:%08"PRIx32"\n", ret);
 		return ret;
 	}
 	plgLoader->gamePluginPid = pid;
 	ret = pmSaveToMenu(&plgLoader->gamePluginPid, sizeof(plgLoader->gamePluginPid));
 	if (ret != 0) {
-		nsDbgPrint("Save game process ID failed:%08x\n", ret);
+		nsDbgPrint("Save game process ID failed:%08"PRIx32"\n", ret);
 		return ret;
 	}
 	rpSetGamePid(pid);
 
 	ret = pmLoadPluginsForGame();
 	if (ret != 0) {
-		nsDbgPrint("Loading plugins for game %08x%08x failed\n", tid[1], tid[0]);
+		nsDbgPrint("Loading plugins for game %08"PRIx32"%08"PRIx32" failed\n", tid[1], tid[0]);
 	}
 
 	NS_CONFIG cfg = { 0 };
@@ -360,7 +360,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 
 		ret = nsAttachProcess(hGameProcess, PROC_START_ADDR, &cfg);
 		if (ret != 0) {
-			nsDbgPrint("Attach game process failed: %08x\n", ret);
+			nsDbgPrint("Attach game process failed: %08"PRIx32"\n", ret);
 			goto error_alloc;
 		}
 	}
@@ -390,19 +390,19 @@ int main(void) {
 
 	s32 res = fsInit();
 	if (res != 0) {
-		nsDbgPrint("fs init failed: %08x\n", res);
+		nsDbgPrint("fs init failed: %08"PRIx32"\n", res);
 		return 0;
 	}
 
 	res = FSUSER_OpenArchive(&sdmcArchive, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL));
 	if (res != 0) {
-		nsDbgPrint("Open sdmc failed: %08x\n", res);
+		nsDbgPrint("Open sdmc failed: %08"PRIx32"\n", res);
 		goto fs_fail;
 	}
 
 	res = loadPayloadBin(NTR_BIN_GAME);
 	if (res != 0) {
-		nsDbgPrint("Load game payload failed: %08x\n", res);
+		nsDbgPrint("Load game payload failed: %08"PRIx32"\n", res);
 		goto fs_fail;
 	}
 

@@ -46,7 +46,7 @@ static u32 gamePluginMenuSelect;
 
 static u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	u32* tid = (u32*)a1;
-	nsDbgPrint("Starting app (title ID): %08x%08x\n", tid[1], tid[0]);
+	nsDbgPrint("Starting app (title ID): %08"PRIx32"%08"PRIx32"\n", tid[1], tid[0]);
 	*plgLoader = (PLGLOADER_INFO){ 0 };
 	plgLoader->tid[0] = tid[0];
 	plgLoader->tid[1] = tid[1];
@@ -66,7 +66,7 @@ static int injectPM(void) {
 
 	ret = svcOpenProcess(&hProcess, pid);
 	if (ret != 0) {
-		nsDbgPrint("openProcess failed: %08x\n", ret, 0);
+		nsDbgPrint("openProcess failed: %08"PRIx32"\n", ret);
 		return ret;
 	}
 	NS_CONFIG cfg = { 0 };
@@ -84,7 +84,7 @@ static int injectToPM(void) {
 	int tries = 5;
 	while (injectPM() != 0) {
 		if (--tries == 0) {
-			showDbg("Injecting to PM process failed.", 0, 0);
+			showDbg("Injecting to PM process failed.");
 			return -1;
 		}
 		svcSleepThread(1000000000);
@@ -108,7 +108,7 @@ static void menuThread(void *) {
 	if (fsUserHandle == 0) {
 		ret = fsInit();
 		if (ret != 0) {
-			showDbg("Failed to initialize fs.", 0, 0);
+			showDbg("Failed to initialize fs.");
 			goto final;
 		}
 	} else {
@@ -116,7 +116,7 @@ static void menuThread(void *) {
 	}
 	ret = loadPayloadBin(NTR_BIN_PM);
 	if (ret != 0) {
-		showDbg("Loading pm payload failed.", 0, 0);
+		showDbg("Loading pm payload failed.");
 		goto final;
 	}
 

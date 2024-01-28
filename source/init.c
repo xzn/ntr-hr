@@ -12,7 +12,7 @@ static int initNSConfig(void) {
 	ret = protectMemory(nsConfig, NS_CONFIG_MAX_SIZE);
 
 	if (ret != 0) {
-		showDbgRaw("Init nsConfig failed for process %x", getCurrentProcessId(), 0);
+		showDbgRaw("Init nsConfig failed for process %"PRIx32, getCurrentProcessId());
 		return ret;
 	}
 	return 0;
@@ -41,7 +41,7 @@ static int setUpReturn(void) {
 int plgLoaderInfoAlloc(void) {
 	PLGLOADER_INFO *loader = (void *)plgPoolAlloc(sizeof(PLGLOADER_INFO));
 	if (plgLoader != loader) {
-		showDbg("Plugin loader info at wrong address.", 0, 0);
+		showDbg("Plugin loader info at wrong address.");
 		plgPoolFree((u32)loader, sizeof(PLGLOADER_INFO));
 		return -1;
 	}
@@ -79,7 +79,7 @@ u32 plgPoolAlloc(u32 size) {
 	u32 alignedSize = rtAlignToPageSize(size);
 	s32 ret = svcControlMemory(&outAddr, addr, 0, alignedSize, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
-		nsDbgPrint("Failed to allocate memory from pool: %08x\n", ret);
+		nsDbgPrint("Failed to allocate memory from pool: %08"PRIx32"\n", ret);
 		return 0;
 	}
 
@@ -95,12 +95,12 @@ int plgPoolFree(u32 addr, u32 size) {
 	u32 alignedSize = rtAlignToPageSize(size);
 	u32 addrEnd = addr + alignedSize;
 	if (addrEnd != plgPoolEnd) {
-		showDbg("addr end %08x different from pool end %08x\n", addrEnd, plgPoolEnd);
+		showDbg("addr end %08"PRIx32" different from pool end %08"PRIx32"\n", addrEnd, plgPoolEnd);
 		return -1;
 	}
 	s32 ret = svcControlMemory(NULL, addr, 0, alignedSize, MEMOP_FREE, 0);
 	if (ret != 0) {
-		nsDbgPrint("Failed to free memory to pool: %08x\n", ret);
+		nsDbgPrint("Failed to free memory to pool: %08"PRIx32"\n", ret);
 		return ret;
 	}
 
@@ -120,7 +120,7 @@ u32 plgRequestMemory(u32 size) {
 	size = rtAlignToPageSize(size);
 	ret = svcControlMemory(&outAddr, addr, 0, size, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
-		nsDbgPrint("Failed to allocate memory from pool for plugin: %08x\n", ret);
+		nsDbgPrint("Failed to allocate memory from pool for plugin: %08"PRIx32"\n", ret);
 		return 0;
 	}
 
@@ -147,32 +147,32 @@ int loadPayloadBin(char *name) {
 	char fileName[PATH_MAX];
 	ret = strnjoin(fileName, PATH_MAX, ntrConfig->ntrFilePath, name);
 	if (ret != 0) {
-		showDbg("Payload file name too long.", 0, 0);
+		showDbg("Payload file name too long.");
 		goto final;
 	}
 
 	Handle file = rtOpenFile(fileName);
 	if (file == 0) {
-		showDbg("Failed to open payload file.", 0, 0);
+		showDbg("Failed to open payload file.");
 		goto final;
 	}
 
 	u32 fileSize = rtGetFileSize(file);
 	if (fileSize == 0) {
-		showDbg("Failed to get payload file size/payload empty.", 0, 0);
+		showDbg("Failed to get payload file size/payload empty.");
 		goto file_final;
 	}
 
 	u32 addr;
 		addr = payloadBinAlloc(fileSize);
 	if (addr == 0) {
-		showDbg("Failed to get allocate memory for payload.", 0, 0);
+		showDbg("Failed to get allocate memory for payload.");
 		goto file_final;
 	}
 
 	u32 bytesRead = rtLoadFileToBuffer(file, (u32 *)addr, fileSize);
 	if (bytesRead != fileSize) {
-		showDbg("Failed to read payload.", 0, 0);
+		showDbg("Failed to read payload.");
 		payloadBinFree(addr, fileSize);
 		goto file_final;
 	}
@@ -203,9 +203,9 @@ void rpSetGamePid(u32) {
 	// TODO
 }
 
-u32 plgRegisterMenuEntry(u32, char *, void *) { return -1; }
+static u32 plgRegisterMenuEntry(u32, const char *, const void *) { return -1; }
 
-u32 plgGetSharedServiceHandle(char* servName, u32* handle) {
+static u32 plgGetSharedServiceHandle(const char* servName, u32* handle) {
 	if (strcmp(servName, "fs:USER") == 0) {
 		Handle fsuHandle = *fsGetSessionHandle();
 		if (fsuHandle == 0) {
@@ -220,17 +220,21 @@ u32 plgGetSharedServiceHandle(char* servName, u32* handle) {
 	return 1;
 }
 
-u32 controlVideo(u32, u32, u32, u32) {
+static u32 controlVideo(u32, u32, u32, u32) {
 	return 0;
 }
 
-s32 showMenuEx(char *, u32, char *[], char *[],  u32) {
+static s32 showMenuEx(const char *, u32, const char *[], const char *[],  u32) {
 	return -1;
+}
+
+static void showDbgRawA2(const char *fmt, u32 v1, u32 v2) {
+	showDbgRaw(fmt, v1, v2);
 }
 
 #define INIT_SHARED_FUNC(name, id) (nsConfig->sharedFunc[id] = (u32)name)
 void initSharedFunc(void) {
-	INIT_SHARED_FUNC(showDbgRaw, 0);
+	INIT_SHARED_FUNC(showDbgRawA2, 0);
 	INIT_SHARED_FUNC(nsDbgPrintRaw, 1);
 	INIT_SHARED_FUNC(plgRegisterMenuEntry, 2);
 	INIT_SHARED_FUNC(plgGetSharedServiceHandle, 3);

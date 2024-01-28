@@ -79,7 +79,7 @@ static u32 rpGetNwmRemotePC(NS_CONFIG *cfg, Handle hProcess) {
 		remotePC = 0x001231d0;
 		ret = copyRemoteMemory(CUR_PROCESS_HANDLE, buf, hProcess, (void *)remotePC, RP_NWM_HDR_SIZE);
 		if (ret != 0) {
-			nsDbgPrint("Read nwm memory at %08x failed: %08x\n", remotePC, ret);
+			nsDbgPrint("Read nwm memory at %08"PRIx32" failed: %08"PRIx32"\n", remotePC, ret);
 		} if (memcmp(buf, desiredHeader, RP_NWM_HDR_SIZE) == 0) {
 			isFirmwareSupported = 1;
 			cfg->startupInfo[11] = 0x120464; // nwmvalparamhook
@@ -91,7 +91,7 @@ static u32 rpGetNwmRemotePC(NS_CONFIG *cfg, Handle hProcess) {
 		remotePC = 0x123394;
 		ret = copyRemoteMemory(CUR_PROCESS_HANDLE, buf, hProcess, (void *)remotePC, RP_NWM_HDR_SIZE);
 		if (ret != 0) {
-			nsDbgPrint("Read nwm memory at %08x failed: %08x\n", remotePC, ret);
+			nsDbgPrint("Read nwm memory at %08"PRIx32" failed: %08"PRIx32"\n", remotePC, ret);
 		} if (memcmp(buf, desiredHeader, RP_NWM_HDR_SIZE) == 0) {
 			isFirmwareSupported = 1;
 			cfg->startupInfo[11] = 0x120630; // nwmvalparamhook
@@ -106,7 +106,7 @@ static u32 rpGetNwmRemotePC(NS_CONFIG *cfg, Handle hProcess) {
 
 int rpStartupFromMenu(RP_CONFIG *config) {
 	if (!ntrConfig->isNew3DS) {
-		showDbg("Remote Play is available on New 3DS only.", 0, 0);
+		showDbg("Remote Play is available on New 3DS only.");
 		return -1;
 	}
 
@@ -120,7 +120,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 	s32 ret = 0;
 	ret = loadPayloadBin(NTR_BIN_NWM);
 	if (ret != 0) {
-		showDbg("Loading nwm payload failed.", 0, 0);
+		showDbg("Loading nwm payload failed.");
 		goto final;
 	}
 
@@ -128,7 +128,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 	u32 pid = 0x1a; // nwm process
 	ret = svcOpenProcess(&hProcess, pid);
 	if (ret != 0) {
-		showDbg("Open nwm process failed: %08x\n", ret, 0);
+		showDbg("Open nwm process failed: %08"PRIx32"\n", ret);
 		hProcess = 0;
 		goto final;
 	}
@@ -153,7 +153,7 @@ final:
 		svcCloseHandle(hProcess);
 
 	if (ret != 0) {
-		showDbg("Starting remote play failed: %d. Retry maybe...", ret, 0);
+		showDbg("Starting remote play failed: %08"PRIx32". Retry maybe...", ret);
 		ACR(remotePlayStarted);
 	} else {
 		setCpuClockLock(3);
