@@ -207,25 +207,57 @@ u32 plgRegisterCallback(u32 type, void*, u32) {
 }
 
 enum {
+	IO_BASE_PAD = 1,
+	IO_BASE_LCD,
+	IO_BASE_PDC,
+	IO_BASE_GSPHEAP,
+	IO_BASE_HOME_MENU_PID
+};
+
+enum {
 	VALUE_CURRENT_LANGUAGE = 6,
 	VALUE_DRAWSTRING_CALLBACK,
 	VALUE_TRANSLATE_CALLBACK
 };
 
 u32 plgSetValue(u32 index, u32 value) {
-	if (index == VALUE_CURRENT_LANGUAGE) {
-		plgLoaderInfo->currentLanguage = value;
-	}
-	if (index == VALUE_DRAWSTRING_CALLBACK) {
-		plgDrawStringCallback = (void*)value;
-	}
-	if (index == VALUE_TRANSLATE_CALLBACK){
-		plgTranslateCallback = (void*)value;
+	switch (index) {
+		case VALUE_CURRENT_LANGUAGE:
+			plgLoaderInfo->currentLanguage = value;
+			break;
+
+		case VALUE_DRAWSTRING_CALLBACK:
+			plgDrawStringCallback = (void*)value;
+			break;
+
+		case VALUE_TRANSLATE_CALLBACK:
+			plgTranslateCallback = (void*)value;
+			break;
+
+		default:
+			break;
 	}
 	return 0;
 }
 
-u32 plgGetIoBase(u32) {
-	// TODO
-	return 0;
+u32 plgGetIoBase(u32 IoBase) {
+	switch (IoBase) {
+		case IO_BASE_LCD:
+			return IoBaseLcd;
+
+		case IO_BASE_PAD:
+			return IoBasePad;
+
+		case IO_BASE_PDC:
+			return IoBasePdc;
+
+		case IO_BASE_GSPHEAP:
+			return 0x14000000;
+
+		case IO_BASE_HOME_MENU_PID:
+			return ntrConfig->HomeMenuPid;
+
+		default:
+			return plgLoaderInfo->currentLanguage;
+	}
 }
