@@ -1,7 +1,8 @@
 #ifndef INIT_H
 #define INIT_H
 
-int startupInit(int initPlgLoaderInfo);
+void startupInit(void);
 void initSharedFunc(void);
+int plgLoaderInfoAlloc(void);
 
 #endif

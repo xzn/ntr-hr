@@ -133,7 +133,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 		}
 
 		if (arm11BinStart == 0) {
-			ret = loadPayloadBin(NTR_BIN_GAME, 1);
+			ret = loadPayloadBin(NTR_BIN_GAME);
 			if (ret != 0) {
 				nsDbgPrint("Load game payload failed: %08x\n", ret);
 				goto error_alloc;
@@ -161,7 +161,9 @@ static u32 svcRunCallback(Handle hProcess, u32 *startInfo) {
 }
 
 int main(void) {
-	if (startupInit(1) != 0)
+	startupInit();
+
+	if (plgLoaderInfoAlloc() != 0)
 		return 0;
 
 	if (ntrConfig->ex.nsUseDbg)
@@ -177,4 +179,12 @@ int main(void) {
 	rtEnableHook(&svcRunHook);
 
 	return 0;
+}
+
+u32 payloadBinAlloc(u32 size) {
+	return plgRequestMemory(size);
+}
+
+int payloadBinFree(u32, u32) {
+	return -1;
 }

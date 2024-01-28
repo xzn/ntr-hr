@@ -171,8 +171,7 @@ static void plgInitScreenOverlay(void) {
 }
 
 int main(void) {
-	if (startupInit(0) != 0)
-		return 0;
+	startupInit();
 
 	if (ntrConfig->ex.nsUseDbg) {
 		nsStartup();

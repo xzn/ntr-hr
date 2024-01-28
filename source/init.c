@@ -43,7 +43,7 @@ static int setUpReturn(void) {
 	return ret;
 }
 
-static int plgLoaderInfoAlloc(void) {
+int plgLoaderInfoAlloc(void) {
 	plgLoaderInfo = (void *)plgPoolAlloc(sizeof(PLGLOADER_INFO));
 	if (plgLoaderInfo != (void *)PLG_LOADER_ADDR) {
 		showMsg("Plugin loader info at wrong address.");
@@ -54,17 +54,14 @@ static int plgLoaderInfoAlloc(void) {
 	return 0;
 }
 
-int startupInit(int initPlgLoaderInfo) {
+void startupInit(void) {
 	if (initNSConfig() != 0)
 		goto fail;
 	loadParams();
 	if (setUpReturn() != 0)
 		goto fail;
 
-	if (initPlgLoaderInfo && plgLoaderInfoAlloc() != 0)
-		return -1;
-
-	return 0;
+	return;
 
 fail:
 	while (1) {
@@ -138,7 +135,15 @@ u32 plgRequestMemory(u32 size) {
 u32 arm11BinStart;
 u32 arm11BinSize;
 
-int loadPayloadBin(char *name, int pluginMem) {
+u32 __attribute__((weak)) payloadBinAlloc(u32 size) {
+	return plgPoolAlloc(size);
+}
+
+int __attribute__((weak)) payloadBinFree(u32 addr, u32 size) {
+	return plgPoolFree(addr, size);
+}
+
+int loadPayloadBin(char *name) {
 	int fileLoaded = 0;
 	Result ret;
 
@@ -164,10 +169,7 @@ int loadPayloadBin(char *name, int pluginMem) {
 	}
 
 	u32 addr;
-	if (pluginMem)
-		addr = plgRequestMemory(fileSize);
-	else
-		addr = plgPoolAlloc(fileSize);
+		addr = payloadBinAlloc(fileSize);
 	if (addr == 0) {
 		showMsg("Failed to get allocate memory for payload.");
 		goto file_final;
@@ -177,7 +179,7 @@ int loadPayloadBin(char *name, int pluginMem) {
 	ret = FSFILE_Read(file, &bytesRead, 0, (void *)addr, fileSize);
 	if (ret != 0) {
 		showDbg("Failed to read payload: %08x.", ret, 0);
-		plgPoolFree(addr, fileSize);
+		payloadBinFree(addr, fileSize);
 		goto file_final;
 	}
 
@@ -197,7 +199,7 @@ final:
 
 void unloadPayloadBin(void) {
 	if (arm11BinStart) {
-		plgPoolFree(arm11BinStart, arm11BinSize);
+		payloadBinFree(arm11BinStart, arm11BinSize);
 		arm11BinStart = 0;
 		arm11BinSize = 0;
 	}

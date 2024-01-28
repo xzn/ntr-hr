@@ -103,7 +103,8 @@ static void menuThread(void *) {
 		disp(100, 0x10000ff);
 	}
 
-	Handle fsUserHandle = *(u32 *)ntrConfig->HomeFSUHandleAddr;
+	Handle fsUserHandle = ntrConfig->HomeFSUHandleAddr ?
+		*(u32 *)ntrConfig->HomeFSUHandleAddr : 0;
 	if (fsUserHandle == 0) {
 		ret = fsInit();
 		if (ret != 0) {
@@ -113,7 +114,7 @@ static void menuThread(void *) {
 	} else {
 		fsUseSession(fsUserHandle);
 	}
-	ret = loadPayloadBin(NTR_BIN_PM, 0);
+	ret = loadPayloadBin(NTR_BIN_PM);
 	if (ret != 0) {
 		showMsg("Loading pm payload failed.");
 		goto final;
@@ -157,7 +158,9 @@ void nsHandlePacket(void) {
 }
 
 int main(void) {
-	if (startupInit(1) != 0)
+	startupInit();
+
+	if (plgLoaderInfoAlloc() != 0)
 		return 0;
 
 	Handle hThread;

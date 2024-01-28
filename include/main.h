@@ -13,7 +13,7 @@ extern showDbgFunc_t showDbgFunc;
 
 extern u32 arm11BinStart;
 extern u32 arm11BinSize;
-int loadPayloadBin(char *name, int pluginMem);
+int loadPayloadBin(char *name);
 void unloadPayloadBin(void);
 
 u32 plgPoolAlloc(u32 size);

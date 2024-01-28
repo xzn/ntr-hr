@@ -118,7 +118,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 	}
 
 	s32 ret = 0;
-	ret = loadPayloadBin(NTR_BIN_NWM, 0);
+	ret = loadPayloadBin(NTR_BIN_NWM);
 	if (ret != 0) {
 		showMsg("Loading nwm payload failed.");
 		goto final;
