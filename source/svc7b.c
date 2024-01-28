@@ -78,23 +78,23 @@ static void set_kmmu_rw(int cpu, u32 addr, u32 size)
 }
 
 void kernelCallback(u32);
-static void keDoKernelHax() {
+static void keDoKernelHax(NTR_CONFIG *ntrCfg) {
 	// set mmu
 
-	set_kmmu_rw(0, ntrConfig->KMMUHaxAddr, ntrConfig->KMMUHaxSize);
-	set_kmmu_rw(1, ntrConfig->KMMUHaxAddr, ntrConfig->KMMUHaxSize);
-	if (ntrConfig->isNew3DS) {
-		set_kmmu_rw(2, ntrConfig->KMMUHaxAddr, ntrConfig->KMMUHaxSize);
+	set_kmmu_rw(0, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
+	set_kmmu_rw(1, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
+	if (ntrCfg->isNew3DS) {
+		set_kmmu_rw(2, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
 	}
 
 	// set_remoteplay_mmu(0xd8000000, 0x00600000);
 	/* patch controlmemory to disable address boundary check */
 
-	*(u32*)(ntrConfig->ControlMemoryPatchAddr1) = 0;
-	*(u32*)(ntrConfig->ControlMemoryPatchAddr2) = 0;
+	*(u32*)(ntrCfg->ControlMemoryPatchAddr1) = 0;
+	*(u32*)(ntrCfg->ControlMemoryPatchAddr2) = 0;
 
-	if (ntrConfig->KernelFreeSpaceAddr_Optional) {
-		u32* addr = (u32 *)ntrConfig->KernelFreeSpaceAddr_Optional;
+	if (ntrCfg->KernelFreeSpaceAddr_Optional) {
+		u32* addr = (u32 *)ntrCfg->KernelFreeSpaceAddr_Optional;
 		addr[0] = 0xe10f0000;
 		addr[1] = 0xe38000c0;
 		addr[2] = 0xe129f000;
@@ -106,9 +106,18 @@ static void keDoKernelHax() {
 	InvalidateEntireDataCache();
 }
 
+enum {
+	KCALL_KMEMCPY = 1,
+	KCALL_GET_KPROC_FROM_PROC,
+	KCALL_GET_KPROC,
+	KCALL_SET_KPROC,
+	KCALL_SWAP_PID,
+	KCALL_KERNEL_HAX
+};
+
 void kernelCallback(u32 /* msr */) {
 	switch (kernelArgs[0]) {
-		case 1: {
+		case KCALL_KMEMCPY: {
 			u32 size = kernelArgs[3];
 			u32 dst = kernelArgs[1];
 			u32 src = kernelArgs[2];
@@ -119,24 +128,24 @@ void kernelCallback(u32 /* msr */) {
 			break;
 		}
 
-		case 2:
+		case KCALL_GET_KPROC_FROM_PROC:
 			// getKProcessByHandle
 			u32 hProcess = kernelArgs[1];
 			u32 kProcess = keRefHandle(*(u32 *)0xFFFF9004 + KProcessHandleDataOffset, hProcess);
 			kernelArgs[1] = kProcess;
 			break;
 
-		case 3:
+		case KCALL_GET_KPROC:
 			// getCurrentKProcess
 			kernelArgs[1] = *(u32 *)0xFFFF9004;
 			break;
 
-		case 4:
+		case KCALL_SET_KPROC:
 			// setCurrentKProcess
 			*(u32 *)0xFFFF9004 = kernelArgs[1];
 			break;
 
-		case 5: {
+		case KCALL_SWAP_PID: {
 			// swapPid
 			u32 kProcess = kernelArgs[1];
 			u32 newPid = kernelArgs[2];
@@ -145,14 +154,16 @@ void kernelCallback(u32 /* msr */) {
 			break;
 		}
 
-		case 6:
-			keDoKernelHax();
+		case KCALL_KERNEL_HAX: {
+			NTR_CONFIG *ntrCfg = (NTR_CONFIG *)kernelArgs[1];
+			keDoKernelHax(ntrCfg);
 			break;
+		}
 	}
 }
 
 void kmemcpy(void *dst, void *src, u32 size) {
-	kernelArgs[0] = 1;
+	kernelArgs[0] = KCALL_KMEMCPY;
 	kernelArgs[1] = (u32)dst;
 	kernelArgs[2] = (u32)src;
 	kernelArgs[3] = (u32)size;
@@ -160,33 +171,34 @@ void kmemcpy(void *dst, void *src, u32 size) {
 }
 
 void kSetCurrentKProcess(u32 ptr) {
-	kernelArgs[0] = 4;
+	kernelArgs[0] = KCALL_SET_KPROC;
 	kernelArgs[1] = ptr;
 	svcBackdoor(currentBackdoorHandler);
 }
 
 u32 kGetCurrentKProcess(void) {
-	kernelArgs[0] = 3;
+	kernelArgs[0] = KCALL_GET_KPROC;
 	svcBackdoor(currentBackdoorHandler);
 	return kernelArgs[1];
 }
 
 u32 kGetKProcessByHandle(u32 handle) {
-	kernelArgs[0] = 2;
+	kernelArgs[0] = KCALL_GET_KPROC_FROM_PROC;
 	kernelArgs[1] = handle;
 	svcBackdoor(currentBackdoorHandler);
 	return kernelArgs[1];
 }
 
 u32 kSwapProcessPid(u32 kProcess, u32 newPid) {
-	kernelArgs[0] = 5;
+	kernelArgs[0] = KCALL_SWAP_PID;
 	kernelArgs[1] = kProcess;
 	kernelArgs[2] = newPid;
 	svcBackdoor(currentBackdoorHandler);
 	return kernelArgs[2];
 }
 
-void kDoKernelHax(void) {
-	kernelArgs[0] = 6;
+void kDoKernelHax(NTR_CONFIG *ntrCfg) {
+	kernelArgs[0] = KCALL_KERNEL_HAX;
+	kernelArgs[1] = (u32)ntrCfg;
 	svcBackdoor(currentBackdoorHandler);
 }

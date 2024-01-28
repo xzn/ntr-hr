@@ -198,13 +198,12 @@ int main(void) {
 		plgInitScreenOverlay();
 
 	if (ntrConfig->ex.plg.plgMemSizeTotal != 0) {
-		plgLoaderInfo = (void *)PLG_LOADER_ADDR;
 		disp(100, 0x100ff00);
 
 		initSharedFunc();
-		for (u32 i = 0; i < plgLoaderInfo->plgCount; ++i) {
+		for (u32 i = 0; i < plgLoader->plgCount; ++i) {
 			typedef void (*funcType)(void);
-			((funcType)plgLoaderInfo->plgBufferPtr[i])();
+			((funcType)plgLoader->plgBufferPtr[i])();
 		}
 	}
 
@@ -254,7 +253,7 @@ enum {
 u32 plgSetValue(u32 index, u32 value) {
 	switch (index) {
 		case VALUE_CURRENT_LANGUAGE:
-			plgLoaderInfo->currentLanguage = value;
+			plgLoader->currentLanguage = value;
 			break;
 
 		case VALUE_DRAWSTRING_CALLBACK:
@@ -289,6 +288,6 @@ u32 plgGetIoBase(u32 IoBase) {
 			return ntrConfig->HomeMenuPid;
 
 		default:
-			return plgLoaderInfo->currentLanguage;
+			return plgLoader->currentLanguage;
 	}
 }

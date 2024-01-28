@@ -3,10 +3,11 @@
 
 #include "3ds/types.h"
 #include "ntr_config.h"
+#include "ns.h"
 
 int main(void);
 
-extern NTR_CONFIG *ntrConfig;
+static NTR_CONFIG *const ntrConfig = &nsConfig->ntrConfig;
 
 typedef void (*showDbgFunc_t)(char *);
 extern showDbgFunc_t showDbgFunc;
@@ -46,7 +47,8 @@ typedef struct {
 	u8 buf[3000];
 } GAME_PLUGIN_MENU;
 
-extern PLGLOADER_INFO *plgLoaderInfo;
+static PLGLOADER_INFO *const plgLoader = (PLGLOADER_INFO *)PLG_LOADER_ADDR;
+static PLGLOADER_EX_INFO *const plgLoaderEx = &ntrConfig->ex.plg;
 
 void rpSetGamePid(u32 gamePid);
 int nsDbgNext(void);

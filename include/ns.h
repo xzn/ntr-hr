@@ -43,7 +43,7 @@ typedef struct {
 	RP_CONFIG rpConfig;
 } NS_CONFIG;
 
-extern NS_CONFIG* nsConfig;
+static NS_CONFIG *const nsConfig = (NS_CONFIG *)NS_CONFIG_ADDR;
 
 int nsStartup(void);
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg);

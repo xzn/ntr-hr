@@ -16,12 +16,12 @@ static Handle getMenuProcess(void) {
 	return hMenuProcess;
 }
 
-static int pmLoadPluginsForGame(PLGLOADER_INFO *, PLGLOADER_EX_INFO *) {
+static int pmLoadPluginsForGame() {
 	// TODO
 	return 0;
 }
 
-static void pmUnloadPluginsForGame(PLGLOADER_INFO *) {
+static void pmUnloadPluginsForGame() {
 }
 
 static Handle loaderMemGameHandle;
@@ -30,7 +30,7 @@ static u32 loaderMemPoolSize;
 static void pmFreeLoaderMemPool(int keepHandle) {
 	if (loaderMemGameHandle) {
 		u32 ret;
-		ret = mapRemoteMemoryInLoader(loaderMemGameHandle, PLG_LOADER_ADDR, loaderMemPoolSize, MEMOP_FREE);
+		ret = mapRemoteMemoryInLoader(loaderMemGameHandle, (u32)plgLoader, loaderMemPoolSize, MEMOP_FREE);
 		if (ret != 0) {
 			nsDbgPrint("Free loader mem failed: %08x\n", ret);
 		}
@@ -46,7 +46,6 @@ static int pmInjectToGame(Handle hGameProcess) {
 	if (hProcess == 0)
 		return -1;
 
-	PLGLOADER_INFO *plgLoader = (void *)PLG_LOADER_ADDR;
 	s32 ret;
 	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, plgLoader, hProcess, plgLoader, sizeof(PLGLOADER_INFO));
 	if (ret != 0) {
@@ -54,7 +53,6 @@ static int pmInjectToGame(Handle hGameProcess) {
 		return ret;
 	}
 
-	PLGLOADER_EX_INFO *plgLoaderEx = &ntrConfig->ex.plg;
 	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, plgLoaderEx, hProcess, plgLoaderEx, sizeof(PLGLOADER_EX_INFO));
 	if (ret != 0) {
 		nsDbgPrint("Loading plugin extended info failed:%08x\n", ret);
@@ -86,7 +84,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 	}
 	rpSetGamePid(pid);
 
-	ret = pmLoadPluginsForGame(plgLoader, plgLoaderEx);
+	ret = pmLoadPluginsForGame();
 	if (ret != 0) {
 		nsDbgPrint("Loading plugins for game %08x%08x failed\n", tid[1], tid[0]);
 	}

@@ -3,18 +3,18 @@
 #include <memory.h>
 
 extern int _BootArgs[];
+static NTR_CONFIG *ntrCfg;
 
 static void initBootVars(void) {
-	ntrConfig = (void *)_BootArgs[0];
-	showDbgFunc = (void *)ntrConfig->showDbgFunc;
-	arm11BinStart = ntrConfig->arm11BinStart;
-	arm11BinSize = ntrConfig->arm11BinSize;
-	KProcessHandleDataOffset = ntrConfig->KProcessHandleDataOffset;
+	ntrCfg = (void *)_BootArgs[0];
+	showDbgFunc = (void *)ntrCfg->showDbgFunc;
+	arm11BinStart = ntrCfg->arm11BinStart;
+	arm11BinSize = ntrCfg->arm11BinSize;
 }
 
 static void doKernelHax(void) {
 	showMsgRaw("Doing kernel hax...");
-	kDoKernelHax();
+	kDoKernelHax(ntrCfg);
 	showMsgRaw("Kernel hax done.");
 
 	disp(100, 0x1ff0000);
@@ -24,19 +24,19 @@ static int injectToHomeMenu(void) {
 	NS_CONFIG cfg = { 0 };
 	Handle hProcess = 0;
 	int ret = 0;
-	ret = svcOpenProcess(&hProcess, ntrConfig->HomeMenuPid);
+	ret = svcOpenProcess(&hProcess, ntrCfg->HomeMenuPid);
 	if (ret != 0) {
 		showDbgRaw("Failed to open home menu process: %d", ret, 0);
 		goto final;
 	}
 
-	memcpy(&cfg.ntrConfig, ntrConfig, offsetof(NTR_CONFIG, ex));
+	memcpy(&cfg.ntrConfig, ntrCfg, offsetof(NTR_CONFIG, ex));
 	cfg.ntrConfig.ex.nsUseDbg = nsDbgNext();
 	if (cfg.ntrConfig.ex.nsUseDbg) {
 		disp(100, 0x17f7f7f);
 	}
 
-	ret = nsAttachProcess(hProcess, ntrConfig->HomeMenuInjectAddr, &cfg);
+	ret = nsAttachProcess(hProcess, ntrCfg->HomeMenuInjectAddr, &cfg);
 
 	svcCloseHandle(hProcess);
 

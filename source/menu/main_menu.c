@@ -47,9 +47,9 @@ static u32 gamePluginMenuSelect = 0;
 static u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	u32* tid = (u32*)a1;
 	nsDbgPrint("Starting app (title ID): %08x%08x\n", tid[1], tid[0]);
-	*plgLoaderInfo = (PLGLOADER_INFO){ 0 };
-	plgLoaderInfo->tid[0] = tid[0];
-	plgLoaderInfo->tid[1] = tid[1];
+	*plgLoader = (PLGLOADER_INFO){ 0 };
+	plgLoader->tid[0] = tid[0];
+	plgLoader->tid[1] = tid[1];
 	gamePluginMenuSelect = 0;
 
 	rpSetGamePid(0);

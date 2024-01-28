@@ -4,15 +4,12 @@
 
 #include <memory.h>
 
-NTR_CONFIG *ntrConfig;
 showDbgFunc_t showDbgFunc;
-PLGLOADER_INFO *plgLoaderInfo;
 
 static int initNSConfig(void) {
 	u32 ret;
 
-	nsConfig = (void *)NS_CONFIG_ADDR;
-	ret = protectMemory((void*)NS_CONFIG_ADDR, NS_CONFIG_MAX_SIZE);
+	ret = protectMemory(nsConfig, NS_CONFIG_MAX_SIZE);
 
 	if (ret != 0) {
 		showDbgRaw("Init nsConfig failed for process %x", getCurrentProcessId(), 0);
@@ -22,8 +19,6 @@ static int initNSConfig(void) {
 }
 
 static void loadParams(void) {
-	ntrConfig = &nsConfig->ntrConfig;
-
 	KProcessHandleDataOffset = ntrConfig->KProcessHandleDataOffset;
 	KProcessPIDOffset = ntrConfig->KProcessPIDOffset;
 	KProcessCodesetOffset = ntrConfig->KProcessCodesetOffset;
@@ -44,11 +39,10 @@ static int setUpReturn(void) {
 }
 
 int plgLoaderInfoAlloc(void) {
-	plgLoaderInfo = (void *)plgPoolAlloc(sizeof(PLGLOADER_INFO));
-	if (plgLoaderInfo != (void *)PLG_LOADER_ADDR) {
+	PLGLOADER_INFO *loader = (void *)plgPoolAlloc(sizeof(PLGLOADER_INFO));
+	if (plgLoader != loader) {
 		showDbg("Plugin loader info at wrong address.", 0, 0);
-		plgPoolFree((u32)plgLoaderInfo, sizeof(PLGLOADER_INFO));
-		plgLoaderInfo = 0;
+		plgPoolFree((u32)loader, sizeof(PLGLOADER_INFO));
 		return -1;
 	}
 	return 0;
@@ -74,7 +68,7 @@ static u32 plgPoolEnd;
 
 u32 plgPoolAlloc(u32 size) {
 	if (plgPoolEnd == 0) {
-		plgPoolEnd = LOCAL_POOL_ADDR;
+		plgPoolEnd = PLG_POOL_ADDR;
 	}
 
 	u32 addr = plgPoolEnd;
@@ -115,7 +109,7 @@ static u32 plgMemoryPoolEnd;
 
 u32 plgRequestMemory(u32 size) {
 	if (!plgMemoryPoolEnd) {
-		plgMemoryPoolEnd = PLG_POOL_ADDR;
+		plgMemoryPoolEnd = PLG_MEM_ADDR;
 	}
 
 	u32 ret, outAddr, addr;

@@ -8,8 +8,6 @@
 #include <fcntl.h>
 #include <errno.h>
 
-NS_CONFIG* nsConfig;
-
 typedef enum {
 	NS_CMD_HEARTBEAT,
 	NS_CMD_REMOTEPLAY = 901,
