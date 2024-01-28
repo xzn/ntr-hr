@@ -12,8 +12,8 @@ typedef struct {
 	char *title;
 	void *callback;
 } PLUGIN_ENTRY;
-static PLUGIN_ENTRY pluginEntry[MAX_PLUGIN_ENTRY];
-static u32 pluginEntryCount;
+static PLUGIN_ENTRY plgEntries[MAX_PLUGIN_ENTRY];
+static u32 plgEntriesCount;
 
 typedef int (*drawStringTypeDef)(char *str, int x, int y, u8 r, u8 g, u8 b, int newLine);
 typedef char *(*translateTypeDef)(char *str);
@@ -91,9 +91,9 @@ static void plgSetBufferSwapCommon(u32 isDisplay1, u32 addr, u32 addrB, u32 stri
 		svcInvalidateProcessDataCache(CUR_PROCESS_HANDLE, (u32)addrB, stride * height);
 	}
 
-	for (u32 i = 0; i < pluginEntryCount; ++i) {
-		if (pluginEntry[i].type == CALLBACK_TYPE_OVERLAY) {
-			s32 ret = ((OverlayFnTypedef)pluginEntry[i].callback)(isDisplay1, addr, addrB, stride, format);
+	for (u32 i = 0; i < plgEntriesCount; ++i) {
+		if (plgEntries[i].type == CALLBACK_TYPE_OVERLAY) {
+			s32 ret = ((OverlayFnTypedef)plgEntries[i].callback)(isDisplay1, addr, addrB, stride, format);
 			if (ret == 0) {
 				isDirty = 1;
 			}
@@ -218,11 +218,11 @@ u32 plgRegisterCallback(u32 type, void *callback, u32) {
 			return -1;
 		}
 
-		if (pluginEntryCount >= MAX_PLUGIN_ENTRY) {
+		if (plgEntriesCount >= MAX_PLUGIN_ENTRY) {
 			return -1;
 		}
 
-		pluginEntry[pluginEntryCount++] = (PLUGIN_ENTRY){
+		plgEntries[plgEntriesCount++] = (PLUGIN_ENTRY){
 			.type = CALLBACK_TYPE_OVERLAY,
 			.title = "ov",
 			.callback = callback
