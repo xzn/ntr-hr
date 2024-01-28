@@ -16,20 +16,20 @@ static Handle getMenuProcess(void) {
 	return hMenuProcess;
 }
 
-static int pmLoadPluginsForGame() {
+static int pmLoadPluginsForGame(void) {
 	// TODO
 	return 0;
 }
 
-static void pmUnloadPluginsForGame() {
+static void pmUnloadPluginsForGame(void) {
 }
 
 static Handle loaderMemGameHandle;
 static u32 loaderMemPoolSize;
 
-static void pmFreeLoaderMemPool(int keepHandle) {
+static int pmFreeLoaderMemPool(int keepHandle) {
+	u32 ret = 0;
 	if (loaderMemGameHandle) {
-		u32 ret;
 		ret = mapRemoteMemoryInLoader(loaderMemGameHandle, (u32)plgLoader, loaderMemPoolSize, MEMOP_FREE);
 		if (ret != 0) {
 			nsDbgPrint("Free loader mem failed: %08x\n", ret);
@@ -39,28 +39,87 @@ static void pmFreeLoaderMemPool(int keepHandle) {
 		loaderMemGameHandle = 0;
 		loaderMemPoolSize = 0;
 	}
+	return ret;
+}
+
+static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
+	s32 ret;
+	if (loaderMem)
+		ret = mapRemoteMemoryInLoader(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal, MEMOP_ALLOC);
+	else
+		ret = mapRemoteMemory(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal);
+	if (ret != 0) {
+		nsDbgPrint("Alloc plugin memory failed: %08x\n", ret);
+		return ret;
+	}
+
+	if (loaderMem) {
+		loaderMemPoolSize = plgLoaderEx->plgMemSizeTotal;
+		ret = svcDuplicateHandle(&loaderMemGameHandle, hGameProcess);
+		if (ret != 0) {
+			nsDbgPrint("Dupping process handle failed: %08x\n", ret);
+			loaderMemGameHandle = hGameProcess;
+			pmFreeLoaderMemPool(1);
+			return ret;
+		}
+	}
+	return 0;
+}
+
+static int pmLoadFromMenu(void *addr, u32 size) {
+	s32 ret;
+	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, addr, hMenuProcess, addr, size);
+	return ret;
+}
+
+static int pmSaveToMenu(void *addr, u32 size) {
+	s32 ret;
+	ret = copyRemoteMemory(hMenuProcess, addr, CUR_PROCESS_HANDLE, addr, size);
+	return ret;
+}
+
+static int pmInitGamePlg(Handle hGameProcess, int loaderMem) {
+	s32 ret = pmAllocLoaderMemPool(hGameProcess, loaderMem);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = protectRemoteMemory(hGameProcess, plgLoader, plgLoaderEx->plgMemSizeTotal);
+	if (ret != 0) {
+		nsDbgPrint("protectRemoteMemory failed: %08x\n", ret);
+		goto error_alloc;
+	}
+	ret = copyRemoteMemory(hGameProcess, plgLoader, CUR_PROCESS_HANDLE, plgLoader, plgLoaderEx->plgMemSizeTotal);
+	if (ret != 0) {
+		nsDbgPrint("Copy plugin loader ingo failed: %08x\n", ret);
+		goto error_alloc;
+	}
+	return 0;
+
+error_alloc:
+	pmFreeLoaderMemPool(0);
+	return ret;
 }
 
 static int pmInjectToGame(Handle hGameProcess) {
-	Handle hProcess = getMenuProcess();
-	if (hProcess == 0)
+	if (getMenuProcess() == 0)
 		return -1;
 
 	s32 ret;
-	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, plgLoader, hProcess, plgLoader, sizeof(PLGLOADER_INFO));
+	ret = pmLoadFromMenu(plgLoader, sizeof(PLGLOADER_INFO));
 	if (ret != 0) {
 		nsDbgPrint("Loading plugin info failed:%08x\n", ret);
 		return ret;
 	}
 
-	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, plgLoaderEx, hProcess, plgLoaderEx, sizeof(PLGLOADER_EX_INFO));
+	ret = pmLoadFromMenu(plgLoaderEx, sizeof(PLGLOADER_EX_INFO));
 	if (ret != 0) {
 		nsDbgPrint("Loading plugin extended info failed:%08x\n", ret);
 		return ret;
 	}
 
 	u32 tid[2];
-	getProcessTIDByHandle(hProcess, tid);
+	getProcessTIDByHandle(hGameProcess, tid);
 	if (!(tid[0] == plgLoader->tid[0] && tid[1] == plgLoader->tid[1])) {
 		return -1;
 	}
@@ -68,16 +127,13 @@ static int pmInjectToGame(Handle hGameProcess) {
 	pmFreeLoaderMemPool(0);
 
 	u32 pid = 0;
-	ret = svcGetProcessId(&pid, hProcess);
+	ret = svcGetProcessId(&pid, hGameProcess);
 	if (ret != 0) {
 		nsDbgPrint("Get game process ID failed:%08x\n", ret);
 		return ret;
 	}
 	plgLoader->gamePluginPid = pid;
-	ret = copyRemoteMemory(
-		hProcess, &plgLoader->gamePluginPid,
-		CUR_PROCESS_HANDLE, &plgLoader->gamePluginPid,
-		sizeof(plgLoader->gamePluginPid));
+	ret = pmSaveToMenu(&plgLoader->gamePluginPid, sizeof(plgLoader->gamePluginPid));
 	if (ret != 0) {
 		nsDbgPrint("Save game process ID failed:%08x\n", ret);
 		return ret;
@@ -95,58 +151,19 @@ static int pmInjectToGame(Handle hGameProcess) {
 
 	int needInject =
 		cfg.ntrConfig.ex.nsUseDbg ||
-		!plgLoaderEx->noPlugins ||
+		plgLoaderEx->plgMemSizeTotal ||
 		(plgLoaderEx->remotePlayBoost && plgLoaderEx->noCTRPFCompat);
 	int loaderMem = !plgLoaderEx->noLoaderMem;
 
 	if (needInject) {
 		if (plgLoaderEx->plgMemSizeTotal) {
-			if (loaderMem)
-				ret = mapRemoteMemoryInLoader(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal, MEMOP_ALLOC);
-			else
-				ret = mapRemoteMemory(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal);
+			ret = pmInitGamePlg(hGameProcess, loaderMem);
+			pmUnloadPluginsForGame();
 			if (ret != 0) {
-				nsDbgPrint("Alloc plugin memory failed: %08x\n", ret);
-				goto error_alloc;
-			}
-
-			if (loaderMem) {
-				loaderMemPoolSize = plgLoaderEx->plgMemSizeTotal;
-				ret = svcDuplicateHandle(&loaderMemGameHandle, hGameProcess);
-				if (ret != 0) {
-					nsDbgPrint("Dupping process handle failed: %08x\n", ret);
-					loaderMemGameHandle = hGameProcess;
-					pmFreeLoaderMemPool(1);
-					goto error_alloc;
-				}
-			}
-
-			ret = protectRemoteMemory(hGameProcess, plgLoader, plgLoaderEx->plgMemSizeTotal);
-			if (ret != 0) {
-				nsDbgPrint("protectRemoteMemory failed: %08x\n", ret);
-				goto error_alloc;
-			}
-			ret = copyRemoteMemory(hGameProcess, plgLoader, CUR_PROCESS_HANDLE, plgLoader, plgLoaderEx->plgMemSizeTotal);
-			if (ret != 0) {
-				nsDbgPrint("Copy plugin loader ingo failed: %08x\n", ret);
-				goto error_alloc;
-			}
-
-error_alloc:
-			pmUnloadPluginsForGame(plgLoader);
-			if (ret) {
-				pmFreeLoaderMemPool(0);
 				return ret;
 			}
 		}
 
-		if (arm11BinStart == 0) {
-			ret = loadPayloadBin(NTR_BIN_GAME);
-			if (ret != 0) {
-				nsDbgPrint("Load game payload failed: %08x\n", ret);
-				goto error_alloc;
-			}
-		}
 		ret = nsAttachProcess(hGameProcess, PROC_START_ADDR, &cfg);
 		if (ret != 0) {
 			nsDbgPrint("Attach game process failed: %08x\n", ret);
@@ -154,6 +171,10 @@ error_alloc:
 		}
 	}
 	return 0;
+
+error_alloc:
+	pmFreeLoaderMemPool(0);
+	return ret;
 }
 
 static RT_HOOK svcRunHook;
@@ -176,6 +197,13 @@ int main(void) {
 	s32 res = fsInit();
 	if (res != 0) {
 		nsDbgPrint("fs init failed: %08x\n", res);
+		return 0;
+	}
+
+	res = loadPayloadBin(NTR_BIN_GAME);
+	if (res != 0) {
+		nsDbgPrint("Load game payload failed: %08x\n", res);
+		fsExit();
 		return 0;
 	}
 

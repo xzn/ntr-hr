@@ -42,7 +42,7 @@ static u32 HomeCardUpdateInitCallback(void) {
 	return 0xc821180b; // card update is not needed
 }
 
-static u32 gamePluginMenuSelect = 0;
+static u32 gamePluginMenuSelect;
 
 static u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	u32* tid = (u32*)a1;
@@ -58,7 +58,7 @@ static u32 aptPrepareToStartApplicationCallback(u32 a1, u32 a2, u32 a3) {
 	return res;
 }
 
-static int injectPM() {
+static int injectPM(void) {
 	u32 pid = ntrConfig->PMPid;
 	s32 ret;
 	Handle hProcess;
