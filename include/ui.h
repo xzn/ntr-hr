@@ -28,6 +28,10 @@ int initDirectScreenAccess(void);
 
 const char *plgTranslate(const char *msg);
 
+s32 showMenu(const char *title, u32 entriesCount, const char *captions[]);
+s32 showMenuEx(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn);
+s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keyPressed);
+
 u32 getKey(void);
 u32 waitKey(void);
 

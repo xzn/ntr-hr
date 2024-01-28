@@ -301,3 +301,73 @@ int showMsgRaw(const char *msg) {
 
 	return 0;
 }
+
+s32 showMenu(const char *title, u32 entriesCount, const char *captions[]) {
+	return showMenuEx(title, entriesCount, captions, 0, 0);
+}
+
+s32 showMenuEx(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn) {
+	return showMenuEx2(title, entriesCount, captions, descriptions, selectOn, NULL);
+}
+
+#define MENU_ITEMS_MAX (10)
+#define MENU_ITEM_HEIGHT (CHAR_HEIGHT + 1)
+s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keyPressed) {
+	u32 i;
+	int select = 0;
+	char buf[LOCAL_TITLE_BUF_SIZE];
+	u32 pos;
+	u32 x = 10, key = 0;
+	u32 drawStart, drawEnd;
+
+	if (selectOn < entriesCount) {
+		select = selectOn;
+	}
+
+	while(1) {
+		blank();
+		pos = 10;
+		print(title, x, pos, 255, 0, 0);
+		print("http://44670.org/ntr", 10, 220, 0, 0, 255);
+		pos += 20;
+		drawStart = (select / MENU_ITEMS_MAX) * MENU_ITEMS_MAX;
+		drawEnd = drawStart + MENU_ITEMS_MAX;
+		if (drawEnd > entriesCount) {
+			drawEnd = entriesCount;
+		}
+		for (i = drawStart; i < drawEnd; i++) {
+			strnjoin(buf, LOCAL_TITLE_BUF_SIZE, i == (u32)select ? " * " : "   ", captions[i]);
+			print(buf, x, pos, 0, 0, 0);
+			pos += MENU_ITEM_HEIGHT;
+		}
+		if (descriptions) {
+			if (descriptions[select]) {
+				print(descriptions[select], x, pos, 0, 0, 255);
+			}
+		}
+		updateScreen();
+		while((key = waitKey()) == 0);
+		if (key == KEY_DDOWN) {
+			select += 1;
+			if (select >= (int)entriesCount) {
+				select = 0;
+			}
+		}
+		if (key == KEY_DUP) {
+			select -= 1;
+			if (select < 0) {
+				select = entriesCount - 1;
+			}
+		}
+		if (keyPressed) {
+			*keyPressed = key;
+			return select;
+		}
+		if (key == KEY_A) {
+			return select;
+		}
+		if (key == KEY_B) {
+			return -1;
+		}
+	}
+}
