@@ -1,11 +1,13 @@
 #include "global.h"
 
 #include "3ds/services/fs.h"
+#include "3ds/services/soc.h"
+#include "3ds/services/hid.h"
 #include "3ds/srv.h"
 
 #include <memory.h>
 
-static u32 NTRMenuHotkey = 0x0C00;
+static u32 NTRMenuHotkey = KEY_X | KEY_Y;
 static int cpuClockLockValue = -1;
 
 static void lockCpuClock(void) {
@@ -92,8 +94,161 @@ static int injectToPM(void) {
 	return 0;
 }
 
-static void showMainMenu(void) {
+static GAME_PLUGIN_MENU gamePluginMenu;
+
+static int loadGamePluginMenu(void)  {
+	u32 gamePid = plgLoader->gamePluginPid;
+	u32 gamePluginMenuAddr = plgLoader->gamePluginMenuAddr;
+	if (gamePid == 0) {
+		return -1;
+	}
+	if (gamePluginMenuAddr == 0) {
+		return -1;
+	}
+	u32 ret = 0;
+	u32 hProcess;
+	ret = svcOpenProcess(&hProcess, gamePid);
+	if (ret != 0) {
+		return ret;
+	}
+	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, &gamePluginMenu, hProcess, (void *)gamePluginMenuAddr, sizeof(GAME_PLUGIN_MENU));
+	svcCloseHandle(hProcess);
+	return ret;
+}
+
+static int storeGamePluginMenuState(void) {
+	u32 gamePid = plgLoader->gamePluginPid;
+	u32 gamePluginMenuAddr = plgLoader->gamePluginMenuAddr;
+	if (gamePid == 0) {
+		return 1;
+	}
+	if (gamePluginMenuAddr == 0) {
+		return 1;
+	}
+	u32 ret = 0;
+	u32 hProcess;
+	ret = svcOpenProcess(&hProcess, gamePid);
+	if (ret != 0) {
+		return ret;
+	}
+	ret = copyRemoteMemory(hProcess, (u8 *)gamePluginMenuAddr + offsetof(GAME_PLUGIN_MENU, state), CUR_PROCESS_HANDLE, gamePluginMenu.state, sizeof(gamePluginMenu.state));
+	svcCloseHandle(hProcess);
+	return ret;
+}
+
+static void showGamePluginMenu(void) {
+	char const*entries[MAX_GAME_PLUGIN_MENU_ENTRY];
+	char const*descs[MAX_GAME_PLUGIN_MENU_ENTRY];
+	char *buf;
+
+	while (1) {
+		if (gamePluginMenu.count <= 0) {
+			return;
+		}
+
+		for (u32 i = 0; i < gamePluginMenu.count; ++i) {
+			buf = (char *)&gamePluginMenu.buf[gamePluginMenu.offsetInBuffer[i]];
+			descs[i] = 0;
+			entries[i] = buf;
+			size_t remainLenMax = GAME_PLUGIN_MENU_BUF_SIZE - (buf - (char *)gamePluginMenu.buf);
+			size_t bufLen = strnlen(buf, remainLenMax);
+			if (bufLen == remainLenMax) {
+				--bufLen;
+				buf[bufLen] = 0;
+			}
+			for (size_t j = 0; j < bufLen; ++j) {
+				if (buf[j] == 0xff) {
+					buf[j] = 0;
+					descs[i] = &buf[j + 1];
+					break;
+				}
+			}
+		}
+
+		int r;
+		r = showMenuEx(
+			plgTranslate("Game Plugin Config"), gamePluginMenu.count, entries, descs,
+			gamePluginMenuSelect);
+		if (r < 0)
+			return;
+
+		gamePluginMenu.state[r] = 1;
+		gamePluginMenuSelect = r;
+
+		storeGamePluginMenuState();
+		releaseVideo();
+		svcSleepThread(500000000);
+		acquireVideo();
+		int ret = loadGamePluginMenu();
+
+		if (ret != 0) {
+			return;
+		}
+	}
+}
+
+static int pluginLoaderMenu(void) {
 	// TODO
+	return 0;
+}
+
+static int remotePlayMenu(u32) {
+	// TODO
+	return 0;
+}
+
+enum {
+	MENU_ENTRY_REMOTETPLAY,
+	MENU_ENTRY_PLUGIN_LOADER,
+
+	MENU_ENTRIES_COUNT,
+	MENU_ENTRY_GAME_PLUGIN = MENU_ENTRIES_COUNT,
+
+	MENU_ENTRIES_COUNT_GAME,
+	MENU_ENTRIES_COUNT_MAX = MENU_ENTRIES_COUNT_GAME,
+};
+
+static void showMainMenu(void) {
+	const char *entries[MENU_ENTRIES_COUNT_MAX];
+	entries[MENU_ENTRY_REMOTETPLAY] = plgTranslate("Remote Play (New 3DS)");
+	entries[MENU_ENTRY_PLUGIN_LOADER] = plgTranslate("Plugin Loader");
+	u32 count = MENU_ENTRIES_COUNT;
+
+	if (loadGamePluginMenu() == 0) {
+		entries[MENU_ENTRY_GAME_PLUGIN] = plgTranslate("Game Plugin");
+		count = MENU_ENTRIES_COUNT_GAME;
+	}
+
+	u32 localAddr = gethostid();
+
+	acquireVideo();
+	s32 r = 0;
+	while (1) {
+		r = showMenuEx(NTR_CFW_VERSION, count, entries, NULL, r);
+
+		switch (r) {
+			case MENU_ENTRY_REMOTETPLAY:
+				if (remotePlayMenu(localAddr) != 0) {
+					goto done;
+				}
+				break;
+
+			case MENU_ENTRY_PLUGIN_LOADER:
+				if (pluginLoaderMenu() != 0) {
+					goto done;
+				}
+				break;
+
+			case MENU_ENTRY_GAME_PLUGIN:
+				showGamePluginMenu();
+				goto done;
+
+			default:
+				goto done;
+		}
+	}
+done:
+	releaseVideo();
 }
 
 static void menuThread(void *) {

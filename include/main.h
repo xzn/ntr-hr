@@ -41,11 +41,12 @@ typedef struct {
 } PLGLOADER_INFO;
 
 #define MAX_GAME_PLUGIN_MENU_ENTRY 64
+#define GAME_PLUGIN_MENU_BUF_SIZE 3000
 typedef struct {
 	u8 state[MAX_GAME_PLUGIN_MENU_ENTRY];
 	u16 offsetInBuffer[MAX_GAME_PLUGIN_MENU_ENTRY];
 	u16 bufOffset, count;
-	u8 buf[3000];
+	u8 buf[GAME_PLUGIN_MENU_BUF_SIZE];
 } GAME_PLUGIN_MENU;
 
 static PLGLOADER_INFO *const plgLoader = (PLGLOADER_INFO *)PLG_LOADER_ADDR;

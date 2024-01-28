@@ -62,7 +62,7 @@ static void blank(void) {
 	paint_square(0, 0, 255, 255, 255, BOTTOM_WIDTH, BOTTOM_HEIGHT, BOTTOM_FRAME);
 }
 
-static void updateScreen(void) {
+void updateScreen(void) {
 	memcpy_ctr((void *)bottomFB, (void *)bottomFBRender, BOTTOM_UI_FRAME_SIZE);
 	REG(GPU_FB_BOTTOM_ADDR_1) = bottomFB;
 	REG(GPU_FB_BOTTOM_ADDR_2) = bottomFB;
@@ -127,7 +127,7 @@ static void restoreVRAMBuffer(void) {
 	memcpy_ctr((void *)bottomFB, (void *)bottomFBBackup, BOTTOM_UI_FRAME_SIZE);
 }
 
-static void acquireVideo(void) {
+void acquireVideo(void) {
 	if (AFAR(videoRef, 1) == 0) {
 		svcKernelSetState(0x10000, 4, 0, 0);
 		lockGameProcess();
@@ -143,7 +143,7 @@ static void acquireVideo(void) {
 	}
 }
 
-static void releaseVideo(void) {
+void releaseVideo(void) {
 	if (ASFR(videoRef, 1) == 0) {
 		restoreVRAMBuffer();
 		restoreGpuRegs();

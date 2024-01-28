@@ -25,6 +25,9 @@ void disp(u32 t, u32 cl);
 
 extern u32 allowDirectScreenAccess;
 int initDirectScreenAccess(void);
+void acquireVideo(void);
+void releaseVideo(void);
+void updateScreen(void);
 
 const char *plgTranslate(const char *msg);
 
