@@ -286,7 +286,11 @@ static void menuThread(void *) {
 		goto final;
 
 	nsConfig->initMode = NS_INITMODE_FROMBOOT;
-	nsStartup();
+	ret = nsStartup();
+	if (ret != 0) {
+		disp(100, 0x1ff00ff);
+		goto final;
+	}
 
 	int waitCnt = 0;
 	while (1) {

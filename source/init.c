@@ -130,7 +130,7 @@ u32 plgRequestMemory(u32 size) {
 	size = rtAlignToPageSize(size);
 	ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
-		nsDbgPrint("Failed to allocate memory from pool for plugin: %08"PRIx32"\n", ret);
+		nsDbgPrint("Failed to allocate memory from pool for plugin at addr %08"PRIx32": %08"PRIx32"\n", addr, ret);
 		return 0;
 	}
 

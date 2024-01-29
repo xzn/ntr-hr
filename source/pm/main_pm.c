@@ -385,8 +385,14 @@ int main(void) {
 	if (plgLoaderInfoAlloc() != 0)
 		return 0;
 
-	if (ntrConfig->ex.nsUseDbg)
-		nsStartup();
+	if (ntrConfig->ex.nsUseDbg) {
+		s32 ret = nsStartup();
+		if (ret != 0) {
+			disp(100, 0x1ff00ff);
+		} else {
+			disp(100, 0x100ff00);
+		}
+	}
 
 	s32 res = fsInit();
 	if (res != 0) {
@@ -413,6 +419,8 @@ int main(void) {
 
 fs_fail:
 	fsExit();
+
+	disp(100, 0x10000ff);
 	return 0;
 }
 
