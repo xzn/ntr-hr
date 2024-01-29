@@ -614,6 +614,7 @@ static void putnbuf(void *a, void const *s, size_t n) {
 	if (n) {
 		memcpy(*buf, s, n);
 		*buf += n;
+		ctx->remaining -= n;
 	}
 }
 

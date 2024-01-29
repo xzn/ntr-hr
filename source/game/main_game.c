@@ -190,8 +190,12 @@ int main(void) {
 	startupInit();
 
 	if (ntrConfig->ex.nsUseDbg) {
-		nsStartup();
-		disp(100, 0x17f7f7f);
+		s32 ret = nsStartup();
+		if (ret != 0) {
+			disp(100, 0x1ff00ff);
+		} else {
+			disp(100, 0x17f7f7f);
+		}
 	}
 
 	if (ntrConfig->ex.plg.remotePlayBoost)

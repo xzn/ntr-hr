@@ -6,7 +6,6 @@
 #define LOCAL_TITLE_BUF_SIZE (0x80)
 #define LOCAL_MSG_BUF_SIZE (0x200)
 #define LOCAL_TID_BUF_COUNT (0x80)
-#define LOCAL_DIR_LIST_BUF_COUNT (0x1000)
 
 // Require Luma3DS PA-VA mapping
 #define IoBaseLcd (0x10202000 + 0x80000000)

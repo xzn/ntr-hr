@@ -64,36 +64,6 @@ static int wstricmp(const u16 *str, const char *suffix) {
 	return 0;
 }
 
-static u32 plgListPluginsInDir(const char *path, u16 buf[LOCAL_DIR_LIST_BUF_COUNT], u16 *entries[MAX_PLUGIN_COUNT])  {
-	Handle hDir;
-	s32 res;
-	res = FSUSER_OpenDirectory(&hDir, sdmcArchive, fsMakePath(PATH_ASCII, path));
-	if (res != 0) {
-		return 0;
-	}
-	u32 entriesCount = 0;
-	u32 bufOffset = 0;
-	while (entriesCount < MAX_PLUGIN_COUNT) {
-		u32 nRead;
-		FS_DirectoryEntry dirEntry;
-		res = FSDIR_Read(hDir, &nRead, 1, &dirEntry);
-		if (res != 0 || nRead == 0)
-			break;
-		size_t count = wstrlen(dirEntry.name);
-		if (bufOffset + count >= LOCAL_DIR_LIST_BUF_COUNT)
-			break;
-		entries[entriesCount] = &buf[bufOffset];
-		memcpy(buf + bufOffset, dirEntry.name, count);
-		bufOffset += count;
-		buf[bufOffset] = 0;
-		++bufOffset;
-
-		++entriesCount;
-	}
-	FSDIR_Close(hDir);
-	return 0;
-}
-
 static int plgGetFileNamePluginType(const u16 *name) {
 	size_t len = wstrlen(name);
 
@@ -125,59 +95,69 @@ static int pathnjoin(u16 plgPath[PATH_MAX], const char *path, const u16 *entry) 
 	return 0;
 }
 
-static u32 plgAddPluginsFromDirectory(const char *dir) {
-	char path[PATH_MAX];
+static void plgLoadPluginFromFile(const char *path, const u16 *name) {
 	u16 plgPath[PATH_MAX];
-	if (xsnprintf(path, PATH_MAX, "/plugin/%s", dir) != 0)
-		return 0;
 
-	u16 buf[LOCAL_DIR_LIST_BUF_COUNT];
-	u16 *entries[MAX_PLUGIN_COUNT];
-	u32 cnt = plgListPluginsInDir(path, buf, entries);
-
-	u32 outCnt = 0;
-	for (u32 i = 0; i < cnt; ++i) {
-		if (plgGetFileNamePluginType(entries[i]) != 0) {
-			continue;
-		}
-
-		if (pathnjoin(plgPath, path, entries[i]) != 0)
-			continue;
-
-		Handle file = rtOpenFile16(plgPath);
-		if (file == 0) {
-			continue;
-		}
-
-		u32 fileSize = rtGetFileSize(file);
-		if (fileSize == 0) {
-			goto fail_file;
-		}
-
-		u32 addr = plgPoolAlloc(fileSize);
-		if (addr == 0) {
-			goto fail_file;
-		}
-
-		u32 bytesRead = rtLoadFileToBuffer(file, (void *)addr, fileSize);
-		if (bytesRead != fileSize) {
-			plgPoolFree(addr, fileSize);
-			goto fail_file;
-		}
-		rtCloseFile(file);
-
-		plgLoader->plgBufferPtr[plgLoader->plgCount] = addr;
-		plgLoader->plgSize[plgLoader->plgCount] = fileSize;
-		++plgLoader->plgCount;
-
-		++outCnt;
-		continue;
-
-fail_file:
-		rtCloseFile(file);
+	if (plgGetFileNamePluginType(name) != 0) {
+		return;
 	}
 
-	return outCnt;
+	if (pathnjoin(plgPath, path, name) != 0)
+		return;
+
+	Handle file = rtOpenFile16(plgPath);
+	if (file == 0) {
+		return;
+	}
+
+	u32 fileSize = rtGetFileSize(file);
+	if (fileSize == 0) {
+		goto fail_file;
+	}
+
+	u32 addr = plgPoolAlloc(fileSize);
+	if (addr == 0) {
+		goto fail_file;
+	}
+
+	u32 bytesRead = rtLoadFileToBuffer(file, (void *)addr, fileSize);
+	if (bytesRead != fileSize) {
+		plgPoolFree(addr, fileSize);
+		goto fail_file;
+	}
+	rtCloseFile(file);
+
+	plgLoader->plgBufferPtr[plgLoader->plgCount] = addr;
+	plgLoader->plgSize[plgLoader->plgCount] = fileSize;
+	++plgLoader->plgCount;
+
+	return;
+
+fail_file:
+	rtCloseFile(file);
+}
+
+static void plgAddPluginsFromDirectory(const char *dir) {
+	char path[PATH_MAX];
+	if (strnjoin(path, PATH_MAX, "/plugin/", dir) != 0)
+		return;
+
+	Handle hDir;
+	s32 res;
+	res = FSUSER_OpenDirectory(&hDir, sdmcArchive, fsMakePath(PATH_ASCII, path));
+	if (res != 0) {
+		return;
+	}
+	while (plgLoader->plgCount < MAX_PLUGIN_COUNT) {
+		u32 nRead;
+		FS_DirectoryEntry dirEntry;
+		res = FSDIR_Read(hDir, &nRead, 1, &dirEntry);
+		if (res != 0 || nRead == 0)
+			break;
+
+		plgLoadPluginFromFile(path, dirEntry.name);
+	}
+	FSDIR_Close(hDir);
 }
 
 static u32 plgLoaderPluginsBegin(void) {
@@ -202,6 +182,9 @@ static int pmLoadPluginsForGame(void) {
 	char buf[32];
 	xsnprintf(buf, sizeof(buf), "%08"PRIx32"%08"PRIx32, plgLoader->tid[1], plgLoader->tid[0]);
 	plgAddPluginsFromDirectory(buf);
+
+	if (plgLoader->plgCount)
+		plgLoaderEx->plgMemSizeTotal = plgPoolAlloc(0);
 	return 0;
 }
 
