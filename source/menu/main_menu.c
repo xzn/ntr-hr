@@ -141,8 +141,6 @@ static void showGamePluginMenu(void) {
 	char const*descs[MAX_GAME_PLUGIN_MENU_ENTRY];
 	char *buf;
 
-	char title[LOCAL_TITLE_BUF_SIZE];
-	xsnprintf(title, LOCAL_TITLE_BUF_SIZE, "%s (PID %"PRIx32")", plgTranslate("Game Plugin Config"), plgLoader->gamePluginPid);
 	while (1) {
 		if (gamePluginMenu.count <= 0) {
 			return;
@@ -169,7 +167,7 @@ static void showGamePluginMenu(void) {
 
 		int r;
 		r = showMenuEx(
-			title, gamePluginMenu.count, entries, descs,
+			plgTranslate("Game Plugin Config"), gamePluginMenu.count, entries, descs,
 			gamePluginMenuSelect);
 		if (r < 0)
 			return;
@@ -223,10 +221,17 @@ static void showMainMenu(void) {
 
 	u32 localAddr = gethostid();
 
+	char title[LOCAL_TITLE_BUF_SIZE];
+	if (plgLoader->gamePluginPid) {
+		xsnprintf(title, LOCAL_TITLE_BUF_SIZE, "%s (Game PID: %"PRIx32")", NTR_CFW_VERSION, plgLoader->gamePluginPid);
+	} else {
+		strncpy(title, NTR_CFW_VERSION, LOCAL_TITLE_BUF_SIZE);
+	}
+
 	acquireVideo();
 	s32 r = 0;
 	while (1) {
-		r = showMenuEx(NTR_CFW_VERSION, count, entries, NULL, r);
+		r = showMenuEx(title, count, entries, NULL, r);
 
 		switch (r) {
 			case MENU_ENTRY_REMOTETPLAY:
@@ -335,6 +340,7 @@ int main(void) {
 
 	if (plgLoaderInfoAlloc() != 0)
 		return 0;
+	*plgLoader = (PLGLOADER_INFO){ 0 };
 
 	Handle hThread;
 	u32 *threadStack = (void *)(NS_CONFIG_ADDR + NS_CONFIG_MAX_SIZE);

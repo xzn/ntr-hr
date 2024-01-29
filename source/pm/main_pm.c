@@ -317,7 +317,6 @@ static int pmInjectToGame(Handle hGameProcess) {
 		nsDbgPrint("Loading plugins for game %08"PRIx32"%08"PRIx32" failed\n", tid[1], tid[0]);
 	}
 
-	plgLoaderEx->noLoaderMem = 1;
 	NS_CONFIG cfg = { 0 };
 	cfg.ntrConfig = *ntrConfig;
 	cfg.ntrConfig.ex.nsUseDbg = nsDbgNext();
