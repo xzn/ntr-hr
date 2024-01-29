@@ -140,7 +140,7 @@ int plgPoolFree(u32 addr, u32 size) {
 
 	alignedSize += plgPoolEnd - plgPoolExEnd;
 	if (memInfo.base_addr != addr || memInfo.size != alignedSize) {
-		showDbg("svcQueryMemory base addr %08"PRIx32" and size %08"PRIx32" different from addr %08"PRIx32"and size %08"PRIx32,
+		showDbg("svcQueryMemory base addr %08"PRIx32" and size %08"PRIx32" different from addr %08"PRIx32" and size %08"PRIx32,
 			memInfo.base_addr, memInfo.size, addr, alignedSize);
 		return -1;
 	}
