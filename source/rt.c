@@ -152,7 +152,7 @@ Handle rtOpenFile(char *fileName) {
 	Handle file;
 	s32 ret = FSUSER_OpenFileDirectly(&file, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL), fsMakePath(PATH_ASCII, fileName), FS_OPEN_READ, 0);
 	if (ret != 0) {
-		nsDbgPrint("Failed to open file: %08"PRIx32"\n", ret);
+		nsDbgPrint("Failed to open file %s: %08"PRIx32"\n", fileName, ret);
 		return 0;
 	}
 	return file;

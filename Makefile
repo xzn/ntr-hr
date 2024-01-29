@@ -102,7 +102,7 @@ obj/%.o: source/boot/%.c
 	$(CC_CMD)
 
 obj/%.o: source/menu/%.c
-	$(CC_CMD) -DNTR_BIN_PM=\"$(NTR_BIN_PM)\" -DNTR_BIN_NWM=\"$(DNTR_BIN_NWM)\"
+	$(CC_CMD) -DNTR_BIN_PM=\"$(NTR_BIN_PM)\" -DNTR_BIN_NWM=\"$(NTR_BIN_NWM)\"
 
 obj/%.o: source/pm/%.c
 	$(CC_CMD) -DNTR_BIN_GAME=\"$(NTR_BIN_GAME)\"
