@@ -269,7 +269,7 @@ static int pmInitGamePlg(Handle hGameProcess, int loaderMem) {
 	}
 	ret = copyRemoteMemory(hGameProcess, plgLoader, CUR_PROCESS_HANDLE, plgLoader, plgLoaderEx->plgMemSizeTotal);
 	if (ret != 0) {
-		nsDbgPrint("Copy plugin loader ingo failed: %08"PRIx32"\n", ret);
+		nsDbgPrint("Copy plugin loader to game failed: %08"PRIx32"\n", ret);
 		goto error_alloc;
 	}
 	return 0;
