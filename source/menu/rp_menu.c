@@ -137,8 +137,10 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 
 	u32 remotePC = rpGetNwmRemotePC(&cfg, hProcess);
 
-	if (!remotePC)
+	if (!remotePC) {
+		ret = -1;
 		goto final;
+	}
 
 	cfg.rpConfig = rpConfigInMenu = *config;
 	cfg.ntrConfig = *ntrConfig;
