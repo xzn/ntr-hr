@@ -2,13 +2,11 @@
 
 #include "3ds/srv.h"
 
-int main(void) {
-	startupInit();
-
+void mainThread(void *) {
 	s32 ret = srvInit();
 	if (ret != 0) {
 		showDbg("srvInit failed: %08"PRIx32, ret);
-		return 0;
+		goto final;
 	}
 
 	// TODO
@@ -22,5 +20,6 @@ int main(void) {
 	}
 	disp(100, 0x1ff0000);
 
-	return 0;
+final:
+	svcExitThread();
 }

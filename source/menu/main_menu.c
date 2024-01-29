@@ -258,13 +258,17 @@ done:
 	releaseVideo();
 }
 
-static void menuThread(void *) {
+void mainThread(void *) {
 	Result ret;
 	ret = initDirectScreenAccess();
 	if (ret != 0) {
 		disp(100, 0x10000ff);
 		svcSleepThread(1000000000);
 	}
+
+	if (plgLoaderInfoAlloc() != 0)
+		goto final;
+	*plgLoader = (PLGLOADER_INFO){ 0 };
 
 	ret = srvInit();
 	if (ret != 0) {
@@ -333,18 +337,4 @@ final:
 
 void nsHandlePacket(void) {
 	nsHandleMenuPacket();
-}
-
-int main(void) {
-	startupInit();
-
-	if (plgLoaderInfoAlloc() != 0)
-		return 0;
-	*plgLoader = (PLGLOADER_INFO){ 0 };
-
-	Handle hThread;
-	u32 *threadStack = (void *)(NS_CONFIG_ADDR + NS_CONFIG_MAX_SIZE);
-	svcCreateThread(&hThread, menuThread, 0, &threadStack[(STACK_SIZE / 4) - 10], 0x10, 1);
-
-	return 0;
 }

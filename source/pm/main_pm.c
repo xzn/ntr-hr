@@ -357,13 +357,11 @@ static u32 svcRunCallback(Handle hProcess, u32 *startInfo) {
 	return ((svcRunTypeDef)svcRunHook.callCode)(hProcess, startInfo);
 }
 
-int main(void) {
-	startupInit();
-
+void mainThread(void *) {
 	s32 res = srvInit();
 	if (res != 0) {
 		showDbg("srvInit failed: %08"PRIx32, res);
-		return 0;
+		goto final;
 	}
 
 	if (ntrConfig->ex.nsUseDbg) {
@@ -378,7 +376,7 @@ int main(void) {
 	res = fsInit();
 	if (res != 0) {
 		showDbg("fs init failed: %08"PRIx32, res);
-		return 0;
+		goto final;
 	}
 
 	res = FSUSER_OpenArchive(&sdmcArchive, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL));
@@ -396,13 +394,15 @@ int main(void) {
 	rtInitHook(&svcRunHook, ntrConfig->PMSvcRunAddr, (u32)svcRunCallback);
 	rtEnableHook(&svcRunHook);
 
-	return 0;
+	goto final;
 
 fs_fail:
 	fsExit();
 
 	disp(100, 0x10000ff);
-	return 0;
+
+final:
+	svcExitThread();
 }
 
 u32 payloadBinAlloc(u32 size) {

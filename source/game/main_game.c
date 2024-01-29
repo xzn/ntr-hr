@@ -188,24 +188,7 @@ static void plgInitScreenOverlay(void) {
 	}
 }
 
-int main(void) {
-	startupInit();
-
-	s32 ret = srvInit();
-	if (ret != 0) {
-		showDbg("srvInit failed: %08"PRIx32, ret);
-		return 0;
-	}
-
-	if (ntrConfig->ex.nsUseDbg) {
-		ret = nsStartup();
-		if (ret != 0) {
-			disp(100, 0x1ff00ff);
-		} else {
-			disp(100, 0x17f7f7f);
-		}
-	}
-
+void mainInit(void) {
 	if (plgLoaderEx->remotePlayBoost)
 		plgInitScreenOverlay();
 
@@ -218,8 +201,26 @@ int main(void) {
 			((funcType)plgLoader->plgBufferPtr[i])();
 		}
 	}
+}
 
-	return 0;
+void mainThread(void *) {
+	s32 ret = srvInit();
+	if (ret != 0) {
+		showDbg("srvInit failed: %08"PRIx32, ret);
+		goto final;
+	}
+
+	if (ntrConfig->ex.nsUseDbg) {
+		ret = nsStartup();
+		if (ret != 0) {
+			disp(100, 0x1ff00ff);
+		} else {
+			disp(100, 0x17f7f7f);
+		}
+	}
+
+final:
+	svcExitThread();
 }
 
 u32 plgRegisterCallback(u32 type, void *callback, u32) {

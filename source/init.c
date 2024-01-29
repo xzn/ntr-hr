@@ -236,3 +236,17 @@ void initSharedFunc(void) {
 	INIT_SHARED_FUNC(plgSetValue, 10);
 	INIT_SHARED_FUNC(showMenuExStub, 11);
 }
+
+void __attribute__((weak)) mainInit(void) {}
+
+int __attribute__((weak)) main(void) {
+	startupInit();
+
+	mainInit();
+
+	Handle hThread;
+	u32 *threadStack = (void *)(NS_CONFIG_ADDR + NS_CONFIG_MAX_SIZE);
+	svcCreateThread(&hThread, mainThread, 0, &threadStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+
+	return 0;
+}
