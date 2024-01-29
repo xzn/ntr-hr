@@ -172,7 +172,7 @@ static int pmLoadPluginsForGame(void) {
 	plgAddPluginsFromDirectory(buf);
 
 	if (plgLoader->plgCount)
-		plgLoaderEx->plgMemSizeTotal = plgPoolAlloc(0) - (u32)plgLoader;
+		plgLoaderEx->plgMemSizeTotal = plgPoolExAlloc(0) - (u32)plgLoader;
 	return 0;
 }
 
@@ -312,6 +312,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 		nsDbgPrint("Loading plugins for game %08"PRIx32"%08"PRIx32" failed\n", tid[1], tid[0]);
 	}
 
+	plgLoaderEx->noLoaderMem = 1;
 	NS_CONFIG cfg = { 0 };
 	cfg.ntrConfig = *ntrConfig;
 	cfg.ntrConfig.ex.nsUseDbg = nsDbgNext();

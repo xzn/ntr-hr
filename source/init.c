@@ -81,11 +81,14 @@ static u32 plgPoolAllocCommon(u32 size, int extend) {
 		plgPoolExEnd = plgPoolEnd = PLG_POOL_ADDR;
 	}
 
-	u32 addr = plgPoolEnd;
 	if (size == 0) {
-		return addr;
+		if (extend)
+			return plgPoolExEnd;
+		else
+			return plgPoolEnd;
 	}
 
+	u32 addr = plgPoolEnd;
 	u32 alignedSize = rtAlignToPageSize(size);
 	if (extend) {
 		if (plgPoolExEnd + alignedSize <= plgPoolEnd) {
