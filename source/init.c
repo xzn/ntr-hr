@@ -94,7 +94,8 @@ static u32 plgPoolAllocCommon(u32 size, int extend) {
 		}
 		alignedSize -= plgPoolEnd - plgPoolExEnd;
 	} else {
-		addr += 0x1000;
+		if (addr > PLG_POOL_ADDR)
+			addr += 0x1000;
 	}
 	u32 outAddr;
 	s32 ret = svcControlMemory(&outAddr, addr, addr, alignedSize, MEMOP_ALLOC, MEMPERM_READWRITE);
@@ -148,7 +149,7 @@ int plgPoolFree(u32 addr, u32 size) {
 		return ret;
 	}
 
-	if (addr >= PLG_POOL_ADDR) {
+	if (addr > PLG_POOL_ADDR) {
 		addr -= 0x1000;
 	}
 	plgPoolExEnd = plgPoolEnd = addr;
