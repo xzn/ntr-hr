@@ -318,8 +318,10 @@ int nsStartup(void) {
 	*nsContext = (NS_CONTEXT){ 0 };
 
 	u32 listenPort = NS_MENU_LISTEN_PORT;
+	u32 affinity = 0x10;
 	if (nsConfig->initMode == NS_INITMODE_FROMHOOK) {
 		listenPort = NS_HOOK_LISTEN_PORT + getCurrentProcessId();
+		affinity = 0x3f;
 	}
 
 	if (!ALR(nsConfig->debugReady)) {
@@ -332,7 +334,7 @@ int nsStartup(void) {
 
 	Handle hThread;
 	u32 *threadStack = (u32 *)base;
-	ret = svcCreateThread(&hThread, nsThread, listenPort, &threadStack[(STACK_SIZE / 4) - 10], 0x10, -2);
+	ret = svcCreateThread(&hThread, nsThread, listenPort, &threadStack[(STACK_SIZE / 4) - 10], affinity, -2);
 	if (ret != 0) {
 		showDbg("svcCreateThread failed: %08"PRIx32, ret);
 		goto fail_soc;
