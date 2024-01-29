@@ -141,6 +141,8 @@ static void showGamePluginMenu(void) {
 	char const*descs[MAX_GAME_PLUGIN_MENU_ENTRY];
 	char *buf;
 
+	char title[LOCAL_TITLE_BUF_SIZE];
+	xsnprintf(title, LOCAL_TITLE_BUF_SIZE, "%s (PID %"PRIx32")", plgTranslate("Game Plugin Config"), plgLoader->gamePluginPid);
 	while (1) {
 		if (gamePluginMenu.count <= 0) {
 			return;
@@ -167,7 +169,7 @@ static void showGamePluginMenu(void) {
 
 		int r;
 		r = showMenuEx(
-			plgTranslate("Game Plugin Config"), gamePluginMenu.count, entries, descs,
+			title, gamePluginMenu.count, entries, descs,
 			gamePluginMenuSelect);
 		if (r < 0)
 			return;
