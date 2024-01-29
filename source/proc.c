@@ -59,7 +59,7 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size, u32 op) {
 		return ret;
 	}
 	if (outAddr != addr) {
-		nsDbgPrint("outAddr: %08"PRIx32", addr: %08"PRIx32, outAddr, addr);
+		nsDbgPrint("outAddr: %08"PRIx32", addr: %08"PRIx32"\n", outAddr, addr);
 		return 0;
 	}
 	return 0;
@@ -137,9 +137,9 @@ void showDbgMemInfo(u32 addr) {
 	PageInfo pageInfo;
 	s32 res = svcQueryMemory(&memInfo, &pageInfo, addr);
 	if (res != 0) {
-		showDbg("svcQueryMemory failed for addr %08"PRIx32": %08"PRIx32"\n", addr, res);
+		showDbg("svcQueryMemory failed for addr %08"PRIx32": %08"PRIx32, addr, res);
 	} else {
-		showDbg("addr %08"PRIx32": base %08"PRIx32", size: %08"PRIx32", perm: %"PRIu32", state: %"PRIu32", page: %08"PRIx32"\n",
+		showDbg("addr %08"PRIx32": base %08"PRIx32", size: %08"PRIx32", perm: %"PRIu32", state: %"PRIu32", page: %08"PRIx32,
 			addr, memInfo.base_addr, memInfo.size, memInfo.perm, memInfo.state, pageInfo.flags);
 	}
 }

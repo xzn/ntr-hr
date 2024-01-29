@@ -116,14 +116,14 @@ static void plgLoadPluginFromFile(const char *path, const u16 *name) {
 		goto fail_file;
 	}
 
-	u32 addr = plgPoolAlloc(fileSize);
+	u32 addr = plgPoolExAlloc(fileSize);
 	if (addr == 0) {
 		goto fail_file;
 	}
 
 	u32 bytesRead = rtLoadFileToBuffer(file, (void *)addr, fileSize);
 	if (bytesRead != fileSize) {
-		plgPoolFree(addr, fileSize);
+		plgPoolExFree(fileSize);
 		goto fail_file;
 	}
 	rtCloseFile(file);
@@ -161,23 +161,10 @@ static void plgAddPluginsFromDirectory(const char *dir) {
 	FSDIR_Close(hDir);
 }
 
-static u32 plgLoaderPluginsBegin(void) {
-	return (u32)((u8 *)plgLoader + rtAlignToPageSize(sizeof(PLGLOADER_INFO)));
-}
-
-static u32 plgLoaderPluginsEnd(void) {
-	return (u32)((u8 *)plgLoader + rtAlignToPageSize(plgLoaderEx->plgMemSizeTotal));
-}
-
 static int pmLoadPluginsForGame(void) {
 	plgLoaderEx->plgMemSizeTotal = 0;
 	if (plgLoaderEx->noPlugins)
 		return 0;
-
-	if (plgPoolAlloc(0) != plgLoaderPluginsBegin()) {
-		showDbg("Plugin loader memory pool at wrong address.");
-		return -1;
-	}
 
 	plgAddPluginsFromDirectory("game");
 	char buf[32];
@@ -190,13 +177,7 @@ static int pmLoadPluginsForGame(void) {
 }
 
 static int pmUnloadPluginsForGame(void) {
-	u32 addr = plgLoaderPluginsBegin();
-	u32 addrEnd = plgLoaderPluginsEnd();
-	if (addrEnd != plgPoolAlloc(0)) {
-		showDbg("Plugin loader memory pool unexpected size.");
-		return -1;
-	}
-	plgPoolFree(addr, addrEnd - addr);
+	plgPoolFree((u32)plgLoader, plgLoaderEx->plgMemSizeTotal);
 
 	plgLoaderEx->plgMemSizeTotal = 0;
 	return 0;
@@ -283,6 +264,9 @@ static int pmInjectToGame(Handle hGameProcess) {
 	if (getMenuProcess() == 0)
 		return -1;
 
+	if (plgLoaderInfoAlloc() != 0)
+		return -1;
+
 	s32 ret;
 	ret = pmLoadFromMenu(plgLoader, sizeof(PLGLOADER_INFO));
 	if (ret != 0) {
@@ -366,9 +350,6 @@ static u32 svcRunCallback(Handle hProcess, u32 *startInfo) {
 int main(void) {
 	startupInit();
 
-	if (plgLoaderInfoAlloc() != 0)
-		return 0;
-
 	s32 res = srvInit();
 	if (res != 0) {
 		showDbg("srvInit failed: %08"PRIx32, res);
@@ -386,19 +367,19 @@ int main(void) {
 
 	res = fsInit();
 	if (res != 0) {
-		showDbg("fs init failed: %08"PRIx32"\n", res);
+		showDbg("fs init failed: %08"PRIx32, res);
 		return 0;
 	}
 
 	res = FSUSER_OpenArchive(&sdmcArchive, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL));
 	if (res != 0) {
-		showDbg("Open sdmc failed: %08"PRIx32"\n", res);
+		showDbg("Open sdmc failed: %08"PRIx32, res);
 		goto fs_fail;
 	}
 
 	res = loadPayloadBin(NTR_BIN_GAME);
 	if (res != 0) {
-		showDbg("Load game payload failed: %08"PRIx32"\n", res);
+		showDbg("Load game payload failed: %08"PRIx32, res);
 		goto fs_fail;
 	}
 

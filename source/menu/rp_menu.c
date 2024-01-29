@@ -128,7 +128,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 	u32 pid = 0x1a; // nwm process
 	ret = svcOpenProcess(&hProcess, pid);
 	if (ret != 0) {
-		showDbg("Open nwm process failed: %08"PRIx32"\n", ret);
+		showDbg("Open nwm process failed: %08"PRIx32, ret);
 		hProcess = 0;
 		goto final;
 	}

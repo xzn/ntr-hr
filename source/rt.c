@@ -75,10 +75,10 @@ u32 rtCheckRemoteMemory(Handle hProcess, u32 addr, u32 size, MemPerm perm) {
 		nsDbgPrint("svcQueryMemory failed for addr %08"PRIx32": %08"PRIx32"\n", addr, ret);
 		return ret;
 	}
-	if (memInfo.base_addr + memInfo.size < addr + size) {
+	if (memInfo.perm == 0) {
 		return -1;
 	}
-	if (memInfo.perm == 0) {
+	if (memInfo.base_addr + memInfo.size < addr + size) {
 		return -1;
 	}
 	if ((memInfo.perm & perm) == perm) {

@@ -19,7 +19,9 @@ int loadPayloadBin(char *name);
 void unloadPayloadBin(void);
 
 u32 plgPoolAlloc(u32 size);
-int plgPoolFree(u32 addr, u32 size); // Must only free last alloc'ed
+u32 plgPoolExAlloc(u32 size); // Extend by size
+int plgPoolFree(u32 addr, u32 size); // Can only free last alloc'ed; size subtracted from ExFree'ed
+int plgPoolExFree(u32 size); // Mark as no need for ExAlloc
 u32 plgRequestMemory(u32 size);
 
 void setCpuClockLock(int v);
