@@ -48,13 +48,7 @@ static int setUpReturn(void) {
 }
 
 int plgLoaderInfoAlloc(void) {
-	PLGLOADER_INFO *loader = (void *)plgAlloc(PLG_LOADER_ADDR, sizeof(PLGLOADER_INFO));
-	if (plgLoader != loader) {
-		showDbg("Plugin loader info at wrong address.");
-		plgFree((u32)loader, sizeof(PLGLOADER_INFO));
-		return -1;
-	}
-	return 0;
+	return plgEnsurePoolSize(sizeof(PLGLOADER_INFO));
 }
 
 void startupInit(void) {
@@ -73,32 +67,31 @@ fail:
 	}
 }
 
-u32 plgAlloc(u32 addr, u32 size) {
-	if (!addr || !size) {
+static u32 plgPoolEnd;
+
+int plgEnsurePoolSize(u32 size) {
+	if (!plgPoolEnd) {
+		plgPoolEnd = PLG_POOL_ADDR;
+	}
+
+	size = rtAlignToPageSize(size);
+	u32 end = PLG_POOL_ADDR + size;
+	if (end <= plgPoolEnd) {
 		return 0;
 	}
 
-	u32 alignedSize = rtAlignToPageSize(size);
-	u32 outAddr;
-	s32 ret = svcControlMemory(&outAddr, addr, addr, alignedSize, MEMOP_ALLOC, MEMPERM_READWRITE);
+	u32 ret, outAddr, addr;
+	addr = plgPoolEnd;
+	size = end - plgPoolEnd;
+	ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
-		nsDbgPrint("Failed to allocate memory from pool: %08"PRIx32"\n", ret);
-		return 0;
-	}
-	return addr;
-}
-
-int plgFree(u32 addr, u32 size) {
-	if (!addr || !size)
+		nsDbgPrint("Failed to extend memory from pool at addr %08"PRIx32": %08"PRIx32"\n", addr, ret);
 		return -1;
-
-	u32 alignedSize = rtAlignToPageSize(size);
-	u32 outAddr;
-	s32 ret = svcControlMemory(&outAddr, addr, addr, alignedSize, MEMOP_FREE, 0);
-	if (ret != 0) {
-		showDbg("Failed to free memory to pool: %08"PRIx32, ret);
 	}
-	return ret;
+
+	plgPoolEnd = end;
+
+	return 0;
 }
 
 static u32 plgMemoryPoolEnd;
@@ -126,11 +119,13 @@ u32 arm11BinStart;
 u32 arm11BinSize;
 
 u32 __attribute__((weak)) payloadBinAlloc(u32 size) {
-	return plgAlloc(PAYLOAD_BIN_ADDR, size);
+	if (plgEnsurePoolSize(size) == 0)
+		return PLG_POOL_ADDR;
+	return 0;
 }
 
-int __attribute__((weak)) payloadBinFree(u32 addr, u32 size) {
-	return plgFree(addr, size);
+int __attribute__((weak)) payloadBinFree(u32, u32) {
+	return -1;
 }
 
 int loadPayloadBin(char *name) {

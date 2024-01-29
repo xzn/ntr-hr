@@ -293,6 +293,12 @@ static void menuThread(void *) {
 	if (ret != 0)
 		goto final;
 
+	ret = loadPayloadBin(NTR_BIN_NWM);
+	if (ret != 0) {
+		showDbg("Loading nwm payload failed.");
+		goto final;
+	}
+
 	nsConfig->initMode = NS_INITMODE_FROMBOOT;
 	ret = nsStartup();
 	if (ret != 0) {

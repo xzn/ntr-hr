@@ -18,8 +18,7 @@ extern u32 arm11BinSize;
 int loadPayloadBin(char *name);
 void unloadPayloadBin(void);
 
-u32 plgAlloc(u32 addr, u32 size);
-int plgFree(u32 addr, u32 size);
+int plgEnsurePoolSize(u32 size);
 u32 plgRequestMemory(u32 size);
 
 void setCpuClockLock(int v);

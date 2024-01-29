@@ -117,16 +117,9 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 		return rpUpdateParamsFromMenu(config);
 	}
 
-	s32 ret = 0;
-	ret = loadPayloadBin(NTR_BIN_NWM);
-	if (ret != 0) {
-		showDbg("Loading nwm payload failed.");
-		goto final;
-	}
-
 	Handle hProcess;
 	u32 pid = 0x1a; // nwm process
-	ret = svcOpenProcess(&hProcess, pid);
+	s32 ret = svcOpenProcess(&hProcess, pid);
 	if (ret != 0) {
 		showDbg("Open nwm process failed: %08"PRIx32, ret);
 		hProcess = 0;
@@ -149,8 +142,6 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 	ret = nsAttachProcess(hProcess, remotePC, &cfg);
 
 final:
-	unloadPayloadBin();
-
 	if (hProcess)
 		svcCloseHandle(hProcess);
 

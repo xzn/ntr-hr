@@ -83,6 +83,8 @@ static void restoreGpuRegs(void) {
 
 static void lockGameProcess(void) {
 	if (plgLoader->gamePluginPid) {
+		svcKernelSetState(0x10000, 4, 0, 0);
+
 		s32 res = svcOpenProcess(&hGameProcess, plgLoader->gamePluginPid);
 		if (res == 0) {
 			res = svcControlProcess(hGameProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
@@ -106,6 +108,8 @@ static void unlockGameProcess(void) {
 		}
 		svcCloseHandle(hGameProcess);
 		hGameProcess = 0;
+
+		svcKernelSetState(0x10000, 4, 0, 0);
 	}
 }
 
@@ -119,7 +123,6 @@ static void restoreVRAMBuffer(void) {
 
 void acquireVideo(void) {
 	if (AFAR(videoRef, 1) == 0) {
-		svcKernelSetState(0x10000, 4, 0, 0);
 		lockGameProcess();
 
 		backupGpuRegs();
@@ -138,7 +141,6 @@ void releaseVideo(void) {
 		restoreGpuRegs();
 
 		unlockGameProcess();
-		svcKernelSetState(0x10000, 4, 0, 0);
 	}
 }
 
