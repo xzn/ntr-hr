@@ -96,6 +96,9 @@ static int pathnjoin(u16 plgPath[PATH_MAX], const char *path, const u16 *entry) 
 	return 0;
 }
 
+static u32 plgPoolAddr = 0;
+static const u32 plgPoolStart = PLG_PLUGIN_ADDR;
+
 static void plgLoadPluginFromFile(const char *path, const u16 *name) {
 	u16 plgPath[PATH_MAX];
 
@@ -116,21 +119,27 @@ static void plgLoadPluginFromFile(const char *path, const u16 *name) {
 		goto fail_file;
 	}
 
-	u32 addr = plgPoolExAlloc(fileSize);
+	u32 addr = plgAlloc(plgPoolAddr, fileSize);
 	if (addr == 0) {
 		goto fail_file;
 	}
 
 	u32 bytesRead = rtLoadFileToBuffer(file, (void *)addr, fileSize);
 	if (bytesRead != fileSize) {
-		plgPoolExFree(fileSize);
+		plgFree(addr, fileSize);
 		goto fail_file;
 	}
 	rtCloseFile(file);
 
-	plgLoader->plgBufferPtr[plgLoader->plgCount] = addr;
-	plgLoader->plgSize[plgLoader->plgCount] = fileSize;
+	if (!plgLoaderEx->plgMemSizeTotal) {
+		plgLoaderEx->plgMemSizeTotal = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
+	}
+	u32 alignedSize = rtAlignToPageSize(fileSize);
+	plgLoader->plgBufferPtr[plgLoader->plgCount] = (u32)plgLoader + plgLoaderEx->plgMemSizeTotal;
+	plgLoader->plgSize[plgLoader->plgCount] = alignedSize;
 	++plgLoader->plgCount;
+	plgLoaderEx->plgMemSizeTotal += alignedSize;
+	plgPoolAddr += alignedSize + 0x1000;
 
 	return;
 
@@ -166,22 +175,32 @@ static int pmLoadPluginsForGame(void) {
 	if (plgLoaderEx->noPlugins)
 		return 0;
 
+	plgPoolAddr = plgPoolStart;
+
 	plgAddPluginsFromDirectory("game");
 	char buf[32];
 	xsnprintf(buf, sizeof(buf), "%08"PRIx32"%08"PRIx32, plgLoader->tid[1], plgLoader->tid[0]);
 	plgAddPluginsFromDirectory(buf);
 
-	if (plgLoader->plgCount)
-		plgLoaderEx->plgMemSizeTotal = plgPoolExAlloc(0) - (u32)plgLoader;
 	return 0;
 }
 
 static int hasPlgLoader;
 static int pmUnloadPluginsForGame(void) {
-	plgPoolFree((u32)plgLoader, plgLoaderEx->plgMemSizeTotal);
+	if (plgLoaderEx->plgMemSizeTotal) {
+		u32 addr = plgPoolStart;
+		for (u32 i = 0; i < plgLoader->plgCount; ++i) {
+			u32 alignedSize = plgLoader->plgSize[i];
+			plgFree(addr, alignedSize);
+			addr += alignedSize + 0x1000;
+		}
+	}
+
+	plgFree((u32)plgLoader, sizeof(PLGLOADER_INFO));
 
 	plgLoaderEx->plgMemSizeTotal = 0;
 	hasPlgLoader = 0;
+	plgPoolAddr = 0;
 	return 0;
 }
 
@@ -250,11 +269,23 @@ static int pmInitGamePlg(Handle hGameProcess, int loaderMem) {
 		nsDbgPrint("protectRemoteMemory failed: %08"PRIx32"\n", ret);
 		goto error_alloc;
 	}
-	ret = copyRemoteMemory(hGameProcess, plgLoader, CUR_PROCESS_HANDLE, plgLoader, plgLoaderEx->plgMemSizeTotal);
+	ret = copyRemoteMemory(hGameProcess, plgLoader, CUR_PROCESS_HANDLE, plgLoader, sizeof(PLGLOADER_INFO));
 	if (ret != 0) {
 		nsDbgPrint("Copy plugin loader to game failed: %08"PRIx32"\n", ret);
 		goto error_alloc;
 	}
+
+	u32 addr = plgPoolStart;
+	for (u32 i = 0; i < plgLoader->plgCount; ++i) {
+		u32 alignedSize = plgLoader->plgSize[i];
+		ret = copyRemoteMemory(hGameProcess, (void *)plgLoader->plgBufferPtr[i], CUR_PROCESS_HANDLE, (void *)addr, alignedSize);
+		if (ret != 0) {
+			nsDbgPrint("Copy plugin loader to game failed: %08"PRIx32"\n", ret);
+			goto error_alloc;
+		}
+		addr += alignedSize + 0x1000;
+	}
+
 	return 0;
 
 error_alloc:

@@ -48,10 +48,10 @@ static int setUpReturn(void) {
 }
 
 int plgLoaderInfoAlloc(void) {
-	PLGLOADER_INFO *loader = (void *)plgPoolAlloc(sizeof(PLGLOADER_INFO));
+	PLGLOADER_INFO *loader = (void *)plgAlloc(PLG_LOADER_ADDR, sizeof(PLGLOADER_INFO));
 	if (plgLoader != loader) {
 		showDbg("Plugin loader info at wrong address.");
-		plgPoolFree((u32)loader, sizeof(PLGLOADER_INFO));
+		plgFree((u32)loader, sizeof(PLGLOADER_INFO));
 		return -1;
 	}
 	return 0;
@@ -73,95 +73,32 @@ fail:
 	}
 }
 
-static u32 plgPoolEnd;
-static u32 plgPoolExEnd;
-
-static u32 plgPoolAllocCommon(u32 size, int extend) {
-	if (plgPoolEnd == 0) {
-		plgPoolExEnd = plgPoolEnd = PLG_POOL_ADDR;
+u32 plgAlloc(u32 addr, u32 size) {
+	if (!addr || !size) {
+		return 0;
 	}
 
-	if (size == 0) {
-		if (extend)
-			return plgPoolExEnd;
-		else
-			return plgPoolEnd;
-	}
-
-	u32 addr = plgPoolEnd;
 	u32 alignedSize = rtAlignToPageSize(size);
-	if (extend) {
-		if (plgPoolExEnd + alignedSize <= plgPoolEnd) {
-			plgPoolExEnd += alignedSize;
-			return plgPoolExEnd;
-		}
-		alignedSize -= plgPoolEnd - plgPoolExEnd;
-	} else {
-		if (addr > PLG_POOL_ADDR)
-			addr += 0x1000;
-	}
 	u32 outAddr;
 	s32 ret = svcControlMemory(&outAddr, addr, addr, alignedSize, MEMOP_ALLOC, MEMPERM_READWRITE);
 	if (ret != 0) {
 		nsDbgPrint("Failed to allocate memory from pool: %08"PRIx32"\n", ret);
 		return 0;
 	}
-
-	plgPoolExEnd = plgPoolEnd = addr + alignedSize;
 	return addr;
 }
 
-u32 plgPoolAlloc(u32 size) {
-	return plgPoolAllocCommon(size, 0);
-}
-
-u32 plgPoolExAlloc(u32 size) {
-	return plgPoolAllocCommon(size, 1);
-}
-
-int plgPoolFree(u32 addr, u32 size) {
+int plgFree(u32 addr, u32 size) {
 	if (!addr || !size)
 		return -1;
 
 	u32 alignedSize = rtAlignToPageSize(size);
-	u32 addrEnd = addr + alignedSize;
-	if (addrEnd != plgPoolExEnd) {
-		showDbg("addr end %08"PRIx32" different from pool end %08"PRIx32, addrEnd, plgPoolExEnd);
-		return -1;
-	}
-
-	MemInfo memInfo;
-	PageInfo pageInfo;
-	s32 ret = svcQueryMemory(&memInfo, &pageInfo, addr);
-	if (ret != 0) {
-		showDbg("svcQueryMemory failed for addr %08"PRIx32": %08"PRIx32, addr, ret);
-		return ret;
-	}
-
-	alignedSize += plgPoolEnd - plgPoolExEnd;
-	if (memInfo.base_addr != addr || memInfo.size != alignedSize) {
-		showDbg("svcQueryMemory base addr %08"PRIx32" and size %08"PRIx32" different from addr %08"PRIx32" and size %08"PRIx32,
-			memInfo.base_addr, memInfo.size, addr, alignedSize);
-		return -1;
-	}
-
 	u32 outAddr;
-	ret = svcControlMemory(&outAddr, addr, addr, alignedSize, MEMOP_FREE, 0);
+	s32 ret = svcControlMemory(&outAddr, addr, addr, alignedSize, MEMOP_FREE, 0);
 	if (ret != 0) {
 		showDbg("Failed to free memory to pool: %08"PRIx32, ret);
-		return ret;
 	}
-
-	if (addr > PLG_POOL_ADDR) {
-		addr -= 0x1000;
-	}
-	plgPoolExEnd = plgPoolEnd = addr;
 	return ret;
-}
-
-int plgPoolExFree(u32 size) {
-	plgPoolExEnd -= rtAlignToPageSize(size);
-	return 0;
 }
 
 static u32 plgMemoryPoolEnd;
@@ -189,11 +126,11 @@ u32 arm11BinStart;
 u32 arm11BinSize;
 
 u32 __attribute__((weak)) payloadBinAlloc(u32 size) {
-	return plgPoolAlloc(size);
+	return plgAlloc(PAYLOAD_BIN_ADDR, size);
 }
 
 int __attribute__((weak)) payloadBinFree(u32 addr, u32 size) {
-	return plgPoolFree(addr, size);
+	return plgFree(addr, size);
 }
 
 int loadPayloadBin(char *name) {

@@ -57,10 +57,7 @@ void rtDisableHook(RT_HOOK *hook) {
 }
 
 u32 rtAlignToPageSize(u32 size) {
-	if (size == 0) {
-		return 0;
-	}
-	return (((size - 1) / 0x1000) + 1) * 0x1000;
+	return ALIGN_TO_PAGE_SIZE(size);
 }
 
 u32 rtGetPageOfAddress(u32 addr) {
