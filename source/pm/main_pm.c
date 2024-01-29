@@ -178,10 +178,8 @@ static int pmLoadPluginsForGame(void) {
 	return 0;
 }
 
-static int hasPlgLoader;
 static int pmUnloadPluginsForGame(void) {
 	plgLoaderEx->plgMemSizeTotal = 0;
-	hasPlgLoader = 0;
 	return 0;
 }
 
@@ -268,22 +266,10 @@ static int pmInjectToGame(Handle hGameProcess) {
 	if (getMenuProcess() == 0)
 		return -1;
 
-	if (!hasPlgLoader) {
-		if (plgLoaderInfoAlloc() != 0)
-			return -1;
-		hasPlgLoader = 1;
-	}
-
 	s32 ret;
 	ret = pmLoadFromMenu(plgLoader, sizeof(PLGLOADER_INFO));
 	if (ret != 0) {
 		nsDbgPrint("Loading plugin info failed:%08"PRIx32"\n", ret);
-		return ret;
-	}
-
-	ret = pmLoadFromMenu(plgLoaderEx, sizeof(PLGLOADER_EX_INFO));
-	if (ret != 0) {
-		nsDbgPrint("Loading plugin extended info failed:%08"PRIx32"\n", ret);
 		return ret;
 	}
 
@@ -309,6 +295,12 @@ static int pmInjectToGame(Handle hGameProcess) {
 	ret = pmSaveToMenu(&plgLoader->gamePluginPid, sizeof(plgLoader->gamePluginPid));
 	if (ret != 0) {
 		nsDbgPrint("Save game process ID failed:%08"PRIx32"\n", ret);
+		return ret;
+	}
+
+	ret = pmLoadFromMenu(plgLoaderEx, sizeof(PLGLOADER_EX_INFO));
+	if (ret != 0) {
+		nsDbgPrint("Loading plugin extended info failed:%08"PRIx32"\n", ret);
 		return ret;
 	}
 
@@ -363,6 +355,9 @@ void mainThread(void *) {
 		showDbg("srvInit failed: %08"PRIx32, res);
 		goto final;
 	}
+
+	if (plgLoaderInfoAlloc() != 0)
+		goto final;
 
 	if (ntrConfig->ex.nsUseDbg) {
 		res = nsStartup();
