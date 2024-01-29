@@ -30,7 +30,7 @@ void rtInitHook(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr) {
 	hook->isEnabled = 0;
 	hook->funcAddr = funcAddr;
 
-	rtCheckMemory(funcAddr, 8, MEMPERM_WRITE);
+	rtCheckMemory(funcAddr, 8, MEMPERM_READWRITE | MEMPERM_EXECUTE);
 	memcpy(hook->bakCode, (void *)funcAddr, 8);
 	rtGenerateJumpCode(callbackAddr, hook->jmpCode);
 	memcpy(hook->callCode, (void *)funcAddr, 8);
