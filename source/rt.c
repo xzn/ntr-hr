@@ -81,6 +81,9 @@ u32 rtCheckRemoteMemory(Handle hProcess, u32 addr, u32 size, MemPerm perm) {
 	if (memInfo.base_addr + memInfo.size < addr + size) {
 		return -1;
 	}
+
+	if (perm & MEMPERM_WRITE)
+		perm |= MEMPERM_READ;
 	if ((memInfo.perm & perm) == perm) {
 		return 0;
 	}

@@ -4,17 +4,19 @@
 #include "3ds/types.h"
 
 int showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va);
-int showMsgRaw(const char *msg, ...) __attribute__((format(printf, 1, 2)));
+int showMsgRaw(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define showMsg(fmt, ...) showMsgVerbose(__FILE__, __LINE__, __func__, fmt, ## __VA_ARGS__)
 int showMsgVerbose(const char *file_name, int line_number, const char *func_name, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
 
 #define showDbg(fmt, ...) do { \
-	nsDbgPrint(fmt, ## __VA_ARGS__); \
+	if (!showDbgFunc) \
+		nsDbgPrint(fmt, ## __VA_ARGS__); \
 	showMsg(fmt, ## __VA_ARGS__); \
 } while (0)
 
 #define showDbgRaw(fmt, ...) do { \
-	nsDbgPrintRaw(fmt, ## __VA_ARGS__); \
+	if (!showDbgFunc) \
+		nsDbgPrintRaw(fmt, ## __VA_ARGS__); \
 	showMsgRaw(fmt, ## __VA_ARGS__); \
 } while (0)
 

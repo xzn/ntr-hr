@@ -9,14 +9,9 @@
 
 #include <stdarg.h>
 
-void nsDbgPrintVA(const char* fmt, va_list va);
-void nsDbgPrintRaw(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
-#define nsDbgPrint(fmt, ...) do { \
-	u64 nsDbgPrint_ticks__ = svcGetSystemTick(); \
-	u64 nsDbgPrint_mono_us__ = nsDbgPrint_ticks__ * 1000000000ULL / SYSCLOCK_ARM11; \
-	u32 nsDbgPrint_pid__ = getCurrentProcessId(); \
-	nsDbgPrintRaw("[%"PRId32".%06"PRId32"][%"PRIx32"]%s:%d:%s " fmt, (u32)(nsDbgPrint_mono_us__ / 1000000), (u32)(nsDbgPrint_mono_us__ % 1000000), nsDbgPrint_pid__, __FILE__, __LINE__, __func__, ## __VA_ARGS__); \
-} while (0)
+void nsDbgPrintRaw(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+#define nsDbgPrint(fmt, ...) nsDbgPrintVerbose(__FILE__, __LINE__, __func__, fmt, ## __VA_ARGS__)
+void nsDbgPrintVerbose(const char *file_name, int line_number, const char *func_name, const char* fmt, ...) __attribute__((format(printf, 4, 5)));
 
 typedef enum {
 	NS_INITMODE_FROMBOOT,

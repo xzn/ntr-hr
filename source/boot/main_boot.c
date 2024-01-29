@@ -1,6 +1,7 @@
 #include "global.h"
 
 #include <memory.h>
+#include <string.h>
 
 extern int _BootArgs[];
 static NTR_CONFIG *ntrCfg;
@@ -62,9 +63,29 @@ int main(void) {
 }
 
 int showMsgVA(const char *, int , const char *, const char *fmt, va_list va) {
+	size_t fmt_len = strlen(fmt);
+	char buf[fmt_len + 1];
+	memcpy(buf, fmt, sizeof(buf));
+	size_t buf_len = fmt_len;
+	while (buf_len && buf[--buf_len] == '\n') {
+		buf[buf_len] = 0;
+	}
+
 	char msg[LOCAL_MSG_BUF_SIZE];
-	xvsnprintf(msg, LOCAL_MSG_BUF_SIZE, fmt, va);
+	xvsnprintf(msg, LOCAL_MSG_BUF_SIZE, buf, va);
 	return showMsgDbgFunc(msg);
 }
 
-void nsDbgPrintRaw(const char *, ...) {}
+void nsDbgPrintRaw(const char *fmt, ...) {
+	va_list arp;
+	va_start(arp, fmt);
+	showMsgVA(NULL, 0, NULL, fmt, arp);
+	va_end(arp);
+}
+
+void nsDbgPrintVerbose(const char *, int, const char *, const char* fmt, ...) {
+	va_list arp;
+	va_start(arp, fmt);
+	showMsgVA(NULL, 0, NULL, fmt, arp);
+	va_end(arp);
+}

@@ -60,12 +60,33 @@ static void nsDbgLn() {
 	}
 }
 
-void nsDbgPrintVA(const char *fmt, va_list arp) {
+static void nsDbgPrintVAInternal(const char *fmt, va_list arp) {
+	struct ostrm const ostrm = { .func = nsDbgPutc };
+	xvprintf(&ostrm, fmt, arp);
+}
+
+static void nsDbgPrintRawInternal(const char *fmt, ...) {
+	va_list arp;
+	va_start(arp, fmt);
+	nsDbgPrintVAInternal(fmt, arp);
+	va_end(arp);
+}
+
+static void nsDbgPrintVerboseVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list arp) {
 	if (ALC(nsConfig->debugReady)) {
 		rtAcquireLock(&nsConfig->debugBufferLock);
 		nsDbgLn();
-		struct ostrm const ostrm = { .func = nsDbgPutc };
-		xvprintf(&ostrm, fmt, arp);
+
+		if (file_name && func_name) {
+			u64 ticks = svcGetSystemTick();
+			u64 mono_us = ticks * 1000000000ULL / SYSCLOCK_ARM11;
+			u32 pid = getCurrentProcessId();
+
+			nsDbgPrintRawInternal(DBG_VERBOSE_TITLE " ", (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+		}
+
+		nsDbgPrintVAInternal(fmt, arp);
+
 		rtReleaseLock(&nsConfig->debugBufferLock);
 	}
 }
@@ -73,7 +94,14 @@ void nsDbgPrintVA(const char *fmt, va_list arp) {
 void __attribute__((weak)) nsDbgPrintRaw(const char *fmt, ...) {
 	va_list arp;
 	va_start(arp, fmt);
-	nsDbgPrintVA(fmt, arp);
+	nsDbgPrintVerboseVA(NULL, 0, NULL, fmt, arp);
+	va_end(arp);
+}
+
+void __attribute__((weak)) nsDbgPrintVerbose(const char *file_name, int line_number, const char *func_name, const char* fmt, ...) {
+	va_list arp;
+	va_start(arp, fmt);
+	nsDbgPrintVerboseVA(file_name, line_number, func_name, fmt, arp);
 	va_end(arp);
 }
 
@@ -118,7 +146,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 		goto final;
 	}
 
-	ret = rtCheckRemoteMemory(hProcess, remotePC, 8, MEMPERM_WRITE);
+	ret = rtCheckRemoteMemory(hProcess, remotePC, 8, MEMPERM_READWRITE | MEMPERM_EXECUTE);
 	if (ret != 0) {
 		showDbg("rtCheckRemoteMemory failed: %08"PRIx32, ret);
 		goto final;

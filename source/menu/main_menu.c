@@ -256,6 +256,7 @@ static void menuThread(void *) {
 	ret = initDirectScreenAccess();
 	if (ret != 0) {
 		disp(100, 0x10000ff);
+		svcSleepThread(1000000000);
 	}
 
 	ret = srvInit();

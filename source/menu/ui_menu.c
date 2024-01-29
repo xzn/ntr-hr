@@ -278,7 +278,7 @@ int showMsgVA(const char *file_name, int line_number, const char *func_name, con
 		u64 ticks = svcGetSystemTick();
 		u64 mono_us = ticks * 1000000000ULL / SYSCLOCK_ARM11;
 		u32 pid = getCurrentProcessId();
-		xsnprintf(title, LOCAL_TITLE_BUF_SIZE, "[%"PRId32".%06"PRId32"][%"PRIx32"]%s:%d:%s", (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+		xsnprintf(title, LOCAL_TITLE_BUF_SIZE, DBG_VERBOSE_TITLE, (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
 	} else {
 		*title = 0;
 	}
