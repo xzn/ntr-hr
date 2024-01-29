@@ -1,5 +1,7 @@
 #include "global.h"
 
+#include "3ds/srv.h"
+
 #include <memory.h>
 
 typedef enum {
@@ -134,7 +136,7 @@ static u32 plgSetBufferSwapCallback2(u32 r0, u32 *params, u32 isDisplay1, u32 ar
 }
 
 static void plgInitScreenOverlay(void) {
-	if (!ntrConfig->ex.plg.noCTRPFCompat) {
+	if (!plgLoaderEx->noCTRPFCompat) {
 		plgOverlayStatus = 2;
 		return;
 	}
@@ -189,8 +191,14 @@ static void plgInitScreenOverlay(void) {
 int main(void) {
 	startupInit();
 
+	s32 ret = srvInit();
+	if (ret != 0) {
+		showDbg("srvInit failed: %08"PRIx32, ret);
+		return 0;
+	}
+
 	if (ntrConfig->ex.nsUseDbg) {
-		s32 ret = nsStartup();
+		ret = nsStartup();
 		if (ret != 0) {
 			disp(100, 0x1ff00ff);
 		} else {
@@ -198,10 +206,10 @@ int main(void) {
 		}
 	}
 
-	if (ntrConfig->ex.plg.remotePlayBoost)
+	if (plgLoaderEx->remotePlayBoost)
 		plgInitScreenOverlay();
 
-	if (ntrConfig->ex.plg.plgMemSizeTotal != 0) {
+	if (plgLoaderEx->plgMemSizeTotal != 0) {
 		disp(100, 0x100ff00);
 
 		initSharedFunc();

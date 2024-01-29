@@ -1,6 +1,7 @@
 #include "global.h"
 
 #include "3ds/services/fs.h"
+#include "3ds/srv.h"
 
 #include <memory.h>
 #include <ctype.h>
@@ -368,30 +369,36 @@ int main(void) {
 	if (plgLoaderInfoAlloc() != 0)
 		return 0;
 
+	s32 res = srvInit();
+	if (res != 0) {
+		showDbg("srvInit failed: %08"PRIx32, res);
+		return 0;
+	}
+
 	if (ntrConfig->ex.nsUseDbg) {
-		s32 ret = nsStartup();
-		if (ret != 0) {
+		res = nsStartup();
+		if (res != 0) {
 			disp(100, 0x1ff00ff);
 		} else {
 			disp(100, 0x100ff00);
 		}
 	}
 
-	s32 res = fsInit();
+	res = fsInit();
 	if (res != 0) {
-		nsDbgPrint("fs init failed: %08"PRIx32"\n", res);
+		showDbg("fs init failed: %08"PRIx32"\n", res);
 		return 0;
 	}
 
 	res = FSUSER_OpenArchive(&sdmcArchive, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL));
 	if (res != 0) {
-		nsDbgPrint("Open sdmc failed: %08"PRIx32"\n", res);
+		showDbg("Open sdmc failed: %08"PRIx32"\n", res);
 		goto fs_fail;
 	}
 
 	res = loadPayloadBin(NTR_BIN_GAME);
 	if (res != 0) {
-		nsDbgPrint("Load game payload failed: %08"PRIx32"\n", res);
+		showDbg("Load game payload failed: %08"PRIx32"\n", res);
 		goto fs_fail;
 	}
 

@@ -257,6 +257,12 @@ static void menuThread(void *) {
 		disp(100, 0x10000ff);
 	}
 
+	ret = srvInit();
+	if (ret != 0) {
+		showDbg("srvInit failed: %08"PRIx32, ret);
+		goto final;
+	}
+
 	Handle fsUserHandle = ntrConfig->HomeFSUHandleAddr ?
 		*(u32 *)ntrConfig->HomeFSUHandleAddr : 0;
 	if (fsUserHandle == 0) {

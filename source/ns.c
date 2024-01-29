@@ -2,7 +2,6 @@
 
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
-#include "3ds/srv.h"
 
 #include <memory.h>
 #include <arpa/inet.h>
@@ -310,16 +309,10 @@ int nsStartup(void) {
 		goto fail_alloc;
 	}
 
-	ret = srvInit();
-	if (ret != 0) {
-		showDbg("srvInit failed: %08"PRIx32, ret);
-		goto fail_alloc;
-	}
-
 	ret = socInit((u32 *)(base + offset), socuSharedBufferSize);
 	if (ret != 0) {
 		showDbg("socInit failed: %08"PRIx32, ret);
-		goto fail_srv;
+		goto fail_alloc;
 	}
 
 	*nsContext = (NS_CONTEXT){ 0 };
@@ -352,9 +345,6 @@ fail_soc:
 	if (res != 0) {
 		nsDbgPrint("socExit failed: %08"PRIx32"\n", ret);
 	}
-
-fail_srv:
-	srvExit();
 
 fail_alloc:
 	res = svcControlMemory(&outAddr, base, base, bufferSize, MEMOP_FREE, 0);
