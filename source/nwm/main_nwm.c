@@ -13,8 +13,12 @@ int main(void) {
 
 	// TODO
 	if (ntrConfig->ex.nsUseDbg) {
-		nsStartup();
-		disp(100, 0x17f7f7f);
+		ret = nsStartup();
+		if (ret != 0) {
+			disp(100, 0x1ff00ff);
+		} else {
+			disp(100, 0x17f7f7f);
+		}
 	}
 	disp(100, 0x1ff0000);
 
