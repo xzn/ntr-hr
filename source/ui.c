@@ -17,6 +17,9 @@ int showMsgRaw(const char *fmt, ...) {
 }
 
 int __attribute__((weak)) showMsgVA(const char *, int , const char *, const char *, va_list) {
+	disp(100, 0x10000ff);
+	svcSleepThread(1000000000);
+
 	// TODO
 	return 0;
 }

@@ -185,7 +185,7 @@ static int pmLoadPluginsForGame(void) {
 	plgAddPluginsFromDirectory(buf);
 
 	if (plgLoader->plgCount)
-		plgLoaderEx->plgMemSizeTotal = plgPoolAlloc(0);
+		plgLoaderEx->plgMemSizeTotal = plgPoolAlloc(0) - (u32)plgLoader;
 	return 0;
 }
 
