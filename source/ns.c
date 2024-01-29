@@ -106,7 +106,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 		return ret;
 	}
 	// set rwx
-	ret = protectRemoteMemory(hProcess, (void *)baseAddr, totalSize);
+	ret = protectRemoteMemory(hProcess, (void *)baseAddr, totalSize, MEMPERM_READWRITE | MEMPERM_EXECUTE);
 	if (ret != 0) {
 		showDbg("protectRemoteMemory failed: %08"PRIx32, ret);
 		goto final;
@@ -118,9 +118,9 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 		goto final;
 	}
 
-	ret = rtCheckRemoteMemoryRegionSafeForWrite(hProcess, remotePC, 8);
+	ret = rtCheckRemoteMemory(hProcess, remotePC, 8, MEMPERM_WRITE);
 	if (ret != 0) {
-		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08"PRIx32, ret);
+		showDbg("rtCheckRemoteMemory failed: %08"PRIx32, ret);
 		goto final;
 	}
 

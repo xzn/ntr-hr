@@ -58,7 +58,7 @@ static u32 plgSearchBytes(u32 startAddr, u32 endAddr, const u32 *pat, int patlen
 		u32 currentPage = rtGetPageOfAddress(startAddr);
 		if (currentPage != lastPage) {
 			lastPage = currentPage;
-			if (rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), lastPage + 0x1000, 0x1000) != 0) {
+			if (rtCheckMemory(lastPage + 0x1000, 0x1000, MEMPERM_READ) != 0) {
 				return 0;
 			}
 		}
@@ -146,7 +146,7 @@ static void plgInitScreenOverlay(void) {
 	}
 	plgOverlayStatus = 2;
 
-	if (rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), 0x1F000000, 0x00600000) == 0)
+	if (rtCheckMemory(0x1F000000, 0x00600000, MEMPERM_READWRITE) == 0)
 		isVRAMAccessible = 1;
 
 	static const u32 pat[] = { 0xe1833000, 0xe2044cff, 0xe3c33cff, 0xe1833004, 0xe1824f93 };

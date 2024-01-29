@@ -262,7 +262,7 @@ static int pmInitGamePlg(Handle hGameProcess, int loaderMem) {
 		return ret;
 	}
 
-	ret = protectRemoteMemory(hGameProcess, plgLoader, plgLoaderEx->plgMemSizeTotal);
+	ret = protectRemoteMemory(hGameProcess, plgLoader, plgLoaderEx->plgMemSizeTotal, MEMPERM_READWRITE | MEMPERM_EXECUTE);
 	if (ret != 0) {
 		nsDbgPrint("protectRemoteMemory failed: %08"PRIx32"\n", ret);
 		goto error_alloc;

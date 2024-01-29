@@ -2,6 +2,7 @@
 #define RT_H
 
 #include "3ds/types.h"
+#include "3ds/svc.h"
 
 typedef struct _RT_HOOK {
 	u32 model;
@@ -24,7 +25,8 @@ void rtDisableHook(RT_HOOK *hook);
 
 u32 rtAlignToPageSize(u32 size);
 u32 rtGetPageOfAddress(u32 addr);
-u32 rtCheckRemoteMemoryRegionSafeForWrite(Handle hProcess, u32 addr, u32 size);
+u32 rtCheckRemoteMemory(Handle hProcess, u32 addr, u32 size, MemPerm perm);
+u32 rtCheckMemory(u32 addr, u32 size, MemPerm perm);
 u32 rtGetThreadReg(Handle hProcess, u32 tid, u32 *ctx);
 u32 rtFlushInstructionCache(void *ptr, u32 size);
 

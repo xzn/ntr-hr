@@ -30,7 +30,7 @@ void rtInitHook(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr) {
 	hook->isEnabled = 0;
 	hook->funcAddr = funcAddr;
 
-	rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), funcAddr, 8);
+	rtCheckMemory(funcAddr, 8, MEMPERM_WRITE);
 	memcpy(hook->bakCode, (void *)funcAddr, 8);
 	rtGenerateJumpCode(callbackAddr, hook->jmpCode);
 	memcpy(hook->callCode, (void *)funcAddr, 8);
@@ -67,16 +67,38 @@ u32 rtGetPageOfAddress(u32 addr) {
 	return (addr / 0x1000) * 0x1000;
 }
 
-u32 rtCheckRemoteMemoryRegionSafeForWrite(Handle hProcess, u32 addr, u32 size) {
-	u32 ret = 0;
+u32 rtCheckRemoteMemory(Handle hProcess, u32 addr, u32 size, MemPerm perm) {
+	MemInfo memInfo;
+	PageInfo pageInfo;
+	s32 ret = svcQueryMemory(&memInfo, &pageInfo, addr);
+	if (ret != 0) {
+		nsDbgPrint("svcQueryMemory failed for addr %08"PRIx32": %08"PRIx32"\n", addr, ret);
+		return ret;
+	}
+	if (memInfo.base_addr + memInfo.size < addr + size) {
+		return -1;
+	}
+	if (memInfo.perm == 0) {
+		return -1;
+	}
+	if ((memInfo.perm & perm) == perm) {
+		return 0;
+	}
+
+	perm |= memInfo.perm;
+
 	u32 startPage, endPage;
 
 	startPage = rtGetPageOfAddress(addr);
 	endPage = rtGetPageOfAddress(addr + size - 1);
 	size = endPage - startPage + 0x1000;
 
-	ret = protectRemoteMemory(hProcess, (void *)startPage, size);
+	ret = protectRemoteMemory(hProcess, (void *)startPage, size, perm);
 	return ret;
+}
+
+u32 rtCheckMemory(u32 addr, u32 size, MemPerm perm) {
+	return rtCheckRemoteMemory(getCurrentProcessHandle(), addr, size, perm);
 }
 
 u32 rtGetThreadReg(Handle hProcess, u32 tid, u32 *ctx) {

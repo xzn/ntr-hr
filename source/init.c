@@ -18,7 +18,7 @@ int showMsgDbgFunc(const char *msg) {
 static int initNSConfig(void) {
 	u32 ret;
 
-	ret = protectMemory(nsConfig, NS_CONFIG_MAX_SIZE);
+	ret = rtCheckMemory((u32)nsConfig, NS_CONFIG_MAX_SIZE, MEMPERM_READWRITE);
 
 	if (ret != 0) {
 		showMsgRaw("Init nsConfig failed for process %"PRIx32, getCurrentProcessId());

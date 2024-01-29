@@ -87,12 +87,12 @@ u32 mapRemoteMemoryInLoader(Handle hProcess, u32 addr, u32 size, u32 op) {
 	return 0;
 }
 
-u32 protectRemoteMemory(Handle hProcess, void* addr, u32 size) {
-	return svcControlProcessMemory(hProcess, (u32)addr, 0, size, 6, 7);
+u32 protectRemoteMemory(Handle hProcess, void* addr, u32 size, u32 perm) {
+	return svcControlProcessMemory(hProcess, (u32)addr, 0, size, MEMOP_PROT, perm);
 }
 
-u32 protectMemory(void *addr, u32 size) {
-	return protectRemoteMemory(getCurrentProcessHandle(), addr, size);
+u32 protectMemory(void *addr, u32 size, u32 perm) {
+	return protectRemoteMemory(getCurrentProcessHandle(), addr, size, perm);
 }
 
 u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 size) {
@@ -130,4 +130,16 @@ u32 copyRemoteMemory(Handle hDst, void* ptrDst, Handle hSrc, void* ptrSrc, u32 s
 		return ret;
 	}
 	return 0;
+}
+
+void showDbgMemInfo(u32 addr) {
+	MemInfo memInfo;
+	PageInfo pageInfo;
+	s32 res = svcQueryMemory(&memInfo, &pageInfo, addr);
+	if (res != 0) {
+		showDbg("svcQueryMemory failed for addr %08"PRIx32": %08"PRIx32"\n", addr, res);
+	} else {
+		showDbg("addr %08"PRIx32": base %08"PRIx32", size: %08"PRIx32", perm: %"PRIu32", state: %"PRIu32", page: %08"PRIx32"\n",
+			addr, memInfo.base_addr, memInfo.size, memInfo.perm, memInfo.state, pageInfo.flags);
+	}
 }
