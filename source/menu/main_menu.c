@@ -3,6 +3,7 @@
 #include "3ds/services/fs.h"
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
+#include "3ds/srv.h"
 
 #include <memory.h>
 

@@ -303,12 +303,6 @@ int nsStartup(void) {
 		goto fail;
 	}
 
-	ret = rtCheckRemoteMemoryRegionSafeForWrite(getCurrentProcessHandle(), base, bufferSize);
-	if (ret != 0) {
-		showDbg("rtCheckRemoteMemoryRegionSafeForWrite failed: %08"PRIx32, ret);
-		goto fail_alloc;
-	}
-
 	ret = socInit((u32 *)(base + offset), socuSharedBufferSize);
 	if (ret != 0) {
 		showDbg("socInit failed: %08"PRIx32, ret);
