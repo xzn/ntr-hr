@@ -83,8 +83,6 @@ static void restoreGpuRegs(void) {
 
 static void lockGameProcess(void) {
 	if (plgLoader->gamePluginPid) {
-		svcKernelSetState(0x10000, 4, 0, 0);
-
 		s32 res = svcOpenProcess(&hGameProcess, plgLoader->gamePluginPid);
 		if (res == 0) {
 			res = svcControlProcess(hGameProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
@@ -92,6 +90,8 @@ static void lockGameProcess(void) {
 				nsDbgPrint("Locking game process failed: %08"PRIx32"\n", res);
 				svcCloseHandle(hGameProcess);
 				hGameProcess = 0;
+			} else {
+				svcKernelSetState(0x10000, 4, 0, 0);
 			}
 		} else {
 			nsDbgPrint("Open game process failed: %08"PRIx32"\n", res);
@@ -102,14 +102,14 @@ static void lockGameProcess(void) {
 
 static void unlockGameProcess(void) {
 	if (hGameProcess) {
+		svcKernelSetState(0x10000, 4, 0, 0);
+
 		s32 res = svcControlProcess(hGameProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
 		if (res != 0) {
 			nsDbgPrint("Unlocking game process failed: %08"PRIx32"\n", res);
 		}
 		svcCloseHandle(hGameProcess);
 		hGameProcess = 0;
-
-		svcKernelSetState(0x10000, 4, 0, 0);
 	}
 }
 

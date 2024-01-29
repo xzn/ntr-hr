@@ -119,8 +119,9 @@ u32 arm11BinStart;
 u32 arm11BinSize;
 
 u32 __attribute__((weak)) payloadBinAlloc(u32 size) {
-	if (plgEnsurePoolSize(size) == 0)
-		return PLG_POOL_ADDR;
+	u32 offset = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
+	if (plgEnsurePoolSize(offset + size) == 0)
+		return PLG_POOL_ADDR + offset;
 	return 0;
 }
 
