@@ -330,7 +330,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 	int needInject =
 		cfg.ntrConfig.ex.nsUseDbg ||
 		plgLoaderEx->plgMemSizeTotal ||
-		(plgLoaderEx->remotePlayBoost && plgLoaderEx->noCTRPFCompat);
+		(plgLoaderEx->remotePlayBoost && !plgLoaderEx->CTRPFCompat);
 	int loaderMem = !plgLoaderEx->noLoaderMem;
 
 	if (needInject) {

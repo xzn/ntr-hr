@@ -5,7 +5,7 @@
 
 typedef struct {
 	u32 noPlugins;
-	u32 noCTRPFCompat;
+	u32 CTRPFCompat;
 	u32 remotePlayBoost;
 	u32 noLoaderMem;
 	u32 plgMemSizeTotal;

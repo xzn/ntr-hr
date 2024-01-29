@@ -136,7 +136,7 @@ static u32 plgSetBufferSwapCallback2(u32 r0, u32 *params, u32 isDisplay1, u32 ar
 }
 
 static void plgInitScreenOverlay(void) {
-	if (!plgLoaderEx->noCTRPFCompat) {
+	if (plgLoaderEx->CTRPFCompat) {
 		plgOverlayStatus = 2;
 		return;
 	}
