@@ -26,7 +26,7 @@ int initDirectScreenAccess(void) {
 	if (!bottomFBBackup)
 		return -1;
 
-	bottomFB = 0x18000000 | 0x80000000;
+	bottomFB = 0x1848F000 | 0x80000000; // From Luma3DS
 	ASL(allowDirectScreenAccess, 1);
 	return 0;
 }
