@@ -9,9 +9,9 @@
 #define DBG_VERBOSE_TITLE "[%"PRId32".%06"PRId32"][%"PRIx32"]%s:%d:%s"
 
 // Require Luma3DS PA-VA mapping
-#define IoBaseLcd (0x10202000 + 0x80000000)
-#define IoBasePad (0x10146000 + 0x80000000)
-#define IoBasePdc (0x10400000 + 0x80000000)
+static const u32 IoBaseLcd = 0x10202000 + 0x80000000;
+static const u32 IoBasePad = 0x10146000 + 0x80000000;
+static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 
 #define DIRECTIONAL_KEYS (KEY_DOWN | KEY_UP | KEY_LEFT | KEY_RIGHT)
 
