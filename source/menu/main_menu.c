@@ -7,6 +7,7 @@
 
 #include <memory.h>
 
+u32 hasHIDAccess;
 static u32 NTRMenuHotkey = KEY_X | KEY_Y;
 static int cpuClockLockValue = -1;
 
@@ -264,7 +265,6 @@ static void showMainMenu(void) {
 		}
 	}
 done:
-	debounceKey();
 	releaseVideo();
 }
 
@@ -279,6 +279,13 @@ void mainThread(void *) {
 	if (plgLoaderInfoAlloc() != 0)
 		goto final;
 	*plgLoader = (PLGLOADER_INFO){ 0 };
+
+	ret = hidInit();
+	if (ret != 0) {
+		showDbg("hidInit failed: %08"PRIx32, ret);
+		goto final;
+	}
+	ASL(&hasHIDAccess, 1);
 
 	ret = srvInit();
 	if (ret != 0) {
@@ -330,8 +337,8 @@ void mainThread(void *) {
 
 	int waitCnt = 0;
 	while (1) {
-		if ((getKey()) == NTRMenuHotkey) {
-			if (ALC(&allowDirectScreenAccess))
+		if (getKeys() == NTRMenuHotkey) {
+			if (canUseUI())
 				showMainMenu();
 		}
 		svcSleepThread(100000000);

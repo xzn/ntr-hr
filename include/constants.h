@@ -13,6 +13,8 @@
 #define IoBasePad (0x10146000 + 0x80000000)
 #define IoBasePdc (0x10400000 + 0x80000000)
 
+#define DIRECTIONAL_KEYS (KEY_DOWN | KEY_UP | KEY_LEFT | KEY_RIGHT)
+
 // From Luma3DS
 #define GPU_FB_TOP_SIZE             (IoBasePdc + 0x45c)
 #define GPU_FB_TOP_LEFT_ADDR_1      (IoBasePdc + 0x468)

@@ -4,7 +4,7 @@
 
 #include <string.h>
 
-u32 allowDirectScreenAccess;
+u32 hasDirectScreenAccess;
 
 #define BOTTOM_WIDTH 320
 #define BOTTOM_HEIGHT 240
@@ -27,7 +27,7 @@ int initDirectScreenAccess(void) {
 		return -1;
 
 	bottomFB = 0x1848F000 | 0x80000000; // From Luma3DS
-	ASL(&allowDirectScreenAccess, 1);
+	ASL(&hasDirectScreenAccess, 1);
 	return 0;
 }
 
@@ -144,53 +144,17 @@ void releaseVideo(void) {
 	}
 }
 
-static int confirmKey(u32 keyCode, int times) {
-	int i;
-	for (i = 0; i < times; i++) {
-		if (getKey() != keyCode) {
-			return -1;
-		}
-	}
-	return 0;
-}
+u32 waitKeys(void) {
+	u32 keys;
+	do {
+		// TODO
+		// busy loop to burn time for down repeat
+		// and refresh screen in interval
 
-static s32 const refreshScreenCount = 0x10000;
-static u32 waitKeyAndRefreshScreen(u32 need_key, int times, s32 *refreshScreen) {
-	u32 key;
-	s32 count = *refreshScreen;
-	while (1) {
-		key = need_key ? getKey() : 0;
-		if (need_key ? key != 0 : key == getKey()) {
-			if (confirmKey(key, times) == 0) {
-				break;
-			}
-			count -= times;
-		}
-		--count;
-		if (count < 0) {
-			count += refreshScreenCount;
-			updateScreen();
-		}
-	}
-	*refreshScreen = count;
-	return key;
-}
-
-void waitGetKey(u32 *key) {
-	s32 refreshScreen = refreshScreenCount;
-	waitKeyAndRefreshScreen(0, 0x1000, &refreshScreen);
-	if (key)
-		*key = waitKeyAndRefreshScreen(1, 0x10000, &refreshScreen);
-}
-
-u32 waitKey(void) {
-	u32 key;
-	waitGetKey(&key);
-	return key;
-}
-
-void debounceKey(void) {
-	waitGetKey(NULL);
+		hidScanInput();
+		keys = hidKeysDown() | (hidKeysDownRepeat() & DIRECTIONAL_KEYS);
+	} while (keys == 0);
+	return keys;
 }
 
 #include "font.h"
@@ -267,8 +231,8 @@ static void showMsgCommon(const char *msg, const char *title) {
 		}
 		print(plgTranslate("Press [B] to close."), 10, 220, 0, 0, 255);
 		updateScreen();
-		u32 key = waitKey();
-		if (key == KEY_B) {
+		u32 keys = waitKeys();
+		if (keys & KEY_B) {
 			break;
 		}
 	}
@@ -276,7 +240,7 @@ static void showMsgCommon(const char *msg, const char *title) {
 }
 
 int showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
-	if (!ALC(&allowDirectScreenAccess)) {
+	if (!canUseUI()) {
 		disp(100, DBG_CL_MSG);
 		svcSleepThread(1000000000);
 		return 0;
@@ -311,12 +275,12 @@ s32 showMenuEx(const char *title, u32 entriesCount, const char *captions[], cons
 
 #define MENU_ITEMS_MAX (10)
 #define MENU_ITEM_HEIGHT (CHAR_HEIGHT + 1)
-s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keyPressed) {
+s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keysPressed) {
 	u32 i;
 	int select = 0;
 	char buf[LOCAL_TITLE_BUF_SIZE];
 	u32 pos;
-	u32 x = 10, key = 0;
+	u32 x = 10, keys = 0;
 	u32 drawStart, drawEnd;
 
 	if (selectOn < entriesCount) {
@@ -345,28 +309,37 @@ s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], con
 			}
 		}
 		updateScreen();
-		while((key = waitKey()) == 0);
-		if (key == KEY_DDOWN) {
+		keys = waitKeys();
+		if (keys & KEY_DOWN) {
 			select += 1;
 			if (select >= (int)entriesCount) {
 				select = 0;
 			}
 		}
-		if (key == KEY_DUP) {
+		if (keys & KEY_UP) {
 			select -= 1;
 			if (select < 0) {
 				select = entriesCount - 1;
 			}
 		}
-		if (keyPressed) {
-			*keyPressed = key;
+		if (keysPressed) {
+			*keysPressed = keys;
 			return select;
 		}
-		if (key == KEY_A) {
+		if (keys & KEY_A) {
 			return select;
 		}
-		if (key == KEY_B) {
+		if (keys & KEY_B) {
 			return -1;
 		}
 	}
+}
+
+bool hidShouldUseIrrst(void)
+{
+	return 0;
+}
+
+int canUseUI(void) {
+	return ALC(&hasDirectScreenAccess) && ALC(&hasHIDAccess);
 }

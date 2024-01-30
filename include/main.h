@@ -24,6 +24,7 @@ int plgEnsurePoolSize(u32 size);
 u32 plgRequestMemory(u32 size);
 
 void setCpuClockLock(int v);
+extern u32 hasHIDAccess;
 
 #define MAX_PLUGIN_COUNT 32
 typedef struct {

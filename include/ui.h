@@ -22,20 +22,19 @@ int showMsgVerbose(const char *file_name, int line_number, const char *func_name
 
 void disp(u32 t, u32 cl);
 
-extern u32 allowDirectScreenAccess;
+extern u32 hasDirectScreenAccess;
 int initDirectScreenAccess(void);
 void acquireVideo(void);
 void releaseVideo(void);
 void updateScreen(void);
+int canUseUI(void);
 
 const char *plgTranslate(const char *msg);
 
 s32 showMenu(const char *title, u32 entriesCount, const char *captions[]);
 s32 showMenuEx(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn);
-s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keyPressed);
+s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keysPressed);
 
-u32 getKey(void);
-u32 waitKey(void);
-void debounceKey(void);
+u32 waitKeys(void);
 
 #endif

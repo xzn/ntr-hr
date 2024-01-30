@@ -33,7 +33,3 @@ void disp(u32 t, u32 cl) {
 	}
 	REG(LCD_TOP_FILLCOLOR) = 0;
 }
-
-u32 getKey(void) {
-	return (REG(IoBasePad) ^ 0xFFF) & 0xFFF;
-}

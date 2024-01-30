@@ -31,7 +31,7 @@ typedef struct {
 	RT_LOCK debugBufferLock;
 
 	u32 startupInfo[32];
-	u32 allowDirectScreenAccess_unused;
+	u32 hasDirectScreenAccess_unused;
 	u32 exitFlag_unused;
 
 	u32 sharedFunc[100];

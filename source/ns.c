@@ -387,7 +387,7 @@ Handle envGetHandle(const char*) {
 void envDestroyHandles(void) {}
 
 int nsDbgNext(void) {
-	if ((getKey() & KEY_DLEFT)) {
+	if ((getKeys() & KEY_DLEFT)) {
 		return 1;
 	}
 	return 0;
