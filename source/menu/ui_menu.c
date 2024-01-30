@@ -90,8 +90,6 @@ static void lockGameProcess(void) {
 				nsDbgPrint("Locking game process failed: %08"PRIx32"\n", res);
 				svcCloseHandle(hGameProcess);
 				hGameProcess = 0;
-			} else {
-				svcKernelSetState(0x10000, 4, 0, 0);
 			}
 		} else {
 			nsDbgPrint("Open game process failed: %08"PRIx32"\n", res);
@@ -102,8 +100,6 @@ static void lockGameProcess(void) {
 
 static void unlockGameProcess(void) {
 	if (hGameProcess) {
-		svcKernelSetState(0x10000, 4, 0, 0);
-
 		s32 res = svcControlProcess(hGameProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
 		if (res != 0) {
 			nsDbgPrint("Unlocking game process failed: %08"PRIx32"\n", res);
@@ -123,7 +119,10 @@ static void restoreVRAMBuffer(void) {
 
 void acquireVideo(void) {
 	if (AFAR(&videoRef, 1) == 0) {
+		svcKernelSetState(0x10000, 4 | 2, 0, 0);
 		lockGameProcess();
+
+		while ((GPU_PSC0_CNT | GPU_PSC1_CNT | GPU_TRANSFER_CNT | GPU_CMDLIST_CNT) & 1) {}
 
 		backupGpuRegs();
 		backupVRAMBuffer();
@@ -141,6 +140,7 @@ void releaseVideo(void) {
 		restoreGpuRegs();
 
 		unlockGameProcess();
+		svcKernelSetState(0x10000, 4 | 2, 0, 0);
 	}
 }
 
