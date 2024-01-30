@@ -32,10 +32,13 @@ typedef struct {
 
 static NS_CONTEXT *const nsContext = (NS_CONTEXT *)NS_CTX_ADDR;
 
+static u8 *const nsDbgBuf = ((NS_CONTEXT *)NS_CTX_ADDR)->debugBuf;
+static u8 *const nsDbgBufEnd = ((NS_CONTEXT *)NS_CTX_ADDR)->debugBuf + DEBUG_BUF_SIZE;
+
 static void nsDbgPutc(void *, void const *src, size_t len) {
 	const char *s = src;
 	while (len) {
-		if (nsConfig->debugPtr == nsConfig->debugBufEnd)
+		if (nsConfig->debugPtr == nsDbgBufEnd)
 			return;
 		*nsConfig->debugPtr++ = *s++;
 		--len;
@@ -43,15 +46,15 @@ static void nsDbgPutc(void *, void const *src, size_t len) {
 }
 
 static void nsDbgLn() {
-	if (nsConfig->debugPtr == nsConfig->debugBuf) {
+	if (nsConfig->debugPtr == nsDbgBuf) {
 		return;
-	} else if (nsConfig->debugPtr == nsConfig->debugBufEnd) {
-		if (nsConfig->debugBufEnd[-1] != '\n') {
-			nsConfig->debugBufEnd[-1] = '\n';
+	} else if (nsConfig->debugPtr == nsDbgBufEnd) {
+		if (nsDbgBufEnd[-1] != '\n') {
+			nsDbgBufEnd[-1] = '\n';
 		}
 	} else {
-		if (nsConfig->debugBuf[-1] != '\n') {
-			nsConfig->debugBuf[0] = '\n';
+		if (nsDbgBuf[-1] != '\n') {
+			nsDbgBuf[0] = '\n';
 			++nsConfig->debugPtr;
 		}
 	}
@@ -206,12 +209,12 @@ void nsHandleDbgPrintPacket(void) {
 	if (pac->cmd == NS_CMD_HEARTBEAT) {
 		rtAcquireLock(&nsConfig->debugBufferLock);
 		nsDbgLn();
-		pac->dataLen = nsConfig->debugPtr - nsConfig->debugBuf;
+		pac->dataLen = nsConfig->debugPtr - nsDbgBuf;
 		nsSendPacketHeader();
 		if (pac->dataLen > 0) {
-			nsSendPacketData(nsConfig->debugBuf, pac->dataLen);
+			nsSendPacketData(nsDbgBuf, pac->dataLen);
 		}
-		nsConfig->debugPtr = nsConfig->debugBuf;
+		nsConfig->debugPtr = nsDbgBuf;
 		rtReleaseLock(&nsConfig->debugBufferLock);
 	}
 }
@@ -347,8 +350,7 @@ int nsStartup(void) {
 
 	if (!ALR(nsConfig->debugReady)) {
 		rtInitLock(&nsConfig->debugBufferLock);
-		nsConfig->debugPtr = nsConfig->debugBuf = nsContext->debugBuf;
-		nsConfig->debugBufEnd = nsConfig->debugBuf + DEBUG_BUF_SIZE;
+		nsConfig->debugPtr = nsDbgBuf;
 		ASL(nsConfig->debugReady, 1);
 	}
 

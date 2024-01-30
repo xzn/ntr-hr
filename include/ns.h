@@ -20,19 +20,19 @@ typedef enum {
 
 typedef struct {
 	NS_INITMODE initMode;
-	u32 startupCommand;
-	u32 hSOCU;
+	u32 startupCommand_unused;
+	u32 hSOCU_unused;
 
-	u8 *debugBuf;
-	u8 *debugBufEnd;
+	u8 *debugBuf_unused;
+	u8 *debugBufEnd_unused;
 	u8 *debugPtr;
 	u32 debugReady;
 
 	RT_LOCK debugBufferLock;
 
 	u32 startupInfo[32];
-	u32 allowDirectScreenAccess;
-	u32 exitFlag;
+	u32 allowDirectScreenAccess_unused;
+	u32 exitFlag_unused;
 
 	u32 sharedFunc[100];
 
