@@ -116,11 +116,11 @@ static void plgLoadPluginFromFile(const char *path, const u16 *name) {
 		goto fail_file;
 	}
 
-	s32 ret = plgEnsurePoolSize(plgLoaderEx->plgMemSizeTotal + fileSize);
+	s32 ret = plgEnsurePoolSize(plgLoaderEx->memSizeTotal + fileSize);
 	if (ret != 0) {
 		goto fail_file;
 	}
-	u32 addr = (u32)plgLoader + plgLoaderEx->plgMemSizeTotal;
+	u32 addr = (u32)plgLoader + plgLoaderEx->memSizeTotal;
 
 	u32 bytesRead = rtLoadFileToBuffer(file, (void *)addr, fileSize);
 	if (bytesRead != fileSize) {
@@ -131,7 +131,7 @@ static void plgLoadPluginFromFile(const char *path, const u16 *name) {
 	u32 alignedSize = rtAlignToPageSize(fileSize);
 	plgLoader->plgBufferPtr[plgLoader->plgCount] = addr;
 	plgLoader->plgSize[plgLoader->plgCount] = alignedSize;
-	plgLoaderEx->plgMemSizeTotal += alignedSize;
+	plgLoaderEx->memSizeTotal += alignedSize;
 	++plgLoader->plgCount;
 
 	return;
@@ -164,7 +164,7 @@ static void plgAddPluginsFromDirectory(const char *dir) {
 }
 
 static int pmLoadPluginsForGame(void) {
-	plgLoaderEx->plgMemSizeTotal = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
+	plgLoaderEx->memSizeTotal = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
 	if (plgLoaderEx->noPlugins)
 		return 0;
 
@@ -174,12 +174,12 @@ static int pmLoadPluginsForGame(void) {
 	plgAddPluginsFromDirectory(buf);
 
 	if (!plgLoader->plgCount)
-		plgLoaderEx->plgMemSizeTotal = 0;
+		plgLoaderEx->memSizeTotal = 0;
 	return 0;
 }
 
 static int pmUnloadPluginsForGame(void) {
-	plgLoaderEx->plgMemSizeTotal = 0;
+	plgLoaderEx->memSizeTotal = 0;
 	return 0;
 }
 
@@ -204,16 +204,16 @@ static int pmFreeLoaderMemPool(int keepHandle) {
 static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
 	s32 ret;
 	if (loaderMem)
-		ret = mapRemoteMemoryInLoader(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal, MEMOP_ALLOC);
+		ret = mapRemoteMemoryInLoader(hGameProcess, (u32)plgLoader, plgLoaderEx->memSizeTotal, MEMOP_ALLOC);
 	else
-		ret = mapRemoteMemory(hGameProcess, (u32)plgLoader, plgLoaderEx->plgMemSizeTotal, MEMOP_ALLOC);
+		ret = mapRemoteMemory(hGameProcess, (u32)plgLoader, plgLoaderEx->memSizeTotal, MEMOP_ALLOC);
 	if (ret != 0) {
 		nsDbgPrint("Alloc plugin memory failed: %08"PRIx32"\n", ret);
 		return ret;
 	}
 
 	if (loaderMem) {
-		loaderMemPoolSize = plgLoaderEx->plgMemSizeTotal;
+		loaderMemPoolSize = plgLoaderEx->memSizeTotal;
 		ret = svcDuplicateHandle(&loaderMemGameHandle, hGameProcess);
 		if (ret != 0) {
 			nsDbgPrint("Dupping process handle failed: %08"PRIx32"\n", ret);
@@ -243,13 +243,13 @@ static int pmInitGamePlg(Handle hGameProcess, int loaderMem) {
 		return ret;
 	}
 
-	ret = protectRemoteMemory(hGameProcess, plgLoader, plgLoaderEx->plgMemSizeTotal, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	ret = protectRemoteMemory(hGameProcess, plgLoader, plgLoaderEx->memSizeTotal, MEMPERM_READWRITE | MEMPERM_EXECUTE);
 	if (ret != 0) {
 		nsDbgPrint("protectRemoteMemory failed: %08"PRIx32"\n", ret);
 		goto error_alloc;
 	}
 
-	ret = copyRemoteMemory(hGameProcess, plgLoader, CUR_PROCESS_HANDLE, plgLoader, plgLoaderEx->plgMemSizeTotal);
+	ret = copyRemoteMemory(hGameProcess, plgLoader, CUR_PROCESS_HANDLE, plgLoader, plgLoaderEx->memSizeTotal);
 	if (ret != 0) {
 		nsDbgPrint("Copy plugin loader to game failed: %08"PRIx32"\n", ret);
 		goto error_alloc;
@@ -315,12 +315,12 @@ static int pmInjectToGame(Handle hGameProcess) {
 
 	int needInject =
 		cfg.ntrConfig.ex.nsUseDbg ||
-		plgLoaderEx->plgMemSizeTotal ||
+		plgLoaderEx->memSizeTotal ||
 		(plgLoaderEx->remotePlayBoost && !plgLoaderEx->CTRPFCompat);
 	int loaderMem = !plgLoaderEx->noLoaderMem;
 
 	if (needInject) {
-		if (plgLoaderEx->plgMemSizeTotal) {
+		if (plgLoaderEx->memSizeTotal) {
 			ret = pmInitGamePlg(hGameProcess, loaderMem);
 			pmUnloadPluginsForGame();
 			if (ret != 0) {

@@ -192,7 +192,7 @@ static void plgInit(void) {
 	if (plgLoaderEx->remotePlayBoost)
 		plgInitScreenOverlay();
 
-	if (plgLoaderEx->plgMemSizeTotal != 0) {
+	if (plgLoaderEx->memSizeTotal != 0) {
 		disp(100, DBG_CL_USE_INJECT);
 
 		initSharedFunc();
@@ -204,12 +204,12 @@ static void plgInit(void) {
 }
 
 void mainInit(void) {
-	if (!plgLoaderEx->plgDelayInit)
+	if (!plgLoaderEx->delayInit)
 		plgInit();
 }
 
 void mainThread(void *) {
-	if (plgLoaderEx->plgDelayInit)
+	if (plgLoaderEx->delayInit)
 		plgInit();
 
 	s32 ret = srvInit();

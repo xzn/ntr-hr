@@ -8,8 +8,8 @@ typedef struct {
 	u32 CTRPFCompat;
 	u32 remotePlayBoost;
 	u32 noLoaderMem;
-	u32 plgMemSizeTotal;
-	u32 plgDelayInit;
+	u32 memSizeTotal;
+	u32 delayInit;
 } PLGLOADER_EX_INFO;
 
 typedef struct {
