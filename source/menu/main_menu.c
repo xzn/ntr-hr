@@ -4,6 +4,8 @@
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
 #include "3ds/srv.h"
+#include "3ds/os.h"
+#include "3ds/allocator/mappable.h"
 
 #include <memory.h>
 
@@ -280,6 +282,7 @@ void mainThread(void *) {
 		goto final;
 	*plgLoader = (PLGLOADER_INFO){ 0 };
 
+	mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
 	ret = hidInit();
 	if (ret != 0) {
 		showDbg("hidInit failed: %08"PRIx32, ret);
