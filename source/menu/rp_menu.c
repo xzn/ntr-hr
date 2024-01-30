@@ -64,6 +64,8 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 		}
 	}
 	config->coreCount = CLAMP(config->coreCount, RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX);
+
+	config->gamePid = plgLoader->gamePluginPid;
 }
 
 static u32 rpGetNwmRemotePC(NS_CONFIG *cfg, Handle hProcess) {

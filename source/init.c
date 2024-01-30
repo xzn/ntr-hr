@@ -48,7 +48,11 @@ static int setUpReturn(void) {
 }
 
 int plgLoaderInfoAlloc(void) {
-	return plgEnsurePoolSize(sizeof(PLGLOADER_INFO));
+	s32 ret = plgEnsurePoolSize(sizeof(PLGLOADER_INFO));
+	if (ret != 0) {
+		showDbg("plgLoader alloc failed.");
+	}
+	return ret;
 }
 
 void startupInit(void) {
