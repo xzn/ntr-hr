@@ -9,6 +9,7 @@ typedef struct {
 	u32 remotePlayBoost;
 	u32 noLoaderMem;
 	u32 plgMemSizeTotal;
+	u32 plgDelayInit;
 } PLGLOADER_EX_INFO;
 
 typedef struct {

@@ -32,8 +32,8 @@ typedef struct {
 
 static NS_CONTEXT *const nsContext = (NS_CONTEXT *)NS_CTX_ADDR;
 
-static u8 *const nsDbgBuf = ((NS_CONTEXT *)NS_CTX_ADDR)->debugBuf;
-static u8 *const nsDbgBufEnd = ((NS_CONTEXT *)NS_CTX_ADDR)->debugBuf + DEBUG_BUF_SIZE;
+static u8 *const nsDbgBuf = nsContext->debugBuf;
+static u8 *const nsDbgBufEnd = nsContext->debugBuf + DEBUG_BUF_SIZE;
 
 static void nsDbgPutc(void *, void const *src, size_t len) {
 	const char *s = src;

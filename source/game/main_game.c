@@ -188,7 +188,7 @@ static void plgInitScreenOverlay(void) {
 	}
 }
 
-void mainInit(void) {
+static void plgInit(void) {
 	if (plgLoaderEx->remotePlayBoost)
 		plgInitScreenOverlay();
 
@@ -203,7 +203,15 @@ void mainInit(void) {
 	}
 }
 
+void mainInit(void) {
+	if (!plgLoaderEx->plgDelayInit)
+		plgInit();
+}
+
 void mainThread(void *) {
+	if (plgLoaderEx->plgDelayInit)
+		plgInit();
+
 	s32 ret = srvInit();
 	if (ret != 0) {
 		showDbg("srvInit failed: %08"PRIx32, ret);
