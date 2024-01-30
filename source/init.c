@@ -177,8 +177,8 @@ file_final:
 	if (!fileLoaded)
 		goto final;
 
-	arm11BinStart = addr;
 	arm11BinSize = rtAlignToPageSize(fileSize);
+	ASL(&arm11BinStart, addr);
 
 final:
 	return fileLoaded ? 0 : -1;

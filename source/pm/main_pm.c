@@ -329,7 +329,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 		}
 
 		int tries = 10;
-		while (REG(&arm11BinStart) == 0) {
+		while (ALC(&arm11BinStart) == 0) {
 			if (--tries == 0) {
 				showDbg("Game payload load timeout.");
 				goto error_alloc;
