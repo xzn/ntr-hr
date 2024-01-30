@@ -148,10 +148,10 @@ static int confirmKey(u32 keyCode, int times) {
 	int i;
 	for (i = 0; i < times; i++) {
 		if (getKey() != keyCode) {
-			return 0;
+			return -1;
 		}
 	}
-	return 1;
+	return 0;
 }
 
 static s32 const refreshScreenCount = 0x10000;
@@ -161,7 +161,7 @@ static u32 waitKeyAndRefreshScreen(u32 need_key, int times, s32 *refreshScreen) 
 	while (1) {
 		key = need_key ? getKey() : 0;
 		if (need_key ? key != 0 : key == getKey()) {
-			if (confirmKey(key, times)) {
+			if (confirmKey(key, times) == 0) {
 				break;
 			}
 			count -= times;
@@ -176,13 +176,21 @@ static u32 waitKeyAndRefreshScreen(u32 need_key, int times, s32 *refreshScreen) 
 	return key;
 }
 
-u32 waitKey(void) {
-	u32 key;
+void waitGetKey(u32 *key) {
 	s32 refreshScreen = refreshScreenCount;
 	waitKeyAndRefreshScreen(0, 0x1000, &refreshScreen);
-	key = waitKeyAndRefreshScreen(1, 0x10000, &refreshScreen);
-	waitKeyAndRefreshScreen(0, 0x1000, &refreshScreen);
+	if (key)
+		*key = waitKeyAndRefreshScreen(1, 0x10000, &refreshScreen);
+}
+
+u32 waitKey(void) {
+	u32 key;
+	waitGetKey(&key);
 	return key;
+}
+
+void debounceKey(void) {
+	waitGetKey(NULL);
 }
 
 #include "font.h"

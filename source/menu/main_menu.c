@@ -264,6 +264,7 @@ static void showMainMenu(void) {
 		}
 	}
 done:
+	debounceKey();
 	releaseVideo();
 }
 

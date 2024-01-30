@@ -36,5 +36,6 @@ s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], con
 
 u32 getKey(void);
 u32 waitKey(void);
+void debounceKey(void);
 
 #endif
