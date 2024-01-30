@@ -320,7 +320,7 @@ void mainThread(void *) {
 	int waitCnt = 0;
 	while (1) {
 		if ((getKey()) == NTRMenuHotkey) {
-			if (ALC(allowDirectScreenAccess))
+			if (ALC(&allowDirectScreenAccess))
 				showMainMenu();
 		}
 		svcSleepThread(100000000);

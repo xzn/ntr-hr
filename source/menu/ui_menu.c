@@ -27,7 +27,7 @@ int initDirectScreenAccess(void) {
 		return -1;
 
 	bottomFB = 0x1848F000 | 0x80000000; // From Luma3DS
-	ASL(allowDirectScreenAccess, 1);
+	ASL(&allowDirectScreenAccess, 1);
 	return 0;
 }
 
@@ -122,7 +122,7 @@ static void restoreVRAMBuffer(void) {
 }
 
 void acquireVideo(void) {
-	if (AFAR(videoRef, 1) == 0) {
+	if (AFAR(&videoRef, 1) == 0) {
 		lockGameProcess();
 
 		backupGpuRegs();
@@ -136,7 +136,7 @@ void acquireVideo(void) {
 }
 
 void releaseVideo(void) {
-	if (ASFR(videoRef, 1) == 0) {
+	if (ASFR(&videoRef, 1) == 0) {
 		restoreVRAMBuffer();
 		restoreGpuRegs();
 
@@ -268,7 +268,7 @@ static void showMsgCommon(const char *msg, const char *title) {
 }
 
 int showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
-	if (!ALC(allowDirectScreenAccess)) {
+	if (!ALC(&allowDirectScreenAccess)) {
 		disp(100, DBG_CL_MSG);
 		svcSleepThread(1000000000);
 		return 0;

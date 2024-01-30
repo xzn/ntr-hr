@@ -74,7 +74,7 @@ static void nsDbgPrintRawInternal(const char *fmt, ...) {
 }
 
 static void nsDbgPrintVerboseVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list arp) {
-	if (ALC(nsConfig->debugReady)) {
+	if (ALC(&nsConfig->debugReady)) {
 		rtAcquireLock(&nsConfig->debugBufferLock);
 		nsDbgLn();
 
@@ -348,10 +348,10 @@ int nsStartup(void) {
 		affinity = 0x3f;
 	}
 
-	if (!ALR(nsConfig->debugReady)) {
+	if (!ALC(&nsConfig->debugReady)) {
 		rtInitLock(&nsConfig->debugBufferLock);
 		nsConfig->debugPtr = nsDbgBuf;
-		ASL(nsConfig->debugReady, 1);
+		ASL(&nsConfig->debugReady, 1);
 	}
 
 	Handle hThread;

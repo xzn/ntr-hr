@@ -112,7 +112,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 
 	rpClampParamsInMenu(config);
 
-	if (ATSR(remotePlayStarted)) {
+	if (ATSR(&remotePlayStarted)) {
 		nsDbgPrint("Remote play already started, updating params.\n");
 		return rpUpdateParamsFromMenu(config);
 	}
@@ -147,7 +147,7 @@ final:
 
 	if (ret != 0) {
 		showDbg("Starting remote play failed: %08"PRIx32". Retry maybe...", ret);
-		ACR(remotePlayStarted);
+		ACR(&remotePlayStarted);
 	} else {
 		setCpuClockLock(3);
 	}

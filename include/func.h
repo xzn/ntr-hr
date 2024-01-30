@@ -14,15 +14,14 @@
 #define ALIGN_TO_PAGE_SIZE(size) ((size) == 0 ? 0 : ((((size) - 1) / 0x1000) + 1) * 0x1000)
 #define PAGE_OF_ADDR(addr) ((addr) / 0x1000 * 0x1000)
 
-#define AFAR(v, n) __atomic_fetch_add(&v, n, __ATOMIC_RELAXED)
-#define ASFR(v, n) __atomic_sub_fetch(&v, n, __ATOMIC_RELAXED)
+#define AFAR(p, n) __atomic_fetch_add(p, n, __ATOMIC_RELAXED)
+#define ASFR(p, n) __atomic_sub_fetch(p, n, __ATOMIC_RELAXED)
 
-#define ATSR(v) __atomic_test_and_set(&v, __ATOMIC_RELAXED)
-#define ACR(v) __atomic_clear(&v, __ATOMIC_RELAXED)
+#define ATSR(p) __atomic_test_and_set(p, __ATOMIC_RELAXED)
+#define ACR(p) __atomic_clear(p, __ATOMIC_RELAXED)
 
-#define ALR(v) __atomic_load_n(&v, __ATOMIC_RELAXED)
-#define ALC(v) __atomic_load_n(&v, __ATOMIC_CONSUME)
-#define ASL(v, n) __atomic_store_n(&v, n, __ATOMIC_RELEASE)
+#define ALC(p) __atomic_load_n(p, __ATOMIC_CONSUME)
+#define ASL(p, n) __atomic_store_n(p, n, __ATOMIC_RELEASE)
 
 #define ATSC(p) __atomic_test_and_set(p, __ATOMIC_CONSUME)
 #define ACL(p) __atomic_clear(p, __ATOMIC_RELEASE)
