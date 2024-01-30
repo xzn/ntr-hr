@@ -35,33 +35,31 @@ static NS_CONTEXT *const nsContext = (NS_CONTEXT *)NS_CTX_ADDR;
 static void nsDbgPutc(void *, void const *src, size_t len) {
 	const char *s = src;
 	while (len) {
-		if (nsConfig->debugPtr >= nsConfig->debugBufSize)
+		if (nsConfig->debugPtr == nsConfig->debugBufEnd)
 			return;
-		nsConfig->debugBuf[nsConfig->debugPtr] = *s;
-		nsConfig->debugPtr++;
-
-		++s;
+		*nsConfig->debugPtr++ = *s++;
 		--len;
 	}
 }
 
 static void nsDbgLn() {
-	if (nsConfig->debugPtr == 0)
+	if (nsConfig->debugPtr == nsConfig->debugBuf) {
 		return;
-	if (nsConfig->debugPtr >= nsConfig->debugBufSize) {
-		if (nsConfig->debugBuf[nsConfig->debugBufSize - 1] != '\n') {
-			nsConfig->debugBuf[nsConfig->debugBufSize - 1] = '\n';
+	} else if (nsConfig->debugPtr == nsConfig->debugBufEnd) {
+		if (nsConfig->debugBufEnd[-1] != '\n') {
+			nsConfig->debugBufEnd[-1] = '\n';
 		}
 	} else {
-		if (nsConfig->debugBuf[nsConfig->debugPtr - 1] != '\n') {
-			nsConfig->debugBuf[nsConfig->debugPtr] = '\n';
-			nsConfig->debugPtr++;
+		if (nsConfig->debugBuf[-1] != '\n') {
+			nsConfig->debugBuf[0] = '\n';
+			++nsConfig->debugPtr;
 		}
 	}
 }
 
+static struct ostrm const ostrm = { .func = nsDbgPutc };
+
 static void nsDbgPrintVAInternal(const char *fmt, va_list arp) {
-	struct ostrm const ostrm = { .func = nsDbgPutc };
 	xvprintf(&ostrm, fmt, arp);
 }
 
@@ -82,7 +80,8 @@ static void nsDbgPrintVerboseVA(const char *file_name, int line_number, const ch
 			u64 mono_us = ticks * 1000000000ULL / SYSCLOCK_ARM11;
 			u32 pid = getCurrentProcessId();
 
-			nsDbgPrintRawInternal(DBG_VERBOSE_TITLE " ", (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+			nsDbgPrintRawInternal(DBG_VERBOSE_TITLE, (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+			nsDbgPrintRawInternal(" ");
 		}
 
 		nsDbgPrintVAInternal(fmt, arp);
@@ -207,12 +206,12 @@ void nsHandleDbgPrintPacket(void) {
 	if (pac->cmd == NS_CMD_HEARTBEAT) {
 		rtAcquireLock(&nsConfig->debugBufferLock);
 		nsDbgLn();
-		pac->dataLen = nsConfig->debugPtr;
+		pac->dataLen = nsConfig->debugPtr - nsConfig->debugBuf;
 		nsSendPacketHeader();
 		if (pac->dataLen > 0) {
 			nsSendPacketData(nsConfig->debugBuf, pac->dataLen);
 		}
-		nsConfig->debugPtr = 0;
+		nsConfig->debugPtr = nsConfig->debugBuf;
 		rtReleaseLock(&nsConfig->debugBufferLock);
 	}
 }
@@ -348,9 +347,8 @@ int nsStartup(void) {
 
 	if (!ALR(nsConfig->debugReady)) {
 		rtInitLock(&nsConfig->debugBufferLock);
-		nsConfig->debugBuf = nsContext->debugBuf;
-		nsConfig->debugPtr = 0;
-		nsConfig->debugBufSize = DEBUG_BUF_SIZE;
+		nsConfig->debugPtr = nsConfig->debugBuf = nsContext->debugBuf;
+		nsConfig->debugBufEnd = nsConfig->debugBuf + DEBUG_BUF_SIZE;
 		ASL(nsConfig->debugReady, 1);
 	}
 

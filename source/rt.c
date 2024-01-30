@@ -61,7 +61,7 @@ u32 rtAlignToPageSize(u32 size) {
 }
 
 u32 rtGetPageOfAddress(u32 addr) {
-	return (addr / 0x1000) * 0x1000;
+	return PAGE_OF_ADDR(addr);
 }
 
 u32 rtCheckRemoteMemory(Handle hProcess, u32 addr, u32 size, MemPerm perm) {

@@ -23,9 +23,9 @@ typedef struct {
 	u32 startupCommand;
 	u32 hSOCU;
 
-	u8* debugBuf;
-	u32 debugBufSize;
-	u32 debugPtr;
+	u8 *debugBuf;
+	u8 *debugBufEnd;
+	u8 *debugPtr;
 	u32 debugReady;
 
 	RT_LOCK debugBufferLock;
