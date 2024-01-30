@@ -27,7 +27,6 @@ int initDirectScreenAccess(void);
 void acquireVideo(void);
 void releaseVideo(void);
 void updateScreen(void);
-int canUseUI(void);
 
 const char *plgTranslate(const char *msg);
 

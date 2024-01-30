@@ -339,7 +339,3 @@ bool hidShouldUseIrrst(void)
 {
 	return 0;
 }
-
-int canUseUI(void) {
-	return ALC(&hasDirectScreenAccess) && ALC(&hasHIDAccess);
-}

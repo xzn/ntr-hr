@@ -27,6 +27,8 @@
 #define ACL(p) __atomic_clear(p, __ATOMIC_RELEASE)
 
 #define getKeys() (REG(IoBasePad) ^ 0xFFF)
+#define canUseUI() (ALC(&hasDirectScreenAccess) && ALC(&hasHIDAccess))
+
 void memcpy_ctr(void* dst, void* src, size_t size);
 
 #endif
