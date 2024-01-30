@@ -50,7 +50,7 @@ typedef struct {
 	u8 buf[GAME_PLUGIN_MENU_BUF_SIZE];
 } GAME_PLUGIN_MENU;
 
-static PLGLOADER_INFO *const plgLoader = (PLGLOADER_INFO *)PLG_LOADER_ADDR;
+static PLGLOADER_INFO *const plgLoader = (PLGLOADER_INFO *)PLG_POOL_ADDR;
 static PLGLOADER_EX_INFO *const plgLoaderEx = &ntrConfig->ex.plg;
 
 void rpSetGamePid(u32 gamePid);

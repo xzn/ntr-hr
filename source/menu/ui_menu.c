@@ -269,7 +269,7 @@ static void showMsgCommon(const char *msg, const char *title) {
 
 int showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
 	if (!ALC(allowDirectScreenAccess)) {
-		disp(100, 0x10000ff);
+		disp(100, DBG_CL_MSG);
 		svcSleepThread(1000000000);
 		return 0;
 	}

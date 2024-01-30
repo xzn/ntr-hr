@@ -19,7 +19,7 @@ static void doKernelHax(void) {
 	kDoKernelHax(ntrCfg);
 	showMsgRaw("Kernel hax done.");
 
-	disp(100, 0x1ff0000);
+	disp(100, DBG_CL_INFO);
 }
 
 static int injectToHomeMenu(void) {
@@ -35,7 +35,7 @@ static int injectToHomeMenu(void) {
 	memcpy(&cfg.ntrConfig, ntrCfg, offsetof(NTR_CONFIG, ex));
 	cfg.ntrConfig.ex.nsUseDbg = nsDbgNext();
 	if (cfg.ntrConfig.ex.nsUseDbg) {
-		disp(100, 0x17f7f7f);
+		disp(100, DBG_CL_USE_DBG);
 	}
 
 	ret = nsAttachProcess(hProcess, ntrCfg->HomeMenuInjectAddr, &cfg);
@@ -57,7 +57,7 @@ int main(void) {
 	doKernelHax();
 
 	if (injectToHomeMenu() != 0)
-		disp(100, 0x10000ff);
+		disp(100, DBG_CL_FATAL);
 
 	return 0;
 }

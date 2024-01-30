@@ -193,7 +193,7 @@ void mainInit(void) {
 		plgInitScreenOverlay();
 
 	if (plgLoaderEx->plgMemSizeTotal != 0) {
-		disp(100, 0x100ff00);
+		disp(100, DBG_CL_USE_INJECT);
 
 		initSharedFunc();
 		for (u32 i = 0; i < plgLoader->plgCount; ++i) {
@@ -213,9 +213,9 @@ void mainThread(void *) {
 	if (ntrConfig->ex.nsUseDbg) {
 		ret = nsStartup();
 		if (ret != 0) {
-			disp(100, 0x1ff00ff);
+			disp(100, DBG_CL_USE_DBG_FAIL);
 		} else {
-			disp(100, 0x17f7f7f);
+			disp(100, DBG_CL_USE_DBG);
 		}
 	}
 

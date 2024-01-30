@@ -13,12 +13,12 @@ void mainThread(void *) {
 	if (ntrConfig->ex.nsUseDbg) {
 		ret = nsStartup();
 		if (ret != 0) {
-			disp(100, 0x1ff00ff);
+			disp(100, DBG_CL_USE_DBG_FAIL);
 		} else {
-			disp(100, 0x17f7f7f);
+			disp(100, DBG_CL_USE_DBG);
 		}
 	}
-	disp(100, 0x1ff0000);
+	disp(100, DBG_CL_INFO);
 
 final:
 	svcExitThread();

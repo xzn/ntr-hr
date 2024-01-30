@@ -62,7 +62,7 @@ void startupInit(void) {
 
 fail:
 	while (1) {
-		disp(100, 0x10000ff);
+		disp(100, DBG_CL_FATAL);
 		svcSleepThread(1000000000);
 	}
 }

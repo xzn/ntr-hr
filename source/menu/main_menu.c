@@ -262,7 +262,7 @@ void mainThread(void *) {
 	Result ret;
 	ret = initDirectScreenAccess();
 	if (ret != 0) {
-		disp(100, 0x10000ff);
+		disp(100, DBG_CL_MSG);
 		svcSleepThread(1000000000);
 	}
 
@@ -313,7 +313,7 @@ void mainThread(void *) {
 	nsConfig->initMode = NS_INITMODE_FROMBOOT;
 	ret = nsStartup();
 	if (ret != 0) {
-		disp(100, 0x1ff00ff);
+		disp(100, DBG_CL_USE_DBG_FAIL);
 		goto final;
 	}
 

@@ -376,9 +376,9 @@ void mainThread(void *) {
 	if (ntrConfig->ex.nsUseDbg) {
 		res = nsStartup();
 		if (res != 0) {
-			disp(100, 0x1ff00ff);
+			disp(100, DBG_CL_USE_DBG_FAIL);
 		} else {
-			disp(100, 0x100ff00);
+			disp(100, DBG_CL_USE_INJECT);
 		}
 	}
 
@@ -405,7 +405,7 @@ void mainThread(void *) {
 fs_fail:
 	fsExit();
 
-	disp(100, 0x10000ff);
+	disp(100, DBG_CL_FATAL);
 
 final:
 	svcExitThread();

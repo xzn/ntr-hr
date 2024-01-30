@@ -55,7 +55,6 @@
 
 #define PLG_POOL_ADDR (0x07000000)
 #define PLG_MEM_ADDR (0x06200000)
-#define PLG_LOADER_ADDR PLG_POOL_ADDR
 
 #define PROC_START_ADDR (0x00100000)
 
@@ -65,5 +64,12 @@
 #define DEBUG_BUF_SIZE (0x2000)
 
 #define STACK_SIZE (0x4000)
+
+#define DBG_CL_FATAL (0x10000ff)
+#define DBG_CL_MSG (DBG_CL_FATAL)
+#define DBG_CL_INFO (0x1ff0000)
+#define DBG_CL_USE_DBG (0x17f7f7f)
+#define DBG_CL_USE_DBG_FAIL (0xff00ff)
+#define DBG_CL_USE_INJECT (0x100ff00)
 
 #endif
