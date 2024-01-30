@@ -95,44 +95,52 @@ static int injectToPM(void) {
 }
 
 static GAME_PLUGIN_MENU gamePluginMenu;
+static u32 gamePid;
+static u32 gamePluginMenuAddr;
+static Handle hGameProcess;
 
-static int loadGamePluginMenu(void)  {
-	u32 gamePid = plgLoader->gamePluginPid;
-	u32 gamePluginMenuAddr = plgLoader->gamePluginMenuAddr;
-	if (gamePid == 0) {
-		return -1;
+static void closeGameProcess(void) {
+	if (hGameProcess != 0) {
+		svcCloseHandle(hGameProcess);
+		hGameProcess = 0;
 	}
-	if (gamePluginMenuAddr == 0) {
+	gamePluginMenuAddr = gamePid = 0;
+}
+
+static int openGameProcess(void) {
+	closeGameProcess();
+
+	gamePid = plgLoader->gamePluginPid;
+	gamePluginMenuAddr = plgLoader->gamePluginMenuAddr;
+	if (gamePid == 0 || gamePluginMenuAddr == 0) {
+		gamePluginMenuAddr = gamePid = 0;
 		return -1;
 	}
 	u32 ret = 0;
-	u32 hProcess;
-	ret = svcOpenProcess(&hProcess, gamePid);
+	ret = svcOpenProcess(&hGameProcess, gamePid);
 	if (ret != 0) {
 		return ret;
 	}
-	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, &gamePluginMenu, hProcess, (void *)gamePluginMenuAddr, sizeof(GAME_PLUGIN_MENU));
-	svcCloseHandle(hProcess);
+	return 0;
+}
+
+static int loadGamePluginMenu(void)  {
+	s32 ret = openGameProcess();
+	if (ret != 0) {
+		return ret;
+	}
+	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, &gamePluginMenu, hGameProcess, (void *)gamePluginMenuAddr, sizeof(GAME_PLUGIN_MENU));
+	closeGameProcess();
 	return ret;
 }
 
 static int storeGamePluginMenuState(void) {
-	u32 gamePid = plgLoader->gamePluginPid;
-	u32 gamePluginMenuAddr = plgLoader->gamePluginMenuAddr;
-	if (gamePid == 0) {
-		return 1;
-	}
-	if (gamePluginMenuAddr == 0) {
-		return 1;
-	}
-	u32 ret = 0;
-	u32 hProcess;
-	ret = svcOpenProcess(&hProcess, gamePid);
+	s32 ret = openGameProcess();
 	if (ret != 0) {
 		return ret;
 	}
-	ret = copyRemoteMemory(hProcess, (u8 *)gamePluginMenuAddr + offsetof(GAME_PLUGIN_MENU, state), CUR_PROCESS_HANDLE, gamePluginMenu.state, sizeof(gamePluginMenu.state));
-	svcCloseHandle(hProcess);
+	ret = copyRemoteMemory(hGameProcess, (u8 *)gamePluginMenuAddr + offsetof(GAME_PLUGIN_MENU, state), CUR_PROCESS_HANDLE, gamePluginMenu.state, sizeof(gamePluginMenu.state));
+	closeGameProcess();
 	return ret;
 }
 
@@ -222,7 +230,8 @@ static void showMainMenu(void) {
 	u32 localAddr = gethostid();
 
 	char title[LOCAL_TITLE_BUF_SIZE];
-	if (plgLoader->gamePluginPid) {
+	if (openGameProcess() == 0) {
+		closeGameProcess();
 		xsnprintf(title, LOCAL_TITLE_BUF_SIZE, "%s (Game PID: %"PRIx32")", NTR_CFW_VERSION, plgLoader->gamePluginPid);
 	} else {
 		strncpy(title, NTR_CFW_VERSION, LOCAL_TITLE_BUF_SIZE);
