@@ -285,6 +285,7 @@ void mainThread(void *) {
 		goto final;
 	}
 
+	// This handle may be short-lived so there may be a race condition here...
 	Handle fsUserHandle = ntrConfig->HomeFSUHandleAddr ?
 		*(u32 *)ntrConfig->HomeFSUHandleAddr : 0;
 	if (fsUserHandle == 0) {

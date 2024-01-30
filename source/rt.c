@@ -26,11 +26,20 @@ void rtGenerateJumpCode(u32 dst, u32* buf) {
 }
 
 void rtInitHook(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr) {
-	hook->model = 0;
-	hook->isEnabled = 0;
-	hook->funcAddr = funcAddr;
+	*hook = (RT_HOOK) { 0 };
 
-	rtCheckMemory(funcAddr, 8, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	if (!funcAddr || !callbackAddr) {
+		showDbg("Missing funcAddr or callbackAddr");
+		return;
+	}
+
+	s32 ret = rtCheckMemory(funcAddr, 8, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	if (ret != 0) {
+		showDbg("rtCheckMemory for addr %08"PRIx32" failed: %08"PRIx32, funcAddr, ret);
+		return;
+	}
+
+	hook->funcAddr = funcAddr;
 	memcpy(hook->bakCode, (void *)funcAddr, 8);
 	rtGenerateJumpCode(callbackAddr, hook->jmpCode);
 	memcpy(hook->callCode, (void *)funcAddr, 8);
@@ -39,7 +48,7 @@ void rtInitHook(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr) {
 }
 
 void rtEnableHook(RT_HOOK *hook) {
-	if (hook->isEnabled) {
+	if (!hook->funcAddr || hook->isEnabled) {
 		return;
 	}
 	memcpy((void *)hook->funcAddr, hook->jmpCode, 8);
@@ -48,7 +57,7 @@ void rtEnableHook(RT_HOOK *hook) {
 }
 
 void rtDisableHook(RT_HOOK *hook) {
-	if (!hook->isEnabled) {
+	if (!hook->funcAddr || !hook->isEnabled) {
 		return;
 	}
 	memcpy((void *)hook->funcAddr, hook->bakCode, 8);
