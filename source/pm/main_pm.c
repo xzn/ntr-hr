@@ -352,13 +352,20 @@ static u32 svcRunCallback(Handle hProcess, u32 *startInfo) {
 static Handle pmReadyEvent;
 
 void mainPre(void) {
-	svcCreateEvent(&pmReadyEvent, RESET_ONESHOT);
+	if (svcCreateEvent(&pmReadyEvent, RESET_ONESHOT) != 0) {
+		pmReadyEvent = 0;
+		disp(100, DBG_CL_MSG);
+	}
 	rtInitHook(&svcRunHook, ntrConfig->PMSvcRunAddr, (u32)svcRunCallback);
 	rtEnableHook(&svcRunHook);
 }
 
 void mainPost(void) {
-	svcWaitSynchronization(pmReadyEvent, PM_INIT_READY_TIMEOUT);
+	if (pmReadyEvent) {
+		if (svcWaitSynchronization(pmReadyEvent, PM_INIT_READY_TIMEOUT) != 0) {
+			disp(100, DBG_CL_MSG);
+		}
+	}
 }
 
 void mainThread(void *) {
@@ -406,7 +413,12 @@ fs_fail:
 	disp(100, DBG_CL_FATAL);
 
 final:
-	svcSignalEvent(pmReadyEvent);
+	if (pmReadyEvent) {
+		res = svcSignalEvent(pmReadyEvent);
+		if (res != 0) {
+			showDbg("pm payload init sync error: %08"PRIx32"\n", res);
+		}
+	}
 
 	svcExitThread();
 }
