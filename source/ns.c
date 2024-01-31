@@ -121,7 +121,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	arm11StartAddress = baseAddr + offset;
 	buf = (u32 *)arm11BinStart;
 	size = arm11BinSize;
-	nsDbgPrint("buf: %08"PRIx32", size: %08"PRIx32"\n", (u32)buf, size);
+	nsDbgPrint("arm11bin buf: %08"PRIx32", size: %08"PRIx32", remotePC: %08"PRIx32"\n", (u32)buf, size, remotePC);
 
 	if (!buf) {
 		showDbg("arm11 not loaded");
