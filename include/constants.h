@@ -47,6 +47,8 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define LCD_BOT_BRIGHTNESS          (IoBaseLcd + 0xA40)
 #define LCD_BOT_FILLCOLOR           (IoBaseLcd + 0xA04)
 
+#define PDN_LGR_SOCMODE (0x10141300 + 0x80000000)
+
 #define COPY_REMOTE_MEMORY_TIMEOUT (-1)
 
 #define NS_CONFIG_ADDR (0x06000000)

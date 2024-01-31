@@ -148,8 +148,23 @@ u32 waitKeys(void) {
 	u32 keys;
 	do {
 		// TODO
-		// busy loop to burn time for down repeat
-		// and refresh screen in interval
+		// test delay value
+
+		if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
+			asm (
+				"mov r0, #6291456\n"
+				"%=:\n"
+				"subs r0, r0, #1\n"
+				"bne %="
+				::: "r0");
+		} else {
+			asm (
+				"mov r0, #2097152\n"
+				"%=:\n"
+				"subs r0, r0, #1\n"
+				"bne %="
+				::: "r0");
+		}
 
 		hidScanInput();
 		keys = hidKeysDown() | (hidKeysDownRepeat() & DIRECTIONAL_KEYS);
