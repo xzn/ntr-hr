@@ -6,7 +6,8 @@
 #include "ns.h"
 
 void mainThread(void *);
-void mainInit(void);
+void mainPre(void);
+void mainPost(void);
 int main(void);
 
 static NTR_CONFIG *const ntrConfig = &nsConfig->ntrConfig;

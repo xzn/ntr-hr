@@ -328,15 +328,6 @@ static int pmInjectToGame(Handle hGameProcess) {
 			}
 		}
 
-		int tries = 10;
-		while (ALC(&arm11BinStart) == 0) {
-			if (--tries == 0) {
-				showDbg("Game payload load timeout.");
-				goto error_alloc;
-			}
-			svcSleepThread(100000000);
-		}
-
 		ret = nsAttachProcess(hGameProcess, PROC_START_ADDR, &cfg);
 		if (ret != 0) {
 			nsDbgPrint("Attach game process failed: %08"PRIx32"\n", ret);
@@ -358,9 +349,16 @@ static u32 svcRunCallback(Handle hProcess, u32 *startInfo) {
 	return ((svcRunTypeDef)svcRunHook.callCode)(hProcess, startInfo);
 }
 
-void mainInit(void) {
+static Handle pmReadyEvent;
+
+void mainPre(void) {
+	svcCreateEvent(&pmReadyEvent, RESET_ONESHOT);
 	rtInitHook(&svcRunHook, ntrConfig->PMSvcRunAddr, (u32)svcRunCallback);
 	rtEnableHook(&svcRunHook);
+}
+
+void mainPost(void) {
+	svcWaitSynchronization(pmReadyEvent, PM_INIT_READY_TIMEOUT);
 }
 
 void mainThread(void *) {
@@ -408,6 +406,8 @@ fs_fail:
 	disp(100, DBG_CL_FATAL);
 
 final:
+	svcSignalEvent(pmReadyEvent);
+
 	svcExitThread();
 }
 

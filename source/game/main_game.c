@@ -203,7 +203,7 @@ static void plgInit(void) {
 	}
 }
 
-void mainInit(void) {
+void mainPost(void) {
 	if (!plgLoaderEx->delayInit)
 		plgInit();
 }
