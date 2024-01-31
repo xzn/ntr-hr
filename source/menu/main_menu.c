@@ -282,6 +282,12 @@ void mainThread(void *) {
 		goto final;
 	*plgLoader = (PLGLOADER_INFO){ 0 };
 
+	ret = srvInit();
+	if (ret != 0) {
+		showDbg("srvInit failed: %08"PRIx32, ret);
+		goto final;
+	}
+
 	mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
 	ret = hidInit();
 	if (ret != 0) {
@@ -289,12 +295,6 @@ void mainThread(void *) {
 		goto final;
 	}
 	ASL(&hasHIDAccess, 1);
-
-	ret = srvInit();
-	if (ret != 0) {
-		showDbg("srvInit failed: %08"PRIx32, ret);
-		goto final;
-	}
 
 	// This handle may be short-lived so there may be a race condition here...
 	Handle fsUserHandle = ntrConfig->HomeFSUHandleAddr ?
