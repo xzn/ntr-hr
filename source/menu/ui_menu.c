@@ -145,8 +145,8 @@ void releaseVideo(void) {
 }
 
 // From libctru
-static u32 kOld, kHeld, kDown, kUp, kRepeat, kCount = 30;
-static u32 const kDelay = 30, kInterval = 15;
+static u32 const kDelay = 16, kInterval = 4;
+static u32 kOld, kHeld, kDown, kUp, kRepeat, kCount = kDelay;
 
 static void uiScanInput(void) {
 	kOld = kHeld;
@@ -198,7 +198,7 @@ u32 waitKeys(void) {
 		}
 
 		uiScanInput();
-		keys = uiKeysDown() | (uiKeysDownRepeat() & DIRECTIONAL_KEYS);
+		keys = uiKeysDown() | uiKeysDownRepeat();
 	} while (keys == 0);
 	return keys;
 }
