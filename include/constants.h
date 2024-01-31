@@ -5,6 +5,7 @@
 
 #define LOCAL_TITLE_BUF_SIZE (0x80)
 #define LOCAL_MSG_BUF_SIZE (0x200)
+#define LOCAL_TID_BUF_COUNT (0x80)
 
 #define DBG_VERBOSE_TITLE "[%"PRId32".%06"PRId32"][%"PRIx32"]%s:%d:%s"
 

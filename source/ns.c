@@ -107,6 +107,30 @@ void __attribute__((weak)) nsDbgPrintVerbose(const char *file_name, int line_num
 	va_end(arp);
 }
 
+static int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC) {
+	s32 ret, i;
+	u32 tids[LOCAL_TID_BUF_COUNT];
+	s32 tidCount;
+	u32 ctx[400];
+
+	ret = svcGetThreadList(&tidCount, tids, LOCAL_TID_BUF_COUNT, hProcess);
+	if (ret != 0) {
+		return -1;
+	}
+
+	for (i = 0; i < tidCount; ++i) {
+		u32 tid = tids[i];
+		memset(ctx, 0x33, sizeof(ctx));
+		if (rtGetThreadReg(hProcess, tid, ctx) != 0)
+			return -1;
+		u32 pc = ctx[15];
+		if (remotePC >= pc - 24 && remotePC < pc + 8)
+			return -1;
+	}
+
+	return 0;
+}
+
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	u32 size = 0;
 	u32* buf = 0;
@@ -117,6 +141,8 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	u32 tmp[20];
 	u32 arm11StartAddress;
 	u32 offset = NS_CONFIG_MAX_SIZE + stackSize;
+	u32 pcDone = 0;
+	u32 pcTries;
 
 	arm11StartAddress = baseAddr + offset;
 	buf = (u32 *)arm11BinStart;
@@ -174,9 +200,42 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	// write hook instructions to remote process
 	tmp[0] = 0xe51ff004;
 	tmp[1] = arm11StartAddress;
-	ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &tmp, 8);
-	if (ret != 0) {
-		showDbg("copyRemoteMemory hook instruction failed: %08"PRIx32, ret);
+	pcTries = 20;
+	while (!pcDone && pcTries) {
+		ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
+		if (ret != 0) {
+			showDbg("locking remote process failed: %08"PRIx32, ret);
+			goto final;
+		}
+
+		ret = nsCheckPCSafeToWrite(hProcess, remotePC);
+		if (ret != 0) {
+			goto lock_failed;
+		}
+
+		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &tmp, 8);
+		if (ret != 0) {
+			showDbg("copyRemoteMemory hook instruction failed: %08"PRIx32, ret);
+			goto lock_failed;
+		}
+
+		pcDone = 1;
+		goto lock_final;
+
+lock_failed:
+		svcSleepThread(50000000);
+		--pcTries;
+
+lock_final:
+		ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
+		if (ret != 0) {
+			showDbg("unlocking remote process failed: %08"PRIx32"", ret);
+			goto final;
+		}
+	}
+
+	if (!pcTries) {
+		ret = -1;
 		goto final;
 	}
 
