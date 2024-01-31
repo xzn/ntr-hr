@@ -108,3 +108,20 @@ memcpy_ctr:
 	BL              __ctr_memcpy
 	LDMFD           SP!, {R0,PC}
 
+.global waitKeysDelay3
+.type waitKeysDelay3, %function
+waitKeysDelay3:
+	mov r0, #3145728
+	l3:
+	subs r0, r0, #1
+	bne l3
+	bx lr
+
+.global waitKeysDelay
+.type waitKeysDelay, %function
+waitKeysDelay:
+	mov r0, #1048576
+	l:
+	subs r0, r0, #1
+	bne l
+	bx lr

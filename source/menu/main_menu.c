@@ -4,12 +4,9 @@
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
 #include "3ds/srv.h"
-#include "3ds/os.h"
-#include "3ds/allocator/mappable.h"
 
 #include <memory.h>
 
-u32 hasHIDAccess;
 static u32 NTRMenuHotkey = KEY_X | KEY_Y;
 static int cpuClockLockValue = -1;
 
@@ -287,14 +284,6 @@ void mainThread(void *) {
 		showDbg("srvInit failed: %08"PRIx32, ret);
 		goto final;
 	}
-
-	mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
-	ret = hidInit();
-	if (ret != 0) {
-		showDbg("hidInit failed: %08"PRIx32, ret);
-		goto final;
-	}
-	ASL(&hasHIDAccess, 1);
 
 	// This handle may be short-lived so there may be a race condition here...
 	Handle fsUserHandle = ntrConfig->HomeFSUHandleAddr ?

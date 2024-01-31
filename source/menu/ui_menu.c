@@ -144,6 +144,47 @@ void releaseVideo(void) {
 	}
 }
 
+// From libctru
+static u32 kOld, kHeld, kDown, kUp, kRepeat, kCount = 30;
+static u32 const kDelay = 30, kInterval = 15;
+
+static void uiScanInput(void) {
+	kOld = kHeld;
+	kHeld = getKeys();
+
+	kDown = (~kOld) & kHeld;
+	kUp = kOld & (~kHeld);
+
+	if (kDelay)
+	{
+		if (kHeld != kOld)
+		{
+			kCount = kDelay;
+			kRepeat = kDown;
+		}
+
+		if (--kCount == 0)
+		{
+			kCount = kInterval;
+			kRepeat = kHeld;
+		}
+	}
+}
+
+static u32 uiKeysDown(void)
+{
+	return kDown;
+}
+
+static u32 uiKeysDownRepeat(void)
+{
+	u32 ret = kRepeat;
+	kRepeat = 0;
+	return ret;
+}
+
+void waitKeysDelay3(void);
+void waitKeysDelay(void);
 u32 waitKeys(void) {
 	u32 keys;
 	do {
@@ -151,23 +192,13 @@ u32 waitKeys(void) {
 		// test delay value
 
 		if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
-			asm (
-				"mov r0, #6291456\n"
-				"%=:\n"
-				"subs r0, r0, #1\n"
-				"bne %="
-				::: "r0");
+			waitKeysDelay3();
 		} else {
-			asm (
-				"mov r0, #2097152\n"
-				"%=:\n"
-				"subs r0, r0, #1\n"
-				"bne %="
-				::: "r0");
+			waitKeysDelay();
 		}
 
-		hidScanInput();
-		keys = hidKeysDown() | (hidKeysDownRepeat() & DIRECTIONAL_KEYS);
+		uiScanInput();
+		keys = uiKeysDown() | (uiKeysDownRepeat() & DIRECTIONAL_KEYS);
 	} while (keys == 0);
 	return keys;
 }

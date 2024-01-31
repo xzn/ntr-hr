@@ -26,8 +26,8 @@
 #define ATSC(p) __atomic_test_and_set(p, __ATOMIC_CONSUME)
 #define ACL(p) __atomic_clear(p, __ATOMIC_RELEASE)
 
-#define getKeys() (REG(IoBasePad) ^ 0xFFF)
-#define canUseUI() (ALC(&hasDirectScreenAccess) && ALC(&hasHIDAccess))
+#define getKeys() ((REG(IoBasePad) & 0xFFF) ^ 0xFFF)
+#define canUseUI() (ALC(&hasDirectScreenAccess))
 
 void memcpy_ctr(void* dst, void* src, size_t size);
 
