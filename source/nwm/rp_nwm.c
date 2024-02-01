@@ -1,15 +1,37 @@
 #include "global.h"
 
+#include "3ds/os.h"
+#include "3ds/allocator/mappable.h"
+#include "3ds/services/gspgpu.h"
+
 #include <memory.h>
 #include <arpa/inet.h>
 
-static Handle hRPThreadMain, hRPThreadAux1;
+static Handle hRPThreadMain;
 
 #define rp_nwm_hdr_size (0x2a + 8)
 #define rp_data_hdr_size (4)
 static u8 rpNwmHdr[rp_nwm_hdr_size];
 
+Result __sync_init(void);
+void __system_initSyscalls(void);
 static void rpThreadStart(void *) {
+	s32 res;
+	res = __sync_init();
+	if (res != 0) {
+		nsDbgPrint("sync init failed: %08"PRIx32"\n", res);
+		return;
+	}
+	__system_initSyscalls();
+	mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
+	res = gspInit(1);
+	if (res != 0) {
+		nsDbgPrint("gsp init failed: %08"PRIx32"\n", res);
+		return;
+	}
+	nsDbgPrint("gsp initted\n");
+
+	svcExitThread();
 }
 
 static int rpInited;

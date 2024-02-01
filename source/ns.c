@@ -53,8 +53,8 @@ static void nsDbgLn() {
 			nsDbgBufEnd[-1] = '\n';
 		}
 	} else {
-		if (nsDbgBuf[-1] != '\n') {
-			nsDbgBuf[0] = '\n';
+		if (nsConfig->debugPtr[-1] != '\n') {
+			nsConfig->debugPtr[0] = '\n';
 			++nsConfig->debugPtr;
 		}
 	}
@@ -357,7 +357,9 @@ end_listen:
 	}
 }
 
+void __attribute__((weak)) nsThreadInit() {}
 static void nsThread(void *arg) {
+	nsThreadInit();
 	nsMainLoop((u32)arg);
 	svcExitThread();
 }

@@ -70,9 +70,5 @@ __rel_dyn_start:
 __rel_dyn_end:
 
 .section .__bss_start
-.global __c_bss_start
-__c_bss_start:
 
 .section .__bss_end
-.global __c_bss_end
-__c_bss_end:

@@ -11,7 +11,7 @@ CTRU_DIR := libctru/libctru
 
 CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing -ffunction-sections -fdata-sections
 CPPFLAGS := -Iinclude -Ilibctru/libctru/include
-LDFLAGS = -pie -Wl,--gc-sections -T 3ds.ld -Wl,-Map=$(basename $(notdir $@)).map,--no-warn-rwx-segments
+LDFLAGS = -pie -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,--no-warn-rwx-segments
 LDLIBS := -nostartfiles -L. -lctru_ntr
 
 SRC_C := $(wildcard source/*.c)
@@ -66,20 +66,20 @@ release/%.bin: bin/%.elf | release
 release:
 	mkdir $@
 
-bin/$(NTR_BIN_BOOT:.bin=.elf): $(OBJ) $(OBJ_BOOT) | libctru_ntr.a
-	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_BOOT:.bin=.elf): $(OBJ) $(OBJ_BOOT) | libctru_ntr.a 3ds.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
-bin/$(NTR_BIN_MENU:.bin=.elf): $(OBJ) $(OBJ_MENU) | libctru_ntr.a
-	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_MENU:.bin=.elf): $(OBJ) $(OBJ_MENU) | libctru_ntr.a 3ds.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
-bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) | libctru_ntr.a
-	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) | libctru_ntr.a 3ds.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
-bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) | libctru_ntr.a
-	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) | libctru_ntr.a 3ds.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
-bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) $(OBJ_NWM) obj/rp_lto.o | libctru_ntr.a
-	$(CC) -flto=auto $(CFLAGS) -o $@ $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) $(OBJ_NWM) obj/rp_lto.o | libctru_ntr.a 3dst.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
 libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
 	$(CP_CMD)

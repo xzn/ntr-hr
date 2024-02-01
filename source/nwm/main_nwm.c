@@ -8,6 +8,11 @@ static RT_HOOK nwmValParamHook;
 
 static Handle nwmReadyEvent;
 
+void __system_initSyscalls(void);
+void nsThreadInit() {
+	__system_initSyscalls();
+}
+
 void mainThread(void *) {
 	s32 ret = srvInit();
 	if (ret != 0) {
@@ -15,7 +20,6 @@ void mainThread(void *) {
 		goto final;
 	}
 
-	// TODO
 	if (ntrConfig->ex.nsUseDbg) {
 		ret = nsStartup();
 		if (ret != 0) {

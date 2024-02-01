@@ -44,6 +44,7 @@ typedef struct {
 static NS_CONFIG *const nsConfig = (NS_CONFIG *)NS_CONFIG_ADDR;
 static RP_CONFIG *const rpConfig = &nsConfig->rpConfig;
 
+void nsThreadInit();
 int nsStartup(void);
 int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC);
 u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg);

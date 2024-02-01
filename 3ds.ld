@@ -24,7 +24,6 @@ SECTIONS
 	}
 	__code_end = .;
 
-
 	. = ALIGN(4);
 	.bss : {
 		*(.__bss_start)
