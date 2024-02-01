@@ -38,13 +38,15 @@ void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr) {
 		return;
 	}
 
+	s32 ret = rtCheckMemory(funcAddr, 8, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	if (ret != 0) {
+		showDbg("rtCheckMemory for addr %08"PRIx32" failed: %08"PRIx32, funcAddr, ret);
+		return;
+	}
+
 	hook->model = 1;
 	hook->funcAddr = funcAddr;
-
-	rtCheckMemory(funcAddr, 8, MEMPERM_READWRITE | MEMPERM_EXECUTE);
-	memcpy(hook->bakCode, (void *)funcAddr, 8);
 	rtGenerateJumpCodeThumbR3(callbackAddr, hook->jmpCode);
-	rtFlushInstructionCache(hook->callCode, 16);
 }
 
 void rtInitHook(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr) {
