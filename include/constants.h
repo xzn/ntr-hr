@@ -91,6 +91,8 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define SVC_PORT_NWM "nwm:rp"
 #define SVC_PORT_MENU "menu:ns"
 
+#define SVC_NWM_CMD (1)
+
 #define NWM_HEAP_SIZE (0x4000)
 
 #endif

@@ -1320,8 +1320,9 @@ static void rpPortThread(u32) {
 		handleReply = hHandles[handleIndex];
 		u32 cmd_id = cmdbuf[0] >> 16;
 		u32 norm_param_count = (cmdbuf[0] >> 6) & 0x3F;
-		u32 gamePid = norm_param_count >= 1 ? cmdbuf[1] : 0;
-		u32 isTop = cmd_id - 1;
+		u32 trans_param_size = cmdbuf[0] & 0x3F;
+		u32 isTop = norm_param_count >= 1 ? cmdbuf[1] : (u32)-1;
+		u32 gamePid = trans_param_size >= 2 ? cmdbuf[1 + norm_param_count + 1] : 0;
 		if (isTop > 1) {
 			ASR(&rpPortGamePid, 0);
 		} else {

@@ -67,8 +67,9 @@ static int rpPortSend(u32 isTop) {
 	}
 
 	u32* cmdbuf = getThreadCommandBuffer();
-	cmdbuf[0] = IPC_MakeHeader(isTop + 1, 1, 0);
-	cmdbuf[1] = getCurrentProcessId();
+	cmdbuf[0] = IPC_MakeHeader(SVC_NWM_CMD, 1, 2);
+	cmdbuf[1] = isTop;
+	cmdbuf[2] = IPC_Desc_CurProcessId();
 
 	ret = svcSendSyncRequest(hClient);
 	if (ret != 0) {
@@ -81,7 +82,7 @@ static int rpPortSend(u32 isTop) {
 static void plgOverlayThread(void *fp) {
 	if (!fp) {
 		while (1) {
-			rpPortSend(2);
+			rpPortSend(-1);
 			svcSleepThread(1000000000);
 		}
 	}
@@ -91,7 +92,7 @@ static void plgOverlayThread(void *fp) {
 		ret = svcWaitSynchronization(*plgOverlayEvent, 1000000000);
 		if (ret != 0) {
 			if (ret == RES_TIMEOUT) {
-				rpPortSend(2);
+				rpPortSend(-1);
 				continue;
 			}
 			svcSleepThread(1000000000);
