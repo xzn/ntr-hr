@@ -358,7 +358,10 @@ void nsHandlePacket(void) {
 
    Alternatively if Luma3DS adds memory hooking capability or memory mapping
    at that weird address above, along with its stop-the-world capability,
-   we wouldn't need this either. But that's a long call */
+   we wouldn't need this either. But that's a long call.
+
+   In theory we could also signal back to the BootNTR instance for that to use
+   Luma3DS to pause home menu, then unhook safely, but that's too much pain. */
 static u32 farAddr[4];
 void _ReturnToUser(void);
 int setUpReturn(void) {
