@@ -327,6 +327,8 @@ void mainThread(void *) {
 		goto final;
 	}
 
+	plgInitScreenOverlay();
+
 	int waitCnt = 0;
 	while (1) {
 		if (getKeys() == NTRMenuHotkey) {
@@ -344,6 +346,8 @@ void mainThread(void *) {
 final:
 	svcExitThread();
 }
+
+void plgSetBufferSwapHandle(u32, u32, u32, u32, u32) {}
 
 void nsHandlePacket(void) {
 	nsHandleMenuPacket();

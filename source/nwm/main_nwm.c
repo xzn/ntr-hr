@@ -1,6 +1,8 @@
 #include "global.h"
 
 #include "3ds/srv.h"
+#include "3ds/allocator/mappable.h"
+#include "3ds/os.h"
 
 sendPacketTypedef nwmSendPacket;
 static RT_HOOK nwmValParamHook;
@@ -12,8 +14,24 @@ void nsThreadInit() {
 	__system_initSyscalls();
 }
 
+extern char *fake_heap_start;
+extern char *fake_heap_end;
+Result __sync_init(void);
 void mainThread(void *) {
-	s32 ret = srvInit();
+	s32 ret;
+	ret = __sync_init();
+	if (ret != 0) {
+		nsDbgPrint("sync init failed: %08"PRIx32"\n", ret);
+		goto final;
+	}
+	fake_heap_start = (void *)plgRequestMemory(NWM_HEAP_SIZE);
+	if (!fake_heap_start) {
+		goto final;
+	}
+	fake_heap_end = fake_heap_start + NWM_HEAP_SIZE;
+	mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
+
+	ret = srvInit();
 	if (ret != 0) {
 		showDbg("srvInit failed: %08"PRIx32, ret);
 		goto final;

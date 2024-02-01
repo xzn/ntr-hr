@@ -54,10 +54,16 @@ typedef struct {
 static PLGLOADER_INFO *const plgLoader = (PLGLOADER_INFO *)PLG_POOL_ADDR;
 static PLGLOADER_EX_INFO *const plgLoaderEx = &ntrConfig->ex.plg;
 
+extern int plgOverlayStatus;
+extern int plgHasVRAMAccess;
+extern int plgHasOverlay;
+
 void rpSetGamePid(u32 gamePid);
 int nsDbgNext(void);
 u32 plgRegisterCallback(u32 type, void* callback, u32);
 u32 plgSetValue(u32 index, u32 value);
 u32 plgGetIoBase(u32 IoBase);
+void plgInitScreenOverlay(void);
+void plgSetBufferSwapHandle(u32 isDisplay1, u32 addr, u32 addrB, u32 stride, u32 format);
 
 #endif

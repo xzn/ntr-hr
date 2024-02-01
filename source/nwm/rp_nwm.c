@@ -1,7 +1,6 @@
 #include "global.h"
 
 #include "3ds/os.h"
-#include "3ds/allocator/mappable.h"
 #include "3ds/services/gspgpu.h"
 #include "3ds/ipc.h"
 
@@ -1351,17 +1350,10 @@ static void rpPortThread(u32) {
 	svcExitThread();
 }
 
-Result __sync_init(void);
 void __system_initSyscalls(void);
 static void rpThreadMain(void *) {
 	s32 res;
-	res = __sync_init();
-	if (res != 0) {
-		nsDbgPrint("sync init failed: %08"PRIx32"\n", res);
-		goto final;
-	}
 	__system_initSyscalls();
-	mappableInit(OS_MAP_AREA_BEGIN, OS_MAP_AREA_END);
 	res = gspInit(1);
 	if (res != 0) {
 		nsDbgPrint("gsp init failed: %08"PRIx32"\n", res);
