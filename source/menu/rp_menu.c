@@ -2,7 +2,6 @@
 
 #include <memory.h>
 
-#define RP_THREAD_PRIO_DEFAULT (0x10)
 #define RP_CORE_COUNT_DEFAULT RP_CORE_COUNT_MAX
 
 #define RP_QUALITY_MIN (10)

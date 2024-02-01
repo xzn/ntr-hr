@@ -3,9 +3,14 @@
 #include <memory.h>
 #include <arpa/inet.h>
 
+static Handle hRPThreadMain, hRPThreadAux1;
+
 #define rp_nwm_hdr_size (0x2a + 8)
 #define rp_data_hdr_size (4)
 static u8 rpNwmHdr[rp_nwm_hdr_size];
+
+static void rpThreadStart(void *) {
+}
 
 static int rpInited;
 
@@ -104,7 +109,11 @@ void rpStartup(u8 *buf) {
 		printNwMHdr();
 		updateDstAddr(daddr);
 		rpSrcAddr = saddr;
-		// TODO
-		// create thread
+
+		u32 *threadStack = (u32 *)plgRequestMemory(RP_THREAD_STACK_SIZE);
+		s32 ret = svcCreateThread(&hRPThreadMain, rpThreadStart, 0, &threadStack[(RP_THREAD_STACK_SIZE / 4) - 10], RP_THREAD_PRIO_DEFAULT, 2);
+		if (ret != 0) {
+			nsDbgPrint("Create remote play thread failed: %08"PRIx32"\n", ret);
+		}
 	}
 }

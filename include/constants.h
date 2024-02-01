@@ -70,10 +70,12 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define NWM_INIT_SRC_PORT (8000)
 #define NWM_INIT_DST_PORT (8001)
 #define RP_DST_PORT_DEFAULT (8001)
+#define RP_THREAD_PRIO_DEFAULT (0x10)
 
 #define DEBUG_BUF_SIZE (0x2000)
 
 #define STACK_SIZE (0x4000)
+#define RP_THREAD_STACK_SIZE (0x10000)
 
 #define DBG_CL_FATAL (0x10000ff)
 #define DBG_CL_MSG (DBG_CL_FATAL)
