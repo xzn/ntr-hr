@@ -6,6 +6,8 @@ typedef u32 (*sendPacketTypedef)(u8 *, u32);
 static sendPacketTypedef nwmSendPacket;
 static RT_HOOK nwmValParamHook;
 
+static Handle nwmReadyEvent;
+
 void mainThread(void *) {
 	s32 ret = srvInit();
 	if (ret != 0) {
@@ -25,14 +27,36 @@ void mainThread(void *) {
 	disp(100, DBG_CL_INFO);
 
 final:
+	if (nwmReadyEvent) {
+		ret = svcSignalEvent(nwmReadyEvent);
+		if (ret != 0) {
+			showDbg("nwm payload init sync error: %08"PRIx32"\n", ret);
+		}
+	}
+
 	svcExitThread();
 }
 
+static u32 nwmReadyDone;
+
 static int nwmValParamCallback(u8 *, int) {
+	if (!ATSR(&nwmReadyDone)) {
+		if (nwmReadyEvent) {
+			if (svcWaitSynchronization(nwmReadyEvent, NWM_INIT_READY_TIMEOUT) != 0) {
+				disp(100, DBG_CL_MSG);
+			}
+			svcCloseHandle(nwmReadyEvent);
+			nwmReadyEvent = 0;
+		}
+	}
 	return 0;
 }
 
-void mainPost(void) {
+void mainPre(void) {
+	if (svcCreateEvent(&nwmReadyEvent, RESET_ONESHOT) != 0) {
+		nwmReadyEvent = 0;
+		disp(100, DBG_CL_MSG);
+	}
 	nwmSendPacket = (sendPacketTypedef)nsConfig->startupInfo[12];
 	rtInitHookThumb(&nwmValParamHook, nsConfig->startupInfo[11], (u32)nwmValParamCallback);
 	rtEnableHook(&nwmValParamHook);

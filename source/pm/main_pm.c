@@ -365,6 +365,8 @@ void mainPost(void) {
 		if (svcWaitSynchronization(pmReadyEvent, PM_INIT_READY_TIMEOUT) != 0) {
 			disp(100, DBG_CL_MSG);
 		}
+		svcCloseHandle(pmReadyEvent);
+		pmReadyEvent = 0;
 	}
 }
 
