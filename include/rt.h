@@ -18,7 +18,9 @@ void rtInitLock(RT_LOCK *lock);
 void rtAcquireLock(RT_LOCK *lock);
 void rtReleaseLock(RT_LOCK *lock);
 
-void rtGenerateJumpCode(u32 dst, u32* buf);
+void rtGenerateJumpCodeThumbR3(u32 dst, u32 *buf);
+void rtGenerateJumpCode(u32 dst, u32 *buf);
+void rtInitHookThumb(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr);
 void rtInitHook(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr);
 void rtEnableHook(RT_HOOK *hook);
 void rtDisableHook(RT_HOOK *hook);

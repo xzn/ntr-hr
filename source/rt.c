@@ -25,8 +25,30 @@ void rtGenerateJumpCode(u32 dst, u32* buf) {
 	buf[1] = dst;
 }
 
+void rtGenerateJumpCodeThumbR3(u32 dst, u32 *buf) {
+	buf[0] = 0x47184b00;
+	buf[1] = dst;
+}
+
+void rtInitHookThumb(RT_HOOK* hook, u32 funcAddr, u32 callbackAddr) {
+	*hook = (RT_HOOK){ 0 };
+
+	if (!funcAddr || !callbackAddr) {
+		showDbg("Missing funcAddr or callbackAddr");
+		return;
+	}
+
+	hook->model = 1;
+	hook->funcAddr = funcAddr;
+
+	rtCheckMemory(funcAddr, 8, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	memcpy(hook->bakCode, (void *)funcAddr, 8);
+	rtGenerateJumpCodeThumbR3(callbackAddr, hook->jmpCode);
+	rtFlushInstructionCache(hook->callCode, 16);
+}
+
 void rtInitHook(RT_HOOK *hook, u32 funcAddr, u32 callbackAddr) {
-	*hook = (RT_HOOK) { 0 };
+	*hook = (RT_HOOK){ 0 };
 
 	if (!funcAddr || !callbackAddr) {
 		showDbg("Missing funcAddr or callbackAddr");
