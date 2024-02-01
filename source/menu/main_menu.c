@@ -355,7 +355,12 @@ void nsHandlePacket(void) {
 	nsHandleMenuPacket();
 }
 
-/* Until I can figure out how to map memory at address 0xe1a06000 to set up a
+/* Update: since we are hooking this function for overlay update anyway,
+   turns out there's no performance penalty after all.
+
+   -- Old comment below --
+
+   Until I can figure out how to map memory at address 0xe1a06000 to set up a
    trampoline there, use this roundabout way to workaround a race condition
    in unhooking code that would lead to a crash.
    Home menu is slowed down imperceptibly but it shouldn't affect anything.
