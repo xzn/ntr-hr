@@ -182,6 +182,8 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	tmp[1] = arm11StartAddress;
 	pcTries = 20;
 	while (!pcDone && pcTries) {
+		int failed = 0;
+
 		ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
 		if (ret != 0) {
 			showDbg("locking remote process failed: %08"PRIx32, ret);
@@ -203,14 +205,18 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 		goto lock_final;
 
 lock_failed:
-		svcSleepThread(50000000);
-		--pcTries;
+		failed = 1;
 
 lock_final:
 		ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
 		if (ret != 0) {
 			showDbg("unlocking remote process failed: %08"PRIx32"", ret);
 			goto final;
+		}
+
+		if (failed) {
+			svcSleepThread(50000000);
+			--pcTries;
 		}
 	}
 
