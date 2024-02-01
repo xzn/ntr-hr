@@ -131,7 +131,7 @@ static u32 plgSearchBytes(u32 startAddr, u32 endAddr, const u32 *pat, int patlen
 		u32 currentPage = rtGetPageOfAddress(startAddr);
 		if (currentPage != lastPage) {
 			lastPage = currentPage;
-			if (rtCheckMemory(lastPage + 0x1000, 0x1000, MEMPERM_READ) != 0) {
+			if (rtCheckMemory(currentPage, 0x1000, MEMPERM_READ) != 0) {
 				return 0;
 			}
 		}
@@ -143,6 +143,21 @@ static u32 plgSearchBytes(u32 startAddr, u32 endAddr, const u32 *pat, int patlen
 		startAddr += 4;
 	}
 	return 0;
+}
+
+static void plgCreateOverlayThread(u32 fp) {
+	plgOverlayThreadStack = (void *)plgRequestMemory(STACK_SIZE);
+	plgOverlayEvent = plgOverlayThreadStack;
+	s32 ret;
+	ret = svcCreateEvent(plgOverlayEvent, RESET_ONESHOT);
+	if (ret != 0) {
+		nsDbgPrint("Create plgOverlayEvent failed: %08"PRIx32"\n", ret);
+	}
+	Handle hThread;
+	ret = svcCreateThread(&hThread, plgOverlayThread, fp, &plgOverlayThreadStack[(STACK_SIZE / 4) - 10], 0x18, -2);
+	if (ret != 0) {
+		nsDbgPrint("Create plgOverlayThread failed: %08"PRIx32"\n", ret);
+	}
 }
 
 void plgInitScreenOverlay(void) {
@@ -186,18 +201,7 @@ void plgInitScreenOverlay(void) {
 
 	nsDbgPrint("Overlay addr: %"PRIx32"; fp: %"PRIx32"; fp2: %"PRIx32"\n", addr, fp, fp2);
 
-	plgOverlayThreadStack = (void *)plgRequestMemory(STACK_SIZE);
-	plgOverlayEvent = plgOverlayThreadStack;
-	s32 ret;
-	ret = svcCreateEvent(plgOverlayEvent, RESET_ONESHOT);
-	if (ret != 0) {
-		nsDbgPrint("Create plgOverlayEvent failed: %08"PRIx32"\n", ret);
-	}
-	Handle hThread;
-	ret = svcCreateThread(&hThread, plgOverlayThread, fp || fp2, &plgOverlayThreadStack[(STACK_SIZE / 4) - 10], 0x18, -2);
-	if (ret != 0) {
-		nsDbgPrint("Create plgOverlayThread failed: %08"PRIx32"\n", ret);
-	}
+	plgCreateOverlayThread(fp || fp2);
 
 	if (fp) {
 		rtInitHook(&SetBufferSwapHook, fp, (u32)plgSetBufferSwapCallback);
@@ -208,4 +212,13 @@ void plgInitScreenOverlay(void) {
 		rtEnableHook(&SetBufferSwapHook);
 		plgOverlayStatus = 1;
 	}
+}
+
+void plgInitScreenOverlayDirectly(u32 funcAddr) {
+	plgHasVRAMAccess = 1;
+
+	plgCreateOverlayThread(1);
+	rtInitHook(&SetBufferSwapHook, funcAddr, (u32)plgSetBufferSwapCallback);
+	rtEnableHook(&SetBufferSwapHook);
+	plgOverlayStatus = 1;
 }

@@ -64,6 +64,7 @@ u32 plgRegisterCallback(u32 type, void* callback, u32);
 u32 plgSetValue(u32 index, u32 value);
 u32 plgGetIoBase(u32 IoBase);
 void plgInitScreenOverlay(void);
+void plgInitScreenOverlayDirectly(u32 funcAddr);
 void plgSetBufferSwapHandle(u32 isDisplay1, u32 addr, u32 addrB, u32 stride, u32 format);
 
 #endif

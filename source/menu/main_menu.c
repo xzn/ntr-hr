@@ -7,6 +7,8 @@
 
 #include <memory.h>
 
+static u32 *const oldPC = &nsConfig->startupInfo[2];
+
 static u32 NTRMenuHotkey = KEY_X | KEY_Y;
 static int cpuClockLockValue = -1;
 
@@ -327,7 +329,7 @@ void mainThread(void *) {
 		goto final;
 	}
 
-	plgInitScreenOverlay();
+	plgInitScreenOverlayDirectly(*oldPC);
 
 	int waitCnt = 0;
 	while (1) {
@@ -367,19 +369,17 @@ void nsHandlePacket(void) {
 static u32 farAddr[4];
 void _ReturnToUser(void);
 int setUpReturn(void) {
-	u32 oldPC = nsConfig->startupInfo[2];
-
 	s32 ret = rtCheckMemory((u32)farAddr, 16, MEMPERM_READWRITE | MEMPERM_EXECUTE);
 	if (ret != 0)
 		return ret;
 	memcpy(farAddr, nsConfig->startupInfo, 8);
-	rtGenerateJumpCode(oldPC + 8, farAddr + 2);
+	rtGenerateJumpCode(*oldPC + 8, farAddr + 2);
 	ret = rtFlushInstructionCache(farAddr, 16);
 	if (ret != 0)
 		return ret;
 
-	rtGenerateJumpCode((u32)farAddr, (u32 *)oldPC);
-	ret = rtFlushInstructionCache((void *)oldPC, 8);
+	rtGenerateJumpCode((u32)farAddr, (u32 *)*oldPC);
+	ret = rtFlushInstructionCache((void *)*oldPC, 8);
 	if (ret != 0)
 		return ret;
 
