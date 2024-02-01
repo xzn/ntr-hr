@@ -188,9 +188,6 @@ void waitKeysDelay(void);
 u32 waitKeys(void) {
 	u32 keys;
 	do {
-		// TODO
-		// test delay value
-
 		if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
 			waitKeysDelay3();
 		} else {

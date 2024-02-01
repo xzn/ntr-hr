@@ -353,8 +353,6 @@ void nsHandlePacket(void) {
    trampoline there, use this roundabout way to workaround a race condition
    in unhooking code that would lead to a crash.
    Home menu is slowed down imperceptibly but it shouldn't affect anything.
-   (Somehow only home menu is susceptible to the crash even though in theory
-   all processes' attaching have this race condition.)
 
    Alternatively if Luma3DS adds memory hooking capability or memory mapping
    at that weird address above, along with its stop-the-world capability,
