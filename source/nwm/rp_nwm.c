@@ -219,8 +219,9 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 	u8 *rp_nwm_buf, *rp_nwm_packet_buf, *rp_data_buf;
 	u32 packet_len, size;
 
-	u8 rp_nwm_buf_tmp[2000];
-	struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][thread_id];
+	u8 rp_nwm_buf_tmp[PACKET_SIZE + rp_nwm_hdr_size];
+	struct rpDataBufInfo_t *work_infos = rpDataBufInfo[work_next];
+	struct rpDataBufInfo_t *info = &work_infos[thread_id];
 
 	rp_data_buf = info->sendPos;
 	rp_nwm_packet_buf = rp_data_buf - rp_data_hdr_size;
@@ -235,12 +236,14 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 	if (size < rp_packet_data_size && !thread_done)
 		return -1;
 
-	u32 thread_next = (thread_id + 1) % rpConfig->coreCount;
+	u32 thread_next = thread_id;
+	u32 sizes[rpConfig->coreCount];
+	sizes[thread_id] = size;
+	int thread_prev_done = thread_done;
+	if (thread_done)
+		thread_next = (thread_next + 1) % rpConfig->coreCount;
 
 	if (size < rp_packet_data_size && thread_id != rpConfig->coreCount - 1) {
-		u32 total_size = 0, remaining_size = rp_packet_data_size;
-		u32 sizes[rpConfig->coreCount];
-
 		rp_nwm_buf = rp_nwm_buf_tmp;
 		rp_nwm_packet_buf = rp_nwm_buf + rp_nwm_hdr_size;
 		rp_data_buf = rp_nwm_packet_buf + rp_data_hdr_size;
@@ -249,21 +252,12 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 		u32 data_buf_flag_next;
 
 		memcpy(rp_data_buf, info->sendPos, size);
-		total_size += size;
-		remaining_size -= size;
-
-		sizes[thread_id] = size;
-		info->sendPos += size;
+		u32 remaining_size = rp_packet_data_size - size;
 
 		while (1) {
-			struct rpDataBufInfo_t *info_next = &rpDataBufInfo[work_next][thread_next];
+			struct rpDataBufInfo_t *info_next = &work_infos[thread_next];
 
 			if (!rpDataBufFilled(info_next, &data_buf_pos_next, &data_buf_flag_next)) {
-				// Rewind sizes
-				for (u32 j = thread_id; j < thread_next; ++j) {
-					struct rpDataBufInfo_t *info_prev = &rpDataBufInfo[work_next][j];
-					info_prev->sendPos -= sizes[j];
-				}
 				return -1;
 			}
 
@@ -275,13 +269,13 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 			   test the condition just because */
 			int thread_next_done = thread_next_emptied && data_buf_flag_next;
 
-			memcpy(rp_data_buf + total_size, info_next->sendPos, next_size);
-			total_size += next_size;
+			memcpy(rp_data_buf + size, info_next->sendPos, next_size);
+			size += next_size;
 			remaining_size -= next_size;
 
 			sizes[thread_next] = next_size;
-			info_next->sendPos += next_size;
 
+			thread_prev_done = thread_next_done;
 			if (thread_next_done) {
 				thread_next = (thread_next + 1) % rpConfig->coreCount;
 				if (thread_next == 0) {
@@ -291,15 +285,12 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 			if (remaining_size == 0)
 				break;
 		}
-
-		size = total_size;
-		thread_done = 1;
 	}
 
 	memcpy(rp_nwm_buf, rpNwmHdr, rp_nwm_hdr_size);
 	packet_len = initUDPPacket(rp_nwm_buf, size + rp_data_hdr_size);
 	memcpy(rp_nwm_packet_buf, rpDataBufHdr[work_next], rp_data_hdr_size);
-	if (thread_done && thread_next == 0) {
+	if (thread_prev_done && thread_next == 0) {
 		rp_nwm_packet_buf[1] |= data_buf_flag;
 	}
 	++rpDataBufHdr[work_next][3];
@@ -307,11 +298,15 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 	nwmSendPacket(rp_nwm_buf, packet_len);
 	rpLastSendTick = nextTick;
 
-	info->sendPos += size;
+	for (u32 j = thread_id; j != thread_next; j = (j + 1) % rpConfig->coreCount)
+		work_infos[j].sendPos += sizes[j];
+	if (!thread_prev_done) {
+		work_infos[thread_next].sendPos += sizes[thread_next];
+	}
 
 	if (thread_done) {
 		for (u32 j = thread_id; j != thread_next; j = (j + 1) % rpConfig->coreCount)
-			ASR(&rpDataBufInfo[work_next][j].flag, 0);
+			ASR(&work_infos[j].flag, 0);
 		rp_nwm_thread_next = thread_next;
 
 		if (rp_nwm_thread_next == 0) {
