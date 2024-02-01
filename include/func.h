@@ -9,22 +9,26 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define CLAMP(v, a, b) MAX(MIN(v, b), a)
+#define CLAMP(v, a, b) MAX(MIN((v), (b)), (a))
 
 #define ALIGN_TO_PAGE_SIZE(size) ((size) == 0 ? 0 : ((((size) - 1) / 0x1000) + 1) * 0x1000)
 #define PAGE_OF_ADDR(addr) ((addr) / 0x1000 * 0x1000)
 
-#define AFAR(p, n) __atomic_fetch_add(p, n, __ATOMIC_RELAXED)
-#define ASFR(p, n) __atomic_sub_fetch(p, n, __ATOMIC_RELAXED)
+#define AFAR(p, n) __atomic_fetch_add((p), (n), __ATOMIC_RELAXED)
+#define AAFR(p, n) __atomic_add_fetch((p), (n), __ATOMIC_RELAXED)
+#define ASFR(p, n) __atomic_sub_fetch((p), (n), __ATOMIC_RELAXED)
 
-#define ATSR(p) __atomic_test_and_set(p, __ATOMIC_RELAXED)
-#define ACR(p) __atomic_clear(p, __ATOMIC_RELAXED)
+#define ATSR(p) __atomic_test_and_set((p), __ATOMIC_RELAXED)
+#define ACR(p) __atomic_clear((p), __ATOMIC_RELAXED)
 
-#define ALC(p) __atomic_load_n(p, __ATOMIC_CONSUME)
-#define ASL(p, n) __atomic_store_n(p, n, __ATOMIC_RELEASE)
+#define ALC(p) __atomic_load_n((p), __ATOMIC_CONSUME)
+#define ASL(p, n) __atomic_store_n((p), (n), __ATOMIC_RELEASE)
 
-#define ATSC(p) __atomic_test_and_set(p, __ATOMIC_CONSUME)
-#define ACL(p) __atomic_clear(p, __ATOMIC_RELEASE)
+#define ALR(p) __atomic_load_n((p), __ATOMIC_RELAXED)
+#define ASR(p, n) __atomic_store_n((p), (n), __ATOMIC_RELAXED)
+
+#define ATSC(p) __atomic_test_and_set((p), __ATOMIC_CONSUME)
+#define ACL(p) __atomic_clear((p), __ATOMIC_RELEASE)
 
 #define getKeys() ((REG(IoBasePad) & 0xFFF) ^ 0xFFF)
 #define canUseUI() (ALC(&hasDirectScreenAccess))

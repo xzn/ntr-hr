@@ -2,8 +2,7 @@
 
 #include "3ds/srv.h"
 
-typedef u32 (*sendPacketTypedef)(u8 *, u32);
-static sendPacketTypedef nwmSendPacket;
+sendPacketTypedef nwmSendPacket;
 static RT_HOOK nwmValParamHook;
 
 static Handle nwmReadyEvent;

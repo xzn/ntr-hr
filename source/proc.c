@@ -1,7 +1,7 @@
 #include "global.h"
 
 static u32 currentPid = 0;
-u32 getCurrentProcessId() {
+u32 getCurrentProcessId(void) {
 	if (currentPid != 0)
 		return currentPid;
 	svcGetProcessId(&currentPid, CUR_PROCESS_HANDLE);
@@ -9,7 +9,7 @@ u32 getCurrentProcessId() {
 }
 
 static Handle hCurrentProcess = 0;
-u32 getCurrentProcessHandle() {
+u32 getCurrentProcessHandle(void) {
 	u32 handle = 0;
 	u32 ret;
 

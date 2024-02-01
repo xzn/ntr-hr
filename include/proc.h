@@ -3,8 +3,8 @@
 
 #include "3ds/types.h"
 
-u32 getCurrentProcessId();
-u32 getCurrentProcessHandle();
+u32 getCurrentProcessId(void);
+u32 getCurrentProcessHandle(void);
 u32 getProcessTIDByHandle(u32 hProcess, u32 tid[]);
 
 u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size, u32 op);

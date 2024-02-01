@@ -1,6 +1,7 @@
 #include "global.h"
 
 #include "3ds/srv.h"
+#include "3ds/ipc.h"
 
 #include <memory.h>
 
@@ -26,6 +27,10 @@ static drawStringTypeDef plgDrawStringCallback;
 static int plgOverlayStatus;
 static int isVRAMAccessible;
 static int plgHasOverlay;
+
+static u32 *plgOverlayThreadStack;
+static Handle *plgOverlayEvent;
+static u32 rpPortIsTop;
 
 typedef u32 (*OverlayFnTypedef)(u32 isDisplay1, u32 addr, u32 addrB, u32 width, u32 format);
 typedef u32 (*SetBufferSwapTypedef)(u32 isDisplay1, u32 a2, u32 addr, u32 addrB, u32 width, u32 a6, u32 a7);
@@ -73,8 +78,14 @@ static u32 plgSearchBytes(u32 startAddr, u32 endAddr, const u32 *pat, int patlen
 }
 
 static void plgSetBufferSwapCommon(u32 isDisplay1, u32 addr, u32 addrB, u32 stride, u32 format) {
-	// TODO
-	// Remote play callback
+	ASR(&rpPortIsTop, isDisplay1 ? 0 : 1);
+	s32 ret;
+	if (plgOverlayEvent) {
+		ret = svcSignalEvent(*plgOverlayEvent);
+		if (ret != 0) {
+			nsDbgPrint("plgOverlayEvent signal failed: %08"PRIx32"\n", ret);
+		}
+	}
 
 	if (!plgHasOverlay)
 		return;
@@ -95,7 +106,7 @@ static void plgSetBufferSwapCommon(u32 isDisplay1, u32 addr, u32 addrB, u32 stri
 
 	for (u32 i = 0; i < plgEntriesCount; ++i) {
 		if (plgEntries[i].type == CALLBACK_TYPE_OVERLAY) {
-			s32 ret = ((OverlayFnTypedef)plgEntries[i].callback)(isDisplay1, addr, addrB, stride, format);
+			ret = ((OverlayFnTypedef)plgEntries[i].callback)(isDisplay1, addr, addrB, stride, format);
 			if (ret == 0) {
 				isDirty = 1;
 			}
@@ -133,6 +144,57 @@ static u32 plgSetBufferSwapCallback2(u32 r0, u32 *params, u32 isDisplay1, u32 ar
 
 	u32 ret = ((SetBufferSwapTypedef2)SetBufferSwapHook.callCode)(r0, params, isDisplay1, arg);
 	return ret;
+}
+
+static Handle rpSessionClient;
+static int rpPortSend(u32 isTop) {
+	Handle hClient = rpSessionClient;
+	s32 ret;
+	if (hClient == 0) {
+		ret = svcConnectToPort(&hClient, SVC_PORT_NWM);
+		if (ret != 0) {
+			return -1;
+		}
+		rpSessionClient = hClient;
+	}
+
+	u32* cmdbuf = getThreadCommandBuffer();
+	cmdbuf[0] = IPC_MakeHeader(isTop + 1, 1, 0);
+	cmdbuf[1] = getCurrentProcessId();
+
+	ret = svcSendSyncRequest(hClient);
+	if (ret != 0) {
+		nsDbgPrint("Send port request failed: %08"PRIx32"\n", ret);
+		return -1;
+	}
+	return 0;
+}
+
+static void plgOverlayThread(void *fp) {
+	if (!fp) {
+		while (1) {
+			rpPortSend(2);
+			svcSleepThread(1000000000);
+		}
+	}
+
+	int ret;
+	while (1) {
+		ret = svcWaitSynchronization(*plgOverlayEvent, 1000000000);
+		if (ret != 0) {
+			if (ret == RES_TIMEOUT) {
+				rpPortSend(2);
+				continue;
+			}
+			svcSleepThread(1000000000);
+			continue;
+		}
+		if (rpPortSend(ALR(&rpPortIsTop)) != 0) {
+			svcSleepThread(1000000000);
+		}
+	}
+
+	svcExitThread();
 }
 
 static void plgInitScreenOverlay(void) {
@@ -174,8 +236,20 @@ static void plgInitScreenOverlay(void) {
 		fp2 = plgSearchReverse(addr, addr - 0x400, 0xE92D4070);
 	}
 
-	// TODO
-	// remote play callback
+	nsDbgPrint("Overlay addr: %"PRIx32"; fp: %"PRIx32"; fp2: %"PRIx32"\n", addr, fp, fp2);
+
+	plgOverlayThreadStack = (void *)plgRequestMemory(STACK_SIZE);
+	plgOverlayEvent = plgOverlayThreadStack;
+	s32 ret;
+	ret = svcCreateEvent(plgOverlayEvent, RESET_ONESHOT);
+	if (ret != 0) {
+		nsDbgPrint("Create plgOverlayEvent failed: %08"PRIx32"\n", ret);
+	}
+	Handle hThread;
+	ret = svcCreateThread(&hThread, plgOverlayThread, fp || fp2, &plgOverlayThreadStack[(STACK_SIZE / 4) - 10], 0x18, -2);
+	if (ret != 0) {
+		nsDbgPrint("Create plgOverlayThread failed: %08"PRIx32"\n", ret);
+	}
 
 	if (fp) {
 		rtInitHook(&SetBufferSwapHook, fp, (u32)plgSetBufferSwapCallback);

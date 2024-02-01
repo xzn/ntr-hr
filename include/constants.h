@@ -6,6 +6,7 @@
 #define LOCAL_TITLE_BUF_SIZE (0x80)
 #define LOCAL_MSG_BUF_SIZE (0x200)
 #define LOCAL_TID_BUF_COUNT (0x80)
+#define LOCAL_PID_BUF_COUNT (0x100)
 
 #define DBG_VERBOSE_TITLE "[%"PRId32".%06"PRId32"][%"PRIx32"]%s:%d:%s"
 
@@ -83,5 +84,11 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define DBG_CL_USE_DBG (0x17f7f7f)
 #define DBG_CL_USE_DBG_FAIL (0xff00ff)
 #define DBG_CL_USE_INJECT (0x100ff00)
+
+#define RES_HANDLE_CLOSED (0xC920181A)
+#define RES_TIMEOUT (0x09401BFE)
+
+#define SVC_PORT_NWM "nwm:rp"
+#define SVC_PORT_MENU "menu:ns"
 
 #endif

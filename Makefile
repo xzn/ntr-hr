@@ -78,7 +78,7 @@ bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) | libctru_ntr.a 3ds.ld
 bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) | libctru_ntr.a 3ds.ld
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
-bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) $(OBJ_NWM) obj/rp_lto.o | libctru_ntr.a 3dst.ld
+bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/rp_lto.o | libctru_ntr.a 3dst.ld
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
 
 libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
@@ -111,12 +111,12 @@ obj/%.o: source/game/%.c
 	$(CC_CMD)
 
 obj/%.o: source/nwm/%.c
-	$(CC_CMD)
+	$(RP_CC_CMD)
 
 obj/%.o: source/jpeg/%.c
 	$(RP_CC_CMD) -Wno-attribute-alias -Wno-unused-variable -Wno-unused-parameter -Wno-unused-but-set-variable
 
-obj/rp_lto.o: $(OBJ_RP)
+obj/rp_lto.o: $(OBJ_NWM) $(OBJ_RP)
 	$(CC) -flto $(CFLAGS) -r -o $@ $^
 
 -include $(DEP)

@@ -18,4 +18,7 @@ int rpStartupFromMenu(RP_CONFIG *config);
 
 void rpStartup(u8 *buf);
 
+typedef u32 (*sendPacketTypedef)(u8 *, u32);
+extern sendPacketTypedef nwmSendPacket;
+
 #endif
