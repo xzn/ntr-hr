@@ -111,7 +111,7 @@ int __attribute__((weak)) nsCheckPCSafeToWrite(u32, u32) {
 	return 0;
 }
 
-u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
+u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int thumbR3) {
 	u32 size = 0;
 	u32* buf = 0;
 	u32 baseAddr = NS_CONFIG_ADDR;
@@ -178,7 +178,7 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg) {
 	}
 
 	// write hook instructions to remote process
-	tmp[0] = 0xe51ff004;
+	tmp[0] = thumbR3 ? 0x47184b00 : 0xe51ff004;
 	tmp[1] = arm11StartAddress;
 	pcTries = 20;
 	while (!pcDone && pcTries) {

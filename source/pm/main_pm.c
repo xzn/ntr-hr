@@ -328,7 +328,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 			}
 		}
 
-		ret = nsAttachProcess(hGameProcess, PROC_START_ADDR, &cfg);
+		ret = nsAttachProcess(hGameProcess, PROC_START_ADDR, &cfg, 0);
 		if (ret != 0) {
 			nsDbgPrint("Attach game process failed: %08"PRIx32"\n", ret);
 			goto error_alloc;

@@ -74,7 +74,7 @@ static int injectPM(void) {
 	NS_CONFIG cfg = { 0 };
 	cfg.ntrConfig = *ntrConfig;
 
-	ret = nsAttachProcess(hProcess, remotePC, &cfg);
+	ret = nsAttachProcess(hProcess, remotePC, &cfg, 0);
 	svcCloseHandle(hProcess);
 	return ret;
 }

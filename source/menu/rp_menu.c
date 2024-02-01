@@ -81,7 +81,7 @@ static u32 rpGetNwmRemotePC(NS_CONFIG *cfg, Handle hProcess) {
 			nsDbgPrint("Read nwm memory at %08"PRIx32" failed: %08"PRIx32"\n", remotePC, ret);
 		} if (memcmp(buf, desiredHeader, RP_NWM_HDR_SIZE) == 0) {
 			isFirmwareSupported = 1;
-			cfg->startupInfo[11] = 0x120464; // nwmvalparamhook
+			remotePC = cfg->startupInfo[11] = 0x120464; // nwmvalparamhook
 			cfg->startupInfo[12] = 0x00120DC8 + 1; // nwmSendPacket
 		}
 	}
@@ -93,7 +93,7 @@ static u32 rpGetNwmRemotePC(NS_CONFIG *cfg, Handle hProcess) {
 			nsDbgPrint("Read nwm memory at %08"PRIx32" failed: %08"PRIx32"\n", remotePC, ret);
 		} if (memcmp(buf, desiredHeader, RP_NWM_HDR_SIZE) == 0) {
 			isFirmwareSupported = 1;
-			cfg->startupInfo[11] = 0x120630; // nwmvalparamhook
+			remotePC = cfg->startupInfo[11] = 0x120630; // nwmvalparamhook
 			cfg->startupInfo[12] = 0x00120f94 + 1; // nwmSendPacket
 		}
 	}
@@ -138,7 +138,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 	cfg.ntrConfig = *ntrConfig;
 	cfg.ntrConfig.ex.nsUseDbg |= nsDbgNext();
 
-	ret = nsAttachProcess(hProcess, remotePC, &cfg);
+	ret = nsAttachProcess(hProcess, remotePC, &cfg, 1);
 
 final:
 	if (hProcess)

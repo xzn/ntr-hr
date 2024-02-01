@@ -86,3 +86,12 @@ void mainPre(void) {
 	rtInitHookThumb(&nwmValParamHook, nsConfig->startupInfo[11], (u32)nwmValParamCallback);
 	rtEnableHook(&nwmValParamHook);
 }
+
+void _ReturnToUser(void);
+int setUpReturn(void) {
+	u32 *buf = (void *)_ReturnToUser;
+	buf[0] = 0xe3b00000; // return 0;
+	buf[1] = 0xe12fff1e;
+
+	return rtFlushInstructionCache((void *)_ReturnToUser, 8);;
+}
