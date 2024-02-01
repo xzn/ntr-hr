@@ -47,6 +47,28 @@ int __attribute__((weak)) setUpReturn(void) {
 	return ret;
 }
 
+/* Use a buffer to jump around a race condition when unhooking */
+static u32 farAddr[4];
+int setUpReturn2(void) {
+	s32 ret = rtCheckMemory((u32)farAddr, 16, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	if (ret != 0)
+		return ret;
+	memcpy(farAddr, nsConfig->startupInfo, 8);
+	rtGenerateJumpCode(*oldPC + 8, farAddr + 2);
+	ret = rtFlushInstructionCache(farAddr, 16);
+	if (ret != 0)
+		return ret;
+
+	rtGenerateJumpCode((u32)farAddr, (u32 *)*oldPC);
+	ret = rtFlushInstructionCache((void *)*oldPC, 8);
+	if (ret != 0)
+		return ret;
+
+	rtGenerateJumpCode((u32)farAddr, (void *)_ReturnToUser);
+	ret = rtFlushInstructionCache((void *)_ReturnToUser, 8);
+	return ret;
+}
+
 int plgLoaderInfoAlloc(void) {
 	s32 ret = plgEnsurePoolSize(sizeof(PLGLOADER_INFO));
 	if (ret != 0) {

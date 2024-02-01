@@ -432,3 +432,7 @@ u32 payloadBinAlloc(u32 size) {
 int payloadBinFree(u32, u32) {
 	return -1;
 }
+
+int setUpReturn(void) {
+	return setUpReturn2();
+}

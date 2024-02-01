@@ -5,6 +5,8 @@
 #include "ntr_config.h"
 #include "ns.h"
 
+static u32 *const oldPC = &nsConfig->startupInfo[2];
+int setUpReturn2(void);
 void mainThread(void *);
 void mainPre(void);
 void mainPost(void);

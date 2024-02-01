@@ -7,8 +7,6 @@
 
 #include <memory.h>
 
-static u32 *const oldPC = &nsConfig->startupInfo[2];
-
 static u32 NTRMenuHotkey = KEY_X | KEY_Y;
 static int cpuClockLockValue = -1;
 
@@ -355,40 +353,6 @@ void nsHandlePacket(void) {
 	nsHandleMenuPacket();
 }
 
-/* Update: since we are hooking this function for overlay update anyway,
-   turns out there's no performance penalty after all.
-
-   -- Old comment below --
-
-   Until I can figure out how to map memory at address 0xe1a06000 to set up a
-   trampoline there, use this roundabout way to workaround a race condition
-   in unhooking code that would lead to a crash.
-   Home menu is slowed down imperceptibly but it shouldn't affect anything.
-
-   Alternatively if Luma3DS adds memory hooking capability or memory mapping
-   at that weird address above, along with its stop-the-world capability,
-   we wouldn't need this either. But that's a long call.
-
-   In theory we could also signal back to the BootNTR instance for that to use
-   Luma3DS to pause home menu, then unhook safely, but that's too much pain. */
-static u32 farAddr[4];
-void _ReturnToUser(void);
 int setUpReturn(void) {
-	s32 ret = rtCheckMemory((u32)farAddr, 16, MEMPERM_READWRITE | MEMPERM_EXECUTE);
-	if (ret != 0)
-		return ret;
-	memcpy(farAddr, nsConfig->startupInfo, 8);
-	rtGenerateJumpCode(*oldPC + 8, farAddr + 2);
-	ret = rtFlushInstructionCache(farAddr, 16);
-	if (ret != 0)
-		return ret;
-
-	rtGenerateJumpCode((u32)farAddr, (u32 *)*oldPC);
-	ret = rtFlushInstructionCache((void *)*oldPC, 8);
-	if (ret != 0)
-		return ret;
-
-	rtGenerateJumpCode((u32)farAddr, (void *)_ReturnToUser);
-	ret = rtFlushInstructionCache((void *)_ReturnToUser, 8);
-	return ret;
+	return setUpReturn2();
 }
