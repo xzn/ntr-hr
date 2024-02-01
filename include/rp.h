@@ -16,4 +16,6 @@ typedef struct {
 
 int rpStartupFromMenu(RP_CONFIG *config);
 
+void rpStartup(u8 *buf);
+
 #endif

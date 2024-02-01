@@ -42,6 +42,7 @@ typedef struct {
 } NS_CONFIG;
 
 static NS_CONFIG *const nsConfig = (NS_CONFIG *)NS_CONFIG_ADDR;
+static RP_CONFIG *const rpConfig = &nsConfig->rpConfig;
 
 int nsStartup(void);
 int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC);

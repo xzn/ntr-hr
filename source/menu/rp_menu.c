@@ -3,7 +3,6 @@
 #include <memory.h>
 
 #define RP_THREAD_PRIO_DEFAULT (0x10)
-#define RP_DST_PORT_DEFAULT (8001)
 #define RP_CORE_COUNT_DEFAULT RP_CORE_COUNT_MAX
 
 #define RP_QUALITY_MIN (10)
@@ -23,8 +22,7 @@
 #define RP_CORE_COUNT_MIN (1)
 #define RP_CORE_COUNT_MAX (3)
 
-static u32 remotePlayStarted;
-static RP_CONFIG rpConfigInMenu;
+static u32 rpStarted;
 
 static int rpUpdateParamsFromMenu(RP_CONFIG *) {
 	// TODO
@@ -42,7 +40,7 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 	config->dstAddr = 0; /* always update from nwm callback */
 
 	if (config->dstPort == 0) {
-		config->dstPort = rpConfigInMenu.dstPort;
+		config->dstPort = rpConfig->dstPort;
 		if (config->dstPort == 0) {
 			config->dstPort = RP_DST_PORT_DEFAULT;
 		}
@@ -50,7 +48,7 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 	config->dstPort = CLAMP(config->dstPort, RP_PORT_MIN, RP_PORT_MAX);
 
 	if (config->threadPriority == 0) {
-		config->threadPriority = rpConfigInMenu.threadPriority;
+		config->threadPriority = rpConfig->threadPriority;
 		if (config->threadPriority == 0) {
 			config->threadPriority = RP_THREAD_PRIO_DEFAULT;
 		}
@@ -58,7 +56,7 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 	config->threadPriority = CLAMP(config->threadPriority, RP_THREAD_PRIO_MIN, RP_THREAD_PRIO_MAX);
 
 	if (config->coreCount == 0) {
-		config->coreCount = rpConfigInMenu.coreCount;
+		config->coreCount = rpConfig->coreCount;
 		if (config->coreCount == 0) {
 			config->coreCount = RP_CORE_COUNT_DEFAULT;
 		}
@@ -114,7 +112,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 
 	rpClampParamsInMenu(config);
 
-	if (ATSR(&remotePlayStarted)) {
+	if (ATSR(&rpStarted)) {
 		nsDbgPrint("Remote play already started, updating params.\n");
 		return rpUpdateParamsFromMenu(config);
 	}
@@ -137,7 +135,7 @@ int rpStartupFromMenu(RP_CONFIG *config) {
 		goto final;
 	}
 
-	cfg.rpConfig = rpConfigInMenu = *config;
+	cfg.rpConfig = *rpConfig = *config;
 	cfg.ntrConfig = *ntrConfig;
 	cfg.ntrConfig.ex.nsUseDbg |= nsDbgNext();
 
@@ -149,7 +147,7 @@ final:
 
 	if (ret != 0) {
 		showDbg("Starting remote play failed: %08"PRIx32". Retry maybe...", ret);
-		ACR(&remotePlayStarted);
+		ACR(&rpStarted);
 	} else {
 		setCpuClockLock(3);
 	}

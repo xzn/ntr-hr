@@ -67,6 +67,9 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 
 #define NS_MENU_LISTEN_PORT (8000)
 #define NS_HOOK_LISTEN_PORT (5000)
+#define NWM_INIT_SRC_PORT (8000)
+#define NWM_INIT_DST_PORT (8001)
+#define RP_DST_PORT_DEFAULT (8001)
 
 #define DEBUG_BUF_SIZE (0x2000)
 

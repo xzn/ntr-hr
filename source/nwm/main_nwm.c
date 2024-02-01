@@ -39,7 +39,7 @@ final:
 
 static u32 nwmReadyDone;
 
-static int nwmValParamCallback(u8 *, int) {
+static int nwmValParamCallback(u8 *buf, int) {
 	if (!ATSR(&nwmReadyDone)) {
 		if (nwmReadyEvent) {
 			if (svcWaitSynchronization(nwmReadyEvent, NWM_INIT_READY_TIMEOUT) != 0) {
@@ -48,6 +48,10 @@ static int nwmValParamCallback(u8 *, int) {
 			svcCloseHandle(nwmReadyEvent);
 			nwmReadyEvent = 0;
 		}
+
+		rpStartup(buf);
+
+		ACR(&nwmReadyDone);
 	}
 	return 0;
 }
