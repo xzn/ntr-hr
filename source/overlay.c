@@ -54,24 +54,17 @@ static u32 plgSetBufferSwapCallback2(u32 r0, u32 *params, u32 isDisplay1, u32 ar
 	return ret;
 }
 
-static Handle rpSessionClient;
 static int rpPortSend(u32 isTop) {
-	Handle hClient = rpSessionClient;
-	s32 ret;
-	if (hClient == 0) {
-		ret = svcConnectToPort(&hClient, SVC_PORT_NWM);
-		if (ret != 0) {
-			return -1;
-		}
-		rpSessionClient = hClient;
-	}
+	Handle hClient = rpGetPortHandle();
+	if (!hClient)
+		return -1;
 
 	u32* cmdbuf = getThreadCommandBuffer();
-	cmdbuf[0] = IPC_MakeHeader(SVC_NWM_CMD, 1, 2);
+	cmdbuf[0] = IPC_MakeHeader(SVC_NWM_CMD_OVERLAY_CALLBACK, 1, 2);
 	cmdbuf[1] = isTop;
 	cmdbuf[2] = IPC_Desc_CurProcessId();
 
-	ret = svcSendSyncRequest(hClient);
+	s32 ret = svcSendSyncRequest(hClient);
 	if (ret != 0) {
 		nsDbgPrint("Send port request failed: %08"PRIx32"\n", ret);
 		return -1;

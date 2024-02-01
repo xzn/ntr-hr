@@ -60,6 +60,7 @@ extern int plgOverlayStatus;
 extern int plgHasVRAMAccess;
 extern int plgHasOverlay;
 
+Handle rpGetPortHandle(void);
 void rpSetGamePid(u32 gamePid);
 int nsDbgNext(void);
 u32 plgRegisterCallback(u32 type, void* callback, u32);

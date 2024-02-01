@@ -1,5 +1,7 @@
 #include "global.h"
 
+#include "3ds/ipc.h"
+
 #include <memory.h>
 
 #define RP_CORE_COUNT_DEFAULT RP_CORE_COUNT_MAX
@@ -23,8 +25,20 @@
 
 static u32 rpStarted;
 
-static int rpUpdateParamsFromMenu(RP_CONFIG *) {
-	// TODO
+static int rpUpdateParamsFromMenu(RP_CONFIG *config) {
+	Handle hClient = rpGetPortHandle();
+	if (!hClient)
+		return -1;
+
+	u32* cmdbuf = getThreadCommandBuffer();
+	cmdbuf[0] = IPC_MakeHeader(SVC_NWM_CMD_PARAMS_UPDATE, sizeof(RP_CONFIG) / sizeof(u32), 0);
+	*(RP_CONFIG *)&cmdbuf[1] = *config;
+
+	s32 ret = svcSendSyncRequest(hClient);
+	if (ret != 0) {
+		nsDbgPrint("Send port request failed: %08"PRIx32"\n", ret);
+		return -1;
+	}
 	return 0;
 }
 

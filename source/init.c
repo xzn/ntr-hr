@@ -1,6 +1,7 @@
 #include "global.h"
 
 #include "3ds/services/fs.h"
+#include "3ds/ipc.h"
 
 #include <memory.h>
 
@@ -214,8 +215,19 @@ void unloadPayloadBin(void) {
 	}
 }
 
-void rpSetGamePid(u32) {
-	// TODO
+void rpSetGamePid(u32 gamePid) {
+	Handle hClient = rpGetPortHandle();
+	if (!hClient)
+		return;
+
+	u32* cmdbuf = getThreadCommandBuffer();
+	cmdbuf[0] = IPC_MakeHeader(SVC_NWM_CMD_GAME_PID_UPDATE, 1, 0);
+	cmdbuf[1] = gamePid;
+
+	s32 ret = svcSendSyncRequest(hClient);
+	if (ret != 0) {
+		nsDbgPrint("Send port request failed: %08"PRIx32"\n", ret);
+	}
 }
 
 static u32 plgRegisterMenuEntryStub(u32, const char *, const void *) { return -1; }
@@ -281,4 +293,18 @@ int __attribute__((weak)) main(void) {
 	}
 
 	return 0;
+}
+
+static Handle rpSessionClient;
+Handle rpGetPortHandle(void) {
+	Handle hClient = rpSessionClient;
+	s32 ret;
+	if (hClient == 0) {
+		ret = svcConnectToPort(&hClient, SVC_PORT_NWM);
+		if (ret != 0) {
+			return 0;
+		}
+		rpSessionClient = hClient;
+	}
+	return hClient;
 }
