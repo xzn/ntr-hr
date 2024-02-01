@@ -34,7 +34,7 @@ void loadParams(NTR_CONFIG *ntrCfg) {
 }
 
 void _ReturnToUser(void);
-static int setUpReturn(void) {
+int __attribute__((weak)) setUpReturn(void) {
 	u32 oldPC = nsConfig->startupInfo[2];
 
 	u32 ret;
@@ -244,16 +244,19 @@ void initSharedFunc(void) {
 void __attribute__((weak)) mainPre(void) {}
 void __attribute__((weak)) mainPost(void) {}
 
+static int mainEntered;
 int __attribute__((weak)) main(void) {
 	startupInit();
 
-	mainPre();
+	if (!ATSR(&mainEntered)) {
+		mainPre();
 
-	Handle hThread;
-	u32 *threadStack = (void *)(NS_CONFIG_ADDR + NS_CONFIG_MAX_SIZE);
-	svcCreateThread(&hThread, mainThread, 0, &threadStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+		Handle hThread;
+		u32 *threadStack = (void *)(NS_CONFIG_ADDR + NS_CONFIG_MAX_SIZE);
+		svcCreateThread(&hThread, mainThread, 0, &threadStack[(STACK_SIZE / 4) - 10], 0x10, 1);
 
-	mainPost();
+		mainPost();
+	}
 
 	return 0;
 }

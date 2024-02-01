@@ -107,27 +107,7 @@ void __attribute__((weak)) nsDbgPrintVerbose(const char *file_name, int line_num
 	va_end(arp);
 }
 
-static int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC) {
-	s32 ret, i;
-	u32 tids[LOCAL_TID_BUF_COUNT];
-	s32 tidCount;
-	u32 ctx[400];
-
-	ret = svcGetThreadList(&tidCount, tids, LOCAL_TID_BUF_COUNT, hProcess);
-	if (ret != 0) {
-		return -1;
-	}
-
-	for (i = 0; i < tidCount; ++i) {
-		u32 tid = tids[i];
-		memset(ctx, 0x33, sizeof(ctx));
-		if (rtGetThreadReg(hProcess, tid, ctx) != 0)
-			return -1;
-		u32 pc = ctx[15];
-		if (remotePC >= pc - 24 && remotePC < pc + 8)
-			return -1;
-	}
-
+int __attribute__((weak)) nsCheckPCSafeToWrite(u32, u32) {
 	return 0;
 }
 

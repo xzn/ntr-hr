@@ -2,6 +2,7 @@
 #define INIT_H
 
 #include "ntr_config.h"
+int setUpReturn(void);
 void startupInit(void);
 void loadParams(NTR_CONFIG *ntrCfg);
 void initSharedFunc(void);

@@ -89,3 +89,27 @@ void nsDbgPrintVerbose(const char *, int, const char *, const char* fmt, ...) {
 	showMsgVA(NULL, 0, NULL, fmt, arp);
 	va_end(arp);
 }
+
+int nsCheckPCSafeToWrite(u32 hProcess, u32 remotePC) {
+	s32 ret, i;
+	u32 tids[LOCAL_TID_BUF_COUNT];
+	s32 tidCount;
+	u32 ctx[400];
+
+	ret = svcGetThreadList(&tidCount, tids, LOCAL_TID_BUF_COUNT, hProcess);
+	if (ret != 0) {
+		return -1;
+	}
+
+	for (i = 0; i < tidCount; ++i) {
+		u32 tid = tids[i];
+		memset(ctx, 0x33, sizeof(ctx));
+		if (rtGetThreadReg(hProcess, tid, ctx) != 0)
+			return -1;
+		u32 pc = ctx[15];
+		if (remotePC >= pc - 24 && remotePC < pc + 8)
+			return -1;
+	}
+
+	return 0;
+}

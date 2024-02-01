@@ -348,3 +348,37 @@ final:
 void nsHandlePacket(void) {
 	nsHandleMenuPacket();
 }
+
+/* Until I can figure out how to map memory at address 0xe1a06000 to set up a
+   trampoline there, use this roundabout way to workaround a race condition
+   in unhooking code that would lead to a crash.
+   Home menu is slowed down imperceptibly but it shouldn't affect anything.
+   (Somehow only home menu is susceptible to the crash even though in theory
+   all processes' attaching have this race condition.)
+
+   Alternatively if Luma3DS adds memory hooking capability or memory mapping
+   at that weird address above, along with its stop-the-world capability,
+   we wouldn't need this either. But that's a long call */
+static u32 farAddr[4];
+void _ReturnToUser(void);
+int setUpReturn(void) {
+	u32 oldPC = nsConfig->startupInfo[2];
+
+	s32 ret = rtCheckMemory((u32)farAddr, 16, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	if (ret != 0)
+		return ret;
+	memcpy(farAddr, nsConfig->startupInfo, 8);
+	rtGenerateJumpCode(oldPC + 8, farAddr + 2);
+	ret = rtFlushInstructionCache(farAddr, 16);
+	if (ret != 0)
+		return ret;
+
+	rtGenerateJumpCode((u32)farAddr, (u32 *)oldPC);
+	ret = rtFlushInstructionCache((void *)oldPC, 8);
+	if (ret != 0)
+		return ret;
+
+	rtGenerateJumpCode((u32)farAddr, (void *)_ReturnToUser);
+	ret = rtFlushInstructionCache((void *)_ReturnToUser, 8);
+	return ret;
+}
