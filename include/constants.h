@@ -5,6 +5,7 @@
 
 #define LOCAL_TITLE_BUF_SIZE (0x80)
 #define LOCAL_MSG_BUF_SIZE (0x200)
+#define LOCAL_OPT_TEXT_BUF_SIZE (0x40)
 #define LOCAL_TID_BUF_COUNT (0x80)
 #define LOCAL_PID_BUF_COUNT (0x100)
 
@@ -72,6 +73,7 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define NWM_INIT_DST_PORT (8001)
 #define RP_DST_PORT_DEFAULT (8001)
 #define RP_THREAD_PRIO_DEFAULT (0x10)
+#define RP_CORE_COUNT_MAX (3)
 
 #define DEBUG_BUF_SIZE (0x2000)
 

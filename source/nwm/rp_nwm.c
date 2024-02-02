@@ -25,30 +25,29 @@ static u32 rpMinIntervalBetweenPacketsInTick;
 static u32 rpMinIntervalBetweenPacketsInNS;
 
 #define SCREEN_COUNT (2)
-#define rp_thread_count (3)
-#define rp_work_count (2)
-#define rp_cinfos_count (rp_work_count * rp_thread_count * SCREEN_COUNT)
+#define RP_WORK_COUNT (2)
+#define RP_CINFOS_COUNT (RP_WORK_COUNT * RP_CORE_COUNT_MAX * SCREEN_COUNT)
 
-static j_compress_ptr cinfos[rp_cinfos_count];
-static u32 cinfo_alloc_sizes[rp_cinfos_count];
-static struct jpeg_compress_struct cinfos_top[rp_work_count][rp_thread_count], cinfos_bot[rp_work_count][rp_thread_count];
+static j_compress_ptr cinfos[RP_CINFOS_COUNT];
+static u32 cinfo_alloc_sizes[RP_CINFOS_COUNT];
+static struct jpeg_compress_struct cinfos_top[RP_WORK_COUNT][RP_CORE_COUNT_MAX], cinfos_bot[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 static struct rp_alloc_stats_check {
 	struct rp_alloc_stats qual, comp;
-} alloc_stats_top[rp_work_count][rp_thread_count], alloc_stats_bot[rp_work_count][rp_thread_count];
+} alloc_stats_top[RP_WORK_COUNT][RP_CORE_COUNT_MAX], alloc_stats_bot[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 static struct jpeg_error_mgr jerr;
-static int jpeg_rows[rp_work_count];
-static int jpeg_rows_last[rp_work_count];
-static int jpeg_adjusted_rows[rp_work_count];
-static int jpeg_adjusted_rows_last[rp_work_count];
-static int jpeg_progress[rp_work_count][rp_thread_count];
+static int jpeg_rows[RP_WORK_COUNT];
+static int jpeg_rows_last[RP_WORK_COUNT];
+static int jpeg_adjusted_rows[RP_WORK_COUNT];
+static int jpeg_adjusted_rows_last[RP_WORK_COUNT];
+static int jpeg_progress[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 
 typedef JSAMPARRAY pre_proc_buffer_t[MAX_COMPONENTS];
 typedef JSAMPARRAY color_buffer_t[MAX_COMPONENTS];
 typedef JBLOCKROW MCU_buffer_t[C_MAX_BLOCKS_IN_MCU];
 
-static pre_proc_buffer_t prep_buffers[rp_work_count][rp_thread_count];
-static color_buffer_t color_buffers[rp_work_count][rp_thread_count];
-static MCU_buffer_t MCU_buffers[rp_work_count][rp_thread_count];
+static pre_proc_buffer_t prep_buffers[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
+static color_buffer_t color_buffers[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
+static MCU_buffer_t MCU_buffers[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 
 typedef struct {
 	int width, height, format, src_pitch;
@@ -58,40 +57,40 @@ typedef struct {
 	u8 id;
 	u8 isTop;
 
-	j_compress_ptr cinfos[rp_thread_count];
-	struct rp_alloc_stats_check *cinfos_alloc_stats[rp_thread_count];
+	j_compress_ptr cinfos[RP_CORE_COUNT_MAX];
+	struct rp_alloc_stats_check *cinfos_alloc_stats[RP_CORE_COUNT_MAX];
 
-	int irow_start[rp_thread_count];
-	int irow_count[rp_thread_count];
+	int irow_start[RP_CORE_COUNT_MAX];
+	int irow_count[RP_CORE_COUNT_MAX];
 	u8 capture_next;
 } BLIT_CONTEXT;
-static BLIT_CONTEXT blit_context[rp_work_count];
+static BLIT_CONTEXT blit_context[RP_WORK_COUNT];
 
 static u32 rpLastSendTick;
 
-#define rp_nwm_hdr_size (0x2a + 8)
-#define rp_data_hdr_size (4)
-static u8 rpNwmHdr[rp_nwm_hdr_size];
-static u8 *rpDataBuf[rp_work_count][rp_thread_count];
-static u8 *rpPacketBufLast[rp_work_count][rp_thread_count];
+#define RP_NWM_HDR_SIZE (0x2a + 8)
+#define RP_DATA_HDR_SIZE (4)
+static u8 rpNwmHdr[RP_NWM_HDR_SIZE];
+static u8 *rpDataBuf[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
+static u8 *rpPacketBufLast[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 
 static u32 rp_nwm_work_next, rp_nwm_thread_next;
-static int rp_nwm_syn_next[rp_work_count];
-static u8 rpDataBufHdr[rp_work_count][rp_data_hdr_size];
+static int rp_nwm_syn_next[RP_WORK_COUNT];
+static u8 rpDataBufHdr[RP_WORK_COUNT][RP_DATA_HDR_SIZE];
 
 static u32 rp_work_next;
 static u32 rp_screen_work_next;
-static int rp_skip_frame[rp_work_count];
+static int rp_skip_frame[RP_WORK_COUNT];
 
 static struct rpDataBufInfo_t {
 	u8 *sendPos, *pos;
 	u32 flag;
-} rpDataBufInfo[rp_work_count][rp_thread_count];
+} rpDataBufInfo[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 
-#define rp_img_buffer_size (0x60000)
-#define rp_nwm_buffer_size (0x28000)
-#define rp_screen_work_count (2)
-static u8* imgBuffer[SCREEN_COUNT][rp_screen_work_count];
+#define RP_IMG_BUFFER_SIZE (0x60000)
+#define RP_NWM_BUFFER_SIZE (0x28000)
+#define RP_SCREEN_WORK_COUNT (2)
+static u8* imgBuffer[SCREEN_COUNT][RP_SCREEN_WORK_COUNT];
 static u32 imgBuffer_work_next[SCREEN_COUNT];
 static u32 currentTopId = 0, currentBottomId = 0;
 static u32 tl_fbaddr[2];
@@ -139,18 +138,18 @@ int rpCtxInit(BLIT_CONTEXT *ctx, int width, int height, int format, u8 *src) {
 
 
 #define PACKET_SIZE (1448)
-#define rp_packet_data_size (PACKET_SIZE - rp_data_hdr_size)
+#define RP_PACKET_DATA_SIZE (PACKET_SIZE - RP_DATA_HDR_SIZE)
 
 static struct rp_handles_t {
 	struct rp_work_syn_t {
 		Handle sem_end, sem_nwm, sem_send;
 		u32 sem_count;
 		u8 sem_set;
-	} work[rp_work_count];
+	} work[RP_WORK_COUNT];
 
 	struct rp_thread_syn_t {
 		Handle sem_start, sem_work;
-	} thread[rp_thread_count];
+	} thread[RP_CORE_COUNT_MAX];
 
 	Handle nwmEvent;
 	Handle portEvent[SCREEN_COUNT];
@@ -220,21 +219,21 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 	u8 *rp_nwm_buf, *rp_nwm_packet_buf, *rp_data_buf;
 	u32 packet_len, size;
 
-	u8 rp_nwm_buf_tmp[PACKET_SIZE + rp_nwm_hdr_size];
+	u8 rp_nwm_buf_tmp[PACKET_SIZE + RP_NWM_HDR_SIZE];
 	struct rpDataBufInfo_t *work_infos = rpDataBufInfo[work_next];
 	struct rpDataBufInfo_t *info = &work_infos[thread_id];
 
 	rp_data_buf = info->sendPos;
-	rp_nwm_packet_buf = rp_data_buf - rp_data_hdr_size;
-	rp_nwm_buf = rp_nwm_packet_buf - rp_nwm_hdr_size;
+	rp_nwm_packet_buf = rp_data_buf - RP_DATA_HDR_SIZE;
+	rp_nwm_buf = rp_nwm_packet_buf - RP_NWM_HDR_SIZE;
 
 	size = data_buf_pos - info->sendPos;
-	size = MIN(size, rp_packet_data_size);
+	size = MIN(size, RP_PACKET_DATA_SIZE);
 
 	int thread_emptied = info->sendPos + size == data_buf_pos;
 	int thread_done = thread_emptied && data_buf_flag;
 
-	if (size < rp_packet_data_size && !thread_done)
+	if (size < RP_PACKET_DATA_SIZE && !thread_done)
 		return -1;
 
 	u32 thread_next = thread_id;
@@ -244,16 +243,16 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 	if (thread_done)
 		thread_next = (thread_next + 1) % rpCoreCount;
 
-	if (size < rp_packet_data_size && thread_id != rpCoreCount - 1) {
+	if (size < RP_PACKET_DATA_SIZE && thread_id != rpCoreCount - 1) {
 		rp_nwm_buf = rp_nwm_buf_tmp;
-		rp_nwm_packet_buf = rp_nwm_buf + rp_nwm_hdr_size;
-		rp_data_buf = rp_nwm_packet_buf + rp_data_hdr_size;
+		rp_nwm_packet_buf = rp_nwm_buf + RP_NWM_HDR_SIZE;
+		rp_data_buf = rp_nwm_packet_buf + RP_DATA_HDR_SIZE;
 
 		u8 *data_buf_pos_next;
 		u32 data_buf_flag_next;
 
 		memcpy(rp_data_buf, info->sendPos, size);
-		u32 remaining_size = rp_packet_data_size - size;
+		u32 remaining_size = RP_PACKET_DATA_SIZE - size;
 
 		while (1) {
 			struct rpDataBufInfo_t *info_next = &work_infos[thread_next];
@@ -288,9 +287,9 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 		}
 	}
 
-	memcpy(rp_nwm_buf, rpNwmHdr, rp_nwm_hdr_size);
-	packet_len = initUDPPacket(rp_nwm_buf, size + rp_data_hdr_size);
-	memcpy(rp_nwm_packet_buf, rpDataBufHdr[work_next], rp_data_hdr_size);
+	memcpy(rp_nwm_buf, rpNwmHdr, RP_NWM_HDR_SIZE);
+	packet_len = initUDPPacket(rp_nwm_buf, size + RP_DATA_HDR_SIZE);
+	memcpy(rp_nwm_packet_buf, rpDataBufHdr[work_next], RP_DATA_HDR_SIZE);
 	if (thread_prev_done && thread_next == 0) {
 		rp_nwm_packet_buf[1] |= data_buf_flag;
 	}
@@ -317,7 +316,7 @@ static int rpSendNextBuffer(u32 nextTick, u8 *data_buf_pos, u32 data_buf_flag) {
 			}
 
 			rp_nwm_syn_next[work_next] = 1;
-			work_next = (work_next + 1) % rp_work_count;
+			work_next = (work_next + 1) % RP_WORK_COUNT;
 			rp_nwm_work_next = work_next;
 		}
 	}
@@ -440,7 +439,7 @@ static int rpReadyNwm(u32 thread_id, u32 work_next, int id, int isTop) {
 
 	for (u32 j = 0; j < rpCoreCount; ++j) {
 		struct rpDataBufInfo_t *info = &rpDataBufInfo[work_next][j];
-		info->sendPos = info->pos = rpDataBuf[work_next][j] + rp_data_hdr_size;
+		info->sendPos = info->pos = rpDataBuf[work_next][j] + RP_DATA_HDR_SIZE;
 		info->flag = 0;
 	}
 
@@ -460,13 +459,13 @@ static int rpReadyNwm(u32 thread_id, u32 work_next, int id, int isTop) {
 
 static void rpThreadMainSendFrames(void);
 static int rpInitJpegCompress() {
-	for (int i = 0; i < rp_work_count; ++i) {
-		for (int j = 0; j < rp_thread_count; ++j) {
-			cinfos[i * rp_thread_count + j] = &cinfos_top[i][j];
-			cinfos[(i + rp_work_count) * rp_thread_count + j] = &cinfos_bot[i][j];
+	for (int i = 0; i < RP_WORK_COUNT; ++i) {
+		for (int j = 0; j < RP_CORE_COUNT_MAX; ++j) {
+			cinfos[i * RP_CORE_COUNT_MAX + j] = &cinfos_top[i][j];
+			cinfos[(i + RP_WORK_COUNT) * RP_CORE_COUNT_MAX + j] = &cinfos_bot[i][j];
 		}
 	}
-	for (int i = 0; i < rp_cinfos_count; ++i) {
+	for (int i = 0; i < RP_CINFOS_COUNT; ++i) {
 		j_compress_ptr cinfo = cinfos[i];
 
 		cinfo->alloc.buf = (void *)plgRequestMemory(cinfo_alloc_sizes[i]);
@@ -495,12 +494,12 @@ static int rpInitJpegCompress() {
 		cinfo->num_components = 3;
 		cinfo->color_reuse = TRUE;
 
-		cinfo->user_work_next = (i / rp_thread_count) % rp_work_count;
-		cinfo->user_thread_id = i % rp_thread_count;
+		cinfo->user_work_next = (i / RP_CORE_COUNT_MAX) % RP_WORK_COUNT;
+		cinfo->user_thread_id = i % RP_CORE_COUNT_MAX;
 	}
 
 	jpeg_std_huff_tables((j_common_ptr)cinfos[0]);
-	for (int j = 1; j < rp_cinfos_count; ++j) {
+	for (int j = 1; j < RP_CINFOS_COUNT; ++j) {
 		for (int i = 0; i < NUM_HUFF_TBLS; ++i) {
 			cinfos[j]->dc_huff_tbl_ptrs[i] = cinfos[0]->dc_huff_tbl_ptrs[i];
 			cinfos[j]->ac_huff_tbl_ptrs[i] = cinfos[0]->ac_huff_tbl_ptrs[i];
@@ -508,7 +507,7 @@ static int rpInitJpegCompress() {
 	}
 
 	jpeg_jinit_color_converter(cinfos[0]);
-	for (int j = 1; j < rp_cinfos_count; ++j)
+	for (int j = 1; j < RP_CINFOS_COUNT; ++j)
 		cinfos[j]->cconvert = cinfos[0]->cconvert;
 	jpeg_rgb_ycc_start(cinfos[0]);
 
@@ -520,22 +519,22 @@ static void rpShowNextFrameBothScreen(void) {
 	svcSignalEvent(rp_syn->portEvent[0]);
 	svcSignalEvent(rp_syn->portEvent[1]);
 	/* Force memcmp (frame-skip) to fail */
-	for (int i = 0; i < rp_screen_work_count; ++i) {
+	for (int i = 0; i < RP_SCREEN_WORK_COUNT; ++i) {
 		++imgBuffer[0][i][0];
 		++imgBuffer[1][i][0];
 	}
 }
 
-#define rp_jpeg_samp_factor (2)
+#define RP_JPEG_SAMP_FACTOR (2)
 static void rpReadyWork(BLIT_CONTEXT *ctx, u32 work_next) {
-	u32 work_prev = work_next == 0 ? rp_work_count - 1 : work_next - 1;
+	u32 work_prev = work_next == 0 ? RP_WORK_COUNT - 1 : work_next - 1;
 	int progress[rpCoreCount];
 	for (u32 j = 0; j < rpCoreCount; ++j) {
 		ASR(&jpeg_progress[work_next][j], 0);
 		progress[j] = ALR(&jpeg_progress[work_prev][j]);
 	}
 
-	int mcu_size = DCTSIZE * rp_jpeg_samp_factor;
+	int mcu_size = DCTSIZE * RP_JPEG_SAMP_FACTOR;
 	int mcus_per_row = ctx->height / mcu_size;
 	int mcu_rows = ctx->width / mcu_size;
 	int mcu_rows_per_thread = (mcu_rows + (rpCoreCount - 1)) / rpCoreCount;
@@ -610,17 +609,17 @@ static void rpReadyWork(BLIT_CONTEXT *ctx, u32 work_next) {
 	ctx->capture_next = 0;
 }
 
-static Handle rpHDma[rp_work_count], rpHandleHome, rpHandleGame, rpGamePid;
+static Handle rpHDma[RP_WORK_COUNT], rpHandleHome, rpHandleGame, rpGamePid;
 static u32 rpGameFCRAMBase = 0;
 
 static u32 frameCount[SCREEN_COUNT];
-static int screenBusyWait[rp_work_count];
+static int screenBusyWait[RP_WORK_COUNT];
 static u32 rpCurrentUpdating;
 static u32 rpIsPriorityTop;
 static u32 rpPriorityFactor;
 static u32 rpPriorityFactorLogScaled;
-static int nextScreenCaptured[rp_work_count];
-static int nextScreenSynced[rp_work_count];
+static int nextScreenCaptured[RP_WORK_COUNT];
+static int nextScreenSynced[RP_WORK_COUNT];
 static u32 frameQueued[SCREEN_COUNT];
 static u32 rpPortGamePid;
 
@@ -646,7 +645,7 @@ static u32 const log_scaled_tab[] = {
 
 static void rpTryCaptureNextScreen(u32 thread_id, u8 *capture_next, u32 work_next) {
 	if (!ATSR(capture_next)) {
-		work_next = (work_next + 1) % rp_work_count;
+		work_next = (work_next + 1) % RP_WORK_COUNT;
 		ASR(&rp_screen_work_next, work_next);
 		s32 count;
 		s32 res = svcReleaseSemaphore(&count, rp_syn->screenCapSem, 1);
@@ -758,7 +757,7 @@ static int rpSendFrames(u32 thread_id, u32 work_next) {
 
 		int imgBuffer_work_prev = imgBuffer_work_next[ctx->isTop];
 		if (imgBuffer_work_prev == 0)
-			imgBuffer_work_prev = rp_screen_work_count - 1;
+			imgBuffer_work_prev = RP_SCREEN_WORK_COUNT - 1;
 		else
 			--imgBuffer_work_prev;
 
@@ -770,7 +769,7 @@ static int rpSendFrames(u32 thread_id, u32 work_next) {
 			if (res != 0) {
 				skip_frame = 1;
 			} else {
-				imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % rp_screen_work_count;
+				imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % RP_SCREEN_WORK_COUNT;
 				ctx->isTop ? ++currentTopId : ++currentBottomId;
 				rpReadyWork(ctx, work_next);
 			}
@@ -833,7 +832,7 @@ static void rpThreadMainSendFrames(void) {
 		int ret = rpSendFrames(0, rp_work_next);
 
 		if (ret == 0)
-			rp_work_next = (rp_work_next + 1) % rp_work_count;
+			rp_work_next = (rp_work_next + 1) % RP_WORK_COUNT;
 	}
 }
 
@@ -852,7 +851,7 @@ static void rpThreadAux(u32 thread_id) {
 		res = rpSendFrames(thread_id, work_next);
 
 		if (res == 0)
-			work_next = (work_next + 1) % rp_work_count;
+			work_next = (work_next + 1) % RP_WORK_COUNT;
 	}
 	svcExitThread();
 }
@@ -1030,8 +1029,8 @@ static int rpCaptureScreen(u32 work_next, int isTop) {
 
 	s32 res;
 
-	if (bufSize > rp_img_buffer_size) {
-		nsDbgPrint("bufSize exceeds imgBuffer: %"PRIx32" (%"PRIx32")\n", bufSize, (u32)rp_img_buffer_size);
+	if (bufSize > RP_IMG_BUFFER_SIZE) {
+		nsDbgPrint("bufSize exceeds imgBuffer: %"PRIx32" (%"PRIx32")\n", bufSize, (u32)RP_IMG_BUFFER_SIZE);
 		goto final;
 	}
 
@@ -1335,27 +1334,27 @@ static void rpThreadMain(void *) {
 
 	u32 i, j, ret;
 
-	for (i = 0; i < rp_work_count; ++i) {
-		for (j = 0; j < rp_thread_count; ++j) {
-			u8 *nwm_buf = (u8 *)plgRequestMemory(rp_nwm_buffer_size);
+	for (i = 0; i < RP_WORK_COUNT; ++i) {
+		for (j = 0; j < RP_CORE_COUNT_MAX; ++j) {
+			u8 *nwm_buf = (u8 *)plgRequestMemory(RP_NWM_BUFFER_SIZE);
 			if (!nwm_buf) {
 				goto final;
 			}
-			rpDataBuf[i][j] = nwm_buf + rp_nwm_hdr_size;
-			rpPacketBufLast[i][j] = nwm_buf + rp_nwm_buffer_size - rp_packet_data_size;
+			rpDataBuf[i][j] = nwm_buf + RP_NWM_HDR_SIZE;
+			rpPacketBufLast[i][j] = nwm_buf + RP_NWM_BUFFER_SIZE - RP_PACKET_DATA_SIZE;
 		}
 	}
 
 	for (j = 0; j < SCREEN_COUNT; ++j) {
-		for (i = 0; i < rp_screen_work_count; ++i) {
-			imgBuffer[j][i] = (u8 *)plgRequestMemory(rp_img_buffer_size);
+		for (i = 0; i < RP_SCREEN_WORK_COUNT; ++i) {
+			imgBuffer[j][i] = (u8 *)plgRequestMemory(RP_IMG_BUFFER_SIZE);
 			if (!imgBuffer[j][i]) {
 				goto final;
 			}
 		}
 	}
 
-	for (i = 0; i < rp_cinfos_count; ++i) {
+	for (i = 0; i < RP_CINFOS_COUNT; ++i) {
 		if (i == 0)
 			cinfo_alloc_sizes[i] = 0x18000;
 		else if (i == 1)
@@ -1417,9 +1416,9 @@ static void rpThreadMain(void *) {
 		if (rpCoreCount < 1) {
 			rpCoreCount = 1;
 			ASR(&rpConfig->coreCount, 1);
-		} else if (rpCoreCount > rp_thread_count) {
-			rpCoreCount = rp_thread_count;
-			ASR(&rpConfig->coreCount, rp_thread_count);
+		} else if (rpCoreCount > RP_CORE_COUNT_MAX) {
+			rpCoreCount = RP_CORE_COUNT_MAX;
+			ASR(&rpConfig->coreCount, RP_CORE_COUNT_MAX);
 		}
 
 		{
@@ -1440,15 +1439,15 @@ static void rpThreadMain(void *) {
 		rpMinIntervalBetweenPacketsInNS = (u64)rpMinIntervalBetweenPacketsInTick * 1000000000 / SYSCLOCK_ARM11;
 
 		{
-			for (j = 0; j < rp_cinfos_count; ++j)
+			for (j = 0; j < RP_CINFOS_COUNT; ++j)
 				cinfos[j]->global_state = JPEG_CSTATE_START;
 			jpeg_set_quality(cinfos[0], ALR(&rpConfig->quality), TRUE);
-			for (j = 1; j < rp_cinfos_count; ++j)
+			for (j = 1; j < RP_CINFOS_COUNT; ++j)
 				for (i = 0; i < NUM_QUANT_TBLS; ++i)
 					cinfos[j]->quant_tbl_ptrs[i] = cinfos[0]->quant_tbl_ptrs[i];
 
-			for (i = 0; i < rp_work_count; ++i) {
-				for (j = 0; j < rp_thread_count; ++j) {
+			for (i = 0; i < RP_WORK_COUNT; ++i) {
+				for (j = 0; j < RP_CORE_COUNT_MAX; ++j) {
 					if (!alloc_stats_top[i][j].qual.offset) {
 						memcpy(&alloc_stats_top[i][j].qual, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
 					} else {
@@ -1466,14 +1465,14 @@ static void rpThreadMain(void *) {
 			jpeg_jinit_forward_dct(cinfos[0]);
 			cinfos[0]->fdct_reuse = TRUE;
 
-			for (j = 1; j < rp_cinfos_count; ++j) {
+			for (j = 1; j < RP_CINFOS_COUNT; ++j) {
 				cinfos[j]->fdct = cinfos[0]->fdct;
 				cinfos[j]->fdct_reuse = TRUE;
 			}
 
 			jpeg_start_pass_fdctmgr(cinfos[0]);
 
-			for (int h = 0; h < rp_work_count; ++h) {
+			for (int h = 0; h < RP_WORK_COUNT; ++h) {
 				for (i = 0; i < (sizeof(*prep_buffers) / sizeof(**prep_buffers)); ++i) {
 					for (int ci = 0; ci < MAX_COMPONENTS; ++ci) {
 						prep_buffers[h][i][ci] = jpeg_alloc_sarray((j_common_ptr)cinfos[h], JPOOL_IMAGE,
@@ -1494,7 +1493,7 @@ static void rpThreadMain(void *) {
 				}
 			}
 
-			for (int i = 0; i < rp_work_count; ++i) {
+			for (int i = 0; i < RP_WORK_COUNT; ++i) {
 				for (j = 0; j < rpCoreCount; ++j) {
 					memcpy(&alloc_stats_top[i][j].comp, &cinfos_top[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
 					memcpy(&alloc_stats_bot[i][j].comp, &cinfos_bot[i][j].alloc.stats, sizeof(struct rp_alloc_stats));
@@ -1511,15 +1510,15 @@ static void rpThreadMain(void *) {
 		rpCurrentUpdating = rpIsPriorityTop;
 		frameCount[0] = frameCount[1] = 1;
 		frameQueued[0] = frameQueued[1] = rpPriorityFactorLogScaled;
-		for (int i = 0; i < rp_work_count; ++i) {
+		for (int i = 0; i < RP_WORK_COUNT; ++i) {
 			nextScreenCaptured[i] = 0;
 		}
 		rpLastSendTick = svcGetSystemTick();
 
-		for (i = 0; i < rp_work_count; ++i) {
+		for (i = 0; i < RP_WORK_COUNT; ++i) {
 			for (j = 0; j < rpCoreCount; ++j) {
 				struct rpDataBufInfo_t *info = &rpDataBufInfo[i][j];
-				info->sendPos = info->pos = rpDataBuf[i][j] + rp_data_hdr_size;
+				info->sendPos = info->pos = rpDataBuf[i][j] + RP_DATA_HDR_SIZE;
 				info->flag = 0;
 
 				jpeg_progress[i][j] = 0;
@@ -1541,7 +1540,7 @@ static void rpThreadMain(void *) {
 			goto final;
 		}
 
-		for (i = 0; i < rp_work_count; ++i) {
+		for (i = 0; i < RP_WORK_COUNT; ++i) {
 			ret = svcCreateSemaphore(&rp_syn->work[i].sem_end, 1, 1);
 			if (ret != 0) {
 				nsDbgPrint("Create semaphore sem_end (%"PRId32") failed: %08"PRIx32"\n", i, ret);
@@ -1562,12 +1561,12 @@ static void rpThreadMain(void *) {
 			rp_syn->work[i].sem_set = 0;
 		}
 		for (j = 0; j < rpCoreCount; ++j) {
-			ret = svcCreateSemaphore(&rp_syn->thread[j].sem_start, 0, rp_work_count);
+			ret = svcCreateSemaphore(&rp_syn->thread[j].sem_start, 0, RP_WORK_COUNT);
 			if (ret != 0) {
 				nsDbgPrint("Create semaphore sem_start (%"PRId32") failed: %08"PRIx32"\n", i, ret);
 				goto final;
 			}
-			ret = svcCreateSemaphore(&rp_syn->thread[j].sem_work, 0, rp_work_count);
+			ret = svcCreateSemaphore(&rp_syn->thread[j].sem_work, 0, RP_WORK_COUNT);
 			if (ret != 0) {
 				nsDbgPrint("Create semaphore sem_work (%"PRId32") failed: %08"PRIx32"\n", i, ret);
 				goto final;
@@ -1623,7 +1622,7 @@ static void rpThreadMain(void *) {
 		svcWaitSynchronization(hThreadScreenCap, -1);
 		svcCloseHandle(hThreadScreenCap);
 
-		for (i = 0; i < rp_work_count; ++i) {
+		for (i = 0; i < RP_WORK_COUNT; ++i) {
 			svcCloseHandle(rp_syn->work[i].sem_end);
 			svcCloseHandle(rp_syn->work[i].sem_nwm);
 			svcCloseHandle(rp_syn->work[i].sem_send);

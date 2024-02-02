@@ -48,7 +48,7 @@ static void paint_pixel(u32 x, u32 y, u8 r, u8 g, u8 b, u32 addr){
 	write_color(addr + coord, r, g, b);
 }
 
-static void blank(void) {
+void blank(void) {
 	memset((void *)BOTTOM_FRAME, 255, BOTTOM_UI_FRAME_SIZE);
 }
 
@@ -92,7 +92,6 @@ static void lockGameProcess(void) {
 				hGameProcess = 0;
 			}
 		} else {
-			nsDbgPrint("Open game process failed: %08"PRIx32"\n", res);
 			hGameProcess = 0;
 		}
 	}
@@ -171,6 +170,11 @@ static void uiScanInput(void) {
 	}
 }
 
+static u32 uiKeysHeld(void)
+{
+	return kHeld;
+}
+
 static u32 uiKeysDown(void)
 {
 	return kDown;
@@ -198,6 +202,18 @@ u32 waitKeys(void) {
 		keys = uiKeysDown() | uiKeysDownRepeat();
 	} while (keys == 0);
 	return keys;
+}
+
+void debounceKeys(void) {
+	do {
+		if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
+			waitKeysDelay3();
+		} else {
+			waitKeysDelay();
+		}
+
+		uiScanInput();
+	} while (uiKeysHeld() != 0);
 }
 
 #include "font.h"
@@ -254,7 +270,7 @@ static int drawString(const char *str, int x, int y, u8 r, u8 g, u8 b, int newLi
 	return totalLen;
 }
 
-static int print(const char *s, int x, int y, u8 r, u8 g, u8 b) {
+int print(const char *s, int x, int y, u8 r, u8 g, u8 b) {
 	return drawString(s, x, y, r, g, b, 1);
 }
 
@@ -279,6 +295,7 @@ void showMsgRaw2(const char *title, const char *msg) {
 			break;
 		}
 	}
+	debounceKeys();
 	releaseVideo();
 }
 

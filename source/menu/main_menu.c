@@ -196,6 +196,14 @@ static void showGamePluginMenu(void) {
 	}
 }
 
+enum {
+	PLUGIN_MENU_ENABLE_PLUGINS,
+	PLUGIN_MENU_CTRPF_COMPAT,
+	PLUGIN_MENU_REMOTE_PLAY_BOOST,
+	PLUGIN_MENU_NO_LOADER_MEM,
+	PLUGIN_MENU_COUNT,
+};
+
 static int pluginLoaderMenu(void) {
 	const char *enablePlugins = plgTranslate("Game Plugin Loader (Disabled)");
 	const char *disablePlugins = plgTranslate("Game Plugin Loader (Enabled)");
@@ -206,52 +214,47 @@ static int pluginLoaderMenu(void) {
 	const char *enableLoaderMemText = plgTranslate("Loader Mem Compat (Disabled)");
 	const char *disableLoaderMemText = plgTranslate("Loader Mem Compat (Enabled)");
 
-	const char *entries[4];
-	const char *descs[4];
-	descs[0] = plgTranslate("Whether game plugins will be loaded.");
-	descs[1] = plgTranslate("Avoid crash in CTRPF based plugins by\ndisabling all overlay features.");
-	descs[2] = plgTranslate("Improve Remote Play performance by\nusing overlay callback for screen\nupdate timing.\nIncompatible with CTRPF.");
-	descs[3] = plgTranslate("Keep enabled (default) for higher\ngame plugin compatibility.\nDisabling can help prevent game\nhanging but some plugins will crash.");
+	const char *entries[PLUGIN_MENU_COUNT];
+	const char *descs[PLUGIN_MENU_COUNT];
+	descs[PLUGIN_MENU_ENABLE_PLUGINS] = plgTranslate("Whether game plugins will be loaded.");
+	descs[PLUGIN_MENU_CTRPF_COMPAT] = plgTranslate("Avoid crash in CTRPF based plugins by\ndisabling all overlay features.");
+	descs[PLUGIN_MENU_REMOTE_PLAY_BOOST] = plgTranslate("Improve Remote Play performance by\nusing overlay callback for screen\nupdate timing.\nIncompatible with CTRPF.");
+	descs[PLUGIN_MENU_NO_LOADER_MEM] = plgTranslate("Keep enabled (default) for higher\ngame plugin compatibility.\nDisabling can help prevent game\nhanging but some plugins will crash.");
 
 	s32 r = 0;
 	while (1) {
-		entries[0] = plgLoaderEx->noPlugins ? enablePlugins : disablePlugins;
-		entries[1] = plgLoaderEx->CTRPFCompat ? disableCTRPFCompatText : enableCTRPFCompatText;
-		entries[2] = plgLoaderEx->remotePlayBoost ? disableRPCallbackText : enableRPCallbackText;
-		entries[3] = plgLoaderEx->noLoaderMem ? enableLoaderMemText : disableLoaderMemText;
+		entries[PLUGIN_MENU_ENABLE_PLUGINS] = plgLoaderEx->noPlugins ? enablePlugins : disablePlugins;
+		entries[PLUGIN_MENU_CTRPF_COMPAT] = plgLoaderEx->CTRPFCompat ? disableCTRPFCompatText : enableCTRPFCompatText;
+		entries[PLUGIN_MENU_REMOTE_PLAY_BOOST] = plgLoaderEx->remotePlayBoost ? disableRPCallbackText : enableRPCallbackText;
+		entries[PLUGIN_MENU_NO_LOADER_MEM] = plgLoaderEx->noLoaderMem ? enableLoaderMemText : disableLoaderMemText;
 
-		r = showMenuEx("Plugin Loader", 4, entries, descs, r);
+		r = showMenuEx("Plugin Loader", PLUGIN_MENU_COUNT, entries, descs, r);
 		switch (r) {
 			default:
 				return 0;
 
-			case 0:
+			case PLUGIN_MENU_ENABLE_PLUGINS:
 				plgLoaderEx->noPlugins = !plgLoaderEx->noPlugins;
 				break;
 
-			case 1:
+			case PLUGIN_MENU_CTRPF_COMPAT:
 				plgLoaderEx->CTRPFCompat = !plgLoaderEx->CTRPFCompat;
 				if (plgLoaderEx->CTRPFCompat)
 					plgLoaderEx->remotePlayBoost = 0;
 				break;
 
-			case 2:
+			case PLUGIN_MENU_REMOTE_PLAY_BOOST:
 				plgLoaderEx->remotePlayBoost = !plgLoaderEx->remotePlayBoost;
 				if (plgLoaderEx->remotePlayBoost)
 					plgLoaderEx->CTRPFCompat = 0;
 				break;
 
-			case 3:
+			case PLUGIN_MENU_NO_LOADER_MEM:
 				plgLoaderEx->noLoaderMem = !plgLoaderEx->noLoaderMem;
 				break;
 
 		}
 	}
-	return 0;
-}
-
-static int remotePlayMenu(u32) {
-	// TODO
 	return 0;
 }
 
@@ -314,6 +317,7 @@ static void showMainMenu(void) {
 		}
 	}
 done:
+	debounceKeys();
 	releaseVideo();
 }
 

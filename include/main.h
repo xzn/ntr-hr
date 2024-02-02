@@ -65,6 +65,7 @@ void handlePortThreadPre(void);
 void handlePortThread(void *arg);
 Handle rpGetPortHandle(void);
 void rpSetGamePid(u32 gamePid);
+int remotePlayMenu(u32 localaddr);
 int nsDbgNext(void);
 u32 plgRegisterCallback(u32 type, void* callback, u32);
 u32 plgSetValue(u32 index, u32 value);
