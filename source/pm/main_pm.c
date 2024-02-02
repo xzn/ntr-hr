@@ -266,6 +266,7 @@ static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
 		ret = svcCreateThread(&plgThreadHandle, plgMonitorThread, 0, &plgThreadStack[(STACK_SIZE / 4) - 10], 0x10, 1);
 		if (ret != 0) {
 			nsDbgPrint("Create monitor thread: %08"PRIx32"\n", ret);
+			plgThreadHandle = 0;
 			goto final_error;
 		}
 	}
