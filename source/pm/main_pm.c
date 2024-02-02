@@ -390,7 +390,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 	return 0;
 
 error_alloc:
-	pmFreeLoaderMemPool(0);
+	pmWaitFreeLoaderMemPool();
 	return ret;
 }
 
