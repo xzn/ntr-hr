@@ -1068,10 +1068,7 @@ static int rpCaptureScreen(u32 work_next, int isTop) {
 	}
 
 final:
-	u32 pid = 0;
-	svcGetProcessId(&pid, hProcess);
-	nsDbgPrint("Capture screen failed: phys %08"PRIx32", hProc %08"PRIx32", pid %04"PRIx32"\n", phys, hProcess, pid);
-	svcSleepThread(1000000000);
+	svcSleepThread(100000000);
 	rpHDma[work_next] = 0;
 	return -1;
 }
