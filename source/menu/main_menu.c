@@ -300,6 +300,10 @@ static void createSvcHandleThread(void) {
 	}
 }
 
+void nsDbgPrintVerboseVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list arp) {
+	nsDbgPrintVerboseVABuf(file_name, line_number, func_name, fmt, arp);
+}
+
 void mainThread(void *) {
 	Result ret;
 	ret = initDirectScreenAccess();

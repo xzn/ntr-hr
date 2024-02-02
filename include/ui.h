@@ -9,6 +9,7 @@ int showMsgVA(const char *file_name, int line_number, const char *func_name, con
 int showMsgRaw(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define showMsg(fmt, ...) showMsgVerbose(__FILE__, __LINE__, __func__, fmt, ## __VA_ARGS__)
 int showMsgVerbose(const char *file_name, int line_number, const char *func_name, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
+void printTitleAndMsg(char title[LOCAL_TITLE_BUF_SIZE], const char *file_name, int line_number, const char *func_name, char msg[LOCAL_MSG_BUF_SIZE], const char* fmt, va_list va);
 
 #define showDbg(fmt, ...) do { \
 	if (!showDbgFunc) \

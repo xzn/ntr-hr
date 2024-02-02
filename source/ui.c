@@ -61,13 +61,7 @@ int __attribute__((weak)) showMsgVAPre() {
 	return 0;
 }
 
-int __attribute__((weak)) showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
-	s32 ret = showMsgVAPre();
-	if (ret != 0)
-		return 0;
-
-	char title[LOCAL_TITLE_BUF_SIZE];
-
+void printTitleAndMsg(char title[LOCAL_TITLE_BUF_SIZE], const char *file_name, int line_number, const char *func_name, char msg[LOCAL_MSG_BUF_SIZE], const char* fmt, va_list va) {
 	if (file_name && func_name) {
 		u64 ticks = svcGetSystemTick();
 		u64 mono_us = ticks * 1000000000ULL / SYSCLOCK_ARM11;
@@ -76,9 +70,17 @@ int __attribute__((weak)) showMsgVA(const char *file_name, int line_number, cons
 	} else {
 		*title = 0;
 	}
-
-	char msg[LOCAL_MSG_BUF_SIZE];
 	xvsnprintf(msg, LOCAL_MSG_BUF_SIZE, fmt, va);
+}
+
+int __attribute__((weak)) showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
+	s32 ret = showMsgVAPre();
+	if (ret != 0)
+		return 0;
+
+	char title[LOCAL_TITLE_BUF_SIZE];
+	char msg[LOCAL_MSG_BUF_SIZE];
+	printTitleAndMsg(title, file_name, line_number, func_name, msg, fmt, va);
 
 	showMsgRaw2(*title ? title : NULL, msg);
 

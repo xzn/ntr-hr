@@ -10,6 +10,8 @@
 #include <stdarg.h>
 
 void nsDbgPrint2(const char *title, const char *msg);
+void nsDbgPrintVerboseVABuf(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list arp);
+void nsDbgPrintVerboseVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list arp);
 void nsDbgPrintRaw(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define nsDbgPrint(fmt, ...) nsDbgPrintVerbose(__FILE__, __LINE__, __func__, fmt, ## __VA_ARGS__)
 void nsDbgPrintVerbose(const char *file_name, int line_number, const char *func_name, const char* fmt, ...) __attribute__((format(printf, 4, 5)));

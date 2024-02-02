@@ -2,6 +2,7 @@
 
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
+#include "3ds/ipc.h"
 
 #include <memory.h>
 #include <arpa/inet.h>
@@ -24,21 +25,23 @@ typedef struct {
 } NS_PACKET;
 
 typedef struct {
-	u8 debugBuf[DEBUG_BUF_SIZE + 20];
+	u8 debugBuf[2][DEBUG_BUF_SIZE + 20];
 	NS_PACKET packetBuf;
 	u32 hSocket;
+	u32 debugWhich;
 	u32 remainDataLen;
 } NS_CONTEXT;
 
 static NS_CONTEXT *const nsContext = (NS_CONTEXT *)NS_CTX_ADDR;
 
-static u8 *const nsDbgBuf = nsContext->debugBuf;
-static u8 *const nsDbgBufEnd = nsContext->debugBuf + DEBUG_BUF_SIZE;
+static u8 *const nsDbgBuf[2] = { nsContext->debugBuf[0], nsContext->debugBuf[1] };
+static u8 *const nsDbgBufEnd[2] = { nsContext->debugBuf[0] + DEBUG_BUF_SIZE, nsContext->debugBuf[1] + DEBUG_BUF_SIZE };
+static u32 *const nsDbgWhich = &nsContext->debugWhich;
 
 static void nsDbgPutc(void *, void const *src, size_t len) {
 	const char *s = src;
 	while (len) {
-		if (nsConfig->debugPtr == nsDbgBufEnd)
+		if (nsConfig->debugPtr == nsDbgBufEnd[*nsDbgWhich])
 			return;
 		*nsConfig->debugPtr++ = *s++;
 		--len;
@@ -46,11 +49,11 @@ static void nsDbgPutc(void *, void const *src, size_t len) {
 }
 
 static void nsDbgLn() {
-	if (nsConfig->debugPtr == nsDbgBuf) {
+	if (nsConfig->debugPtr == nsDbgBuf[*nsDbgWhich]) {
 		return;
-	} else if (nsConfig->debugPtr == nsDbgBufEnd) {
-		if (nsDbgBufEnd[-1] != '\n') {
-			nsDbgBufEnd[-1] = '\n';
+	} else if (nsConfig->debugPtr == nsDbgBufEnd[*nsDbgWhich]) {
+		if (nsDbgBufEnd[*nsDbgWhich][-1] != '\n') {
+			nsDbgBufEnd[*nsDbgWhich][-1] = '\n';
 		}
 	} else {
 		if (nsConfig->debugPtr[-1] != '\n') {
@@ -62,7 +65,7 @@ static void nsDbgLn() {
 
 static void nsDbgCpy(const char *msg) {
 	while (*msg) {
-		if (nsConfig->debugPtr == nsDbgBufEnd)
+		if (nsConfig->debugPtr == nsDbgBufEnd[*nsDbgWhich])
 			return;
 		*nsConfig->debugPtr++ = *msg++;
 	}
@@ -96,7 +99,7 @@ static void nsDbgPrintRawInternal(const char *fmt, ...) {
 	va_end(arp);
 }
 
-static void nsDbgPrintVerboseVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list arp) {
+void nsDbgPrintVerboseVABuf(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list arp) {
 	if (ALC(&nsConfig->debugReady)) {
 		rtAcquireLock(&nsConfig->debugBufferLock);
 		nsDbgLn();
@@ -113,6 +116,29 @@ static void nsDbgPrintVerboseVA(const char *file_name, int line_number, const ch
 		nsDbgPrintVAInternal(fmt, arp);
 
 		rtReleaseLock(&nsConfig->debugBufferLock);
+	}
+}
+
+void __attribute__((weak)) nsDbgPrintVerboseVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list arp) {
+	if (ntrConfig->ex.nsUseDbg) {
+		nsDbgPrintVerboseVABuf(file_name, line_number, func_name, fmt, arp);
+		return;
+	}
+
+	Handle hClient = menuGetPortHandle();
+	if (hClient) {
+		char title[LOCAL_TITLE_BUF_SIZE];
+		char msg[LOCAL_MSG_BUF_SIZE];
+		printTitleAndMsg(title, file_name, line_number, func_name, msg, fmt, arp);
+
+		u32* cmdbuf = getThreadCommandBuffer();
+		cmdbuf[0] = IPC_MakeHeader(SVC_MENU_CMD_DBG_PRINT, 0, 4);
+		cmdbuf[1] = IPC_Desc_StaticBuffer(strlen(title) + 1, 0);
+		cmdbuf[2] = (u32)title;
+		cmdbuf[3] = IPC_Desc_StaticBuffer(strlen(msg) + 1, 1);
+		cmdbuf[4] = (u32)msg;
+
+		svcSendSyncRequest(menuGetPortHandle());
 	}
 }
 
@@ -277,13 +303,17 @@ void nsHandleDbgPrintPacket(void) {
 	if (pac->cmd == NS_CMD_HEARTBEAT) {
 		rtAcquireLock(&nsConfig->debugBufferLock);
 		nsDbgLn();
-		pac->dataLen = nsConfig->debugPtr - nsDbgBuf;
+		pac->dataLen = nsConfig->debugPtr - nsDbgBuf[*nsDbgWhich];
+		u8 *buf = nsDbgBuf[*nsDbgWhich];
+
+		*nsDbgWhich = (*nsDbgWhich + 1) % 2;
+		nsConfig->debugPtr = nsDbgBuf[*nsDbgWhich];
+		rtReleaseLock(&nsConfig->debugBufferLock);
+
 		nsSendPacketHeader();
 		if (pac->dataLen > 0) {
-			nsSendPacketData(nsDbgBuf, pac->dataLen);
+			nsSendPacketData(buf, pac->dataLen);
 		}
-		nsConfig->debugPtr = nsDbgBuf;
-		rtReleaseLock(&nsConfig->debugBufferLock);
 	}
 }
 
@@ -420,7 +450,7 @@ int nsStartup(void) {
 
 	if (!ALC(&nsConfig->debugReady)) {
 		rtInitLock(&nsConfig->debugBufferLock);
-		nsConfig->debugPtr = nsDbgBuf;
+		nsConfig->debugPtr = nsDbgBuf[*nsDbgWhich];
 		ASL(&nsConfig->debugReady, 1);
 	}
 
