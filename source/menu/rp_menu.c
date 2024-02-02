@@ -41,7 +41,6 @@ enum {
 	REMOTE_PLAY_MENU_VIEWER_PORT,
 
 	REMOTE_PLAY_MENU_APPLY,
-	REMOTE_PLAY_MENU_NFC_PATCH,
 
 	REMOTE_PLAY_MENU_COUNT,
 };
@@ -126,52 +125,6 @@ static void ipAddrMenu(u32 *addr) {
 			return;
 		}
 	}
-}
-
-static void rpDoNFCPatch(void) {
-	int pid = 0x1a; // nwm process
-	Handle hProcess;
-	int ret;
-	if ((ret = svcOpenProcess(&hProcess, pid))) {
-		showMsg("Failed to open nwm process");
-		return;
-	}
-
-	u32 addr = 0x0105AE4;
-	u16 buf;
-	if ((ret = rtCheckRemoteMemory(hProcess, addr, sizeof(buf), MEMPERM_READ))) {
-		showMsg("Failed to protect nwm memory");
-		goto final;
-	}
-
-	if ((ret = copyRemoteMemory(CUR_PROCESS_HANDLE, &buf, hProcess, (void *)addr, sizeof(buf)))) {
-		showMsg("Failed to read nwm memory");
-		goto final;
-	}
-
-	if (buf == 0x4620) {
-		nsDbgPrint("patching NFC (11.4) firm\n");
-		addr = 0x0105B00;
-	} else {
-		nsDbgPrint("patching NFC (<= 11.3) firm\n");
-	}
-
-	if ((ret = rtCheckRemoteMemory(hProcess, addr, sizeof(buf), MEMPERM_READWRITE | MEMPERM_EXECUTE))) {
-		showMsg("Failed to protect nwm memory for write");
-		goto final;
-	}
-
-	buf = 0x4770;
-	if ((ret = copyRemoteMemory(hProcess, (void *)addr, CUR_PROCESS_HANDLE, &buf, sizeof(buf)))) {
-		showMsg("Failed to write nwm memory");
-		goto final;
-	}
-
-	showMsg("NFC patch success");
-
-final:
-	svcCloseHandle(hProcess);
-	return;
 }
 
 static void tryInitRemotePlay(u32 dstAddr) {
@@ -327,8 +280,7 @@ int remotePlayMenu(u32 localaddr) {
 		captions[REMOTE_PLAY_MENU_QOS] = qosCaption;
 		captions[REMOTE_PLAY_MENU_VIEWER_IP] = dstAddrCaption;
 		captions[REMOTE_PLAY_MENU_VIEWER_PORT] = dstPortCaption;
-		captions[REMOTE_PLAY_MENU_APPLY] = "Apply (Above Options)";
-		captions[REMOTE_PLAY_MENU_NFC_PATCH] = "NFC Patch";
+		captions[REMOTE_PLAY_MENU_APPLY] = "Apply";
 
 		const char *descs[REMOTE_PLAY_MENU_COUNT] = { 0 };
 		descs[REMOTE_PLAY_MENU_THREAD_PRIORITY] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
@@ -491,13 +443,6 @@ int remotePlayMenu(u32 localaddr) {
 				acquireVideo();
 
 				return 1;
-			}
-				break;
-
-			case REMOTE_PLAY_MENU_NFC_PATCH: if (keys == KEY_A) { /* nfc patch */
-				releaseVideo();
-				rpDoNFCPatch();
-				acquireVideo();
 			}
 				break;
 		}

@@ -8,7 +8,13 @@
 
 #include <memory.h>
 
-static u32 NTRMenuHotkey = KEY_X | KEY_Y;
+enum {
+	MENU_HOTKEY_X_Y = KEY_X | KEY_Y,
+	MENU_HOTKEY_L_START = KEY_L | KEY_START,
+	MENU_HOTKEY_DEFAULT = MENU_HOTKEY_X_Y,
+};
+
+static u32 NTRMenuHotkey = MENU_HOTKEY_DEFAULT;
 static int cpuClockLockValue = -1;
 
 static void lockCpuClock(void) {
@@ -258,9 +264,89 @@ static int pluginLoaderMenu(void) {
 	return 0;
 }
 
+static void rpDoNFCPatch(void) {
+	int pid = 0x1a; // nwm process
+	Handle hProcess;
+	int ret;
+	if ((ret = svcOpenProcess(&hProcess, pid))) {
+		showMsg("Failed to open nwm process");
+		return;
+	}
+
+	u32 addr = 0x0105AE4;
+	u16 buf;
+	if ((ret = rtCheckRemoteMemory(hProcess, addr, sizeof(buf), MEMPERM_READ))) {
+		showMsg("Failed to protect nwm memory");
+		goto final;
+	}
+
+	if ((ret = copyRemoteMemory(CUR_PROCESS_HANDLE, &buf, hProcess, (void *)addr, sizeof(buf)))) {
+		showMsg("Failed to read nwm memory");
+		goto final;
+	}
+
+	if (buf == 0x4620) {
+		nsDbgPrint("patching NFC (11.4) firm\n");
+		addr = 0x0105B00;
+	} else {
+		nsDbgPrint("patching NFC (<= 11.3) firm\n");
+	}
+
+	if ((ret = rtCheckRemoteMemory(hProcess, addr, sizeof(buf), MEMPERM_READWRITE | MEMPERM_EXECUTE))) {
+		showMsg("Failed to protect nwm memory for write");
+		goto final;
+	}
+
+	buf = 0x4770;
+	if ((ret = copyRemoteMemory(hProcess, (void *)addr, CUR_PROCESS_HANDLE, &buf, sizeof(buf)))) {
+		showMsg("Failed to write nwm memory");
+		goto final;
+	}
+
+	showMsg("NFC patch success");
+
+final:
+	svcCloseHandle(hProcess);
+	return;
+}
+
+enum {
+	HOTKEY_ENTRY_X_Y,
+	HOTKEY_ENTRY_L_START,
+
+	HOTKEY_ENTRIES_COUNT,
+};
+
+static int setHotkeyMenu() {
+	char const *entries[HOTKEY_ENTRIES_COUNT];
+	entries[HOTKEY_ENTRY_X_Y] = "NTR Menu: X+Y";
+	entries[HOTKEY_ENTRY_L_START] = "NTR Menu: L+START";
+
+	u32 menu_hotkey_map[HOTKEY_ENTRIES_COUNT];
+	menu_hotkey_map[HOTKEY_ENTRY_X_Y] = MENU_HOTKEY_X_Y;
+	menu_hotkey_map[HOTKEY_ENTRY_L_START] = MENU_HOTKEY_L_START;
+	int r = 0;
+
+	for (int i = 0; i < HOTKEY_ENTRIES_COUNT; ++i) {
+		if (menu_hotkey_map[i] == NTRMenuHotkey) {
+			r = i;
+			break;
+		}
+	}
+
+	r = showMenuEx(NTR_CFW_VERSION, HOTKEY_ENTRIES_COUNT, entries, NULL, r);
+	if (r >= 0 && r < HOTKEY_ENTRIES_COUNT) {
+		NTRMenuHotkey = menu_hotkey_map[r];
+		return 1;
+	}
+	return 0;
+}
+
 enum {
 	MENU_ENTRY_REMOTETPLAY,
 	MENU_ENTRY_PLUGIN_LOADER,
+	MENU_ENTRY_HOTKEY,
+	MENU_ENTRY_NFC_PATCH,
 
 	MENU_ENTRIES_COUNT,
 	MENU_ENTRY_GAME_PLUGIN = MENU_ENTRIES_COUNT,
@@ -273,12 +359,17 @@ static void showMainMenu(void) {
 	const char *entries[MENU_ENTRIES_COUNT_MAX];
 	entries[MENU_ENTRY_REMOTETPLAY] = plgTranslate("Remote Play (New 3DS)");
 	entries[MENU_ENTRY_PLUGIN_LOADER] = plgTranslate("Plugin Loader");
+	entries[MENU_ENTRY_HOTKEY] = plgTranslate("Set Menu Hotkey");
+	entries[MENU_ENTRY_NFC_PATCH] = plgTranslate("NFC Patch");
 	u32 count = MENU_ENTRIES_COUNT;
 
 	if (loadGamePluginMenu() == 0) {
 		entries[MENU_ENTRY_GAME_PLUGIN] = plgTranslate("Game Plugin");
 		count = MENU_ENTRIES_COUNT_GAME;
 	}
+
+	const char *descs[MENU_ENTRIES_COUNT_MAX] = { 0 };
+	descs[MENU_ENTRY_NFC_PATCH] = "Allow remote play to continue in games\nsuch as USUM.";
 
 	u32 localAddr = gethostid();
 
@@ -293,7 +384,7 @@ static void showMainMenu(void) {
 	acquireVideo();
 	s32 r = 0;
 	while (1) {
-		r = showMenuEx(title, count, entries, NULL, r);
+		r = showMenuEx(title, count, entries, descs, r);
 
 		switch (r) {
 			case MENU_ENTRY_REMOTETPLAY:
@@ -311,6 +402,18 @@ static void showMainMenu(void) {
 			case MENU_ENTRY_GAME_PLUGIN:
 				showGamePluginMenu();
 				goto done;
+
+			case MENU_ENTRY_HOTKEY:
+				if (setHotkeyMenu() != 0) {
+					goto done;
+				}
+				break;
+
+			case MENU_ENTRY_NFC_PATCH:
+				releaseVideo();
+				rpDoNFCPatch();
+				acquireVideo();
+				break;
 
 			default:
 				goto done;
