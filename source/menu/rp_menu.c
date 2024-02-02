@@ -156,7 +156,7 @@ static void rpDoNFCPatch(void) {
 		nsDbgPrint("patching NFC (<= 11.3) firm\n");
 	}
 
-	if ((ret = rtCheckRemoteMemory(hProcess, addr, sizeof(buf), MEMPERM_WRITE))) {
+	if ((ret = rtCheckRemoteMemory(hProcess, addr, sizeof(buf), MEMPERM_READWRITE | MEMPERM_EXECUTE))) {
 		showMsg("Failed to protect nwm memory for write");
 		goto final;
 	}
