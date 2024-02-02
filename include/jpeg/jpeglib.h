@@ -275,6 +275,9 @@ typedef enum {
   JCS_EXT_BGRA,           /* blue/green/red/alpha */
   JCS_EXT_ABGR,           /* alpha/blue/green/red */
   JCS_EXT_ARGB,           /* alpha/red/green/blue */
+  JCS_EXT_RGB565,
+  JCS_EXT_RGB5A1,
+  JCS_EXT_RGB4,
   JCS_RGB565              /* 5-bit red/6-bit green/5-bit blue */
 } J_COLOR_SPACE;
 

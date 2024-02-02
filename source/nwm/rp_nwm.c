@@ -587,7 +587,11 @@ static void rpReadyWork(BLIT_CONTEXT *ctx, u32 work_next) {
 		cinfo->image_width = ctx->height;
 		cinfo->image_height = ctx->width;
 		cinfo->input_components = ctx->format == 0 ? 4 : 3;
-		cinfo->in_color_space = ctx->format == 0 ? JCS_EXT_XBGR : ctx->format == 1 ? JCS_EXT_BGR : JCS_RGB565;
+		cinfo->in_color_space =
+			ctx->format == 0 ? JCS_EXT_XBGR :
+			ctx->format == 1 ? JCS_EXT_BGR :
+			ctx->format == 2 ? JCS_EXT_RGB565 :
+			ctx->format == 3 ? JCS_EXT_RGB5A1 : JCS_EXT_RGB4;
 
 		cinfo->restart_in_rows = jpeg_adjusted_rows[work_next];
 		cinfo->restart_interval = cinfo->restart_in_rows * mcus_per_row;
@@ -972,7 +976,7 @@ static int rpCaptureScreen(u32 work_next, int isTop) {
 
 	u32 format = (isTop ? tl_format : bl_format) & 0x0f;
 
-	if (format >= 3)
+	if (format > 3) // TODO add RGB4 support (in modified libjpeg-turbo)
 		goto final;
 
 	u32 bpp; /* bytes per pixel */

@@ -77,6 +77,9 @@ typedef size_t JUINTPTR;
 #define IsExtRGB(cs) \
   (cs == JCS_RGB || (cs >= JCS_EXT_RGB && cs <= JCS_EXT_ARGB))
 
+#define IsExtRGB2(cs) \
+  (cs >= JCS_EXT_RGB565 && cs <= JCS_EXT_RGB4)
+
 /*
  * Left shift macro that handles a negative operand without causing any
  * sanitizer warnings

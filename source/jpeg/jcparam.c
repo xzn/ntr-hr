@@ -301,7 +301,9 @@ jpeg_default_colorspace(j_compress_ptr cinfo)
   case JCS_EXT_BGRA:
   case JCS_EXT_ABGR:
   case JCS_EXT_ARGB:
-  case JCS_RGB565:
+  case JCS_EXT_RGB565:
+  case JCS_EXT_RGB5A1:
+  case JCS_EXT_RGB4:
     if (cinfo->master->lossless)
       jpeg_set_colorspace(cinfo, JCS_RGB);
     else
