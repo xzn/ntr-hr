@@ -7,17 +7,15 @@
 #include <errno.h>
 
 void rtInitLock(RT_LOCK *lock) {
-	ACL(lock);
+	LightLock_Init(lock);
 }
 
 void rtAcquireLock(RT_LOCK *lock) {
-	while (ATSC(lock)) {
-		svcSleepThread(1000000);
-	}
+	LightLock_Lock(lock);
 }
 
 void rtReleaseLock(RT_LOCK *lock) {
-	ACL(lock);
+	LightLock_Unlock(lock);
 }
 
 void rtGenerateJumpCode(u32 dst, u32* buf) {

@@ -356,8 +356,15 @@ void nsDbgPrintVerboseVA(const char *file_name, int line_number, const char *fun
 	nsDbgPrintVerboseVABuf(file_name, line_number, func_name, fmt, arp);
 }
 
+Result __sync_init(void);
 void mainThread(void *) {
 	Result ret;
+	ret = __sync_init();
+	if (ret != 0) {
+		nsDbgPrint("sync init failed: %08"PRIx32"\n", ret);
+		goto final;
+	}
+
 	ret = initDirectScreenAccess();
 	if (ret != 0) {
 		disp(100, DBG_CL_MSG);

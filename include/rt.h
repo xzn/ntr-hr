@@ -3,6 +3,7 @@
 
 #include "3ds/types.h"
 #include "3ds/svc.h"
+#include "3ds/synchronization.h"
 
 typedef struct _RT_HOOK {
 	u32 model;
@@ -13,7 +14,8 @@ typedef struct _RT_HOOK {
 	u32 callCode[16];
 } RT_HOOK;
 
-typedef u32 RT_LOCK;
+typedef LightLock RT_LOCK;
+_Static_assert(sizeof(RT_LOCK) == sizeof(u32));
 void rtInitLock(RT_LOCK *lock);
 void rtAcquireLock(RT_LOCK *lock);
 void rtReleaseLock(RT_LOCK *lock);

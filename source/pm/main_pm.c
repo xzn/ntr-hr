@@ -8,6 +8,9 @@
 
 static FS_Archive sdmcArchive;
 
+static u32 *plgThreadStack;
+static Handle plgThreadHandle;
+
 static Handle hMenuProcess = 0;
 static Handle getMenuProcess(void) {
 	if (hMenuProcess == 0) {
@@ -203,6 +206,44 @@ static int pmFreeLoaderMemPool(int keepHandle) {
 	return ret;
 }
 
+static int plgThreadForce;
+static void plgMonitorThread(void *) {
+	u32 KProcess = kGetKProcessByHandle(loaderMemGameHandle);
+
+	while (1) {
+		svcSleepThread(100000000);
+
+		if (plgThreadForce) {
+			pmFreeLoaderMemPool(0);
+			break;
+		}
+
+		u32 t = (u32)-1;
+		kmemcpy(&t, (u8 *)KProcess + 4, 4);
+		if (t == 1) {
+			pmFreeLoaderMemPool(0);
+			break;
+		}
+	}
+
+	plgThreadForce = 0;
+	svcExitThread();
+}
+
+static void pmWaitFreeLoaderMemPool(void) {
+	s32 ret;
+	if (plgThreadHandle) {
+		plgThreadForce = 1;
+		ret = svcWaitSynchronization(plgThreadHandle, -1);
+		if (ret != 0) {
+		}
+		svcCloseHandle(plgThreadHandle);
+		plgThreadHandle = 0;
+	} else {
+		pmFreeLoaderMemPool(0);
+	}
+}
+
 static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
 	s32 ret;
 	if (loaderMem)
@@ -219,12 +260,21 @@ static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
 		ret = svcDuplicateHandle(&loaderMemGameHandle, hGameProcess);
 		if (ret != 0) {
 			nsDbgPrint("Dupping process handle failed: %08"PRIx32"\n", ret);
-			loaderMemGameHandle = hGameProcess;
-			pmFreeLoaderMemPool(1);
-			return ret;
+			goto final_error;
+		}
+
+		ret = svcCreateThread(&plgThreadHandle, plgMonitorThread, 0, &plgThreadStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+		if (ret != 0) {
+			nsDbgPrint("Create monitor thread: %08"PRIx32"\n", ret);
+			goto final_error;
 		}
 	}
 	return 0;
+
+final_error:
+	loaderMemGameHandle = hGameProcess;
+	pmFreeLoaderMemPool(1);
+	return ret;
 }
 
 static int pmLoadFromMenu(void *addr, u32 size) {
@@ -260,7 +310,7 @@ static int pmInitGamePlg(Handle hGameProcess, int loaderMem) {
 	return 0;
 
 error_alloc:
-	pmFreeLoaderMemPool(0);
+	pmWaitFreeLoaderMemPool();
 	return ret;
 }
 
@@ -281,7 +331,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 		return -1;
 	}
 
-	pmFreeLoaderMemPool(0);
+	pmWaitFreeLoaderMemPool();
 
 	u32 pid = 0;
 	ret = svcGetProcessId(&pid, hGameProcess);
@@ -336,6 +386,7 @@ static int pmInjectToGame(Handle hGameProcess) {
 			goto error_alloc;
 		}
 	}
+
 	return 0;
 
 error_alloc:
@@ -372,8 +423,16 @@ void mainPost(void) {
 	}
 }
 
+Result __sync_init(void);
 void mainThread(void *) {
-	s32 res = srvInit();
+	s32 res;
+	res = __sync_init();
+	if (res != 0) {
+		nsDbgPrint("sync init failed: %08"PRIx32"\n", res);
+		goto final;
+	}
+
+	res = srvInit();
 	if (res != 0) {
 		showDbg("srvInit failed: %08"PRIx32, res);
 		goto final;
@@ -406,6 +465,11 @@ void mainThread(void *) {
 	res = loadPayloadBin(NTR_BIN_GAME);
 	if (res != 0) {
 		showDbg("Load game payload failed: %08"PRIx32, res);
+		goto fs_fail;
+	}
+
+	plgThreadStack = (u32 *)plgRequestMemory(STACK_SIZE);
+	if (!plgThreadStack) {
 		goto fs_fail;
 	}
 

@@ -77,8 +77,16 @@ void mainPost(void) {
 	}
 }
 
+Result __sync_init(void);
 void mainThread(void *) {
-	s32 ret = srvInit();
+	s32 ret;
+	ret = __sync_init();
+	if (ret != 0) {
+		nsDbgPrint("sync init failed: %08"PRIx32"\n", ret);
+		goto final;
+	}
+
+	ret = srvInit();
 	if (ret != 0) {
 		showDbg("srvInit failed: %08"PRIx32, ret);
 		goto final;
