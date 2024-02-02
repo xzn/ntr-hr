@@ -309,6 +309,8 @@ Handle rpGetPortHandle(void) {
 	return hClient;
 }
 
+void __attribute__((weak)) handlePortThreadPre(void) {}
+
 #define portSessionsMax 4
 void handlePortThread(void *arg) {
 	s32 ret;
@@ -320,6 +322,7 @@ void handlePortThread(void *arg) {
 	}
 
 	u32 *cmdbuf = getThreadCommandBuffer();
+	handlePortThreadPre();
 
 	Handle hSessions[portSessionsMax] = {0};
 	Handle handleReply = 0;

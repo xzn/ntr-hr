@@ -283,13 +283,15 @@ void handlePortCmd(u32 cmd_id, u32, u32, u32 *) {
 	}
 }
 
-static void createSvcHandleThread(void) {
+void handlePortThreadPre(void) {
 	u32 *sbuf = getThreadStaticBuffers();
 	sbuf[0] = IPC_Desc_StaticBuffer(LOCAL_TITLE_BUF_SIZE, 0);
 	sbuf[1] = (u32)sbuf_msg_title;
 	sbuf[2] = IPC_Desc_StaticBuffer(LOCAL_MSG_BUF_SIZE, 1);
 	sbuf[3] = (u32)sbuf_msg_msg;
+}
 
+static void createSvcHandleThread(void) {
 	u32 *threadSvcStack = (u32 *)plgRequestMemory(STACK_SIZE);
 	Handle hSvcThread;
 	s32 ret = svcCreateThread(&hSvcThread, handlePortThread, (u32)SVC_PORT_MENU, &threadSvcStack[(STACK_SIZE / 4) - 10], 0x10, 1);

@@ -61,6 +61,7 @@ extern int plgHasVRAMAccess;
 extern int plgHasOverlay;
 
 void handlePortCmd(u32 cmd_id, u32 norm_param_count, u32 trans_param_size, u32 *cmd_buf1);
+void handlePortThreadPre(void);
 void handlePortThread(void *arg);
 Handle rpGetPortHandle(void);
 void rpSetGamePid(u32 gamePid);
