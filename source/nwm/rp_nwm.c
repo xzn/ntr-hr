@@ -1593,14 +1593,14 @@ static void rpThreadMain(void *) {
 		}
 
 		Handle hThreadNwm;
-		ret = svcCreateThread(&hThreadNwm, (void*)rpNwmThread, 0, &threadNwmStack[(STACK_SIZE / 4) - 10], 0x8, 1);
+		ret = svcCreateThread(&hThreadNwm, (void*)rpNwmThread, 0, &threadNwmStack[(STACK_SIZE / 4) - 10], 0x8, 2);
 		if (ret != 0) {
 			nsDbgPrint("Create remote play network thread Failed: %08"PRIx32"\n", ret);
 			goto final;
 		}
 
 		Handle hThreadScreenCap;
-		ret = svcCreateThread(&hThreadScreenCap, (void*)rpScreenCaptureThread, 0, &threadScreenCapStack[(STACK_SIZE / 4) - 10], 0x8, 1);
+		ret = svcCreateThread(&hThreadScreenCap, (void*)rpScreenCaptureThread, 0, &threadScreenCapStack[(STACK_SIZE / 4) - 10], 0x8, 2);
 		if (ret != 0) {
 			nsDbgPrint("Create remote play screen capture thread Failed: %08"PRIx32"\n", ret);
 			goto final;
