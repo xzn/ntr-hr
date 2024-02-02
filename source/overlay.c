@@ -17,9 +17,9 @@ typedef u32 (*SetBufferSwapTypedef2)(u32 r0, u32 *params, u32 isBottom, u32 arg)
 static RT_HOOK SetBufferSwapHook;
 
 static void plgSetBufferSwapCommon(u32 isDisplay1, u32 addr, u32 addrB, u32 stride, u32 format) {
-	ASR(&rpPortIsTop, isDisplay1 ? 0 : 1);
-	s32 ret;
-	if (plgOverlayEvent) {
+	if (plgLoaderEx->remotePlayBoost && plgOverlayEvent) {
+		ASR(&rpPortIsTop, isDisplay1 ? 0 : 1);
+		s32 ret;
 		ret = svcSignalEvent(*plgOverlayEvent);
 		if (ret != 0) {
 			nsDbgPrint("plgOverlayEvent signal failed: %08"PRIx32"\n", ret);

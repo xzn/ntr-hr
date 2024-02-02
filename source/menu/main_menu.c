@@ -197,7 +197,56 @@ static void showGamePluginMenu(void) {
 }
 
 static int pluginLoaderMenu(void) {
-	// TODO
+	const char *enablePlugins = plgTranslate("Game Plugin Loader (Disabled)");
+	const char *disablePlugins = plgTranslate("Game Plugin Loader (Enabled)");
+	const char *enableCTRPFCompatText = plgTranslate("CTRPF Compat Mode (Disabled)");
+	const char *disableCTRPFCompatText = plgTranslate("CTRPF Compat Mode (Enabled)");
+	const char *enableRPCallbackText = plgTranslate("Remote Play Boost (Disabled)");
+	const char *disableRPCallbackText = plgTranslate("Remote Play Boost (Enabled)");
+	const char *enableLoaderMemText = plgTranslate("Loader Mem Compat (Disabled)");
+	const char *disableLoaderMemText = plgTranslate("Loader Mem Compat (Enabled)");
+
+	const char *entries[4];
+	const char *descs[4];
+	descs[0] = plgTranslate("Whether game plugins will be loaded.");
+	descs[1] = plgTranslate("Avoid crash in CTRPF based plugins by\ndisabling all overlay features.");
+	descs[2] = plgTranslate("Improve Remote Play performance by\nusing overlay callback for screen\nupdate timing.\nIncompatible with CTRPF.");
+	descs[3] = plgTranslate("Keep enabled (default) for higher\ngame plugin compatibility.\nDisabling can help prevent game\nhanging but some plugins will crash.");
+
+	s32 r = 0;
+	while (1) {
+		entries[0] = plgLoaderEx->noPlugins ? enablePlugins : disablePlugins;
+		entries[1] = plgLoaderEx->CTRPFCompat ? disableCTRPFCompatText : enableCTRPFCompatText;
+		entries[2] = plgLoaderEx->remotePlayBoost ? disableRPCallbackText : enableRPCallbackText;
+		entries[3] = plgLoaderEx->noLoaderMem ? enableLoaderMemText : disableLoaderMemText;
+
+		r = showMenuEx("Plugin Loader", 4, entries, descs, r);
+		switch (r) {
+			default:
+				return 0;
+
+			case 0:
+				plgLoaderEx->noPlugins = !plgLoaderEx->noPlugins;
+				break;
+
+			case 1:
+				plgLoaderEx->CTRPFCompat = !plgLoaderEx->CTRPFCompat;
+				if (plgLoaderEx->CTRPFCompat)
+					plgLoaderEx->remotePlayBoost = 0;
+				break;
+
+			case 2:
+				plgLoaderEx->remotePlayBoost = !plgLoaderEx->remotePlayBoost;
+				if (plgLoaderEx->remotePlayBoost)
+					plgLoaderEx->CTRPFCompat = 0;
+				break;
+
+			case 3:
+				plgLoaderEx->noLoaderMem = !plgLoaderEx->noLoaderMem;
+				break;
+
+		}
+	}
 	return 0;
 }
 
