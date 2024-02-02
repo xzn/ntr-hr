@@ -4,6 +4,7 @@
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
 #include "3ds/srv.h"
+#include "3ds/ipc.h"
 
 #include <memory.h>
 
@@ -267,6 +268,36 @@ done:
 	releaseVideo();
 }
 
+static char sbuf_msg_title[LOCAL_TITLE_BUF_SIZE];
+static char sbuf_msg_msg[LOCAL_MSG_BUF_SIZE];
+
+void handlePortCmd(u32 cmd_id, u32, u32, u32 *) {
+	switch (cmd_id) {
+		case SVC_MENU_CMD_DBG_PRINT:
+			nsDbgPrint2(*sbuf_msg_title ? sbuf_msg_title : NULL, sbuf_msg_msg);
+			break;
+
+		case SVC_MENU_CMD_SHOW_MSG:
+			showMsgRaw2(*sbuf_msg_title ? sbuf_msg_title : NULL, sbuf_msg_msg);
+			break;
+	}
+}
+
+static void createSvcHandleThread(void) {
+	u32 *sbuf = getThreadStaticBuffers();
+	sbuf[0] = IPC_Desc_StaticBuffer(LOCAL_TITLE_BUF_SIZE, 0);
+	sbuf[1] = (u32)sbuf_msg_title;
+	sbuf[2] = IPC_Desc_StaticBuffer(LOCAL_MSG_BUF_SIZE, 1);
+	sbuf[3] = (u32)sbuf_msg_msg;
+
+	u32 *threadSvcStack = (u32 *)plgRequestMemory(STACK_SIZE);
+	Handle hSvcThread;
+	s32 ret = svcCreateThread(&hSvcThread, (void*)handlePortCmd, (u32)SVC_PORT_MENU, &threadSvcStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+	if (ret != 0) {
+		nsDbgPrint("Create menu service thread failed: %08"PRIx32"\n", ret);
+	}
+}
+
 void mainThread(void *) {
 	Result ret;
 	ret = initDirectScreenAccess();
@@ -326,6 +357,8 @@ void mainThread(void *) {
 		disp(100, DBG_CL_USE_DBG_FAIL);
 		goto final;
 	}
+
+	createSvcHandleThread();
 
 	plgInitScreenOverlayDirectly(*oldPC);
 

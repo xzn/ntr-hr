@@ -9,6 +9,7 @@
 
 #include <stdarg.h>
 
+void nsDbgPrint2(const char *title, const char *msg);
 void nsDbgPrintRaw(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define nsDbgPrint(fmt, ...) nsDbgPrintVerbose(__FILE__, __LINE__, __func__, fmt, ## __VA_ARGS__)
 void nsDbgPrintVerbose(const char *file_name, int line_number, const char *func_name, const char* fmt, ...) __attribute__((format(printf, 4, 5)));

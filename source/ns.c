@@ -60,6 +60,29 @@ static void nsDbgLn() {
 	}
 }
 
+static void nsDbgCpy(const char *msg) {
+	while (*msg) {
+		if (nsConfig->debugPtr == nsDbgBufEnd)
+			return;
+		*nsConfig->debugPtr++ = *msg++;
+	}
+}
+
+void nsDbgPrint2(const char *title, const char *msg) {
+	if (ALC(&nsConfig->debugReady)) {
+		rtAcquireLock(&nsConfig->debugBufferLock);
+
+		nsDbgLn();
+		if (title && *title) {
+			nsDbgCpy(title);
+			nsDbgCpy(" ");
+		}
+		nsDbgCpy(msg);
+
+		rtReleaseLock(&nsConfig->debugBufferLock);
+	}
+}
+
 static struct ostrm const ostrm = { .func = nsDbgPutc };
 
 static void nsDbgPrintVAInternal(const char *fmt, va_list arp) {

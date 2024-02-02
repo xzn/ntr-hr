@@ -97,6 +97,11 @@ enum {
 	SVC_NWM_CMD_GAME_PID_UPDATE,
 };
 
+enum {
+	SVC_MENU_CMD_DBG_PRINT = 1,
+	SVC_MENU_CMD_SHOW_MSG,
+};
+
 #define NWM_HEAP_SIZE (0x4000)
 
 #endif

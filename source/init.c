@@ -308,3 +308,93 @@ Handle rpGetPortHandle(void) {
 	}
 	return hClient;
 }
+
+#define portSessionsMax 4
+void handlePortThread(void *arg) {
+	s32 ret;
+	Handle hServer = 0, hClient = 0;
+	ret = svcCreatePort(&hServer, &hClient, (const char *)arg, portSessionsMax);
+	if (ret != 0) {
+		nsDbgPrint("Create port failed: %08"PRIx32"\n", ret);
+		svcExitThread();
+	}
+
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	Handle hSessions[portSessionsMax] = {0};
+	Handle handleReply = 0;
+	cmdbuf[0] = 0xFFFF0000;
+	while (1) {
+		Handle hHandles[portSessionsMax + 1];
+		u32 hHandlesMap[portSessionsMax + 1];
+
+		int i, hCount = 0;
+		for (i = 0; i < portSessionsMax; ++i) {
+			if (hSessions[i] != 0) {
+				hHandles[hCount] = hSessions[i];
+				hHandlesMap[hCount] = i;
+				++hCount;
+			}
+		}
+		hHandles[hCount] = hServer;
+		hHandlesMap[hCount] = portSessionsMax;
+		++hCount;
+
+		s32 handleIndex = -1;
+		ret = svcReplyAndReceive(&handleIndex, hHandles, hCount, handleReply);
+		if (ret != 0) {
+			if (ret == (s32)RES_HANDLE_CLOSED) {
+				nsDbgPrint("Port handle closed: %08"PRIx32" (%"PRIx32")\n", hHandles[handleIndex], hHandlesMap[handleIndex]);
+				handleReply = 0;
+				cmdbuf[0] = 0xFFFF0000;
+				svcCloseHandle(hHandles[handleIndex]);
+				hSessions[hHandlesMap[handleIndex]] = 0;
+				continue;
+			}
+
+			handleReply = 0;
+			cmdbuf[0] = 0xFFFF0000;
+			nsDbgPrint("Port reply and receive error: %08"PRIx32"\n", ret);
+			continue;
+		}
+
+		if (hHandlesMap[handleIndex] == portSessionsMax) {
+			handleReply = 0;
+			cmdbuf[0] = 0xFFFF0000;
+			Handle hSession;
+			ret = svcAcceptSession(&hSession, hServer);
+			if (ret != 0) {
+				nsDbgPrint("hServer accept error: %08"PRIx32"\n", ret);
+				continue;
+			}
+
+			for (i = 0; i < portSessionsMax; ++i) {
+				if (hSessions[i] == 0) {
+					hSessions[i] = hSession;
+					break;
+				}
+			}
+			if (i >= portSessionsMax) {
+				nsDbgPrint("Port session max exceeded\n");
+				svcCloseHandle(hSession);
+			}
+			continue;
+		}
+
+		handleReply = hHandles[handleIndex];
+		u32 cmd_id = cmdbuf[0] >> 16;
+		u32 norm_param_count = (cmdbuf[0] >> 6) & 0x3F;
+		u32 trans_param_size = cmdbuf[0] & 0x3F;
+
+		handlePortCmd(cmd_id, norm_param_count, trans_param_size, cmdbuf + 1);
+
+		cmdbuf[0] = IPC_MakeHeader(cmd_id, 0, 0);
+	}
+
+	if (hServer)
+		svcCloseHandle(hServer);
+	if (hClient)
+		svcCloseHandle(hClient);
+
+	svcExitThread();
+}

@@ -1246,166 +1246,80 @@ static void rpScreenCaptureThread(u32) {
 	svcExitThread();
 }
 
-#define rpPortSessionsMax 4
-static void rpPortThread(u32) {
-	s32 ret;
-	Handle hServer = 0, hClient = 0;
-	ret = svcCreatePort(&hServer, &hClient, SVC_PORT_NWM, rpPortSessionsMax);
-	if (ret != 0) {
-		nsDbgPrint("Create port failed: %08"PRIx32"\n", ret);
-		svcExitThread();
-	}
-
-	u32 *cmdbuf = getThreadCommandBuffer();
-
-	Handle hSessions[rpPortSessionsMax] = {0};
-	Handle handleReply = 0;
-	cmdbuf[0] = 0xFFFF0000;
-	while (1) {
-		Handle hHandles[rpPortSessionsMax + 1];
-		u32 hHandlesMap[rpPortSessionsMax + 1];
-
-		int i, hCount = 0;
-		for (i = 0; i < rpPortSessionsMax; ++i) {
-			if (hSessions[i] != 0) {
-				hHandles[hCount] = hSessions[i];
-				hHandlesMap[hCount] = i;
-				++hCount;
-			}
-		}
-		hHandles[hCount] = hServer;
-		hHandlesMap[hCount] = rpPortSessionsMax;
-		++hCount;
-
-		s32 handleIndex = -1;
-		ret = svcReplyAndReceive(&handleIndex, hHandles, hCount, handleReply);
-		if (ret != 0) {
-			if (ret == (s32)RES_HANDLE_CLOSED) {
-				nsDbgPrint("Port handle closed: %08"PRIx32" (%"PRIx32")\n", hHandles[handleIndex], hHandlesMap[handleIndex]);
-				handleReply = 0;
-				cmdbuf[0] = 0xFFFF0000;
-				svcCloseHandle(hHandles[handleIndex]);
-				hSessions[hHandlesMap[handleIndex]] = 0;
-				continue;
-			}
-
-			handleReply = 0;
-			cmdbuf[0] = 0xFFFF0000;
-			nsDbgPrint("Port reply and receive error: %08"PRIx32"\n", ret);
-			continue;
-		}
-
-		if (hHandlesMap[handleIndex] == rpPortSessionsMax) {
-			handleReply = 0;
-			cmdbuf[0] = 0xFFFF0000;
-			Handle hSession;
-			ret = svcAcceptSession(&hSession, hServer);
-			if (ret != 0) {
-				nsDbgPrint("hServer accept error: %08"PRIx32"\n", ret);
-				continue;
-			}
-
-			for (i = 0; i < rpPortSessionsMax; ++i) {
-				if (hSessions[i] == 0) {
-					hSessions[i] = hSession;
-					break;
-				}
-			}
-			if (i >= rpPortSessionsMax) {
-				nsDbgPrint("Port session max exceeded\n");
-				svcCloseHandle(hSession);
-			}
-			continue;
-		}
-
-		handleReply = hHandles[handleIndex];
-		u32 cmd_id = cmdbuf[0] >> 16;
-		u32 norm_param_count = (cmdbuf[0] >> 6) & 0x3F;
-		u32 trans_param_size = cmdbuf[0] & 0x3F;
-
-		switch (cmd_id) {
-			case SVC_NWM_CMD_OVERLAY_CALLBACK: {
-				u32 isTop = norm_param_count >= 1 ? cmdbuf[1] : (u32)-1;
-				u32 gamePid = trans_param_size >= 2 ? cmdbuf[1 + norm_param_count + 1] : 0;
-				if (isTop > 1) {
-					ASR(&rpPortGamePid, 0);
-				} else {
-					if (rpPortGamePid != gamePid) {
-						ASR(&rpPortGamePid, gamePid);
-						if (gamePid != 0) {
-							if (ALR(&rpConfig->gamePid) != gamePid) {
-								ASR(&rpConfig->gamePid, gamePid);
-							}
+void handlePortCmd(u32 cmd_id, u32 norm_param_count, u32 trans_param_size, u32 *cmd_buf1) {
+	switch (cmd_id) {
+		case SVC_NWM_CMD_OVERLAY_CALLBACK: {
+			u32 isTop = norm_param_count >= 1 ? *cmd_buf1 : (u32)-1;
+			u32 gamePid = trans_param_size >= 2 ? cmd_buf1[norm_param_count + 1] : 0;
+			if (isTop > 1) {
+				ASR(&rpPortGamePid, 0);
+			} else {
+				if (rpPortGamePid != gamePid) {
+					ASR(&rpPortGamePid, gamePid);
+					if (gamePid != 0) {
+						if (ALR(&rpConfig->gamePid) != gamePid) {
+							ASR(&rpConfig->gamePid, gamePid);
 						}
 					}
-
-					ret = svcSignalEvent(rp_syn->portEvent[isTop]);
-					if (ret != 0) {
-						nsDbgPrint("Signal port event failed: %08"PRIx32"\n", ret);
-					}
 				}
-				break;
+
+				s32 ret = svcSignalEvent(rp_syn->portEvent[isTop]);
+				if (ret != 0) {
+					nsDbgPrint("Signal port event failed: %08"PRIx32"\n", ret);
+				}
 			}
+			break;
+		}
 
 #define CHECK_CASE(f, v) ((f) == (v) ? (v) : 0)
 #define RP_CONFIG_CASE(f, v) CHECK_CASE(offsetof(RP_CONFIG, f) / sizeof(u32) + 1, v)
 
-			case SVC_NWM_CMD_PARAMS_UPDATE: {
-				RP_CONFIG config;
-				memcpy(&config, &cmdbuf[1], MIN(norm_param_count * sizeof(u32), sizeof(RP_CONFIG)));
-				int need_reset = 0;
-				switch (norm_param_count) {
-					default:
-					case RP_CONFIG_CASE(gamePid, 8):
-					case RP_CONFIG_CASE(threadPriority, 7):
-						if (config.threadPriority != rpConfig->threadPriority)
-							need_reset = 1;
-						// FALLTHRU
-					case RP_CONFIG_CASE(dstAddr, 6):
-					case RP_CONFIG_CASE(dstPort, 5):
-					case RP_CONFIG_CASE(coreCount, 4):
-						if (config.coreCount != rpConfig->coreCount)
-							need_reset = 1;
-						// FALLTHRU
-					case RP_CONFIG_CASE(qos, 3):
-						if (config.qos != rpConfig->qos)
-							need_reset = 1;
-						// FALLTHRU
-					case RP_CONFIG_CASE(quality, 2):
-						if (config.quality != rpConfig->quality)
-							need_reset = 1;
-						// FALLTHRU
-					case RP_CONFIG_CASE(mode, 1):
-						if (config.mode != rpConfig->mode)
-							need_reset = 1;
-						// FALLTHRU
-					case 0:
-						break;
-				}
-				for (u32 i = 0; i < MIN(norm_param_count, sizeof(RP_CONFIG) / sizeof(u32)); ++i) {
-					ASR((u32 *)rpConfig + i, *((u32 *)&config + i));
-				}
-				if (need_reset)
-					ASR(&rpResetThreads, 1);
-				break;
+		case SVC_NWM_CMD_PARAMS_UPDATE: {
+			RP_CONFIG config;
+			memcpy(&config, cmd_buf1, MIN(norm_param_count * sizeof(u32), sizeof(RP_CONFIG)));
+			int need_reset = 0;
+			switch (norm_param_count) {
+				default:
+				case RP_CONFIG_CASE(gamePid, 8):
+				case RP_CONFIG_CASE(threadPriority, 7):
+					if (config.threadPriority != rpConfig->threadPriority)
+						need_reset = 1;
+					// FALLTHRU
+				case RP_CONFIG_CASE(dstAddr, 6):
+				case RP_CONFIG_CASE(dstPort, 5):
+				case RP_CONFIG_CASE(coreCount, 4):
+					if (config.coreCount != rpConfig->coreCount)
+						need_reset = 1;
+					// FALLTHRU
+				case RP_CONFIG_CASE(qos, 3):
+					if (config.qos != rpConfig->qos)
+						need_reset = 1;
+					// FALLTHRU
+				case RP_CONFIG_CASE(quality, 2):
+					if (config.quality != rpConfig->quality)
+						need_reset = 1;
+					// FALLTHRU
+				case RP_CONFIG_CASE(mode, 1):
+					if (config.mode != rpConfig->mode)
+						need_reset = 1;
+					// FALLTHRU
+				case 0:
+					break;
 			}
-
-			case SVC_NWM_CMD_GAME_PID_UPDATE: {
-				u32 gamePid = norm_param_count >= 1 ? cmdbuf[1] : 0;
-				ASR(&rpConfig->gamePid, gamePid);
-				break;
+			for (u32 i = 0; i < MIN(norm_param_count, sizeof(RP_CONFIG) / sizeof(u32)); ++i) {
+				ASR((u32 *)rpConfig + i, *((u32 *)&config + i));
 			}
+			if (need_reset)
+				ASR(&rpResetThreads, 1);
+			break;
 		}
 
-		cmdbuf[0] = IPC_MakeHeader(cmd_id, 0, 0);
+		case SVC_NWM_CMD_GAME_PID_UPDATE: {
+			u32 gamePid = norm_param_count >= 1 ? *cmd_buf1 : 0;
+			ASR(&rpConfig->gamePid, gamePid);
+			break;
+		}
 	}
-
-	if (hServer)
-		svcCloseHandle(hServer);
-	if (hClient)
-		svcCloseHandle(hClient);
-
-	svcExitThread();
 }
 
 void __system_initSyscalls(void);
@@ -1477,7 +1391,7 @@ static void rpThreadMain(void *) {
 
 	u32 *threadSvcStack = (u32 *)plgRequestMemory(STACK_SIZE);
 	Handle hSvcThread;
-	ret = svcCreateThread(&hSvcThread, (void*)rpPortThread, 0, &threadSvcStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+	ret = svcCreateThread(&hSvcThread, handlePortThread, (u32)SVC_PORT_NWM, &threadSvcStack[(STACK_SIZE / 4) - 10], 0x10, 1);
 	if (ret != 0) {
 		nsDbgPrint("Create remote play service thread failed: %08"PRIx32"\n", ret);
 	}

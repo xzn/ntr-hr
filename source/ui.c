@@ -1,5 +1,23 @@
 #include "global.h"
 
+#include "3ds/ipc.h"
+
+#include <string.h>
+
+static Handle menuSessionClient;
+Handle menuGetPortHandle(void) {
+	Handle hClient = menuSessionClient;
+	s32 ret;
+	if (hClient == 0) {
+		ret = svcConnectToPort(&hClient, SVC_PORT_MENU);
+		if (ret != 0) {
+			return 0;
+		}
+		menuSessionClient = hClient;
+	}
+	return hClient;
+}
+
 int showMsgVerbose(const char *file_name, int line_number, const char *func_name, const char *fmt, ...) {
 	va_list arp;
 	va_start(arp, fmt);
@@ -16,11 +34,54 @@ int showMsgRaw(const char *fmt, ...) {
 	return ret;
 }
 
-int __attribute__((weak)) showMsgVA(const char *, int , const char *, const char *, va_list) {
-	disp(100, DBG_CL_MSG);
-	svcSleepThread(1000000000);
+void __attribute__((weak)) showMsgRaw2(const char *title, const char *msg) {
+	u32* cmdbuf = getThreadCommandBuffer();
+	cmdbuf[0] = IPC_MakeHeader(SVC_MENU_CMD_SHOW_MSG, 0, 4);
+	cmdbuf[1] = IPC_Desc_StaticBuffer(strlen(title) + 1, 0);
+	cmdbuf[2] = (u32)title;
+	cmdbuf[3] = IPC_Desc_StaticBuffer(strlen(msg) + 1, 1);
+	cmdbuf[4] = (u32)msg;
 
-	// TODO
+	s32 ret = svcSendSyncRequest(menuGetPortHandle());
+	if (ret != 0) {
+		disp(100, DBG_CL_MSG);
+		svcSleepThread(1000000000);
+		return;
+	}
+	return;
+}
+
+int __attribute__((weak)) showMsgVAPre() {
+	Handle hClient = menuGetPortHandle();
+	if (!hClient) {
+		disp(100, DBG_CL_MSG);
+		svcSleepThread(1000000000);
+		return -1;
+	}
+	return 0;
+}
+
+int __attribute__((weak)) showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
+	s32 ret = showMsgVAPre();
+	if (ret != 0)
+		return 0;
+
+	char title[LOCAL_TITLE_BUF_SIZE];
+
+	if (file_name && func_name) {
+		u64 ticks = svcGetSystemTick();
+		u64 mono_us = ticks * 1000000000ULL / SYSCLOCK_ARM11;
+		u32 pid = getCurrentProcessId();
+		xsnprintf(title, LOCAL_TITLE_BUF_SIZE, DBG_VERBOSE_TITLE, (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+	} else {
+		*title = 0;
+	}
+
+	char msg[LOCAL_MSG_BUF_SIZE];
+	xvsnprintf(msg, LOCAL_MSG_BUF_SIZE, fmt, va);
+
+	showMsgRaw2(*title ? title : NULL, msg);
+
 	return 0;
 }
 

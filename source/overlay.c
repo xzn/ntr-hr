@@ -209,10 +209,7 @@ void plgInitScreenOverlay(void) {
 }
 
 void plgInitScreenOverlayDirectly(u32 funcAddr) {
-	plgHasVRAMAccess = 1;
-
 	plgCreateOverlayThread(1);
 	rtInitHook(&SetBufferSwapHook, funcAddr, (u32)plgSetBufferSwapCallback);
 	rtEnableHook(&SetBufferSwapHook);
-	plgOverlayStatus = 1;
 }

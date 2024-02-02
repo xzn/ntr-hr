@@ -3,6 +3,8 @@
 
 #include "3ds/types.h"
 
+void showMsgRaw2(const char *title, const char *msg);
+int showMsgVAPre(void);
 int showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va);
 int showMsgRaw(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define showMsg(fmt, ...) showMsgVerbose(__FILE__, __LINE__, __func__, fmt, ## __VA_ARGS__)
@@ -30,6 +32,7 @@ void updateScreen(void);
 
 const char *plgTranslate(const char *msg);
 
+Handle menuGetPortHandle(void);
 s32 showMenu(const char *title, u32 entriesCount, const char *captions[]);
 s32 showMenuEx(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn);
 s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keysPressed);

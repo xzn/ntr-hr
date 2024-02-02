@@ -262,11 +262,11 @@ const char *plgTranslate(const char *msg) {
 	return msg;
 }
 
-static void showMsgCommon(const char *msg, const char *title) {
+void showMsgRaw2(const char *title, const char *msg) {
 	acquireVideo();
 	while(1) {
 		blank();
-		if (title) {
+		if (title && *title) {
 			print(title, 10, 10, 255, 0, 255);
 			print(msg, 10, 44, 255, 0, 0);
 		} else {
@@ -282,29 +282,12 @@ static void showMsgCommon(const char *msg, const char *title) {
 	releaseVideo();
 }
 
-int showMsgVA(const char *file_name, int line_number, const char *func_name, const char* fmt, va_list va) {
+int showMsgVAPre(void) {
 	if (!canUseUI()) {
 		disp(100, DBG_CL_MSG);
 		svcSleepThread(1000000000);
-		return 0;
+		return -1;
 	}
-
-	char title[LOCAL_TITLE_BUF_SIZE];
-
-	if (file_name && func_name) {
-		u64 ticks = svcGetSystemTick();
-		u64 mono_us = ticks * 1000000000ULL / SYSCLOCK_ARM11;
-		u32 pid = getCurrentProcessId();
-		xsnprintf(title, LOCAL_TITLE_BUF_SIZE, DBG_VERBOSE_TITLE, (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
-	} else {
-		*title = 0;
-	}
-
-	char msg[LOCAL_MSG_BUF_SIZE];
-	xvsnprintf(msg, LOCAL_MSG_BUF_SIZE, fmt, va);
-
-	showMsgCommon(msg, *title ? title : NULL);
-
 	return 0;
 }
 
