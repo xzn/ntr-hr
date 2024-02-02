@@ -20,22 +20,22 @@ This fork attempts to improve the wireless streaming aspect of the homebrew. Cur
 - - Can start Remote Play from the menu and change viewer's IP
 - Skip duplicate frames (when actual frame rate is lower than how fast NTR can encode)
 - - Should lead to better frame pacing
-- Stability increase
-- - Should no longer cause data corruption when used with [NTRClient](https://github.com/phecdaDia/NTRClient) (specifically avoid doing Memlayout on pid 0)
 - Various optimizations and updated dependencies
+- Fixed race conditions in startup unhooking code. Should no longer crash/fail to initialize randomly when starting NTR, or when starting remote play.
 
-Features unrelated to streaming are unchanged and should continues to work with existing tools.
+Removed all other features aside from streaming and PLG loading:
+
+- Screenshots, debugger, and night color are available with Luma3DS/rosalina
+- Real-time save/load doesn't save/load handles (and has no way of doing so) and generally doesn't work very well. I can add this back in if needed.
+- No way to disable high CPU clock/L2 cache after starting remote play. I may add an option for this.
 
 ## Known issues
 
-- Crash/fail to initialize on occasions when starting NTR, or when starting remote play.
 - Some games are not compatible with streaming.
 - When cheat plugins have been loaded, launching another game (or the same game again) would hang for certain plugins.
 - - [CTRPluginFramework](https://github.com/Nanquitas/CTRPluginFramework-BlankTemplate) is known to hang the launching of next game. Most simpler plugins should no longer cause a hang.
 - [UWPStreamer](https://github.com/toolboc/UWPStreamer) flickers and crashes sometimes.
 - 3DS web browser will crash if used with remote play.
-
-The issues were present in 3.6 also and I don't really know how to fix them..
 
 ## Credits
 
