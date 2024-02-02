@@ -317,7 +317,6 @@ static void showMainMenu(void) {
 		}
 	}
 done:
-	debounceKeys();
 	releaseVideo();
 }
 

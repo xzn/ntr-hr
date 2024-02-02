@@ -164,10 +164,12 @@ static void plgAddPluginsFromDirectory(const char *dir) {
 }
 
 static int pmLoadPluginsForGame(void) {
-	plgLoaderEx->memSizeTotal = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
-	if (plgLoaderEx->noPlugins)
+	if (plgLoaderEx->noPlugins) {
+		plgLoaderEx->memSizeTotal = 0;
 		return 0;
+	}
 
+	plgLoaderEx->memSizeTotal = rtAlignToPageSize(sizeof(PLGLOADER_INFO));
 	plgAddPluginsFromDirectory("game");
 	char buf[32];
 	xsnprintf(buf, sizeof(buf), "%08"PRIx32"%08"PRIx32, plgLoader->tid[1], plgLoader->tid[0]);

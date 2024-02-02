@@ -135,6 +135,8 @@ void acquireVideo(void) {
 
 void releaseVideo(void) {
 	if (ASFR(&videoRef, 1) == 0) {
+		debounceKeys();
+
 		restoreVRAMBuffer();
 		restoreGpuRegs();
 
@@ -205,6 +207,8 @@ u32 waitKeys(void) {
 }
 
 void debounceKeys(void) {
+	const u32 count_total = 2;
+	u32 count = count_total;
 	do {
 		if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
 			waitKeysDelay3();
@@ -213,7 +217,9 @@ void debounceKeys(void) {
 		}
 
 		uiScanInput();
-	} while (uiKeysHeld() != 0);
+		if (uiKeysHeld() != 0)
+			count = count_total;
+	} while (--count);
 }
 
 #include "font.h"
@@ -295,7 +301,6 @@ void showMsgRaw2(const char *title, const char *msg) {
 			break;
 		}
 	}
-	debounceKeys();
 	releaseVideo();
 }
 

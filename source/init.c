@@ -317,7 +317,7 @@ void handlePortThread(void *arg) {
 	Handle hServer = 0, hClient = 0;
 	ret = svcCreatePort(&hServer, &hClient, (const char *)arg, portSessionsMax);
 	if (ret != 0) {
-		nsDbgPrint("Create port failed: %08"PRIx32"\n", ret);
+		showDbg("Create port failed: %08"PRIx32"\n", ret);
 		svcExitThread();
 	}
 
@@ -347,7 +347,6 @@ void handlePortThread(void *arg) {
 		ret = svcReplyAndReceive(&handleIndex, hHandles, hCount, handleReply);
 		if (ret != 0) {
 			if (ret == (s32)RES_HANDLE_CLOSED) {
-				nsDbgPrint("Port handle closed: %08"PRIx32" (%"PRIx32")\n", hHandles[handleIndex], hHandlesMap[handleIndex]);
 				handleReply = 0;
 				cmdbuf[0] = 0xFFFF0000;
 				svcCloseHandle(hHandles[handleIndex]);
@@ -357,7 +356,6 @@ void handlePortThread(void *arg) {
 
 			handleReply = 0;
 			cmdbuf[0] = 0xFFFF0000;
-			nsDbgPrint("Port reply and receive error: %08"PRIx32"\n", ret);
 			continue;
 		}
 
@@ -367,7 +365,6 @@ void handlePortThread(void *arg) {
 			Handle hSession;
 			ret = svcAcceptSession(&hSession, hServer);
 			if (ret != 0) {
-				nsDbgPrint("hServer accept error: %08"PRIx32"\n", ret);
 				continue;
 			}
 
@@ -378,7 +375,6 @@ void handlePortThread(void *arg) {
 				}
 			}
 			if (i >= portSessionsMax) {
-				nsDbgPrint("Port session max exceeded\n");
 				svcCloseHandle(hSession);
 			}
 			continue;
