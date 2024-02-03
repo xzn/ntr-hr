@@ -1,28 +1,41 @@
 OUTPUT_FORMAT("elf32-littlearm", "elf32-littlearm", "elf32-littlearm")
 OUTPUT_ARCH(arm)
 ENTRY(_Reset)
+PHDRS
+{
+	code   PT_LOAD FLAGS(5) /* Read | Execute */;
+	rodata PT_LOAD FLAGS(4) /* Read */;
+	data   PT_LOAD FLAGS(6) /* Read | Write */;
+}
 SECTIONS
 {
 	. = 0x00100100;
 	. = ALIGN(4);
 	.text : {
-		__text_start = .;
 		obj/bootloader.o (.text*)
 		*(.text*)
-	}
+	} : code
+
 	. = ALIGN(4);
-	.data : {
-		*(.data)
-	}
+	.rodata : {
+		*(.rodata)
+		*(.roda)
+		*(.rodata.*)
+		*all.rodata*(*)
+	} : rodata
 
 	. = ALIGN(4);
 	.rel.dyn : {
 		*(.__rel_dyn_start)
 		*(.rel*)
 		*(.rel.*)
-	*(.__rel_dyn_end)
-	}
-	__code_end = .;
+		*(.__rel_dyn_end)
+	} : rodata
+
+	. = ALIGN(4);
+	.data : {
+		*(.data)
+	} : data
 
 	. = ALIGN(4);
 	.bss : {
@@ -30,10 +43,9 @@ SECTIONS
 		*(.dynbss)
 		*(.bss)
 		*(.bss.*)
-		*(.gnu.linkonce.b*)
 		*(COMMON)
 		*(.__bss_end)
 	}
 
-	__end__ = .;
+	__end__ = ABSOLUTE(.) ;
 }
