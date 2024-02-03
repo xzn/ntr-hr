@@ -17,7 +17,7 @@ typedef u32 (*SetBufferSwapTypedef2)(u32 r0, u32 *params, u32 isBottom, u32 arg)
 static RT_HOOK SetBufferSwapHook;
 
 static void plgSetBufferSwapCommon(u32 isDisplay1, u32 addr, u32 addrB, u32 stride, u32 format) {
-	if (plgLoaderEx->remotePlayBoost && plgOverlayEvent) {
+	if (plgLoaderEx->remotePlayBoost && plgOverlayEvent && *plgOverlayEvent) {
 		ASR(&rpPortIsTop, isDisplay1 ? 0 : 1);
 		s32 ret;
 		ret = svcSignalEvent(*plgOverlayEvent);
@@ -140,7 +140,7 @@ static u32 plgSearchBytes(u32 startAddr, u32 endAddr, const u32 *pat, int patlen
 }
 
 static void plgCreateOverlayThread(u32 fp) {
-	plgOverlayThreadStack = (void *)plgRequestMemory(STACK_SIZE);
+	plgOverlayThreadStack = (void *)plgRequestMemoryFromPool(SMALL_STACK_SIZE, 1);
 	if (!plgOverlayThreadStack) {
 		return;
 	}
@@ -153,7 +153,7 @@ static void plgCreateOverlayThread(u32 fp) {
 		return;
 	}
 	Handle hThread;
-	ret = svcCreateThread(&hThread, plgOverlayThread, fp, &plgOverlayThreadStack[(STACK_SIZE / 4) - 10], 0x18, -2);
+	ret = svcCreateThread(&hThread, plgOverlayThread, fp, &plgOverlayThreadStack[(SMALL_STACK_SIZE / 4) - 10], 0x18, -2);
 	if (ret != 0) {
 		nsDbgPrint("Create plgOverlayThread failed: %08"PRIx32"\n", ret);
 	}

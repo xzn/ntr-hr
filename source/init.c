@@ -121,26 +121,49 @@ int plgEnsurePoolSize(u32 size) {
 	return 0;
 }
 
+static u32 plgMemoryPoolBegin;
 static u32 plgMemoryPoolEnd;
 
+u32 plgRequestMemoryFromPool(u32 size, int pool) {
+	if (pool == 0) {
+		if (!plgMemoryPoolEnd) {
+			plgMemoryPoolEnd = PLG_MEM_ADDR;
+		}
+
+		u32 ret, outAddr, addr;
+		addr = plgMemoryPoolEnd;
+		size = rtAlignToPageSize(size);
+		ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
+		if (ret != 0) {
+			nsDbgPrint("Failed to allocate memory from pool for plugin at addr %08"PRIx32" for size %08"PRIx32": %08"PRIx32"\n", addr, size, ret);
+			return 0;
+		}
+
+		plgMemoryPoolEnd += size;
+
+		return addr;
+	} else {
+		if (!plgMemoryPoolBegin) {
+			plgMemoryPoolBegin = PLG_MEM_ADDR;
+		}
+
+		u32 ret, outAddr, addr;
+		size = rtAlignToPageSize(size);
+		addr = plgMemoryPoolBegin - size;
+		ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
+		if (ret != 0) {
+			nsDbgPrint("Failed to allocate memory from pool for payload at addr %08"PRIx32" for size %08"PRIx32": %08"PRIx32"\n", addr, size, ret);
+			return 0;
+		}
+
+		plgMemoryPoolBegin = addr;
+
+		return addr;
+	}
+}
+
 u32 plgRequestMemory(u32 size) {
-	if (!plgMemoryPoolEnd) {
-		plgMemoryPoolEnd = PLG_MEM_ADDR;
-	}
-
-	u32 ret, outAddr, addr;
-	addr = plgMemoryPoolEnd;
-	size = rtAlignToPageSize(size);
-	ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
-	if (ret != 0) {
-		nsDbgPrint("Failed to allocate memory from pool for plugin at addr %08"PRIx32": %08"PRIx32"\n", addr, ret);
-		return 0;
-	}
-	nsDbgPrint("Allocated memory from pool for size %08"PRIx32" at addr %08"PRIx32": %08"PRIx32"\n", size, addr, outAddr);
-
-	plgMemoryPoolEnd += size;
-
-	return addr;
+	return plgRequestMemoryFromPool(size, 0);
 }
 
 u32 arm11BinStart;

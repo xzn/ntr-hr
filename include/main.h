@@ -25,6 +25,7 @@ void unloadPayloadBin(void);
 
 int plgEnsurePoolSize(u32 size);
 u32 plgRequestMemory(u32 size);
+u32 plgRequestMemoryFromPool(u32 size, int pool);
 
 void setCpuClockLock(int v);
 

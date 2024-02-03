@@ -263,7 +263,7 @@ static int pmAllocLoaderMemPool(Handle hGameProcess, int loaderMem) {
 			goto final_error;
 		}
 
-		ret = svcCreateThread(&plgThreadHandle, plgMonitorThread, 0, &plgThreadStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+		ret = svcCreateThread(&plgThreadHandle, plgMonitorThread, 0, &plgThreadStack[(SMALL_STACK_SIZE / 4) - 10], 0x10, 1);
 		if (ret != 0) {
 			nsDbgPrint("Create monitor thread: %08"PRIx32"\n", ret);
 			plgThreadHandle = 0;
@@ -469,7 +469,7 @@ void mainThread(void *) {
 		goto fs_fail;
 	}
 
-	plgThreadStack = (u32 *)plgRequestMemory(STACK_SIZE);
+	plgThreadStack = (u32 *)plgRequestMemoryFromPool(SMALL_STACK_SIZE, 1);
 	if (!plgThreadStack) {
 		goto fs_fail;
 	}

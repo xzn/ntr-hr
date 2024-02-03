@@ -1369,7 +1369,7 @@ static void rpThreadMain(void *) {
 		goto final;
 	}
 
-	rp_syn = (void *)plgRequestMemory(0x1000);
+	rp_syn = (void *)plgRequestMemory(rtAlignToPageSize(sizeof(struct rp_handles_t)));
 	if (!rp_syn) {
 		goto final;
 	}
