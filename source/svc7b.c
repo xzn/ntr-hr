@@ -3,12 +3,8 @@
 u32 KProcessHandleDataOffset;
 u32 KProcessPIDOffset;
 u32 KProcessCodesetOffset;
-void backdoorHandler(void);
 void InvalidateEntireInstructionCache(void);
 void InvalidateEntireDataCache(void);
-
-static u32 kernelArgs[32];
-static void *currentBackdoorHandler = backdoorHandler;
 
 static u32 keRefHandle(u32 pHandleTable, u32 handle) {
 	u32 handleLow = handle & 0x7fff;
@@ -21,7 +17,6 @@ static u32 *translateAddress(u32 addr) {
 		return (u32*)(addr - 0x1f3f8000 + 0xfffdc000);
 	}
 	return (u32*)(addr - 0x1ff00000 + 0xdff00000);
-
 }
 
 static void set_kmmu_rw(int cpu, u32 addr, u32 size)
@@ -79,44 +74,17 @@ static void set_kmmu_rw(int cpu, u32 addr, u32 size)
 
 enum {
 	KCALL_KMEMCPY = 1,
-	KCALL_GET_KPROC_FROM_PROC,
 };
 
-void kernelCallback(u32 /* msr */) {
-	switch (kernelArgs[0]) {
-		case KCALL_KMEMCPY: {
-			u32 size = kernelArgs[3];
-			u32 dst = kernelArgs[1];
-			u32 src = kernelArgs[2];
-			u32 i;
-			for (i = 0; i < size; i += 4) {
-				*(vu32 *)(dst + i) = *(vu32 *)(src + i);
-			}
-			break;
-		}
-
-		case KCALL_GET_KPROC_FROM_PROC:
-			// getKProcessByHandle
-			u32 hProcess = kernelArgs[1];
-			u32 kProcess = keRefHandle(*(u32 *)0xFFFF9004 + KProcessHandleDataOffset, hProcess);
-			kernelArgs[1] = kProcess;
-			break;
+void kememcpy(void *dst, void *src, u32 size) {
+	u32 i;
+	for (i = 0; i < size; i += 4) {
+		*(vu32 *)(dst + i) = *(vu32 *)(src + i);
 	}
 }
 
-void kmemcpy(void *dst, void *src, u32 size) {
-	kernelArgs[0] = KCALL_KMEMCPY;
-	kernelArgs[1] = (u32)dst;
-	kernelArgs[2] = (u32)src;
-	kernelArgs[3] = (u32)size;
-	svcBackdoor(currentBackdoorHandler);
-}
-
-u32 kGetKProcessByHandle(u32 handle) {
-	kernelArgs[0] = KCALL_GET_KPROC_FROM_PROC;
-	kernelArgs[1] = handle;
-	svcBackdoor(currentBackdoorHandler);
-	return kernelArgs[1];
+u32 keGetKProcessByHandle(u32 handle) {
+	return keRefHandle(*(u32 *)0xFFFF9004 + KProcessHandleDataOffset, handle);
 }
 
 u32 keGetCurrentKProcess(void) {

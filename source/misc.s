@@ -1,13 +1,41 @@
 .arm
 .align(4);
 
-.global backdoorHandler
-.type backdoorHandler, %function
-backdoorHandler:
-	cpsid   aif
-	STMFD   SP!, {R3-R11,LR}
-	bl      kernelCallback
-	LDMFD   SP!, {R3-R11,PC}
+.type __kmemcpyHandler, %function
+__kmemcpyHandler:
+	cpsid aif
+	ldr r0, [sp, #8]
+	ldr r1, [sp, #12]
+	ldr r2, [sp, #16]
+	b kememcpy
+
+.global kmemcpy
+.type kmemcpy, %function
+kmemcpy:
+	push {r0, r1, r2, r3}
+	ldr r0, =__kmemcpyHandler
+	svc 0x7B
+	add sp, #16
+	bx lr
+
+.type __kGetKProcessByHandleHandler, %function
+__kGetKProcessByHandleHandler:
+	cpsid aif
+	ldr r0, [sp, #8]
+	push {r2, lr}
+	bl keGetKProcessByHandle
+	pop {r2, lr}
+	str r0, [sp, #8]
+	bx lr
+
+.global kGetKProcessByHandle
+.type kGetKProcessByHandle, %function
+kGetKProcessByHandle:
+	push {r0, r1}
+	ldr r0, =__kGetKProcessByHandleHandler
+	svc 0x7B
+	pop {r0, r1}
+	bx lr
 
 .type __kGetCurrentKProcessHandler, %function
 __kGetCurrentKProcessHandler:
