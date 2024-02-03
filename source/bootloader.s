@@ -39,7 +39,7 @@ cmp     r6, r7
 bcc     relocNotFinished
 ldr     r0, =0xffff8001
 adr     r1, _Reset
-ldr     r2, =__rel_dyn_end
+ldr     r2, =__bss_start
 sub     r2, r2, r1 /* r2 = codesize */
 svc     0x54       /* flush instruction cache */
 nop
@@ -70,5 +70,7 @@ __rel_dyn_start:
 __rel_dyn_end:
 
 .section .__bss_start
+__bss_start:
 
 .section .__bss_end
+__bss_end:
