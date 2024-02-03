@@ -77,42 +77,12 @@ static void set_kmmu_rw(int cpu, u32 addr, u32 size)
 	}
 }
 
-void kernelCallback(u32);
-static void keDoKernelHax(NTR_CONFIG *ntrCfg) {
-	// set mmu
-
-	set_kmmu_rw(0, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
-	set_kmmu_rw(1, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
-	if (ntrCfg->isNew3DS) {
-		set_kmmu_rw(2, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
-	}
-
-	// set_remoteplay_mmu(0xd8000000, 0x00600000);
-	/* patch controlmemory to disable address boundary check */
-
-	*(u32*)(ntrCfg->ControlMemoryPatchAddr1) = 0;
-	*(u32*)(ntrCfg->ControlMemoryPatchAddr2) = 0;
-
-	if (ntrCfg->KernelFreeSpaceAddr_Optional) {
-		u32* addr = (u32 *)ntrCfg->KernelFreeSpaceAddr_Optional;
-		addr[0] = 0xe10f0000;
-		addr[1] = 0xe38000c0;
-		addr[2] = 0xe129f000;
-		rtGenerateJumpCode((u32)kernelCallback, &addr[3]);
-		currentBackdoorHandler = (void*)(addr);
-	}
-
-	InvalidateEntireInstructionCache();
-	InvalidateEntireDataCache();
-}
-
 enum {
 	KCALL_KMEMCPY = 1,
 	KCALL_GET_KPROC_FROM_PROC,
 	KCALL_GET_KPROC,
 	KCALL_SET_KPROC,
 	KCALL_SWAP_PID,
-	KCALL_KERNEL_HAX
 };
 
 void kernelCallback(u32 /* msr */) {
@@ -153,12 +123,6 @@ void kernelCallback(u32 /* msr */) {
 			*(u32*)(kProcess + KProcessPIDOffset) = newPid;
 			break;
 		}
-
-		case KCALL_KERNEL_HAX: {
-			NTR_CONFIG *ntrCfg = (NTR_CONFIG *)kernelArgs[1];
-			keDoKernelHax(ntrCfg);
-			break;
-		}
 	}
 }
 
@@ -197,8 +161,21 @@ u32 kSwapProcessPid(u32 kProcess, u32 newPid) {
 	return kernelArgs[2];
 }
 
-void kDoKernelHax(NTR_CONFIG *ntrCfg) {
-	kernelArgs[0] = KCALL_KERNEL_HAX;
-	kernelArgs[1] = (u32)ntrCfg;
-	svcBackdoor(currentBackdoorHandler);
+void keDoKernelHax(NTR_CONFIG *ntrCfg) {
+	// set mmu
+
+	set_kmmu_rw(0, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
+	set_kmmu_rw(1, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
+	if (ntrCfg->isNew3DS) {
+		set_kmmu_rw(2, ntrCfg->KMMUHaxAddr, ntrCfg->KMMUHaxSize);
+	}
+
+	// set_remoteplay_mmu(0xd8000000, 0x00600000);
+	/* patch controlmemory to disable address boundary check */
+
+	*(u32*)(ntrCfg->ControlMemoryPatchAddr1) = 0;
+	*(u32*)(ntrCfg->ControlMemoryPatchAddr2) = 0;
+
+	InvalidateEntireInstructionCache();
+	InvalidateEntireDataCache();
 }

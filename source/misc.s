@@ -4,10 +4,25 @@
 .global backdoorHandler
 .type backdoorHandler, %function
 backdoorHandler:
-cpsid   aif
-STMFD   SP!, {R3-R11,LR}
-bl      kernelCallback
-LDMFD   SP!, {R3-R11,PC}
+	cpsid   aif
+	STMFD   SP!, {R3-R11,LR}
+	bl      kernelCallback
+	LDMFD   SP!, {R3-R11,PC}
+
+.type __kDoKernelHaxHandler, %function
+__kDoKernelHaxHandler:
+	cpsid aif
+	ldr r0, [sp, #8]
+	b keDoKernelHax
+
+.global kDoKernelHax
+.type kDoKernelHax, %function
+kDoKernelHax:
+	push {r0}
+	ldr r0, =__kDoKernelHaxHandler
+	svc 0x7B
+	add sp, #4
+	bx lr
 
 .global InvalidateEntireInstructionCache
 .type InvalidateEntireInstructionCache, %function
