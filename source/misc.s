@@ -9,6 +9,39 @@ backdoorHandler:
 	bl      kernelCallback
 	LDMFD   SP!, {R3-R11,PC}
 
+.type __kGetCurrentKProcessHandler, %function
+__kGetCurrentKProcessHandler:
+	cpsid aif
+	push {r2, lr}
+	bl keGetCurrentKProcess
+	pop {r2, lr}
+	str r0, [sp, #8]
+	bx lr
+
+.global kGetCurrentKProcess
+.type kGetCurrentKProcess, %function
+kGetCurrentKProcess:
+	sub sp, #8
+	ldr r0, =__kGetCurrentKProcessHandler
+	svc 0x7B
+	pop {r0, r1}
+	bx lr
+
+.type __kSetCurrentKProcessHandler, %function
+__kSetCurrentKProcessHandler:
+	cpsid aif
+	ldr r0, [sp, #8]
+	b keSetCurrentKProcess
+
+.global kSetCurrentKProcess
+.type kSetCurrentKProcess, %function
+kSetCurrentKProcess:
+	push {r0, r1}
+	ldr r0, =__kSetCurrentKProcessHandler
+	svc 0x7B
+	add sp, #8
+	bx lr
+
 .type __kSwapProcessPidHandler, %function
 __kSwapProcessPidHandler:
 	cpsid aif

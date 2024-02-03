@@ -80,8 +80,6 @@ static void set_kmmu_rw(int cpu, u32 addr, u32 size)
 enum {
 	KCALL_KMEMCPY = 1,
 	KCALL_GET_KPROC_FROM_PROC,
-	KCALL_GET_KPROC,
-	KCALL_SET_KPROC,
 };
 
 void kernelCallback(u32 /* msr */) {
@@ -103,16 +101,6 @@ void kernelCallback(u32 /* msr */) {
 			u32 kProcess = keRefHandle(*(u32 *)0xFFFF9004 + KProcessHandleDataOffset, hProcess);
 			kernelArgs[1] = kProcess;
 			break;
-
-		case KCALL_GET_KPROC:
-			// getCurrentKProcess
-			kernelArgs[1] = *(u32 *)0xFFFF9004;
-			break;
-
-		case KCALL_SET_KPROC:
-			// setCurrentKProcess
-			*(u32 *)0xFFFF9004 = kernelArgs[1];
-			break;
 	}
 }
 
@@ -124,23 +112,19 @@ void kmemcpy(void *dst, void *src, u32 size) {
 	svcBackdoor(currentBackdoorHandler);
 }
 
-void kSetCurrentKProcess(u32 ptr) {
-	kernelArgs[0] = KCALL_SET_KPROC;
-	kernelArgs[1] = ptr;
-	svcBackdoor(currentBackdoorHandler);
-}
-
-u32 kGetCurrentKProcess(void) {
-	kernelArgs[0] = KCALL_GET_KPROC;
-	svcBackdoor(currentBackdoorHandler);
-	return kernelArgs[1];
-}
-
 u32 kGetKProcessByHandle(u32 handle) {
 	kernelArgs[0] = KCALL_GET_KPROC_FROM_PROC;
 	kernelArgs[1] = handle;
 	svcBackdoor(currentBackdoorHandler);
 	return kernelArgs[1];
+}
+
+u32 keGetCurrentKProcess(void) {
+	return *(u32 *)0xFFFF9004;
+}
+
+void keSetCurrentKProcess(u32 ptr) {
+	*(u32 *)0xFFFF9004 = ptr;
 }
 
 u32 keSwapProcessPid(u32 kProcess, u32 newPid) {
