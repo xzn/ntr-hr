@@ -22,8 +22,8 @@ STMFD   SP!, {R0}
 LDR     R6, =_Reset
 ADR     R5, _Reset
 sub     r5, r5, r6 /* r5 = realAddress - baseAddress */
-ldr     r6, = __rel_dyn_start
-ldr     r7, = __rel_dyn_end
+ldr     r6, =__rel_dyn_start
+ldr     r7, =__rel_dyn_end
 add     r6, r6, r5
 add     r7, r7, r5
 relocNotFinished:
@@ -46,7 +46,7 @@ nop
 nop
 
 mov     r0, sp
-bl     c_entry
+bl      c_entry
 
 ldmfd   sp!, {r0}
 msr     cpsr, r0
