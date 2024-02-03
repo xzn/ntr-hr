@@ -82,7 +82,6 @@ enum {
 	KCALL_GET_KPROC_FROM_PROC,
 	KCALL_GET_KPROC,
 	KCALL_SET_KPROC,
-	KCALL_SWAP_PID,
 };
 
 void kernelCallback(u32 /* msr */) {
@@ -114,15 +113,6 @@ void kernelCallback(u32 /* msr */) {
 			// setCurrentKProcess
 			*(u32 *)0xFFFF9004 = kernelArgs[1];
 			break;
-
-		case KCALL_SWAP_PID: {
-			// swapPid
-			u32 kProcess = kernelArgs[1];
-			u32 newPid = kernelArgs[2];
-			kernelArgs[2] = *(u32*)(kProcess + KProcessPIDOffset);
-			*(u32*)(kProcess + KProcessPIDOffset) = newPid;
-			break;
-		}
 	}
 }
 
@@ -153,12 +143,10 @@ u32 kGetKProcessByHandle(u32 handle) {
 	return kernelArgs[1];
 }
 
-u32 kSwapProcessPid(u32 kProcess, u32 newPid) {
-	kernelArgs[0] = KCALL_SWAP_PID;
-	kernelArgs[1] = kProcess;
-	kernelArgs[2] = newPid;
-	svcBackdoor(currentBackdoorHandler);
-	return kernelArgs[2];
+u32 keSwapProcessPid(u32 kProcess, u32 newPid) {
+	u32 oldPid = *(u32*)(kProcess + KProcessPIDOffset);
+	*(u32*)(kProcess + KProcessPIDOffset) = newPid;
+	return oldPid;
 }
 
 void keDoKernelHax(NTR_CONFIG *ntrCfg) {

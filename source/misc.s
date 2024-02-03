@@ -9,6 +9,26 @@ backdoorHandler:
 	bl      kernelCallback
 	LDMFD   SP!, {R3-R11,PC}
 
+.type __kSwapProcessPidHandler, %function
+__kSwapProcessPidHandler:
+	cpsid aif
+	ldr r0, [sp, #8]
+	ldr r1, [sp, #12]
+	push {r2, lr}
+	bl keSwapProcessPid
+	pop {r2, lr}
+	str r0, [sp, #8]
+	bx lr
+
+.global kSwapProcessPid
+.type kSwapProcessPid, %function
+kSwapProcessPid:
+	push {r0, r1}
+	ldr r0, =__kSwapProcessPidHandler
+	svc 0x7B
+	pop {r0, r1}
+	bx lr
+
 .type __kDoKernelHaxHandler, %function
 __kDoKernelHaxHandler:
 	cpsid aif
@@ -18,10 +38,10 @@ __kDoKernelHaxHandler:
 .global kDoKernelHax
 .type kDoKernelHax, %function
 kDoKernelHax:
-	push {r0}
+	push {r0, r1}
 	ldr r0, =__kDoKernelHaxHandler
 	svc 0x7B
-	add sp, #4
+	add sp, #8
 	bx lr
 
 .global InvalidateEntireInstructionCache

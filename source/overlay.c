@@ -141,11 +141,16 @@ static u32 plgSearchBytes(u32 startAddr, u32 endAddr, const u32 *pat, int patlen
 
 static void plgCreateOverlayThread(u32 fp) {
 	plgOverlayThreadStack = (void *)plgRequestMemory(STACK_SIZE);
+	if (!plgOverlayThreadStack) {
+		return;
+	}
 	plgOverlayEvent = plgOverlayThreadStack;
 	s32 ret;
 	ret = svcCreateEvent(plgOverlayEvent, RESET_ONESHOT);
 	if (ret != 0) {
 		nsDbgPrint("Create plgOverlayEvent failed: %08"PRIx32"\n", ret);
+		*plgOverlayEvent = 0;
+		return;
 	}
 	Handle hThread;
 	ret = svcCreateThread(&hThread, plgOverlayThread, fp, &plgOverlayThreadStack[(STACK_SIZE / 4) - 10], 0x18, -2);

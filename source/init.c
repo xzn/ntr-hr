@@ -136,6 +136,7 @@ u32 plgRequestMemory(u32 size) {
 		nsDbgPrint("Failed to allocate memory from pool for plugin at addr %08"PRIx32": %08"PRIx32"\n", addr, ret);
 		return 0;
 	}
+	nsDbgPrint("Allocated memory from pool for size %08"PRIx32" at addr %08"PRIx32": %08"PRIx32"\n", size, addr, outAddr);
 
 	plgMemoryPoolEnd += size;
 
