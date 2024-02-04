@@ -1,0 +1,3 @@
+[workspace]
+members = ["source/nwm_rs"]
+resolver = "2"

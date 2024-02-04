@@ -1,0 +1,4 @@
+{
+    "rust-analyzer.cargo.target": "armv6k-nintendo-3ds",
+    "rust-analyzer.check.allTargets": false
+}

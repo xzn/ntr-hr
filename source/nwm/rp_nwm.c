@@ -626,7 +626,7 @@ static u32 rpPriorityFactorLogScaled;
 static int nextScreenCaptured[RP_WORK_COUNT];
 static int nextScreenSynced[RP_WORK_COUNT];
 static u32 frameQueued[SCREEN_COUNT];
-static u32 rpPortGamePid;
+u32 rpPortGamePid;
 
 #define LOG(x) FIX(log(x) / log(2))
 static u32 const log_scaled_tab[] = {

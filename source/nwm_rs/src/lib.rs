@@ -1,14 +1,19 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+#![no_std]
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![feature(core_intrinsics)]
+#![allow(internal_features)]
+
+use core::panic::PanicInfo;
+
+#[panic_handler]
+fn panic(_: &PanicInfo) -> ! {
+    core::intrinsics::abort();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub fn add(left: usize, right: usize) -> usize {
+    left + right
 }
