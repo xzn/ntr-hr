@@ -759,7 +759,7 @@ static int rpSendFrames(u32 thread_id, u32 work_next) {
 			}
 
 			s32 res;
-			res = svcWaitSynchronization(rpHDma[work_next], 1000000000);
+			res = svcWaitSynchronization(rpHDma[work_next], 100000000);
 
 			int imgBuffer_work_prev = imgBuffer_work_next[ctx->isTop];
 			if (imgBuffer_work_prev == 0)
