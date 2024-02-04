@@ -40,6 +40,7 @@ static int jpeg_rows_last[RP_WORK_COUNT];
 static int jpeg_adjusted_rows[RP_WORK_COUNT];
 static int jpeg_adjusted_rows_last[RP_WORK_COUNT];
 static int jpeg_progress[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
+static int jpeg_progress_snapshot[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 
 typedef JSAMPARRAY pre_proc_buffer_t[MAX_COMPONENTS];
 typedef JSAMPARRAY color_buffer_t[MAX_COMPONENTS];
@@ -529,10 +530,9 @@ static void rpShowNextFrameBothScreen(void) {
 #define RP_JPEG_SAMP_FACTOR (2)
 static void rpReadyWork(BLIT_CONTEXT *ctx, u32 work_next) {
 	u32 work_prev = work_next == 0 ? RP_WORK_COUNT - 1 : work_next - 1;
-	int progress[rpCoreCount];
+	int *progress = jpeg_progress_snapshot[work_prev];
 	for (u32 j = 0; j < rpCoreCount; ++j) {
 		ASR(&jpeg_progress[work_next][j], 0);
-		progress[j] = ALR(&jpeg_progress[work_prev][j]);
 	}
 
 	int mcu_size = DCTSIZE * RP_JPEG_SAMP_FACTOR;
@@ -702,6 +702,9 @@ static void rpJPEGCompress0(j_compress_ptr cinfo,
 
 		ASR(&jpeg_progress[work_next][thread_id], ++progress);
 	}
+
+	for (u32 j = 0; j < rpCoreCount; ++j)
+		jpeg_progress_snapshot[work_next][j] = ALR(&jpeg_progress[work_next][j]);
 }
 
 static void rpSendFramesMain(u32 thread_id, BLIT_CONTEXT *ctx, u32 work_next) {
@@ -1550,7 +1553,7 @@ static void rpThreadMain(void *) {
 				info->sendPos = info->pos = rpDataBuf[i][j] + RP_DATA_HDR_SIZE;
 				info->flag = 0;
 
-				jpeg_progress[i][j] = 0;
+				jpeg_progress_snapshot[i][j] = jpeg_progress[i][j] = 0;
 			}
 			jpeg_rows[i] = 0;
 			jpeg_rows_last[i] = 0;
