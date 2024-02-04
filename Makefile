@@ -58,6 +58,10 @@ all: $(PAYLOAD_LOCAL_BIN) $(PAYLOAD_LOCAL_ELF)
 
 install: $(PAYLOAD_TARGET_BIN)
 
+.NOTPARALLEL: rs
+
+rs: $(LIB_NWM_RS)
+
 CP_CMD = @echo \* $(notdir $@) \*; $(CP) $< $@
 
 $(PAYLOAD_TARGET_DIR)/%.bin: release/%.bin
