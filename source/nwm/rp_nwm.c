@@ -187,7 +187,7 @@ static uint16_t ip_checksum(void *vdata, size_t length) {
 
 static int initUDPPacket(u8 *rpNwmBufferCur, int dataLen) {
 	dataLen += 8;
-	*(u16*)(rpNwmBufferCur + 0x22 + 8) = htons(8000); // src port
+	*(u16*)(rpNwmBufferCur + 0x22 + 8) = htons(RP_SRC_PORT); // src port
 	*(u16*)(rpNwmBufferCur + 0x24 + 8) = htons(ALR(&rpConfig->dstPort)); // dest port
 	*(u16*)(rpNwmBufferCur + 0x26 + 8) = htons(dataLen);
 	*(u16*)(rpNwmBufferCur + 0x28 + 8) = 0; // no checksum
