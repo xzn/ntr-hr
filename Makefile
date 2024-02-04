@@ -11,8 +11,8 @@ CTRU_DIR := libctru/libctru
 
 CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing -ffunction-sections -fdata-sections
 CPPFLAGS := -Iinclude -Ilibctru/libctru/include
-LDFLAGS = -pie -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map
-LDLIBS := -nostartfiles -L. -lctru_ntr
+LDFLAGS = -pie -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,-z,noexecstack
+LDLIBS = -nostartfiles -L. -lctru_ntr -L$(LIB_RS_DIR)
 
 SRC_C := $(wildcard source/*.c)
 SRC_S := $(wildcard source/*.s)
@@ -44,6 +44,9 @@ NTR_BIN_PM := ntr.hr.pm.bin
 NTR_BIN_NWM := ntr.hr.nwm.bin
 NTR_BIN_GAME := ntr.hr.game.bin
 
+LIB_RS_DIR := target/armv6k-nintendo-3ds/release
+LIB_NWM_RS := $(LIB_RS_DIR)/libnwm_rs.a
+
 PAYLOAD_BIN := $(NTR_BIN_BOOT) $(NTR_BIN_MENU) $(NTR_BIN_PM) $(NTR_BIN_NWM) $(NTR_BIN_GAME)
 PAYLOAD_TARGET_DIR := ../BootNTR-Bins/romfs
 PAYLOAD_TARGET_BIN := $(addprefix $(PAYLOAD_TARGET_DIR)/,$(PAYLOAD_BIN))
@@ -66,20 +69,23 @@ release/%.bin: bin/%.elf | release
 release:
 	mkdir $@
 
-bin/$(NTR_BIN_BOOT:.bin=.elf): $(OBJ) $(OBJ_BOOT) | libctru_ntr.a 3ds.ld
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_BOOT:.bin=.elf): $(OBJ) $(OBJ_BOOT) libctru_ntr.a 3ds.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_BOOT)) $(LDLIBS)
 
-bin/$(NTR_BIN_MENU:.bin=.elf): $(OBJ) $(OBJ_MENU) | libctru_ntr.a 3ds.ld
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_MENU:.bin=.elf): $(OBJ) $(OBJ_MENU) libctru_ntr.a 3ds.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_MENU)) $(LDLIBS)
 
-bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) | libctru_ntr.a 3ds.ld
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) libctru_ntr.a 3ds.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_PM)) $(LDLIBS)
 
-bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) | libctru_ntr.a 3ds.ld
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) libctru_ntr.a 3ds.ld
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_GAME)) $(LDLIBS)
 
-bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/rp_lto.o | libctru_ntr.a 3dst.ld
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$^) $(LDLIBS)
+bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/rp_lto.o libctru_ntr.a 3dst.ld $(LIB_NWM_RS)
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) obj/rp_lto.o) $(LDLIBS) -lnwm_rs
+
+$(LIB_NWM_RS): source/nwm_rs
+	cargo -Z unstable-options -C $< build --release
 
 libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
 	$(CP_CMD)
@@ -125,4 +131,5 @@ obj/rp_lto.o: $(OBJ_NWM) $(OBJ_RP)
 
 clean:
 	-rm *.map bin/*.elf release/*.bin obj/*.d obj/*.o lib*.a
+	-rm target/ -rf
 	$(MAKE) -C $(CTRU_DIR) clean

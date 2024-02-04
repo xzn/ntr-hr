@@ -8,6 +8,8 @@ crate-type = ["staticlib"]
 
 [dependencies]
 libc = { version = "0.2.153", default-features = false }
+function_name = "0.3.0"
+c_str_macro = { path = "../../rust-c-str" }
 
 [build-dependencies]
 bindgen = "0.69.4"

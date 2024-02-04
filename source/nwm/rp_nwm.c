@@ -1,4 +1,5 @@
 #include "global.h"
+#include "rp_nwm.h"
 
 #include "3ds/os.h"
 #include "3ds/services/gspgpu.h"
@@ -18,14 +19,12 @@
 #define FIX(x) ((u32)((x) * (1L << SCALEBITS) + 0.5))
 
 static Handle hThreadMain;
-static int rpResetThreads;
 static u32 rpCoreCount;
+int rpResetThreads;
 
 static u32 rpMinIntervalBetweenPacketsInTick;
 static u32 rpMinIntervalBetweenPacketsInNS;
 
-#define SCREEN_COUNT (2)
-#define RP_WORK_COUNT (2)
 #define RP_CINFOS_COUNT (RP_WORK_COUNT * RP_CORE_COUNT_MAX * SCREEN_COUNT)
 
 static j_compress_ptr cinfos[RP_CINFOS_COUNT];
@@ -142,21 +141,7 @@ int rpCtxInit(BLIT_CONTEXT *ctx, int width, int height, int format, u8 *src) {
 #define PACKET_SIZE (1448)
 #define RP_PACKET_DATA_SIZE (PACKET_SIZE - RP_DATA_HDR_SIZE)
 
-static struct rp_handles_t {
-	struct rp_work_syn_t {
-		Handle sem_end, sem_nwm, sem_send;
-		u32 sem_count;
-		u8 sem_set;
-	} work[RP_WORK_COUNT];
-
-	struct rp_thread_syn_t {
-		Handle sem_start, sem_work;
-	} thread[RP_CORE_COUNT_MAX];
-
-	Handle nwmEvent;
-	Handle portEvent[SCREEN_COUNT];
-	Handle screenCapSem;
-} *rp_syn;
+struct rp_handles_t *rp_syn;
 
 static uint16_t ip_checksum(void *vdata, size_t length) {
 	// Cast the data pointer to one that can be indexed.
@@ -1154,11 +1139,10 @@ static void rpCaptureNextScreen(u32 work_next, int wait_sync) {
 		if (!ALR(&rpPortGamePid)) {
 			if (rpPriorityFactor != 0) {
 				if (frameCount[rpCurrentUpdating] >= rpPriorityFactor) {
-					if (frameCount[!rpCurrentUpdating] >= 1) {
-						frameCount[rpCurrentUpdating] -= rpPriorityFactor;
-						frameCount[!rpCurrentUpdating] -= 1;
-						rpCurrentUpdating = !rpCurrentUpdating;
-					}
+					frameCount[rpCurrentUpdating] -= rpPriorityFactor;
+					rpCurrentUpdating = !rpCurrentUpdating;
+				} else {
+					frameCount[rpCurrentUpdating] += 1;
 				}
 			}
 			ASR(&screenBusyWait[work_next], 1);
@@ -1228,13 +1212,12 @@ static void rpCaptureNextScreen(u32 work_next, int wait_sync) {
 	if (ALR(&rpResetThreads))
 		return;
 
-	if (screenBusyWait[work_next])
+	if (screenBusyWait[work_next]) {
 		rpDoWaitForVBlank(rpCurrentUpdating);
+	}
 	rpKernelCallback(rpCurrentUpdating);
 	int captured = rpCaptureScreen(work_next, rpCurrentUpdating) == 0;
 	if (captured) {
-		if (screenBusyWait[work_next])
-			frameCount[rpCurrentUpdating] += 1;
 		nextScreenCaptured[work_next] = captured;
 
 		s32 count;
@@ -1275,82 +1258,6 @@ static void rpScreenCaptureThread(u32) {
 	}
 final:
 	svcExitThread();
-}
-
-void handlePortCmd(u32 cmd_id, u32 norm_param_count, u32 trans_param_size, u32 *cmd_buf1) {
-	switch (cmd_id) {
-		case SVC_NWM_CMD_OVERLAY_CALLBACK: {
-			u32 isTop = norm_param_count >= 1 ? *cmd_buf1 : (u32)-1;
-			u32 gamePid = trans_param_size >= 2 ? cmd_buf1[norm_param_count + 1] : 0;
-			if (isTop > 1) {
-				ASR(&rpPortGamePid, 0);
-			} else {
-				if (rpPortGamePid != gamePid) {
-					ASR(&rpPortGamePid, gamePid);
-					if (gamePid != 0) {
-						if (ALR(&rpConfig->gamePid) != gamePid) {
-							ASR(&rpConfig->gamePid, gamePid);
-						}
-					}
-				}
-
-				s32 ret = svcSignalEvent(rp_syn->portEvent[isTop]);
-				if (ret != 0) {
-					nsDbgPrint("Signal port event failed: %08"PRIx32"\n", ret);
-				}
-			}
-			break;
-		}
-
-#define CHECK_CASE(f, v) ((f) == (v) ? (v) : 0)
-#define RP_CONFIG_CASE(f, v) CHECK_CASE(offsetof(RP_CONFIG, f) / sizeof(u32) + 1, v)
-
-		case SVC_NWM_CMD_PARAMS_UPDATE: {
-			RP_CONFIG config;
-			memcpy(&config, cmd_buf1, MIN(norm_param_count * sizeof(u32), sizeof(RP_CONFIG)));
-			int need_reset = 0;
-			switch (norm_param_count) {
-				default:
-				case RP_CONFIG_CASE(gamePid, 8):
-				case RP_CONFIG_CASE(threadPriority, 7):
-					if (config.threadPriority != rpConfig->threadPriority)
-						need_reset = 1;
-					// FALLTHRU
-				case RP_CONFIG_CASE(dstAddr, 6):
-				case RP_CONFIG_CASE(dstPort, 5):
-				case RP_CONFIG_CASE(coreCount, 4):
-					if (config.coreCount != rpConfig->coreCount)
-						need_reset = 1;
-					// FALLTHRU
-				case RP_CONFIG_CASE(qos, 3):
-					if (config.qos != rpConfig->qos)
-						need_reset = 1;
-					// FALLTHRU
-				case RP_CONFIG_CASE(quality, 2):
-					if (config.quality != rpConfig->quality)
-						need_reset = 1;
-					// FALLTHRU
-				case RP_CONFIG_CASE(mode, 1):
-					if (config.mode != rpConfig->mode)
-						need_reset = 1;
-					// FALLTHRU
-				case 0:
-					break;
-			}
-			for (u32 i = 0; i < MIN(norm_param_count, sizeof(RP_CONFIG) / sizeof(u32)); ++i) {
-				ASR((u32 *)rpConfig + i, *((u32 *)&config + i));
-			}
-			if (need_reset)
-				ASR(&rpResetThreads, 1);
-			break;
-		}
-
-		case SVC_NWM_CMD_GAME_PID_UPDATE: {
-			u32 gamePid = norm_param_count >= 1 ? *cmd_buf1 : 0;
-			ASR(&rpConfig->gamePid, gamePid);
-			break;
-		}
-	}
 }
 
 void __system_initSyscalls(void);

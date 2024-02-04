@@ -36,6 +36,9 @@ fn main() {
         .blocklist_type("u(8|16|32|64)")
         .blocklist_type("__builtin_va_list")
         .blocklist_type("__va_list")
+        .blocklist_function("handlePortCmd")
+        .blocklist_var("nsConfig")
+        .blocklist_var("rpConfig")
         .opaque_type("MiiData")
         .derive_default(true)
         .clang_args([

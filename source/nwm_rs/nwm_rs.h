@@ -1,3 +1,1 @@
-#include "global.h"
-
-extern u32 rpPortGamePid;
+#include "../nwm/rp_nwm.h"

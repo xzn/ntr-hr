@@ -1,0 +1,17 @@
+[package]
+name = "c_str_macro"
+version = "1.0.3"
+edition = "2018"
+authors = ["Mikhail Zabaluev <mikhail.zabaluev@gmail.com>"]
+description = "c_str macro to create C-compatible string literals"
+readme = "README.md"
+license = "Apache-2.0/MIT"
+categories = ["development-tools::ffi"]
+keywords = ["C", "string", "macro"]
+repository = "https://github.com/mzabaluev/rust-c-str.git"
+
+[lib]
+path = "src/c_str.rs"
+
+[dev-dependencies]
+libc = "0.2"
