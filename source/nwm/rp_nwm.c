@@ -57,8 +57,8 @@ typedef struct {
 	u8 id;
 	u8 isTop;
 
-	j_compress_ptr cinfos[RP_CORE_COUNT_MAX];
-	struct rp_alloc_stats_check *cinfos_alloc_stats[RP_CORE_COUNT_MAX];
+	j_compress_ptr cinfos;
+	struct rp_alloc_stats_check *cinfos_alloc_stats;
 
 	int irow_start[RP_CORE_COUNT_MAX];
 	int irow_count[RP_CORE_COUNT_MAX];
@@ -123,9 +123,9 @@ int rpCtxInit(BLIT_CONTEXT *ctx, int width, int height, int format, u8 *src) {
 	if (ctx->format != format) {
 		ret = 1;
 		for (u32 j = 0; j < rpCoreCount; ++j) {
-			if (ctx->cinfos[j]->global_state != JPEG_CSTATE_START) {
-				memcpy(&ctx->cinfos[j]->alloc.stats, &ctx->cinfos_alloc_stats[j]->comp, sizeof(struct rp_alloc_stats));
-				ctx->cinfos[j]->global_state = JPEG_CSTATE_START;
+			if (ctx->cinfos[j].global_state != JPEG_CSTATE_START) {
+				memcpy(&ctx->cinfos[j].alloc.stats, &ctx->cinfos_alloc_stats[j].comp, sizeof(struct rp_alloc_stats));
+				ctx->cinfos[j].global_state = JPEG_CSTATE_START;
 			}
 		}
 	}
@@ -584,7 +584,7 @@ static void rpReadyWork(BLIT_CONTEXT *ctx, u32 work_next) {
 
 	j_compress_ptr cinfo;
 	for (u32 j = 0; j < rpCoreCount; ++j) {
-		cinfo = ctx->cinfos[j];
+		cinfo = &ctx->cinfos[j];
 		cinfo->image_width = ctx->height;
 		cinfo->image_height = ctx->width;
 		cinfo->input_components = ctx->format == 0 ? 4 : 3;
@@ -705,7 +705,7 @@ static void rpJPEGCompress0(j_compress_ptr cinfo,
 }
 
 static void rpSendFramesMain(u32 thread_id, BLIT_CONTEXT *ctx, u32 work_next) {
-	j_compress_ptr cinfo = ctx->cinfos[thread_id];
+	j_compress_ptr cinfo = &ctx->cinfos[thread_id];
 
 	cinfo->client_data = rpDataBufInfo[work_next][thread_id].pos;
 	jpeg_init_destination(cinfo);
@@ -741,18 +741,14 @@ static int rpSendFrames(u32 thread_id, u32 work_next) {
 			int format_changed = 0;
 			ctx->isTop = rpCurrentUpdating;
 			if (ctx->isTop) {
-				for (u32 j = 0; j < rpCoreCount; ++j) {
-					ctx->cinfos[j] = &cinfos_top[work_next][j];
-					ctx->cinfos_alloc_stats[j] = &alloc_stats_top[work_next][j];
-				}
+				ctx->cinfos = cinfos_top[work_next];
+				ctx->cinfos_alloc_stats = alloc_stats_top[work_next];
 
 				format_changed = rpCtxInit(ctx, 400, 240, tl_format, imgBuffer[1][imgBuffer_work_next[1]]);
 				ctx->id = (u8)currentTopId;
 			} else {
-				for (u32 j = 0; j < rpCoreCount; ++j) {
-					ctx->cinfos[j] = &cinfos_bot[work_next][j];
-					ctx->cinfos_alloc_stats[j] = &alloc_stats_bot[work_next][j];
-				}
+				ctx->cinfos = cinfos_bot[work_next];
+				ctx->cinfos_alloc_stats = alloc_stats_bot[work_next];
 
 				format_changed = rpCtxInit(ctx, 320, 240, bl_format, imgBuffer[0][imgBuffer_work_next[0]]);
 				ctx->id = (u8)currentBottomId;
