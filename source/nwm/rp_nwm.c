@@ -81,6 +81,7 @@ static u8 rpDataBufHdr[RP_WORK_COUNT][RP_DATA_HDR_SIZE];
 static u32 rp_work_next;
 static u32 rp_screen_work_next;
 static int rp_skip_frame[RP_WORK_COUNT];
+static u32 rp_sem_thread_id;
 
 static struct rpDataBufInfo_t {
 	u8 *sendPos, *pos;
@@ -733,71 +734,90 @@ static int rpSendFrames(u32 thread_id, u32 work_next) {
 	BLIT_CONTEXT *ctx = &blit_context[work_next];
 	struct rp_work_syn_t *syn = &rp_syn->work[work_next];
 
-	u8 skip_frame = 0;
+	u8 skip_frame = 1;
 
 	if (!ATSR(&syn->sem_set)) {
-		int format_changed = 0;
-		ctx->isTop = rpCurrentUpdating;
-		if (ctx->isTop) {
-			for (u32 j = 0; j < rpCoreCount; ++j) {
-				ctx->cinfos[j] = &cinfos_top[work_next][j];
-				ctx->cinfos_alloc_stats[j] = &alloc_stats_top[work_next][j];
-			}
+		while (skip_frame) {
+			int format_changed = 0;
+			ctx->isTop = rpCurrentUpdating;
+			if (ctx->isTop) {
+				for (u32 j = 0; j < rpCoreCount; ++j) {
+					ctx->cinfos[j] = &cinfos_top[work_next][j];
+					ctx->cinfos_alloc_stats[j] = &alloc_stats_top[work_next][j];
+				}
 
-			format_changed = rpCtxInit(ctx, 400, 240, tl_format, imgBuffer[1][imgBuffer_work_next[1]]);
-			ctx->id = (u8)currentTopId;
-		} else {
-			for (u32 j = 0; j < rpCoreCount; ++j) {
-				ctx->cinfos[j] = &cinfos_bot[work_next][j];
-				ctx->cinfos_alloc_stats[j] = &alloc_stats_bot[work_next][j];
-			}
-
-			format_changed = rpCtxInit(ctx, 320, 240, bl_format, imgBuffer[0][imgBuffer_work_next[0]]);
-			ctx->id = (u8)currentBottomId;
-		}
-
-		s32 res;
-		res = svcWaitSynchronization(rpHDma[work_next], 1000000000);
-
-		int imgBuffer_work_prev = imgBuffer_work_next[ctx->isTop];
-		if (imgBuffer_work_prev == 0)
-			imgBuffer_work_prev = RP_SCREEN_WORK_COUNT - 1;
-		else
-			--imgBuffer_work_prev;
-
-		skip_frame = !format_changed && memcmp(ctx->src, imgBuffer[ctx->isTop][imgBuffer_work_prev], ctx->width * ctx->src_pitch) == 0;
-
-		s32 count;
-		if (!skip_frame) {
-			res = rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
-			if (res != 0) {
-				skip_frame = 1;
+				format_changed = rpCtxInit(ctx, 400, 240, tl_format, imgBuffer[1][imgBuffer_work_next[1]]);
+				ctx->id = (u8)currentTopId;
 			} else {
-				imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % RP_SCREEN_WORK_COUNT;
-				ctx->isTop ? ++currentTopId : ++currentBottomId;
-				rpReadyWork(ctx, work_next);
-			}
-		} else {
-			res = svcReleaseSemaphore(&count, syn->sem_end, 1);
-			if (res) {
-			}
-			res = svcReleaseSemaphore(&count, rp_syn->screenCapSem, 1);
-			if (res != 0) {
-				nsDbgPrint("(%"PRIx32") Release semaphore screenCapSem (%"PRIx32") failed: %"PRIx32"\n", thread_id, work_next, res);
-			}
-		}
+				for (u32 j = 0; j < rpCoreCount; ++j) {
+					ctx->cinfos[j] = &cinfos_bot[work_next][j];
+					ctx->cinfos_alloc_stats[j] = &alloc_stats_bot[work_next][j];
+				}
 
-		ASR(&rp_skip_frame[work_next], skip_frame);
-		for (u32 j = 0; j < rpCoreCount; ++j) {
-			if (j != thread_id) {
-				res = svcReleaseSemaphore(&count, rp_syn->thread[j].sem_work, 1);
-				if (res) {
-					nsDbgPrint("(%"PRIx32") Release semaphore sem_work[%"PRIx32"] (%"PRIx32") failed: %"PRIx32"\n", thread_id, j, work_next, res);
+				format_changed = rpCtxInit(ctx, 320, 240, bl_format, imgBuffer[0][imgBuffer_work_next[0]]);
+				ctx->id = (u8)currentBottomId;
+			}
+
+			s32 res;
+			res = svcWaitSynchronization(rpHDma[work_next], 1000000000);
+
+			int imgBuffer_work_prev = imgBuffer_work_next[ctx->isTop];
+			if (imgBuffer_work_prev == 0)
+				imgBuffer_work_prev = RP_SCREEN_WORK_COUNT - 1;
+			else
+				--imgBuffer_work_prev;
+
+			skip_frame = !format_changed && memcmp(ctx->src, imgBuffer[ctx->isTop][imgBuffer_work_prev], ctx->width * ctx->src_pitch) == 0;
+
+			s32 count;
+			if (!skip_frame) {
+				res = rpReadyNwm(thread_id, work_next, ctx->id, ctx->isTop);
+				if (res != 0) {
+					skip_frame = 1;
+				} else {
+					imgBuffer_work_next[ctx->isTop] = (imgBuffer_work_next[ctx->isTop] + 1) % RP_SCREEN_WORK_COUNT;
+					ctx->isTop ? ++currentTopId : ++currentBottomId;
+					rpReadyWork(ctx, work_next);
+				}
+			}
+
+			ASR(&rp_skip_frame[work_next], skip_frame);
+
+			if (!skip_frame) {
+				ASR(&nextScreenSynced[work_next], 0);
+
+				for (u32 j = 0; j < rpCoreCount; ++j) {
+					if (j != thread_id) {
+						res = svcReleaseSemaphore(&count, rp_syn->thread[j].sem_work, 1);
+						if (res) {
+							nsDbgPrint("(%"PRIx32") Release semaphore sem_work[%"PRIx32"] (%"PRIx32") failed: %"PRIx32"\n", thread_id, j, work_next, res);
+						}
+					}
+				}
+			} else {
+				ASR(&rp_sem_thread_id, thread_id);
+				res = svcReleaseSemaphore(&count, rp_syn->screenCapSem, 1);
+				if (res != 0) {
+					nsDbgPrint("(%"PRIx32") Release semaphore screenCapSem (%"PRIx32") failed: %"PRIx32"\n", thread_id, work_next, res);
+				}
+
+				while (1) {
+					if (ALR(&rpResetThreads)) {
+						return -1;
+					}
+					res = svcWaitSynchronization(rp_syn->thread[thread_id].sem_start, 100000000);
+					if (res) {
+						continue;
+					}
+					break;
 				}
 			}
 		}
 	} else {
 		while (1) {
+			if (ALR(&rpResetThreads)) {
+				return -1;
+			}
 			s32 res = svcWaitSynchronization(rp_syn->thread[thread_id].sem_work, 100000000);
 			if (res) {
 				continue;
@@ -1115,7 +1135,7 @@ static void rpCaptureNextScreen(u32 work_next, int wait_sync) {
 	struct rp_work_syn_t *syn = &rp_syn->work[work_next];
 	s32 res;
 
-	if (!nextScreenSynced[work_next]) {
+	if (!ALR(&nextScreenSynced[work_next])) {
 		res = svcWaitSynchronization(syn->sem_end, wait_sync ? 100000000 : 0);
 		if (res) {
 			if (wait_sync && res != RES_TIMEOUT) {
@@ -1129,7 +1149,9 @@ static void rpCaptureNextScreen(u32 work_next, int wait_sync) {
 	rpCurrentUpdating = rpIsPriorityTop;
 	ASR(&screenBusyWait[work_next], 0);
 
-	while (!ALR(&rpResetThreads)) {
+	while (1) {
+		if (ALR(&rpResetThreads))
+			return;
 		if (!ALR(&rpPortGamePid)) {
 			if (rpPriorityFactor != 0) {
 				if (frameCount[rpCurrentUpdating] >= rpPriorityFactor) {
@@ -1215,13 +1237,20 @@ static void rpCaptureNextScreen(u32 work_next, int wait_sync) {
 		if (screenBusyWait[work_next])
 			frameCount[rpCurrentUpdating] += 1;
 		nextScreenCaptured[work_next] = captured;
-		nextScreenSynced[work_next] = 0;
 
-		for (u32 j = 0; j < rpCoreCount; ++j) {
-			s32 count;
+		s32 count;
+		if (!ALR(&rp_skip_frame[work_next])) {
+			for (u32 j = 0; j < rpCoreCount; ++j) {
+				res = svcReleaseSemaphore(&count, rp_syn->thread[j].sem_start, 1);
+				if (res) {
+					nsDbgPrint("Release semaphore sem_start %"PRIx32" failed: %"PRIx32"\n", j, res);
+				}
+			}
+		} else {
+			u32 j = ALR(&rp_sem_thread_id);
 			res = svcReleaseSemaphore(&count, rp_syn->thread[j].sem_start, 1);
 			if (res) {
-				nsDbgPrint("Release semaphore sem_start failed: %"PRIx32"\n", res);
+				nsDbgPrint("Release semaphore sem_start %"PRIx32" failed: %"PRIx32"\n", j, res);
 			}
 		}
 	}
@@ -1238,11 +1267,14 @@ static void rpScreenCaptureThread(u32) {
 			continue;
 		}
 		u32 work_next = ALR(&rp_screen_work_next);
-		while (!nextScreenCaptured[work_next] && !ALR(&rpResetThreads))
+		while (!nextScreenCaptured[work_next]) {
+			if (ALR(&rpResetThreads))
+				goto final;
 			rpCaptureNextScreen(work_next, 1);
+		}
 		nextScreenCaptured[work_next] = 0;
 	}
-
+final:
 	svcExitThread();
 }
 
