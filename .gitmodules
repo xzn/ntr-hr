@@ -2,7 +2,3 @@
 	path = libctru
 	url = https://github.com/xzn/libctru.git
 	branch = ntr_bins
-[submodule "ctru-rs"]
-	path = ctru-rs
-	url = https://github.com/xzn/ctru-rs.git
-	branch = ntr
