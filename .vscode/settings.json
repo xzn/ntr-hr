@@ -2,6 +2,7 @@
     "rust-analyzer.cargo.target": "armv6k-nintendo-3ds",
     "rust-analyzer.check.allTargets": false,
     "clangd.fallbackFlags": [
+        "--target=arm-none-eabi",
         "--sysroot",
         "/opt/devkitpro/devkitARM/arm-none-eabi",
         "-isystem",
@@ -14,5 +15,6 @@
         "-DARM11",
         "-D__3DS__",
         "-Wno-reserved-user-defined-literal",
+        "-Wno-c2x-extensions",
     ]
 }
