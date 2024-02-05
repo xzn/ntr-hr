@@ -88,7 +88,7 @@ bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) libctru_ntr.a 3ds.ld
 bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/rp_lto.o libctru_ntr.a 3dst.ld $(LIB_NWM_RS)
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) obj/rp_lto.o) $(LDLIBS) -lnwm_rs
 
-$(LIB_NWM_RS): source/nwm_rs
+$(LIB_NWM_RS): source/nwm_rs FORCE
 	cargo -Z unstable-options -C $< build --release
 
 libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
@@ -137,3 +137,5 @@ clean:
 	-rm *.map bin/*.elf release/*.bin obj/*.d obj/*.o lib*.a
 	-rm target/ -rf
 	$(MAKE) -C $(CTRU_DIR) clean
+
+FORCE: ;
