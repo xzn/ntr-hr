@@ -1,6 +1,8 @@
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
+#include "3ds/types.h"
+
 #define PATH_MAX (0x100)
 
 #define LOCAL_TITLE_BUF_SIZE (0x80)
