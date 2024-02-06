@@ -3,9 +3,12 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(internal_features)]
+#![allow(incomplete_features)]
 #![feature(atomic_from_mut)]
 #![feature(core_intrinsics)]
 #![feature(const_mut_refs)]
+#![feature(generic_const_exprs)]
+#![feature(adt_const_params)]
 
 use core::panic::PanicInfo;
 use wrapper::*;
@@ -102,11 +105,10 @@ fn startUp(t: startUp_threadVars_t, nwmHdr: nwmHdr_t) {
         t.config().dstAddr_set_ar_update(daddr);
         t.srcAddr().set(saddr);
 
-        create_thread_from_pool(
+        create_thread_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>(
             t.hThreadMain().get_mut_ref(),
             Some(rpThreadMain),
             0,
-            RP_THREAD_STACK_SIZE,
             RP_THREAD_PRIO_DEFAULT as s32,
             2,
         );

@@ -1,15 +1,10 @@
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(internal_features)]
-
 pub use c_str_macro::c_str;
-pub use function_name::named;
 use core::mem::{self, offset_of, size_of, MaybeUninit};
 use core::ptr::{self, addr_of_mut};
 use core::slice;
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::{AtomicI32, Ordering};
+pub use function_name::named;
 
 macro_rules! nsDbgPrint {
     ($fn:ident $(, $es:expr)*) => {
@@ -62,14 +57,17 @@ pub struct svcThread_t {
     h: Handle,
 }
 
-pub fn create_thread(
+pub fn create_thread<const T: usize>(
     h: &mut Handle,
     f: ThreadFunc,
     a: u32_,
-    t: &mut [u32_],
+    t: &mut [u32_; T / mem::size_of::<u32_>()],
     prio: s32,
     core: s32,
-) -> Result {
+) -> ctru_sys::Result
+where
+    [u32_; T / mem::size_of::<u32_>() - 10]: Sized,
+{
     unsafe {
         svcCreateThread(
             h as *mut Handle,
@@ -82,18 +80,21 @@ pub fn create_thread(
     }
 }
 
-pub fn create_thread_from_pool(
+pub fn create_thread_from_pool<const T: usize>(
     h: &mut Handle,
     f: ThreadFunc,
     a: u32_,
-    t: u32_,
     prio: s32,
     core: s32,
-) -> Result {
-    let s = unsafe { plgRequestMemory(t) };
+) -> ctru_sys::Result
+where
+    [u32_; T / mem::size_of::<u32_>()]: Sized,
+    [u32_; T / mem::size_of::<u32_>() - 10]: Sized,
+{
+    let s = unsafe { plgRequestMemory(T as u32_) };
     if s > 0 {
         let t = unsafe {
-            slice::from_raw_parts_mut(s as *mut u32_, t as usize / mem::size_of::<u32_>())
+            mem::transmute::<*mut u32_, &mut [u32_; T / mem::size_of::<u32_>()]>(s as *mut u32_)
         };
         create_thread(h, f, a, t, prio, core)
     } else {
@@ -103,7 +104,16 @@ pub fn create_thread_from_pool(
 
 #[allow(unused)]
 impl svcThread_t {
-    pub fn create(f: ThreadFunc, a: u32_, t: &mut [u32_], prio: s32, core: s32) -> Option<Self> {
+    pub fn create<const T: usize>(
+        f: ThreadFunc,
+        a: u32_,
+        t: &mut [u32_; T / mem::size_of::<u32_>()],
+        prio: s32,
+        core: s32,
+    ) -> Option<Self>
+    where
+        [u32_; T / mem::size_of::<u32_>() - 10]: Sized,
+    {
         let mut h = MaybeUninit::uninit();
         let res = unsafe { create_thread(&mut *h.as_mut_ptr(), f, a, t, prio, core) };
 
@@ -115,9 +125,18 @@ impl svcThread_t {
         }
     }
 
-    pub fn create_from_pool(f: ThreadFunc, a: u32_, t: u32_, prio: s32, core: s32) -> Option<Self> {
+    pub fn create_from_pool<const T: usize>(
+        f: ThreadFunc,
+        a: u32_,
+        prio: s32,
+        core: s32,
+    ) -> Option<Self>
+    where
+        [u32_; T / mem::size_of::<u32_>()]: Sized,
+        [u32_; T / mem::size_of::<u32_>() - 10]: Sized,
+    {
         let mut h = MaybeUninit::uninit();
-        let res = unsafe { create_thread_from_pool(&mut *h.as_mut_ptr(), f, a, t, prio, core) };
+        let res = unsafe { create_thread_from_pool::<T>(&mut *h.as_mut_ptr(), f, a, prio, core) };
 
         if R_SUCCEEDED(res) {
             let h = unsafe { h.assume_init() };
