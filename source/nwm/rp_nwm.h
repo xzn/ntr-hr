@@ -19,6 +19,7 @@ extern struct rp_handles_t {
 	Handle screenCapSem;
 } *rp_syn;
 
+extern Handle hThreadMain;
 extern u32 rpPortGamePid;
 extern int rpResetThreads;
 

@@ -110,7 +110,8 @@ fn startUp(nwmHdr: nwmHdr_t) {
         rpConfig_t::dstAddr_set_ar_update(daddr);
         rpSrcAddr_t::set(saddr);
 
-        svcThread_t::create_from_pool(
+        create_thread_from_pool(
+            hThreadMain_t::get_mut_ref(),
             Some(rpThreadMain),
             0,
             RP_THREAD_STACK_SIZE,

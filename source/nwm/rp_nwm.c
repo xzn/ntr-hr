@@ -18,7 +18,7 @@
 #define ONE_HALF ((u32)1 << (SCALEBITS - 1))
 #define FIX(x) ((u32)((x) * (1L << SCALEBITS) + 0.5))
 
-static Handle hThreadMain;
+Handle hThreadMain;
 static u32 rpCoreCount;
 int rpResetThreads;
 

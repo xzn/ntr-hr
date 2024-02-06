@@ -1,3 +1,6 @@
+// TODO
+// wrappers around global variables will need to be made thread-aware
+
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -62,19 +65,50 @@ pub struct svcThread_t {
     h: Handle,
 }
 
+pub fn create_thread(
+    h: &mut Handle,
+    f: ThreadFunc,
+    a: u32_,
+    t: &mut [u32_],
+    prio: s32,
+    core: s32,
+) -> Result {
+    unsafe {
+        svcCreateThread(
+            h as *mut Handle,
+            f,
+            a,
+            t.as_mut_ptr().add(t.len() - 10),
+            prio,
+            core,
+        )
+    }
+}
+
+pub fn create_thread_from_pool(
+    h: &mut Handle,
+    f: ThreadFunc,
+    a: u32_,
+    t: u32_,
+    prio: s32,
+    core: s32,
+) -> Result {
+    let s = unsafe { plgRequestMemory(t) };
+    if s > 0 {
+        let t = unsafe {
+            slice::from_raw_parts_mut(s as *mut u32_, t as usize / mem::size_of::<u32_>())
+        };
+        create_thread(h, f, a, t, prio, core)
+    } else {
+        -1
+    }
+}
+
+#[allow(unused)]
 impl svcThread_t {
     pub fn create(f: ThreadFunc, a: u32_, t: &mut [u32_], prio: s32, core: s32) -> Option<Self> {
         let mut h = MaybeUninit::uninit();
-        let res = unsafe {
-            svcCreateThread(
-                h.as_mut_ptr(),
-                f,
-                a,
-                t.as_mut_ptr().add(t.len() - 10),
-                prio,
-                core,
-            )
-        };
+        let res = unsafe { create_thread(&mut *h.as_mut_ptr(), f, a, t, prio, core) };
 
         if R_SUCCEEDED(res) {
             let h = unsafe { h.assume_init() };
@@ -85,12 +119,12 @@ impl svcThread_t {
     }
 
     pub fn create_from_pool(f: ThreadFunc, a: u32_, t: u32_, prio: s32, core: s32) -> Option<Self> {
-        let s = unsafe { plgRequestMemory(t) };
-        if s > 0 {
-            let t = unsafe {
-                slice::from_raw_parts_mut(s as *mut u32_, t as usize / mem::size_of::<u32_>())
-            };
-            Self::create(f, a, t, prio, core)
+        let mut h = MaybeUninit::uninit();
+        let res = unsafe { create_thread_from_pool(&mut *h.as_mut_ptr(), f, a, t, prio, core) };
+
+        if R_SUCCEEDED(res) {
+            let h = unsafe { h.assume_init() };
+            Some(Self { h })
         } else {
             None
         }
@@ -102,6 +136,14 @@ impl Drop for svcThread_t {
         unsafe {
             let _ = svcCloseHandle(self.h);
         }
+    }
+}
+
+pub struct hThreadMain_t;
+
+impl hThreadMain_t {
+    pub fn get_mut_ref() -> &'static mut Handle {
+        unsafe { &mut *ptr::addr_of_mut!(hThreadMain) }
     }
 }
 
