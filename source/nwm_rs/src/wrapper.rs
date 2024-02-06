@@ -57,23 +57,32 @@ pub struct svcThread_t {
     h: Handle,
 }
 
+pub struct threadStack_t<const T: usize>;
+
+#[allow(unused)]
+impl<const T: usize> threadStack_t<T> {
+    pub const N: usize = T / mem::size_of::<u32_>();
+    pub type ty = [u32_; Self::N]
+        where [u32_; Self::N]: Sized;
+}
+
 pub fn create_thread<const T: usize>(
     h: &mut Handle,
     f: ThreadFunc,
     a: u32_,
-    t: &mut [u32_; T / mem::size_of::<u32_>()],
+    t: &mut threadStack_t<T>::ty,
     prio: s32,
     core: s32,
-) -> ctru_sys::Result
+) -> Result
 where
-    [u32_; T / mem::size_of::<u32_>() - 10]: Sized,
+    [u32_; threadStack_t::<T>::N]: Sized,
 {
     unsafe {
         svcCreateThread(
             h as *mut Handle,
             f,
             a,
-            t.as_mut_ptr().add(t.len() - 10),
+            t.as_mut_ptr().add(threadStack_t::<T>::N),
             prio,
             core,
         )
@@ -86,16 +95,13 @@ pub fn create_thread_from_pool<const T: usize>(
     a: u32_,
     prio: s32,
     core: s32,
-) -> ctru_sys::Result
+) -> Result
 where
-    [u32_; T / mem::size_of::<u32_>()]: Sized,
-    [u32_; T / mem::size_of::<u32_>() - 10]: Sized,
+    [u32_; threadStack_t::<T>::N]: Sized,
 {
     let s = unsafe { plgRequestMemory(T as u32_) };
     if s > 0 {
-        let t = unsafe {
-            mem::transmute::<*mut u32_, &mut [u32_; T / mem::size_of::<u32_>()]>(s as *mut u32_)
-        };
+        let t = unsafe { mem::transmute::<*mut u32_, &mut threadStack_t<T>::ty>(s as *mut u32_) };
         create_thread(h, f, a, t, prio, core)
     } else {
         -1
@@ -107,12 +113,12 @@ impl svcThread_t {
     pub fn create<const T: usize>(
         f: ThreadFunc,
         a: u32_,
-        t: &mut [u32_; T / mem::size_of::<u32_>()],
+        t: &mut threadStack_t<T>::ty,
         prio: s32,
         core: s32,
     ) -> Option<Self>
     where
-        [u32_; T / mem::size_of::<u32_>() - 10]: Sized,
+        [u32_; threadStack_t::<T>::N]: Sized,
     {
         let mut h = MaybeUninit::uninit();
         let res = unsafe { create_thread(&mut *h.as_mut_ptr(), f, a, t, prio, core) };
@@ -132,8 +138,7 @@ impl svcThread_t {
         core: s32,
     ) -> Option<Self>
     where
-        [u32_; T / mem::size_of::<u32_>()]: Sized,
-        [u32_; T / mem::size_of::<u32_>() - 10]: Sized,
+        [u32_; threadStack_t::<T>::N]: Sized,
     {
         let mut h = MaybeUninit::uninit();
         let res = unsafe { create_thread_from_pool::<T>(&mut *h.as_mut_ptr(), f, a, prio, core) };

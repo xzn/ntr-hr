@@ -7,8 +7,11 @@
 #![feature(atomic_from_mut)]
 #![feature(core_intrinsics)]
 #![feature(const_mut_refs)]
+#![feature(const_trait_impl)]
 #![feature(generic_const_exprs)]
+#![feature(generic_const_items)]
 #![feature(adt_const_params)]
+#![feature(inherent_associated_types)]
 
 use core::panic::PanicInfo;
 use wrapper::*;
