@@ -1,0 +1,16 @@
+{
+    "configurations": [
+        {
+            "name": "3ds",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [],
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "windows-gcc-arm",
+            "compilerPath": "${DEVKITARM}/bin/arm-none-eabi-gcc.exe"
+        }
+    ],
+    "version": 4
+}

@@ -1,14 +1,18 @@
 #include "global.h"
 
+#include "3ds/services/fs.h"
+
 #include <memory.h>
 #include <string.h>
 
 extern int _BootArgs[];
 static NTR_CONFIG *ntrCfg;
+static Handle fsUserHandle;
 
 static void initBootVars(void) {
 	ntrCfg = (void *)_BootArgs[0];
 	showDbgFunc = (void *)ntrCfg->showDbgFunc;
+	fsUserHandle = ntrCfg->fsUserHandle;
 	arm11BinStart = ntrCfg->arm11BinStart;
 	arm11BinSize = ntrCfg->arm11BinSize;
 	loadParams(ntrCfg);
@@ -20,6 +24,28 @@ static void doKernelHax(void) {
 	showMsgRaw("Kernel hax done.");
 
 	disp(100, DBG_CL_INFO);
+}
+
+static void dbgDumpCode(u32 base, u32 size, char *fileName) {
+	u32 off = 0;
+	u8 tmpBuffer[0x1000];
+	Handle handle;
+	u32 t;
+
+	fsUseSession(fsUserHandle);
+	Result res;
+	res = FSUSER_OpenFileDirectly(&handle, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL), fsMakePath(PATH_ASCII, fileName), FS_OPEN_WRITE | FS_OPEN_CREATE, 0);
+	if (res != 0) {
+		showMsgRaw("Saving dump failed");
+		return;
+	}
+
+	while(off < size) {
+		kmemcpy(tmpBuffer, (u8 *)base + off, 0x1000);
+		FSFILE_Write(handle, &t, off, tmpBuffer, 0x1000, 0);
+		off += 0x1000;
+	}
+	FSFILE_Close(handle);
 }
 
 static int injectToHomeMenu(void) {
@@ -35,6 +61,7 @@ static int injectToHomeMenu(void) {
 	memcpy(&cfg.ntrConfig, ntrCfg, offsetof(NTR_CONFIG, ex));
 	cfg.ntrConfig.ex.nsUseDbg = nsDbgNext();
 	if (cfg.ntrConfig.ex.nsUseDbg) {
+		dbgDumpCode(0xdff80000, 0x80000, "/axiwram.dmp");
 		disp(100, DBG_CL_USE_DBG);
 	}
 
