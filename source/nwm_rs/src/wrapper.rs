@@ -3,18 +3,18 @@
 #![allow(non_snake_case)]
 #![allow(internal_features)]
 
-use c_str_macro::c_str;
+pub use c_str_macro::c_str;
+pub use function_name::named;
 use core::mem::{self, offset_of, size_of, MaybeUninit};
 use core::ptr::{self, addr_of_mut};
 use core::slice;
 use core::sync::atomic::AtomicU32;
 use core::sync::atomic::{AtomicI32, Ordering};
-use function_name::named;
 
 macro_rules! nsDbgPrint {
     ($fn:ident $(, $es:expr)*) => {
         nsDbgPrint_t::$fn(
-            c_str!("nwm_rs|wrapper.rs").as_ptr() as *const ::libc::c_char,
+            c_str!(module_path!()).as_ptr() as *const ::libc::c_char,
             line!() as ::libc::c_int,
             c_str!(function_name!()).as_ptr() as *const ::libc::c_char
             $(, $es)*

@@ -7,9 +7,7 @@
 #![feature(core_intrinsics)]
 #![feature(const_mut_refs)]
 
-use c_str_macro::c_str;
 use core::panic::PanicInfo;
-use function_name::named;
 use wrapper::*;
 
 #[panic_handler]
@@ -20,17 +18,6 @@ fn panic(_: &PanicInfo) -> ! {
 #[macro_use]
 mod wrapper;
 mod result;
-
-macro_rules! nsDbgPrint {
-    ($fn:ident $(, $es:expr)*) => {
-        nsDbgPrint_t::$fn(
-            c_str!("nwm_rs|lib.rs").as_ptr() as *const ::libc::c_char,
-            line!() as ::libc::c_int,
-            c_str!(function_name!()).as_ptr() as *const ::libc::c_char
-            $(, $es)*
-        );
-    };
-}
 
 #[named]
 fn handlePortCmd(
