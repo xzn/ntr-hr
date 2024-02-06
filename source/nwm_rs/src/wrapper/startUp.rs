@@ -20,7 +20,7 @@ mod startUp_threadVars_m {
     impl rpNwmHdr_t {
         pub fn set(&self, hdr: &nwmHdr_t) {
             unsafe {
-                ptr::copy_nonoverlapping(hdr.buf.as_ptr(), rpNwmHdr.as_mut_ptr(), hdr.buf.len())
+                ptr::copy_nonoverlapping(hdr.buf.as_ptr(), rpNwmHdr.as_mut_ptr(), nwmHdr_t::N)
             }
         }
     }

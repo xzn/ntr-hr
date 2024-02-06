@@ -180,7 +180,11 @@ mod handlePortCmd;
 pub use handlePortCmd::handlePortCmd_threadVars_t;
 
 pub struct nwmHdr_t<'a> {
-    buf: &'a [u8_; RP_NWM_HDR_SIZE as usize],
+    buf: &'a [u8_; Self::N],
+}
+
+impl nwmHdr_t<'_> {
+    const N: usize = RP_NWM_HDR_SIZE as usize;
 }
 
 impl nwmHdr_t<'_> {
@@ -197,11 +201,11 @@ impl nwmHdr_t<'_> {
     }
 
     pub fn srcAddr(&self) -> u32_ {
-        unsafe { *(&self.buf[0x1a + 0x8] as *const u8_ as *const u32_) }
+        unsafe { (&self.buf[0x1a + 0x8] as *const u8_ as *const u32_).read_unaligned() }
     }
 
     pub fn dstAddr(&self) -> u32_ {
-        unsafe { *(&self.buf[0x1e + 0x8] as *const u8_ as *const u32_) }
+        unsafe { (&self.buf[0x1e + 0x8] as *const u8_ as *const u32_).read_unaligned() }
     }
 }
 
