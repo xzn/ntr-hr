@@ -53,10 +53,6 @@ impl Drop for svcProcess_t {
     }
 }
 
-pub struct svcThread_t {
-    h: Handle,
-}
-
 pub struct threadStack_t<const T: usize>;
 
 #[allow(unused)]
@@ -99,13 +95,28 @@ pub fn create_thread_from_pool<const T: usize>(
 where
     [u32_; threadStack_t::<T>::N]: Sized,
 {
-    let s = unsafe { plgRequestMemory(T as u32_) };
-    if s > 0 {
-        let t = unsafe { mem::transmute::<*mut u32_, &mut threadStack_t<T>::ty>(s as *mut u32_) };
+    if let Some(t) = plgRequestMemory::<T>() {
         create_thread(h, f, a, t, prio, core)
     } else {
         -1
     }
+}
+
+pub fn plgRequestMemory<const T: usize>() -> Option<&'static mut threadStack_t<T>::ty>
+where
+    [u32_; threadStack_t::<T>::N]: Sized,
+{
+    let s = unsafe { ctru_sys::plgRequestMemory(T as u32_) };
+    if s > 0 {
+        let t = unsafe { mem::transmute::<*mut u32_, &mut threadStack_t<T>::ty>(s as *mut u32_) };
+        Some(t)
+    } else {
+        None
+    }
+}
+
+pub struct svcThread_t {
+    h: Handle,
 }
 
 #[allow(unused)]
