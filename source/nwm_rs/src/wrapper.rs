@@ -1,6 +1,3 @@
-// TODO
-// wrappers around global variables will need to be made thread-aware
-
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -139,136 +136,13 @@ impl Drop for svcThread_t {
     }
 }
 
-pub struct hThreadMain_t;
-
-impl hThreadMain_t {
-    pub fn get_mut_ref() -> &'static mut Handle {
-        unsafe { &mut *ptr::addr_of_mut!(hThreadMain) }
-    }
-}
-
 const rpConfig: *mut RP_CONFIG =
     (NS_CONFIG_ADDR as usize + offset_of!(NS_CONFIG, rpConfig)) as *mut RP_CONFIG;
 
 const rpConfig_u32_count: usize = size_of::<RP_CONFIG>() / size_of::<u32_>();
 
-pub struct rpConfig_t;
-
-impl rpConfig_t {
-    fn set_mar_ref(v: &RP_CONFIG) {
-        for i in 0..rpConfig_u32_count {
-            let f = unsafe { AtomicU32::from_ptr((rpConfig as *mut u32_).add(i)) };
-            let p = unsafe { *(v as *const RP_CONFIG as *const u32_).add(i) };
-            f.store(p, Ordering::Relaxed);
-        }
-    }
-
-    fn set_mar_array(v: &[u32_; rpConfig_u32_count]) {
-        let v = v.as_ptr() as *const RP_CONFIG;
-        Self::set_mar_ref(&unsafe { *v } as &RP_CONFIG);
-    }
-
-    pub fn set_mar(v: &[u32_]) -> bool {
-        let ret = v.len() >= rpConfig_u32_count;
-        if ret {
-            Self::set_mar_array(unsafe {
-                mem::transmute::<*const u32_, &[u32_; rpConfig_u32_count]>(v.as_ptr())
-            });
-        }
-        ret
-    }
-
-    pub fn gamePid_set_ar(v: u32_) {
-        let pid_a = unsafe { AtomicU32::from_ptr(addr_of_mut!((*rpConfig).gamePid)) };
-        pid_a.store(v, Ordering::Relaxed);
-    }
-
-    #[named]
-    pub fn dstAddr_set_ar_update(mut v: u32_) {
-        let daddr_a = unsafe { AtomicU32::from_ptr(addr_of_mut!((*rpConfig).dstAddr)) };
-        daddr_a.store(v, Ordering::Relaxed);
-
-        if let Some(p) = svcProcess_t::open(ntrConfig_t::homeMenuPid_get()) {
-            let res = unsafe {
-                copyRemoteMemory(
-                    p.h,
-                    ptr::addr_of_mut!((*rpConfig).dstAddr) as *mut ::libc::c_void,
-                    CUR_PROCESS_HANDLE,
-                    ptr::addr_of_mut!(v) as *mut ::libc::c_void,
-                    mem::size_of::<u32_>() as u32_,
-                ) as i32
-            };
-            if R_FAILED(res) {
-                nsDbgPrint!(copyRemoteMemoryFailed, res);
-            }
-        }
-    }
-
-    pub fn dstAddr_get_ar() -> u32_ {
-        let daddr_a = unsafe { AtomicU32::from_ptr(addr_of_mut!((*rpConfig).dstAddr)) };
-        daddr_a.load(Ordering::Relaxed)
-    }
-}
-
-const ntrConfig: *mut NTR_CONFIG =
-    (NS_CONFIG_ADDR as usize + offset_of!(NS_CONFIG, ntrConfig)) as *mut NTR_CONFIG;
-
-pub struct ntrConfig_t;
-
-impl ntrConfig_t {
-    pub fn homeMenuPid_get() -> u32_ {
-        unsafe { (*ntrConfig).HomeMenuPid }
-    }
-}
-
-pub struct rpPortGamePid_t;
-
-impl rpPortGamePid_t {
-    pub fn get() -> u32_ {
-        unsafe { rpPortGamePid }
-    }
-
-    pub fn set_ar(v: u32_) {
-        let pid_a = unsafe { AtomicU32::from_ptr(addr_of_mut!(rpPortGamePid)) };
-        pid_a.store(v, Ordering::Relaxed);
-    }
-}
-
-pub struct rpResetThreads_t;
-
-impl rpResetThreads_t {
-    pub fn set_ar(v: bool) {
-        let reset_a = unsafe { AtomicI32::from_ptr(addr_of_mut!(rpResetThreads)) };
-        reset_a.store(v as s32, Ordering::Relaxed);
-    }
-}
-
-pub struct rpSyn_t;
-
-impl rpSyn_t {
-    pub fn signalPortEvent(isTop: bool) -> Result {
-        unsafe { svcSignalEvent(*(*rp_syn).portEvent.get_unchecked(isTop as usize)) }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn handlePortCmd(
-    cmd_id: u32_,
-    norm_param_count: u32_,
-    trans_param_size: u32_,
-    cmd_buf1: *const u32_,
-) {
-    super::handlePortCmd(
-        cmd_id,
-        unsafe { slice::from_raw_parts(cmd_buf1, norm_param_count as usize) },
-        unsafe {
-            slice::from_raw_parts(
-                cmd_buf1.add(norm_param_count as usize),
-                trans_param_size as usize,
-            )
-        },
-    )
-}
+mod handlePortCmd;
+pub use handlePortCmd::handlePortCmd_threadVars_t;
 
 pub struct nwmHdr_t<'a> {
     buf: &'a [u8_; RP_NWM_HDR_SIZE as usize],
@@ -296,44 +170,8 @@ impl nwmHdr_t<'_> {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn rpStartup(buf: *const u8_) {
-    let buf = unsafe { mem::transmute::<*const u8_, &[u8_; RP_NWM_HDR_SIZE as usize]>(buf) };
-    let buf = nwmHdr_t { buf };
-    super::startUp(buf)
-}
-
-pub struct rpInited_t;
-
-impl rpInited_t {
-    pub fn get() -> bool {
-        unsafe { rpInited > 0 }
-    }
-
-    pub fn set() {
-        unsafe { rpInited = 1 }
-    }
-}
-
-pub struct rpNwmHdr_t;
-
-impl rpNwmHdr_t {
-    pub fn set(hdr: &nwmHdr_t) {
-        unsafe { ptr::copy_nonoverlapping(hdr.buf.as_ptr(), rpNwmHdr.as_mut_ptr(), hdr.buf.len()) }
-    }
-}
-
-pub struct rpSrcAddr_t;
-
-impl rpSrcAddr_t {
-    pub fn get() -> u32_ {
-        unsafe { rpSrcAddr }
-    }
-
-    pub fn set(v: u32_) {
-        unsafe { rpSrcAddr = v }
-    }
-}
+mod startUp;
+pub use startUp::startUp_threadVars_t;
 
 macro_rules! nsDbgPrint_fn {
     ($fn:ident, $fmt:expr $(, $vn:ident: $ty:ty)*) => {
@@ -356,7 +194,9 @@ macro_rules! nsDbgPrint_fn {
     };
 }
 
-pub struct nsDbgPrint_t;
+pub struct nsDbgPrint_t {
+    _z: (),
+}
 
 impl nsDbgPrint_t {
     nsDbgPrint_fn!(singalPortFailed, "Signal port event failed: %08x\n", ret: s32);
