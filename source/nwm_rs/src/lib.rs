@@ -9,21 +9,17 @@
 
 use c_str_macro::c_str;
 use core::panic::PanicInfo;
-
-#[macro_use]
-extern crate function_name;
+use function_name::named;
+use wrapper::*;
 
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
     core::intrinsics::abort();
 }
 
+#[macro_use]
 mod wrapper;
-
-use crate::wrapper::{
-    nsDbgPrint_t, rpConfig_t, rpPortGamePid_t, rpResetThreads_t, rpSyn_t, u32_,
-    SVC_NWM_CMD_GAME_PID_UPDATE, SVC_NWM_CMD_OVERLAY_CALLBACK, SVC_NWM_CMD_PARAMS_UPDATE,
-};
+mod result;
 
 macro_rules! nsDbgPrint {
     ($fn:ident $(, $es:expr)*) => {
@@ -65,5 +61,61 @@ fn handlePortCmd(cmd_id: u32_, norm_params: &[u32_], trans_params: &[u32_]) {
             rpConfig_t::gamePid_set_ar(gamePid);
         }
         _ => (),
+    }
+}
+
+fn htons(v: u16_) -> u16_ {
+    v.to_be()
+}
+
+fn startUp(nwmHdr: nwmHdr_t) {
+    let protocol = nwmHdr.protocol();
+    let srcPort = nwmHdr.srcPort();
+    let dstPort = nwmHdr.dstPort();
+
+    let tcpHit = protocol == 0x6 && srcPort == htons(NS_MENU_LISTEN_PORT as u16);
+    let udpHit = protocol == 0x11
+        && srcPort == htons(NWM_INIT_SRC_PORT as u16)
+        && dstPort == htons(NWM_INIT_DST_PORT as u16);
+
+    if tcpHit || udpHit {
+        let saddr = nwmHdr.srcAddr();
+        let daddr = nwmHdr.dstAddr();
+
+        if rpInited_t::get() {
+            let mut needUpdate = false;
+            let rpDaddr = rpConfig_t::dstAddr_get_ar();
+            if (tcpHit && rpDaddr == 0) || udpHit {
+                if rpDaddr != daddr {
+                    rpConfig_t::dstAddr_set_ar_update(daddr);
+
+                    needUpdate = true;
+                }
+            }
+            if rpSrcAddr_t::get() != saddr {
+                rpSrcAddr_t::set(saddr);
+
+                needUpdate = true;
+            }
+
+            if needUpdate {
+                rpNwmHdr_t::set(&nwmHdr);
+            }
+            return;
+        }
+
+        rpInited_t::set();
+
+        rpNwmHdr_t::set(&nwmHdr);
+        rpConfig_t::dstAddr_set_ar_update(daddr);
+        rpSrcAddr_t::set(saddr);
+
+        svcThread_t::create_from_pool(
+            Some(rpThreadMain),
+            0,
+            RP_THREAD_STACK_SIZE,
+            RP_THREAD_PRIO_DEFAULT as s32,
+            2,
+        );
     }
 }

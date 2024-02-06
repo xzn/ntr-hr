@@ -68,9 +68,7 @@ static BLIT_CONTEXT blit_context[RP_WORK_COUNT];
 
 static u32 rpLastSendTick;
 
-#define RP_NWM_HDR_SIZE (0x2a + 8)
-#define RP_DATA_HDR_SIZE (4)
-static u8 rpNwmHdr[RP_NWM_HDR_SIZE];
+u8 rpNwmHdr[RP_NWM_HDR_SIZE];
 static u8 *rpDataBuf[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 static u8 *rpPacketBufLast[RP_WORK_COUNT][RP_CORE_COUNT_MAX];
 
@@ -1261,7 +1259,7 @@ final:
 }
 
 void __system_initSyscalls(void);
-static void rpThreadMain(void *) {
+void rpThreadMain(void *) {
 	s32 res;
 	__system_initSyscalls();
 	res = gspInit(1);
@@ -1578,104 +1576,5 @@ final:
 	svcExitThread();
 }
 
-static int rpInited;
-
-static void printNwMHdr(void) {
-	u8 *buf = rpNwmHdr;
-	nsDbgPrint("nwm hdr: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x .. .. %02x %02x %02x %02x %02x %02x %02x %02x\n",
-		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11],
-		buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20], buf[21]
-	);
-}
-
-static void updateDstAddr(u32 dstAddr) {
-	ASR(&rpConfig->dstAddr, dstAddr);
-
-	Handle hProcess;
-	u32 pid = ntrConfig->HomeMenuPid;
-	s32 ret = svcOpenProcess(&hProcess, pid);
-	if (ret != 0) {
-		nsDbgPrint("openProcess failed: %08"PRIx32"\n", ret);
-		return;
-	}
-
-	ret = copyRemoteMemory(
-		hProcess,
-		&rpConfig->dstAddr,
-		CUR_PROCESS_HANDLE,
-		&dstAddr,
-		sizeof(rpConfig->dstAddr));
-	if (ret != 0) {
-		nsDbgPrint("copyRemoteMemory failed: %08"PRIx32"\n", ret);
-	}
-
-	svcCloseHandle(hProcess);
-}
-
-static u32 rpSrcAddr;
-void rpStartup(u8 *buf) {
-	u8 protocol = buf[0x17 + 0x8];
-	u16 src_port = *(u16 *)(&buf[0x22 + 0x8]);
-	u16 dst_port = *(u16 *)(&buf[0x22 + 0xa]);
-
-	int tcp_hit = (protocol == 0x6 && src_port == htons(NS_MENU_LISTEN_PORT));
-	int udp_hit = (protocol == 0x11 && src_port == htons(NWM_INIT_SRC_PORT) && dst_port == htons(NWM_INIT_DST_PORT));
-
-	if (tcp_hit || udp_hit) {
-		u32 saddr = *(u32 *)&buf[0x1a + 0x8];
-		u32 daddr = *(u32 *)&buf[0x1e + 0x8];
-
-		if (rpInited) {
-			int needUpdate = 0;
-			u32 rpDaddr = ALR(&rpConfig->dstAddr);
-			if ((tcp_hit && rpDaddr == 0) || udp_hit) {
-				if (rpDaddr != daddr) {
-					updateDstAddr(daddr);
-
-					u8 *daddr4 = (u8 *)&daddr;
-					nsDbgPrint("Remote play updated dst IP: %d.%d.%d.%d\n",
-						daddr4[0], daddr4[1], daddr4[2], daddr4[3]
-					);
-
-					needUpdate = 1;
-				}
-			}
-			if (rpSrcAddr != saddr) {
-				rpSrcAddr = saddr;
-
-				u8 *saddr4 = (u8 *)&saddr;
-				nsDbgPrint("Remote play updated src IP: %d.%d.%d.%d\n",
-					saddr4[0], saddr4[1], saddr4[2], saddr4[3]
-				);
-
-				needUpdate = 1;
-			}
-
-			if (needUpdate) {
-				memcpy(rpNwmHdr, buf, 0x22 + 8);
-				printNwMHdr();
-			}
-
-			return;
-		}
-
-		rpInited = 1;
-		u8 *saddr4 = (u8 *)&saddr;
-		u8 *daddr4 = (u8 *)&daddr;
-		nsDbgPrint("Remote play src IP: %d.%d.%d.%d, dst IP: %d.%d.%d.%d\n",
-			saddr4[0], saddr4[1], saddr4[2], saddr4[3],
-			daddr4[0], daddr4[1], daddr4[2], daddr4[3]
-		);
-
-		memcpy(rpNwmHdr, buf, 0x22 + 8);
-		printNwMHdr();
-		updateDstAddr(daddr);
-		rpSrcAddr = saddr;
-
-		u32 *threadStack = (u32 *)plgRequestMemory(RP_THREAD_STACK_SIZE);
-		s32 ret = svcCreateThread(&hThreadMain, rpThreadMain, 0, &threadStack[(RP_THREAD_STACK_SIZE / 4) - 10], RP_THREAD_PRIO_DEFAULT, 2);
-		if (ret != 0) {
-			nsDbgPrint("Create remote play thread failed: %08"PRIx32"\n", ret);
-		}
-	}
-}
+int rpInited;
+u32 rpSrcAddr;

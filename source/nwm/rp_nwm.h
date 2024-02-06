@@ -21,3 +21,13 @@ extern struct rp_handles_t {
 
 extern u32 rpPortGamePid;
 extern int rpResetThreads;
+
+#define RP_NWM_HDR_SIZE (0x2a + 8)
+#define RP_DATA_HDR_SIZE (4)
+
+extern u8 rpNwmHdr[RP_NWM_HDR_SIZE];
+
+void rpThreadMain(void *);
+
+extern int rpInited;
+extern u32 rpSrcAddr;
