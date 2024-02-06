@@ -95,7 +95,7 @@ impl handlePortCmd_threadVars_t {
 }
 
 #[no_mangle]
-pub extern "C" fn handlePortCmd(
+extern "C" fn handlePortCmd(
     cmd_id: u32_,
     norm_param_count: u32_,
     trans_param_size: u32_,

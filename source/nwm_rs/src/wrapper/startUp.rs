@@ -124,7 +124,7 @@ impl startUp_threadVars_t {
 }
 
 #[no_mangle]
-pub extern "C" fn rpStartup(buf: *const u8_) {
+extern "C" fn rpStartup(buf: *const u8_) {
     let buf = unsafe { mem::transmute::<*const u8_, &[u8_; RP_NWM_HDR_SIZE as usize]>(buf) };
     let buf = nwmHdr_t { buf };
     crate::startUp(startUp_threadVars_t { _z: () }, buf)
