@@ -1,0 +1,30 @@
+[package]
+name = "const-default-union-derive"
+version = "0.2.0"
+edition = "2018"
+authors = ["AerialX", "xzn"]
+
+description = "#[derive(ConstDefaultUnion)]"
+documentation = "https://docs.rs/const-default-derive"
+repository = "https://github.com/AerialX/const-default.rs"
+readme = "../README.md"
+license = "MIT"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro-crate = "1"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "1", default-features = false, features = [
+    "derive",
+    "parsing",
+    "proc-macro",
+    "printing",
+] }
+
+[dev-dependencies]
+const-default = { version = "1.0.0", default-features = false, features = [
+    "derive",
+] }

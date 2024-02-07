@@ -26,7 +26,6 @@
 #define RP_THREAD_PRIO_MAX (0x3f)
 
 #define RP_CORE_COUNT_DEFAULT RP_CORE_COUNT_MAX
-#define RP_CORE_COUNT_MIN (1)
 
 static u32 rpStarted;
 

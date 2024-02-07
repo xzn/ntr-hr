@@ -76,6 +76,7 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define RP_SRC_PORT (8000)
 #define RP_DST_PORT_DEFAULT (8001)
 #define RP_THREAD_PRIO_DEFAULT (0x10)
+#define RP_CORE_COUNT_MIN (1)
 #define RP_CORE_COUNT_MAX (3)
 
 #define DEBUG_BUF_SIZE (0x2000)

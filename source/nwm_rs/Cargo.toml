@@ -9,7 +9,11 @@ crate-type = ["staticlib"]
 [dependencies]
 libc = { version = "0.2.153", default-features = false }
 function_name = "0.3.0"
-c_str_macro = { path = "../../rust-c-str" } # modified to be no_std
+const-default = { version = "1.0.0", default-features = false, features = [
+    "derive",
+    "unstable",
+] }
+const-default-union-derive = { path = "../../const_default_union", version = "0.2.0" }
 
 [build-dependencies]
 bindgen = "0.69.4"

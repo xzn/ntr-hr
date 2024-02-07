@@ -16,5 +16,9 @@
         "-D__3DS__",
         "-Wno-reserved-user-defined-literal",
         "-Wno-c2x-extensions",
-    ]
+    ],
+    "files.associations": {
+        "*.css": "tailwindcss",
+        "hid.h": "c"
+    }
 }

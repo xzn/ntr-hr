@@ -5,7 +5,7 @@
 //! Ports of macros in
 //! <https://github.com/devkitPro/libctru/blob/master/libctru/include/3ds/result.h>
 
-use crate::wrapper::Result;
+use crate::ctru::Result;
 
 /// Checks whether a result code indicates success.
 pub fn R_SUCCEEDED(res: Result) -> bool {

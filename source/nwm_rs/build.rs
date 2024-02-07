@@ -1,10 +1,46 @@
 // Adapted from ctru-sys build.rs
+
+use bindgen::callbacks::ParseCallbacks;
 use bindgen::{Builder, RustTarget};
 
+use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 
 use std::process::{Command, Output, Stdio};
+
+#[derive(Debug)]
+struct Callback {
+    names: HashSet<String>,
+    union_names: HashSet<String>,
+}
+
+impl Callback {
+    fn new() -> Self {
+        let mut names = HashSet::<String>::new();
+        names.insert("jpeg_compress_struct".into());
+        names.insert("rp_alloc_state".into());
+        names.insert("rp_alloc_stats".into());
+        names.insert("jpeg_error_mgr".into());
+
+        let mut union_names = HashSet::<String>::new();
+        union_names.insert("jpeg_error_mgr__bindgen_ty_1".into());
+
+        Self { names, union_names }
+    }
+}
+
+impl ParseCallbacks for Callback {
+    fn add_derives(&self, info: &bindgen::callbacks::DeriveInfo<'_>) -> Vec<String> {
+        if self.names.contains(info.name) {
+            vec!["ConstDefault".into()]
+        } else if self.union_names.contains(info.name) {
+            vec!["ConstDefaultUnion".into()]
+        } else {
+            vec![]
+        }
+    }
+}
 
 fn main() {
     let devkitarm = env::var("DEVKITARM").unwrap();
@@ -15,8 +51,12 @@ fn main() {
 
     let gcc_version = get_gcc_version(PathBuf::from(&devkitarm).join("bin/arm-none-eabi-gcc"));
     let include_path = Path::new("../../include");
+    let jpeg_include_path = Path::new("../../include/jpeg");
     let ctru_include_path = Path::new("../../libctru/libctru/include");
-    let nwm_header = Path::new("nwm_rs.h");
+    let nwm_header_str = "nwm_rs.h";
+    let nwm_header = Path::new(nwm_header_str);
+
+    println!("cargo:rerun-if-changed={nwm_header_str}");
 
     let sysroot = Path::new(&devkitarm).join("arm-none-eabi");
     let system_include = sysroot.join("include");
@@ -52,6 +92,8 @@ fn main() {
             "-I",
             include_path.to_str().unwrap(),
             "-I",
+            jpeg_include_path.to_str().unwrap(),
+            "-I",
             ctru_include_path.to_str().unwrap(),
             "-mfloat-abi=hard",
             "-march=armv6k",
@@ -60,7 +102,7 @@ fn main() {
             "-DARM11",
             "-D__3DS__",
         ])
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .parse_callbacks(Box::new(Callback::new()))
         .generate()
         .expect("unable to generate bindings");
 
