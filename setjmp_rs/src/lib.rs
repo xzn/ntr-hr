@@ -28,4 +28,4 @@ mod sys {
 #[cfg(test)]
 mod tests;
 
-pub use crate::sys::{jmp_buf, setjmp};
+pub use crate::sys::{jmp_buf, longjmp, setjmp};

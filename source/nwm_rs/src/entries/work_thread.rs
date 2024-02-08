@@ -351,8 +351,8 @@ unsafe fn bctx_init(ctx: &mut BlitCtx, w: u32_, h: u32_, mut format: u32_, src: 
             let info = (*ctx.cinfo).get_mut(&j);
             if info.info.global_state != JPEG_CSTATE_START {
                 ptr::copy_nonoverlapping(
-                    ptr::addr_of!(info.info.alloc.stats),
-                    ptr::addr_of_mut!(info.alloc_stats.comp),
+                    ptr::addr_of!(info.alloc_stats.comp),
+                    ptr::addr_of_mut!(info.info.alloc.stats),
                     1,
                 );
                 info.info.global_state = JPEG_CSTATE_START;
