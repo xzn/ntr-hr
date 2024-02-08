@@ -325,7 +325,6 @@ struct rp_alloc_state {
   jmp_buf err_jmp_buf; \
   boolean mem_pool_manual; \
   struct rp_alloc_state alloc; \
-  boolean no_alloc; \
   struct jpeg_progress_mgr *progress; /* Progress monitor, or NULL if none */ \
   void *client_data;            /* Available for use by application */ \
   boolean is_decompressor;      /* So common code can tell which is which */ \

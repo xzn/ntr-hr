@@ -62,8 +62,8 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
         };
         let factor = [get_factor(false), get_factor(true)];
 
-        if factor[false as usize] < priority_factor_scaled
-            && factor[true as usize] < priority_factor_scaled
+        if factor[false as usize] < (1 << SCALE_BITS)
+            && factor[true as usize] < (1 << SCALE_BITS)
         {
             *frame_queues.get_b_mut(false) += priority_factor_scaled;
             *frame_queues.get_b_mut(true) += priority_factor_scaled;

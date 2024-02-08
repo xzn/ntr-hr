@@ -510,6 +510,7 @@ unsafe fn capture_screen(_t: &ThreadId, should_capture: &mut bool, w: &WorkIndex
 
 #[named]
 #[no_mangle]
+#[allow(unreachable_code)]
 extern "C" fn rpMalloc(cinfo: j_common_ptr, size: u32_) -> *mut c_void {
     unsafe {
         let info = &mut *cinfo;
@@ -523,6 +524,10 @@ extern "C" fn rpMalloc(cinfo: j_common_ptr, size: u32_) -> *mut c_void {
         if info.alloc.stats.remaining < total_size {
             let alloc_size = info.alloc.stats.offset + info.alloc.stats.remaining;
             nsDbgPrint!(allocFailed, total_size, alloc_size);
+
+            (*info.err).msg_code = JERR_OUT_OF_MEMORY as s32;
+            (*info.err).msg_parm.i[0] = 0;
+            (*info.err).error_exit.unwrap_unchecked()(cinfo);
             return ptr::null_mut();
         }
 

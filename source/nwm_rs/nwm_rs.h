@@ -7,3 +7,4 @@ void __system_initSyscalls(void);
 #define FILE void
 #include <setjmp.h>
 #include "jpeglib.h"
+#include "jerror.h"
