@@ -237,7 +237,7 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
     let mcu_size = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
     let mcus_per_row = ctx.height / mcu_size;
     let mcu_rows = ctx.width / mcu_size;
-    let mcu_rows_per_thread = (mcu_rows + core_count_rest) / core_count;
+    let mcu_rows_per_thread = (mcu_rows + core_count - 1) / core_count;
 
     l.n = mcu_rows_per_thread;
     l.n_last = mcu_rows - l.n * core_count_rest;
