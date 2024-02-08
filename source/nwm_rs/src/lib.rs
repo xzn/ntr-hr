@@ -20,7 +20,6 @@
 
 use crate::dbg::*;
 use crate::fix::*;
-use crate::result::*;
 use crate::utils::*;
 use crate::vars::*;
 use ::libc::*;
@@ -52,6 +51,5 @@ mod ctru {
 mod dbg;
 mod entries;
 mod fix;
-mod result;
 mod utils;
 mod vars;

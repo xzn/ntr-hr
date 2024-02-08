@@ -96,7 +96,7 @@ impl Config {
                     mem::size_of::<u32_>() as u32_,
                 ) as i32
             };
-            if R_FAILED(res) {
+            if res != 0 {
                 nsDbgPrint!(copyRemoteMemoryFailed, res);
             }
         }

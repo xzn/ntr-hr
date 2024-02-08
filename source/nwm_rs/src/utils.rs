@@ -24,7 +24,7 @@ impl OpenProcess {
         let mut h = mem::MaybeUninit::uninit();
         let res = unsafe { svcOpenProcess(h.as_mut_ptr(), pid) };
 
-        if R_SUCCEEDED(res) {
+        if res == 0 {
             let h = unsafe { h.assume_init() };
             Some(Self(h))
         } else {
@@ -150,7 +150,7 @@ impl<'a> CreateThread<'a> {
     {
         let mut h = mem::MaybeUninit::<Handle>::uninit();
         let res = create_thread(h.as_mut_ptr(), f, a, t, prio, core);
-        if R_FAILED(res.0) {
+        if res.0 != 0 {
             None
         } else {
             let h = unsafe { h.assume_init() };

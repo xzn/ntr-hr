@@ -20,8 +20,8 @@ pub unsafe fn work_thread_loop(t: ThreadId) {
 
     while !reset_threads() {
         let res = svcWaitSynchronization((*syn_handles).threads.get(&t).work_ready, THREAD_WAIT_NS);
-        if R_FAILED(res) {
-            if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+        if res != 0 {
+            if res != RES_TIMEOUT as s32 {
                 nsDbgPrint!(waitForSyncFailed, c_str!("work_ready"), res);
                 svcSleepThread(THREAD_WAIT_NS);
             }
@@ -60,8 +60,8 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
             ctx.frame_id = *current_frame_id;
 
             let res = svcWaitSynchronization(*cap_params.dmas.get(&w), THREAD_WAIT_NS);
-            if R_FAILED(res) {
-                if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+            if res != 0 {
+                if res != RES_TIMEOUT as s32 {
                     nsDbgPrint!(waitForSyncFailed, c_str!("dmas"), res);
                     svcSleepThread(THREAD_WAIT_NS);
                 }
@@ -94,8 +94,12 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
 
                 for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
                     if j != *t {
-                        let res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).threads.get(&j).work_begin_ready, 1);
-                        if R_FAILED(res) {
+                        let res = svcReleaseSemaphore(
+                            count.as_mut_ptr(),
+                            (*syn_handles).threads.get(&j).work_begin_ready,
+                            1,
+                        );
+                        if res != 0 {
                             nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_begin_ready"), res);
                         }
                     }
@@ -105,7 +109,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
                     .store(t.get(), Ordering::Release);
 
                 let res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).screen_ready, 1);
-                if R_FAILED(res) {
+                if res != 0 {
                     nsDbgPrint!(releaseSemaphoreFailed, c_str!("screen_ready"), res);
                 }
 
@@ -115,8 +119,8 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
                     }
 
                     let res = svcWaitSynchronization(tsyn.work_ready, THREAD_WAIT_NS);
-                    if R_FAILED(res) {
-                        if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                    if res != 0 {
+                        if res != RES_TIMEOUT as s32 {
                             nsDbgPrint!(waitForSyncFailed, c_str!("work_ready"), res);
                             svcSleepThread(THREAD_WAIT_NS);
                         }
@@ -132,8 +136,8 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
                 return false;
             }
             let res = svcWaitSynchronization(tsyn.work_begin_ready, THREAD_WAIT_NS);
-            if R_FAILED(res) {
-                if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+            if res != 0 {
+                if res != RES_TIMEOUT as s32 {
                     nsDbgPrint!(waitForSyncFailed, c_str!("work_begin_ready"), res);
                     svcSleepThread(THREAD_WAIT_NS);
                 }
@@ -164,7 +168,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
         if !skip_frame {
             let mut count = mem::MaybeUninit::uninit();
             let res = svcReleaseSemaphore(count.as_mut_ptr(), wsyn.work_done, 1);
-            if R_FAILED(res) {
+            if res != 0 {
                 nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_done"), res);
             }
         }
@@ -183,8 +187,8 @@ unsafe fn ready_nwm(_t: &ThreadId, w: &WorkIndex, id: u8_, is_top: bool) -> bool
         }
 
         let res = svcWaitSynchronization(wsyn.nwm_done, THREAD_WAIT_NS);
-        if R_FAILED(res) {
-            if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+        if res != 0 {
+            if res != RES_TIMEOUT as s32 {
                 nsDbgPrint!(waitForSyncFailed, c_str!("nwm_done"), res);
                 svcSleepThread(THREAD_WAIT_NS);
             }
@@ -204,7 +208,7 @@ unsafe fn ready_nwm(_t: &ThreadId, w: &WorkIndex, id: u8_, is_top: bool) -> bool
 
     let mut count = mem::MaybeUninit::uninit();
     let res = svcReleaseSemaphore(count.as_mut_ptr(), wsyn.nwm_ready, 1);
-    if R_FAILED(res) {
+    if res != 0 {
         nsDbgPrint!(releaseSemaphoreFailed, c_str!("nwm_ready"), res);
     }
 
@@ -464,7 +468,7 @@ unsafe fn capture_screen(_t: &ThreadId, should_capture: &mut bool, w: &WorkIndex
 
         let mut count = mem::MaybeUninit::uninit();
         let res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).screen_ready, 1);
-        if R_FAILED(res) {
+        if res != 0 {
             nsDbgPrint!(releaseSemaphoreFailed, c_str!("screen_ready"), res);
         }
     }

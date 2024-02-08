@@ -121,7 +121,7 @@ mod first_time_init {
         let res;
         __system_initSyscalls();
         res = gspInit(1);
-        if R_FAILED(res) {
+        if res != 0 {
             nsDbgPrint!(gspInitFailed, res);
             return None;
         }
@@ -161,22 +161,19 @@ mod first_time_init {
 
         for i in Ranged::<SCREEN_COUNT>::all() {
             let res = create_event((*syn_handles).port_screen_ready.get_mut(&i));
-            if R_FAILED(res) {
+            if res != 0 {
                 nsDbgPrint!(createPortEventFailed, res);
                 return None;
             }
         }
 
         let res = create_event(&mut (*syn_handles).nwm_ready);
-        if R_FAILED(res) {
+        if res != 0 {
             nsDbgPrint!(createNwmEventFailed, res);
             return None;
         }
 
-        if R_FAILED(svcOpenProcess(
-            &mut cap_params.home,
-            (*ntr_config).HomeMenuPid,
-        )) {
+        if svcOpenProcess(&mut cap_params.home, (*ntr_config).HomeMenuPid) != 0 {
             nsDbgPrint!(openProcessFailed, res);
             return None;
         }
@@ -190,7 +187,7 @@ mod first_time_init {
             1,
         )
         .0;
-        if R_FAILED(res) {
+        if res != 0 {
             nsDbgPrint!(createNwmSvcFailed, res);
         }
 
@@ -278,7 +275,7 @@ mod loop_main {
         #[named]
         unsafe fn init(v: InitVars) -> Option<Self> {
             let res = svcCreateSemaphore(&mut (*syn_handles).screen_ready, 1, 1);
-            if R_FAILED(res) {
+            if res != 0 {
                 nsDbgPrint!(createSemaphoreFailed, c_str!("screen_ready"), res);
                 return None;
             }
@@ -287,19 +284,19 @@ mod loop_main {
                 let work = (*syn_handles).works.get_mut(&i);
 
                 let res = svcCreateSemaphore(&mut work.work_done, 1, 1);
-                if R_FAILED(res) {
+                if res != 0 {
                     nsDbgPrint!(createSemaphoreFailed, c_str!("work_done"), res);
                     return None;
                 }
 
                 let res = svcCreateSemaphore(&mut work.nwm_done, 1, 1);
-                if R_FAILED(res) {
+                if res != 0 {
                     nsDbgPrint!(createSemaphoreFailed, c_str!("nwm_done"), res);
                     return None;
                 }
 
                 let res = svcCreateSemaphore(&mut work.nwm_ready, 0, 1);
-                if R_FAILED(res) {
+                if res != 0 {
                     nsDbgPrint!(createSemaphoreFailed, c_str!("nwm_ready"), res);
                     return None;
                 }
@@ -312,13 +309,13 @@ mod loop_main {
                 let thread = (*syn_handles).threads.get_mut(&j);
 
                 let res = svcCreateSemaphore(&mut thread.work_ready, 0, WORK_COUNT as i32);
-                if R_FAILED(res) {
+                if res != 0 {
                     nsDbgPrint!(createSemaphoreFailed, c_str!("work_ready"), res);
                     return None;
                 }
 
                 let res = svcCreateSemaphore(&mut thread.work_begin_ready, 0, WORK_COUNT as i32);
-                if R_FAILED(res) {
+                if res != 0 {
                     nsDbgPrint!(createSemaphoreFailed, c_str!("work_begin_ready"), res);
                     return None;
                 }
@@ -421,7 +418,7 @@ mod loop_main {
 
         let thread_prio = config.thread_prio_ar();
         let res = svcSetThreadPriority(thread_main_handle, thread_prio as i32);
-        if R_FAILED(res) {
+        if res != 0 {
             nsDbgPrint!(setThreadPriorityFailed, res);
         }
 

@@ -9,8 +9,8 @@ pub extern "C" fn thread_nwm(_: *mut c_void) {
             }
 
             let res = svcWaitSynchronization((*syn_handles).nwm_ready, THREAD_WAIT_NS);
-            if R_FAILED(res) {
-                if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+            if res != 0 {
+                if res != RES_TIMEOUT as s32 {
                     svcSleepThread(THREAD_WAIT_NS);
                 }
             }
@@ -34,8 +34,8 @@ unsafe fn try_send_next_buffer_may_skip(work_flush: bool, mut may_skip: bool) ->
                 (*syn_handles).works.get(&work_index).nwm_ready,
                 if work_flush { THREAD_WAIT_NS } else { 0 },
             );
-            if R_FAILED(res) {
-                if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+            if res != 0 {
+                if res != RES_TIMEOUT as s32 {
                     nsDbgPrint!(waitForSyncFailed, c_str!("nwm_ready"), res);
                 }
                 return false;
@@ -212,7 +212,7 @@ unsafe fn send_next_buffer(tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
                 (*syn_handles).works.get(&work_index).nwm_done,
                 1,
             );
-            if R_FAILED(res) {
+            if res != 0 {
                 nsDbgPrint!(releaseSemaphoreFailed, c_str!("nwm_done"), res);
             }
 
@@ -303,7 +303,7 @@ extern "C" fn rpSendBuffer(cinfo: j_compress_ptr, _: *mut u8_, size: u32_, flag:
         }
 
         let res = svcSignalEvent((*syn_handles).nwm_ready);
-        if R_FAILED(res) {
+        if res != 0 {
             nsDbgPrint!(nwmEventSignalFailed, res);
         }
     }

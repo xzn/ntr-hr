@@ -10,8 +10,8 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
             work_syn.work_done,
             if wait_sync { THREAD_WAIT_NS } else { 0 },
         );
-        if R_FAILED(res) {
-            if wait_sync && R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+        if res != 0 {
+            if wait_sync && res != RES_TIMEOUT as s32 {
                 svcSleepThread(THREAD_WAIT_NS)
             }
             return;
@@ -45,10 +45,10 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
                 *(*syn_handles).port_screen_ready.get_b(is_top),
                 THREAD_WAIT_NS,
             );
-            if R_SUCCEEDED(res) {
+            if res == 0 {
                 break;
             }
-            if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+            if res != RES_TIMEOUT as s32 {
                 nsDbgPrint!(waitForSyncFailed, c_str!("port_screen_ready"), res);
                 svcSleepThread(THREAD_WAIT_NS);
             }
@@ -78,11 +78,11 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
         let try_dequeue = |b| -> bool {
             if *frame_queues.get_b(b) > prio[b as usize] {
                 let res = svcWaitSynchronization(*(*syn_handles).port_screen_ready.get_b(b), 0);
-                if R_SUCCEEDED(res) {
+                if res == 0 {
                     currently_updating = b;
                     *frame_queues.get_b_mut(b) -= prio[b as usize];
                     return true;
-                } else if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                } else if res != RES_TIMEOUT as s32 {
                     nsDbgPrint!(waitForSyncFailed, c_str!("port_screen_ready"), res);
                 }
             }
@@ -105,8 +105,8 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
             false,
             THREAD_WAIT_NS,
         );
-        if R_FAILED(res) {
-            if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+        if res != 0 {
+            if res != RES_TIMEOUT as s32 {
                 nsDbgPrint!(waitForSyncFailed, c_str!("port_screen_ready"), res);
                 svcSleepThread(THREAD_WAIT_NS);
                 break;
@@ -146,7 +146,7 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
                     .work_ready,
                 1,
             );
-            if R_FAILED(res) {
+            if res != 0 {
                 nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_ready"), res);
             }
         } else {
@@ -156,7 +156,7 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
                     (*syn_handles).threads.get(&j).work_ready,
                     1,
                 );
-                if R_FAILED(res) {
+                if res != 0 {
                     nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_ready"), res);
                 }
             }
@@ -300,7 +300,7 @@ unsafe fn capture_screen(work_index: &WorkIndex, is_top: bool) -> bool {
             buf_size,
             &dma_conf,
         );
-        if R_FAILED(res) {
+        if res != 0 {
             *dma = 0;
             svcSleepThread(THREAD_WAIT_NS);
             return false;
@@ -320,7 +320,7 @@ unsafe fn capture_screen(work_index: &WorkIndex, is_top: bool) -> bool {
             buf_size,
             &dma_conf,
         );
-        if R_FAILED(res) {
+        if res != 0 {
             *dma = 0;
             close_game_handle();
             svcSleepThread(THREAD_WAIT_NS);
@@ -371,7 +371,7 @@ unsafe fn get_game_handle() -> Handle {
     if cap_params.game == 0 {
         if game_pid != 0 {
             let res = svcOpenProcess(process.as_mut_ptr(), game_pid);
-            if R_SUCCEEDED(res) {
+            if res == 0 {
                 cap_params.game = process.assume_init();
             }
         }
@@ -384,7 +384,7 @@ unsafe fn get_game_handle() -> Handle {
                 pids.as_mut_ptr() as *mut u32_,
                 LOCAL_PID_BUF_COUNT as s32,
             );
-            if R_SUCCEEDED(res) {
+            if res == 0 {
                 for i in 0..process_count.assume_init() {
                     let pid = pids.get_unchecked(i as usize).assume_init();
                     if pid < 0x28 {
@@ -392,11 +392,11 @@ unsafe fn get_game_handle() -> Handle {
                     }
 
                     let res = svcOpenProcess(process.as_mut_ptr(), pid);
-                    if R_SUCCEEDED(res) {
+                    if res == 0 {
                         let process = process.assume_init();
                         let mut tid = mem::MaybeUninit::<[u32_; 2]>::uninit();
                         let res = getProcessTIDByHandle(process, tid.as_mut_ptr() as *mut _) as s32;
-                        if R_SUCCEEDED(res) {
+                        if res == 0 {
                             if tid.assume_init().get_unchecked(1) & 0xffff == 0 {
                                 cap_params.game = process;
                                 break;
@@ -429,8 +429,8 @@ unsafe fn get_game_handle() -> Handle {
 unsafe fn thread_screen_loop() -> Option<()> {
     while !crate::entries::work_thread::reset_threads() {
         let res = svcWaitSynchronization((*syn_handles).screen_ready, THREAD_WAIT_NS);
-        if R_FAILED(res) {
-            if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+        if res != 0 {
+            if res != RES_TIMEOUT as s32 {
                 nsDbgPrint!(waitForSyncFailed, c_str!("screen_ready"), res);
                 svcSleepThread(THREAD_WAIT_NS);
             }
