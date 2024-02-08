@@ -286,6 +286,8 @@ pub struct LoadAndProgress {
     pub n_last: Fix32,
     pub n_adjusted: Fix32,
     pub n_last_adjusted: Fix32,
+    pub v_adjusted: u32_,
+    pub v_last_adjusted: u32_,
     pub p: RowIndexes,
     pub p_snapshot: RowIndexes,
 }

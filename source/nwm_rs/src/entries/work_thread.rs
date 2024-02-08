@@ -261,7 +261,7 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
 
         let s = p.p_snapshot;
         let progress_last = *s.get(&thread_id_last);
-        if Fix::fix32(progress_last) < p.n_last_adjusted {
+        if progress_last < p.v_last_adjusted {
             rows_last = rows_last * Fix::fix(progress_last) / Fix::load_from_u32(p.n_last);
 
             if rows_last < Fix::fix(1) {
@@ -279,20 +279,26 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
             rows = rows * Fix::fix(progress_rest)
                 / Fix::load_from_u32(p.n)
                 / Fix::fix(core_count_rest);
-            if rows < Fix::load_from_u32(l.n) {
-                rows = Fix::load_from_u32(l.n)
-            } else {
-                let rows_max = (mcu_rows - 1) / core_count_rest;
-                if rows > Fix::fix(rows_max) {
-                    rows = Fix::fix(rows_max);
-                }
+        }
+
+        if rows < Fix::fix(mcu_rows_per_thread) {
+            rows = Fix::fix(mcu_rows_per_thread)
+        } else {
+            let rows_max = (mcu_rows - 1) / core_count_rest;
+            if rows > Fix::fix(rows_max) {
+                rows = Fix::fix(rows_max);
             }
         }
+
         l.n_adjusted = rows.store_to_u32();
         l.n_last_adjusted = (Fix::fix(mcu_rows) - rows * Fix::fix(core_count_rest)).store_to_u32();
+        l.v_adjusted = Fix::load_from_u32(l.n_adjusted).unfix();
+        l.v_last_adjusted = mcu_rows - l.v_adjusted * core_count_rest;
     } else {
         l.n_adjusted = l.n;
+        l.v_adjusted = Fix::load_from_u32(l.n).unfix();
         l.n_last_adjusted = l.n_last;
+        l.v_last_adjusted = Fix::load_from_u32(l.n_last).unfix();
     }
 
     for j in ThreadId::up_to_unchecked(core_count) {
@@ -307,7 +313,7 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
             3 => JCS_EXT_RGB5A1,
             _ => JCS_EXT_RGB4,
         };
-        cinfo.restart_in_rows = Fix::load_from_u32(l.n_adjusted).unfix() as s32;
+        cinfo.restart_in_rows = l.v_adjusted as s32;
         cinfo.restart_interval = cinfo.restart_in_rows as u32 * mcus_per_row;
 
         if setjmp::setjmp(&mut cinfo.err_jmp_buf) != 0 {
@@ -332,9 +338,9 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
 
         *ctx.i_start.get_mut(&j) = cinfo.restart_in_rows as u32 * j.get();
         *ctx.i_count.get_mut(&j) = if j == thread_id_last {
-            Fix::load_from_u32(l.n_last_adjusted).unfix()
+            l.v_last_adjusted
         } else {
-            Fix::load_from_u32(l.n_adjusted).unfix()
+            l.v_adjusted
         };
     }
     ctx.should_capture = false;
