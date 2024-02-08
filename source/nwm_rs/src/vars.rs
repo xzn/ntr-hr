@@ -282,10 +282,10 @@ pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct LoadAndProgress {
-    pub n: u32_,
-    pub n_last: u32_,
-    pub n_adjusted: u32_,
-    pub n_last_adjusted: u32_,
+    pub n: Fix32,
+    pub n_last: Fix32,
+    pub n_adjusted: Fix32,
+    pub n_last_adjusted: Fix32,
     pub p: RowIndexes,
     pub p_snapshot: RowIndexes,
 }

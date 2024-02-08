@@ -456,10 +456,10 @@ mod loop_main {
                 *load.p_snapshot.get_mut(&j) = 0;
             }
 
-            load.n = 0;
-            load.n_last = 0;
-            load.n_adjusted = 0;
-            load.n_last_adjusted = 0;
+            load.n.0 = 0;
+            load.n_last.0 = 0;
+            load.n_adjusted.0 = 0;
+            load.n_last_adjusted.0 = 0;
 
             *nwm_need_syn.get_mut(&i) = true;
         }
