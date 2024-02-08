@@ -59,4 +59,6 @@ impl nsDbgPrint_t {
     nsDbgPrint_fn!(createNwmEventFailed, "Create nwm event failed %08x\n", ret: s32);
 
     nsDbgPrint_fn!(createNwmSvcFailed, "Create remote play service thread failed: %08x\n", ret: s32);
+
+    nsDbgPrint_fn!(setThreadPriorityFailed, "Set thread priority failed: %08x\n", res: s32);
 }

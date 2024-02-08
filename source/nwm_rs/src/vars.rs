@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use crate::*;
 
 pub const rp_config: *mut RP_CONFIG =
@@ -8,7 +10,7 @@ pub const rp_config_u32_count: usize = mem::size_of::<RP_CONFIG>() / mem::size_o
 pub const ntr_config: *mut NTR_CONFIG =
     (NS_CONFIG_ADDR as usize + mem::offset_of!(NS_CONFIG, ntrConfig)) as *mut NTR_CONFIG;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(Copy, Clone, ConstDefault, ConstParamTy, Eq, PartialEq)]
 pub struct IRanged<const BEG: u32_, const END: u32_>(u32_);
 
 pub struct IRangedIter<const BEG: u32_, const END: u32_>(u32_);
@@ -34,19 +36,19 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
 }
 
 impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
-    const fn init() -> Self {
+    pub const fn init() -> Self {
         Self(0)
     }
 
-    unsafe fn init_unchecked(v: u32_) -> Self {
+    pub unsafe fn init_unchecked(v: u32_) -> Self {
         Self(v)
     }
 
-    pub fn get(&self) -> u32_ {
+    pub const fn get(&self) -> u32_ {
         self.0
     }
 
-    fn set(&mut self, v: u32_) {
+    pub fn set(&mut self, v: u32_) {
         if v < BEG {
             self.0 = BEG
         } else if v > END {
@@ -77,7 +79,7 @@ where
 pub type CoreCount = IRanged<RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX>;
 
 pub static mut thread_main_handle: Handle = 0;
-pub static mut reset_threads: c_int = 0;
+pub static mut reset_threads: bool = false;
 pub static mut core_count_in_use: CoreCount = CoreCount::init();
 
 pub static mut min_send_interval_tick: u32_ = 0;
@@ -91,6 +93,10 @@ pub type Ranged<const N: u32_> = IRanged<0, { N - 1 }>;
 
 pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
+
+pub struct RangedArraySlice<'a, T, const N: u32_>(pub &'a mut RangedArray<T, N>)
+where
+    [(); N as usize]:;
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct RangedArray<T, const N: u32_>([T; N as usize])
@@ -114,6 +120,23 @@ where
     {
         unsafe { self.0.get_unchecked_mut(i.0 as usize) }
     }
+
+    pub fn split_at_mut<const I: u32_>(
+        &mut self,
+    ) -> (RangedArraySlice<T, I>, RangedArraySlice<T, { N - I }>)
+    where
+        [(); I as usize]:,
+        [(); { N - I } as usize]:,
+    {
+        unsafe {
+            let a = self.0.as_mut_ptr();
+            let b = a.add(I as usize);
+            (
+                RangedArraySlice::<T, I>(mem::transmute(a)),
+                RangedArraySlice::<T, { N - I }>(mem::transmute(b)),
+            )
+        }
+    }
 }
 
 #[derive(Copy, Clone, ConstDefault)]
@@ -124,16 +147,17 @@ pub struct AllocStats {
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct CInfo {
-    info: jpeg_compress_struct,
-    alloc_stats: AllocStats,
+    pub info: jpeg_compress_struct,
+    pub alloc_stats: AllocStats,
 }
 
 pub type CInfos =
     RangedArray<RangedArray<RangedArray<CInfo, RP_CORE_COUNT_MAX>, WORK_COUNT>, SCREEN_COUNT>;
-pub type CInfoAllocSizes = RangedArray<u32_, CINFOS_COUNT>;
+
+pub type CInfosAll = RangedArray<CInfo, CINFOS_COUNT>;
 
 pub static mut cinfos: CInfos = <CInfos as ConstDefault>::DEFAULT;
-pub static mut cinfos_alloc_sizes: CInfoAllocSizes = <CInfoAllocSizes as ConstDefault>::DEFAULT;
+pub static mut cinfos_all: *mut CInfosAll = ptr::null_mut();
 
 pub static mut jerr: jpeg_error_mgr = <jpeg_error_mgr as ConstDefault>::DEFAULT;
 
@@ -268,6 +292,22 @@ pub static mut cap_info: CapInfo = <CapInfo as ConstDefault>::DEFAULT;
 
 pub static mut current_frame_ids: RangedArray<u8_, SCREEN_COUNT> =
     <RangedArray<u8_, SCREEN_COUNT> as ConstDefault>::DEFAULT;
+
+pub static mut frame_counts: RangedArray<u32_, SCREEN_COUNT> =
+    <RangedArray<u32_, SCREEN_COUNT> as ConstDefault>::DEFAULT;
+
+pub static mut frame_queues: RangedArray<u32_, SCREEN_COUNT> =
+    <RangedArray<u32_, SCREEN_COUNT> as ConstDefault>::DEFAULT;
+
+pub static mut currently_updating: bool = false;
+pub static mut priority_is_top: bool = false;
+pub static mut priority_factor: u32_ = 0;
+pub static mut priority_factor_scaled: u32_ = 0;
+
+pub static mut screens_captured: RangedArray<bool, WORK_COUNT> =
+    <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
+pub static mut screens_synced: RangedArray<bool, WORK_COUNT> =
+    <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct PerWorkHandles {

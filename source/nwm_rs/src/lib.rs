@@ -13,14 +13,18 @@
 #![feature(adt_const_params)]
 #![feature(inherent_associated_types)]
 #![feature(trivial_bounds)]
+#![feature(slice_split_at_unchecked)]
+#![feature(const_fn_floating_point_arithmetic)]
 
 use crate::dbg::*;
+use crate::fix::*;
 use crate::result::*;
 use crate::utils::*;
 use crate::vars::*;
 use ::libc::*;
 use const_default::ConstDefault;
 use const_default_union_derive::ConstDefaultUnion;
+use core::marker::ConstParamTy;
 use core::panic::PanicInfo;
 use core::sync::atomic::*;
 use core::{mem, ptr};
@@ -42,6 +46,7 @@ mod ctru {
 #[macro_use]
 mod dbg;
 mod entries;
+mod fix;
 mod result;
 mod utils;
 mod vars;

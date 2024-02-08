@@ -1,3 +1,5 @@
+use core::{marker::PhantomData, slice};
+
 use crate::*;
 
 pub const fn htons(v: u16_) -> u16_ {
@@ -91,36 +93,51 @@ pub fn request_mem_from_pool<const T: usize>() -> Option<&'static mut MemRegion8
     }
 }
 
-pub fn create_thread<const T: usize>(
+pub fn request_mem_from_pool_vsize(t: usize) -> Option<&'static mut [u8_]> {
+    let s = unsafe { plgRequestMemory(t as u32_) };
+    if s > 0 {
+        let t = unsafe { slice::from_raw_parts_mut(s as *mut u8_, t) };
+        Some(t)
+    } else {
+        None
+    }
+}
+
+pub struct PhantomResult<'a>(pub Result, PhantomData<&'a ()>);
+
+pub fn create_thread<'a, 'b, const T: usize>(
     h: *mut Handle,
     f: ThreadFunc,
     a: u32_,
-    t: &mut StackRegion<T>,
+    t: &'a mut StackRegion<T>,
     prio: s32,
     core: s32,
-) -> Result
+) -> PhantomResult<'b>
 where
     [(); StackRegionCount::<T>::N]:,
 {
     unsafe {
-        svcCreateThread(
-            h,
-            f,
-            a,
-            t.to_ptr().add(StackRegionCount::<T>::N),
-            prio,
-            core,
+        PhantomResult(
+            svcCreateThread(
+                h,
+                f,
+                a,
+                t.to_ptr().add(StackRegionCount::<T>::N),
+                prio,
+                core,
+            ),
+            PhantomData,
         )
     }
 }
 
-pub struct CreateThread(Handle);
+pub struct CreateThread<'a>(Handle, PhantomData<&'a ()>);
 
-impl CreateThread {
-    pub fn create<const T: usize>(
+impl<'a> CreateThread<'a> {
+    pub fn create<'b: 'a, const T: usize>(
         f: ThreadFunc,
         a: u32_,
-        t: &mut StackRegion<T>,
+        t: &'b mut StackRegion<T>,
         prio: s32,
         core: s32,
     ) -> Option<Self>
@@ -128,16 +145,17 @@ impl CreateThread {
         [(); StackRegionCount::<T>::N]:,
     {
         let mut h = mem::MaybeUninit::<Handle>::uninit();
-        if R_FAILED(create_thread(h.as_mut_ptr(), f, a, t, prio, core)) {
+        let res = create_thread(h.as_mut_ptr(), f, a, t, prio, core);
+        if R_FAILED(res.0) {
             None
         } else {
             let h = unsafe { h.assume_init() };
-            Some(Self(h))
+            Some(Self(h, PhantomData))
         }
     }
 }
 
-impl Drop for CreateThread {
+impl<'a> Drop for CreateThread<'a> {
     fn drop(&mut self) {
         unsafe {
             let _ = svcCloseHandle(self.0);
@@ -145,15 +163,15 @@ impl Drop for CreateThread {
     }
 }
 
-pub struct JoinThread(CreateThread);
+pub struct JoinThread<'a>(CreateThread<'a>);
 
-impl JoinThread {
-    pub fn create(t: CreateThread) -> Self {
+impl<'a> JoinThread<'a> {
+    pub fn create(t: CreateThread<'a>) -> Self {
         Self(t)
     }
 }
 
-impl Drop for JoinThread {
+impl<'a> Drop for JoinThread<'a> {
     fn drop(&mut self) {
         unsafe {
             let _ = svcWaitSynchronization(self.0 .0, -1);
@@ -161,19 +179,19 @@ impl Drop for JoinThread {
     }
 }
 
-pub fn create_thread_from_pool<const T: usize>(
+pub fn create_thread_from_pool<'a, const T: usize>(
     h: *mut Handle,
     f: ThreadFunc,
     a: u32_,
     prio: s32,
     core: s32,
-) -> Result
+) -> PhantomResult<'a>
 where
     [(); StackRegionCount::<T>::N]:,
 {
     if let Some(t) = request_mem_from_pool::<T>() {
         create_thread(h, f, a, stack_region_from_mem_region(t), prio, core)
     } else {
-        -1
+        PhantomResult(-1, PhantomData)
     }
 }

@@ -520,8 +520,8 @@ struct jpeg_compress_struct {
   jpeg_scan_info *script_space; /* workspace for jpeg_simple_progression */
   int script_space_size;
 
-  int user_work_next;
-  int user_thread_id;
+  uint32_t user_work_next;
+  uint32_t user_thread_id;
   boolean fdct_reuse;
   boolean color_reuse;
   boolean defaults_skip_tables;
