@@ -71,4 +71,6 @@ impl nsDbgPrint_t {
     nsDbgPrint_fn!(sendBufferOverflow, "Send buffer overflow\n");
 
     nsDbgPrint_fn!(nwmEventSignalFailed, "Signal nwm event failed %08x\n", ret: s32);
+
+    nsDbgPrint_fn!(waitForSyncFailed, "Wait for %s sync failed: %08x\n", name: *const c_char, res: s32);
 }

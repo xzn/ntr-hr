@@ -23,6 +23,7 @@ unsafe fn try_send_next_buffer(work_flush: bool) -> bool {
     try_send_next_buffer_may_skip(work_flush, false)
 }
 
+#[named]
 unsafe fn try_send_next_buffer_may_skip(work_flush: bool, mut may_skip: bool) -> bool {
     let work_index = nwm_work_index;
     let mut thread_id = nwm_thread_id;
@@ -34,6 +35,9 @@ unsafe fn try_send_next_buffer_may_skip(work_flush: bool, mut may_skip: bool) ->
                 if work_flush { THREAD_WAIT_NS } else { 0 },
             );
             if R_FAILED(res) {
+                if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                    nsDbgPrint!(waitForSyncFailed, c_str!("nwm_ready"), res);
+                }
                 return false;
             }
             *nwm_need_syn.get_mut(&work_index) = false;
@@ -83,6 +87,7 @@ unsafe fn try_send_next_buffer_may_skip(work_flush: bool, mut may_skip: bool) ->
     }
 }
 
+#[named]
 unsafe fn send_next_buffer(tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
     let work_index = nwm_work_index;
     let thread_id = nwm_thread_id;
@@ -202,11 +207,14 @@ unsafe fn send_next_buffer(tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
 
         if nwm_thread_id.get() == 0 {
             let mut count = mem::MaybeUninit::uninit();
-            let _res = svcReleaseSemaphore(
+            let res = svcReleaseSemaphore(
                 count.as_mut_ptr(),
                 (*syn_handles).works.get(&work_index).nwm_done,
                 1,
             );
+            if R_FAILED(res) {
+                nsDbgPrint!(releaseSemaphoreFailed, c_str!("nwm_done"), res);
+            }
 
             *nwm_need_syn.get_mut(&work_index) = true;
             nwm_work_index.next_wrapped();

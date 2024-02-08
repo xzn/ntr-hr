@@ -48,6 +48,10 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
             if R_SUCCEEDED(res) {
                 break;
             }
+            if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                nsDbgPrint!(waitForSyncFailed, c_str!("port_screen_ready"), res);
+                svcSleepThread(THREAD_WAIT_NS);
+            }
             continue;
         }
 
@@ -78,6 +82,8 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
                     currently_updating = b;
                     *frame_queues.get_b_mut(b) -= prio[b as usize];
                     return true;
+                } else if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                    nsDbgPrint!(waitForSyncFailed, c_str!("port_screen_ready"), res);
                 }
             }
             false
@@ -101,6 +107,7 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
         );
         if R_FAILED(res) {
             if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                nsDbgPrint!(waitForSyncFailed, c_str!("port_screen_ready"), res);
                 svcSleepThread(THREAD_WAIT_NS);
                 break;
             }
@@ -418,11 +425,13 @@ unsafe fn get_game_handle() -> Handle {
     cap_params.game
 }
 
+#[named]
 unsafe fn thread_screen_loop() -> Option<()> {
     while !crate::entries::work_thread::reset_threads() {
         let res = svcWaitSynchronization((*syn_handles).screen_ready, THREAD_WAIT_NS);
         if R_FAILED(res) {
             if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                nsDbgPrint!(waitForSyncFailed, c_str!("screen_ready"), res);
                 svcSleepThread(THREAD_WAIT_NS);
             }
             continue;
