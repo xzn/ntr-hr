@@ -321,6 +321,8 @@ struct rp_alloc_state {
 #define jpeg_common_fields \
   struct jpeg_error_mgr *err;   /* Error handler module */ \
   struct jpeg_memory_mgr *mem;  /* Memory manager module */ \
+  boolean has_err_jmp_buf; \
+  jmp_buf err_jmp_buf; \
   boolean mem_pool_manual; \
   struct rp_alloc_state alloc; \
   struct jpeg_progress_mgr *progress; /* Progress monitor, or NULL if none */ \

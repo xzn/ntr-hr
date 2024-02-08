@@ -95,3 +95,6 @@ int setUpReturn(void) {
 
 	return rtFlushInstructionCache((void *)_ReturnToUser, 8);;
 }
+
+u32 __apt_appid;
+u32 __system_runflags;

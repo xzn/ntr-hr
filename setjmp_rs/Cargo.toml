@@ -1,0 +1,17 @@
+[package]
+name = "setjmp"
+version = "0.1.4"
+authors = ["Jeff Davis <jeff@j-davis.com>"]
+edition = "2018"
+license = "PostgreSQL OR MIT"
+description = "setjmp / longjmp support"
+repository = "https://github.com/jeff-davis/setjmp.rs"
+documentation = "https://docs.rs/setjmp"
+
+[dependencies]
+libc = "^0.2"
+
+[build-dependencies]
+bindgen = "^0.69"
+clang-sys = { version = "1.7.0", features = ["clang_6_0"] }
+libc = "^0.2"

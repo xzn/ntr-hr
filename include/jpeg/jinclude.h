@@ -37,6 +37,7 @@
 // #include <stdlib.h>
 // #include <stdio.h>
 #include <string.h>
+#include <setjmp.h>
 #define FILE void
 #if 0
 #define malloc(s) jpeg_turbo_malloc((j_common_ptr)cinfo, s)

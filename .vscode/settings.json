@@ -19,6 +19,7 @@
     ],
     "files.associations": {
         "*.css": "tailwindcss",
-        "hid.h": "c"
+        "hid.h": "c",
+        "jmorecfg.h": "c"
     }
 }

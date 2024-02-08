@@ -76,9 +76,7 @@ impl ThreadVars {
     }
 
     pub fn set_reset_threads_ar(&self) {
-        unsafe {
-            AtomicBool::from_ptr(ptr::addr_of_mut!(reset_threads)).store(true, Ordering::Relaxed)
-        }
+        unsafe { crate::entries::work_thread::set_reset_threads_ar() }
     }
 
     pub fn signal_port_event(&self, is_top: bool) -> Result {

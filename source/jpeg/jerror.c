@@ -76,14 +76,18 @@ error_exit(j_common_ptr cinfo)
   (*cinfo->err->output_message) (cinfo);
 
   /* Let the memory manager delete any temp files before we die */
-  jpeg_destroy(cinfo);
+  // jpeg_destroy(cinfo);
 
   // exit(EXIT_FAILURE);
   // *((struct rp_jpeg_client_data_t *)(cinfo->client_data))->exit_thread = 1;
-  
+
   // TODO
   // Switch to setjmp/longjmp
-  svcExitThread();
+  // svcExitThread();
+  if (cinfo->has_err_jmp_buf)
+    longjmp(cinfo->err_jmp_buf, 1);
+  else
+    svcExitThread();
   __builtin_unreachable();
 }
 

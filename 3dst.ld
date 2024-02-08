@@ -44,6 +44,13 @@ SECTIONS
 		*(.__rel_dyn_end)
 	} : rodata
 
+	.ARM.exidx   :
+	{
+		PROVIDE_HIDDEN (__exidx_start = .);
+		*(.ARM.exidx*)
+		PROVIDE_HIDDEN (__exidx_end = .);
+	}
+
 	. = ALIGN(4);
 	.data : {
 		*(.data)

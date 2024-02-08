@@ -4,6 +4,10 @@ pub unsafe fn reset_threads() -> bool {
     AtomicBool::from_ptr(ptr::addr_of_mut!(crate::reset_threads)).load(Ordering::Relaxed)
 }
 
+pub unsafe fn set_reset_threads_ar() {
+    AtomicBool::from_ptr(ptr::addr_of_mut!(crate::reset_threads)).store(true, Ordering::Relaxed)
+}
+
 pub unsafe fn no_skip_next_frames() {
     let _ = svcSignalEvent(*(*syn_handles).port_screen_ready.get_b(false));
     let _ = svcSignalEvent(*(*syn_handles).port_screen_ready.get_b(true));
@@ -82,7 +86,10 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
                 } else {
                     iinfo.index.next_wrapped();
                     *current_frame_id += 1;
-                    ready_work(ctx, &w);
+                    if !ready_work(ctx, &w) {
+                        set_reset_threads_ar();
+                        break;
+                    }
                 }
             }
 
@@ -146,6 +153,10 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
             break;
         }
         skip_frame = AtomicBool::from_mut(skip_frames.get_mut(&w)).load(Ordering::Relaxed);
+    }
+
+    if reset_threads() {
+        return false;
     }
 
     if !skip_frame {
@@ -221,7 +232,7 @@ unsafe fn ready_nwm(_t: &ThreadId, w: &WorkIndex, id: u8_, is_top: bool) -> bool
     true
 }
 
-unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
+unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
     let mut work_index = *w;
     work_index.prev_wrapped();
 
@@ -283,7 +294,7 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
     }
 
     for j in ThreadId::up_to_unchecked(core_count) {
-        let cinfo = &mut (*ctx.cinfo).get_mut(&j).info;
+        let cinfo: &mut jpeg_compress_struct = &mut (*ctx.cinfo).get_mut(&j).info;
         cinfo.image_width = ctx.height;
         cinfo.image_height = ctx.width;
         cinfo.input_components = if ctx.format == 0 { 4 } else { 3 };
@@ -297,6 +308,13 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
         cinfo.restart_in_rows = l.n_adjusted as i32;
         cinfo.restart_interval = cinfo.restart_in_rows as u32 * mcus_per_row;
 
+        if setjmp::setjmp(&mut cinfo.err_jmp_buf) != 0 {
+            cinfo.has_err_jmp_buf = 0;
+            set_reset_threads_ar();
+            return false;
+        }
+        cinfo.has_err_jmp_buf = 1;
+
         if cinfo.global_state == JPEG_CSTATE_START {
             jpeg_start_compress(cinfo, 1);
         } else {
@@ -308,6 +326,8 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
             cinfo.next_scanline = 0;
         }
 
+        cinfo.has_err_jmp_buf = 0;
+
         *ctx.i_start.get_mut(&j) = cinfo.restart_in_rows as u32 * j.get();
         *ctx.i_count.get_mut(&j) = if j == thread_id_last {
             l.n_last_adjusted
@@ -316,6 +336,8 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
         };
     }
     ctx.should_capture = false;
+
+    true
 }
 
 unsafe fn bctx_init(ctx: &mut BlitCtx, w: u32_, h: u32_, mut format: u32_, src: *mut u8_) -> bool {
@@ -357,8 +379,15 @@ fn get_bpp_for_format(mut format: u32_) -> u32_ {
     }
 }
 
-unsafe fn do_send_frame(ctx: &mut BlitCtx, t: &ThreadId, w: &WorkIndex) {
+unsafe fn do_send_frame(ctx: &mut BlitCtx, t: &ThreadId, w: &WorkIndex) -> bool {
     let cinfo = &mut (*ctx.cinfo).get_mut(&t).info;
+
+    if setjmp::setjmp(&mut cinfo.err_jmp_buf) != 0 {
+        cinfo.has_err_jmp_buf = 0;
+        set_reset_threads_ar();
+        return false;
+    }
+    cinfo.has_err_jmp_buf = 1;
 
     cinfo.client_data = nwm_infos.get(&w).get(&t).info.pos as *mut _;
     jpeg_init_destination(cinfo);
@@ -387,6 +416,9 @@ unsafe fn do_send_frame(ctx: &mut BlitCtx, t: &ThreadId, w: &WorkIndex) {
         jpeg_write_file_trailer(cinfo);
     }
     jpeg_term_destination(cinfo);
+
+    cinfo.has_err_jmp_buf = 0;
+    true
 }
 
 unsafe fn really_do_send_frame(
