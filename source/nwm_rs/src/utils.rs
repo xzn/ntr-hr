@@ -1,5 +1,3 @@
-use core::{marker::PhantomData, slice};
-
 use crate::*;
 
 pub const fn htons(v: u16_) -> u16_ {
@@ -66,8 +64,10 @@ impl<const T: usize> StackRegionCount<T> {
     const N: usize = T / mem::size_of::<u32_>();
 }
 
+#[allow(unused)]
 pub struct StackRegionSize<const N: usize>;
 
+#[allow(unused)]
 impl<const N: usize> StackRegionSize<N> {
     const T: usize = N * mem::size_of::<u32_>();
 }

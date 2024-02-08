@@ -1,5 +1,3 @@
-use core::fmt::Debug;
-
 use crate::*;
 
 pub const rp_config: *mut RP_CONFIG =

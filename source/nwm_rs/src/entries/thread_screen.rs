@@ -275,10 +275,10 @@ unsafe fn capture_screen(work_index: &WorkIndex, is_top: bool) -> bool {
         return false;
     }
 
-    svcInvalidateProcessDataCache(CUR_PROCESS_HANDLE, dst, buf_size);
+    let _ = svcInvalidateProcessDataCache(CUR_PROCESS_HANDLE, dst, buf_size);
     let dma = cap_params.dmas.get_mut(&work_index);
     if *dma != 0 {
-        svcCloseHandle(*dma);
+        let _ = svcCloseHandle(*dma);
         *dma = 0;
     }
 
@@ -344,7 +344,7 @@ fn is_in_fcram(phys: u32_) -> bool {
 
 unsafe fn close_game_handle() {
     if cap_params.game != 0 {
-        svcCloseHandle(cap_params.game);
+        let _ = svcCloseHandle(cap_params.game);
         cap_params.game = 0;
         cap_params.game_fcram_base = 0;
         cap_params.game_pid = 0;
@@ -395,7 +395,7 @@ unsafe fn get_game_handle() -> Handle {
                                 break;
                             }
                         }
-                        svcCloseHandle(process);
+                        let _ = svcCloseHandle(process);
                     }
                 }
             }

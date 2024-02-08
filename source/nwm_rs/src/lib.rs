@@ -25,10 +25,12 @@ use crate::vars::*;
 use ::libc::*;
 use const_default::ConstDefault;
 use const_default_union_derive::ConstDefaultUnion;
-use core::marker::ConstParamTy;
 use core::panic::PanicInfo;
 use core::sync::atomic::*;
-use core::{mem, ptr, slice};
+use core::{
+    marker::{ConstParamTy, PhantomData},
+    mem, ptr, slice,
+};
 use ctru::*;
 use function_name::named;
 
