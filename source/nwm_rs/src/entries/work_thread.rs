@@ -225,27 +225,31 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
     let mut work_index = *w;
     work_index.prev_wrapped();
 
+    let core_count = core_count_in_use.get();
+    let core_count_rest = core_count - 1;
+    let thread_id_last = ThreadId::init_unchecked(core_count - 1);
+
     let l = load_and_progresses.get_mut(&w);
-    for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+    for j in ThreadId::up_to_unchecked(core_count) {
         AtomicU32::from_mut(l.p.get_mut(&j)).store(0, Ordering::Relaxed);
     }
 
     let mcu_size = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
     let mcus_per_row = ctx.height / mcu_size;
     let mcu_rows = ctx.width / mcu_size;
-    let mcu_rows_per_thread = (mcu_rows + core_count_in_use.get() - 1) / core_count_in_use.get();
+    let mcu_rows_per_thread = (mcu_rows + core_count_rest) / core_count;
 
     l.n = mcu_rows_per_thread;
-    l.n_last = mcu_rows - l.n * (core_count_in_use.get() - 1);
+    l.n_last = mcu_rows - l.n * core_count_rest;
 
     let p = load_and_progresses.get(&work_index);
 
-    if core_count_in_use.get() > 1 && p.n > 0 {
+    if core_count > 1 && p.n > 0 {
         let mut rows = l.n;
         let mut rows_last = l.n_last;
 
         let s = p.p_snapshot;
-        let progress_last = *s.get(&Ranged::init_unchecked(core_count_in_use.get() - 1));
+        let progress_last = *s.get(&thread_id_last);
         if progress_last < p.n_last_adjusted {
             rows_last = (rows_last * (1 << 16) * progress_last / p.n_last + (1 << 15)) >> 16;
 
@@ -255,32 +259,30 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
                 rows_last = l.n_last
             }
 
-            rows = (mcu_rows - rows_last) / (core_count_in_use.get() - 1);
+            rows = (mcu_rows - rows_last) / core_count_rest;
         } else {
             let mut progress_rest = 0;
-            for j in ThreadId::up_to_unchecked(core_count_in_use.get() - 1) {
+            for j in ThreadId::up_to_unchecked(thread_id_last.get()) {
                 progress_rest += s.get(&j);
             }
-            rows = (rows * (1 << 16) * progress_rest / p.n / (core_count_in_use.get() - 1)
-                + (1 << 15))
-                >> 16;
+            rows = (rows * (1 << 16) * progress_rest / p.n / core_count_rest + (1 << 15)) >> 16;
             if rows < l.n {
                 rows = l.n
             } else {
-                let rows_max = (mcu_rows - 1) / (core_count_in_use.get() - 1);
+                let rows_max = (mcu_rows - 1) / core_count_rest;
                 if rows > rows_max {
                     rows = rows_max;
                 }
             }
         }
         l.n_adjusted = rows;
-        l.n_last_adjusted = mcu_rows - rows * (core_count_in_use.get() - 1);
+        l.n_last_adjusted = mcu_rows - rows * core_count_rest;
     } else {
         l.n_adjusted = l.n;
         l.n_last_adjusted = l.n_last;
     }
 
-    for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+    for j in ThreadId::up_to_unchecked(core_count) {
         let cinfo = &mut (*ctx.cinfo).get_mut(&j).info;
         cinfo.image_width = ctx.height;
         cinfo.image_height = ctx.width;
@@ -307,7 +309,7 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
         }
 
         *ctx.i_start.get_mut(&j) = cinfo.restart_in_rows as u32 * j.get();
-        *ctx.i_count.get_mut(&j) = if j.get() == core_count_in_use.get() - 1 {
+        *ctx.i_count.get_mut(&j) = if j == thread_id_last {
             l.n_last_adjusted
         } else {
             l.n_adjusted

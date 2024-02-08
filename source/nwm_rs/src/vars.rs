@@ -111,7 +111,11 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
 
 impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
     pub const fn init() -> Self {
-        Self(0)
+        Self(BEG)
+    }
+
+    pub const fn init_end() -> Self {
+        Self(END)
     }
 
     pub unsafe fn init_unchecked(v: u32_) -> Self {

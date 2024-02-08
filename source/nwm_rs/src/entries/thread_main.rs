@@ -182,7 +182,7 @@ mod first_time_init {
         let res = create_thread_from_pool::<{ STACK_SIZE as usize }>(
             svc_thread.as_mut_ptr(),
             Some(handlePortThread),
-            0,
+            SVC_PORT_NWM.as_ptr() as u32_,
             0x10,
             1,
         )
@@ -636,7 +636,7 @@ mod loop_main {
                 2,
             )?);
 
-            let t = crate::ThreadId::init_unchecked(0);
+            let t = crate::ThreadId::init();
             crate::entries::work_thread::work_thread_loop(t);
         }
     }
