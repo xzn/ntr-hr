@@ -128,12 +128,17 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
     }
 
     if !skip_frame {
-        do_send_frame(&ctx, &t, &w);
+        do_send_frame(ctx, &t, &w);
     }
 
-    if AtomicU32::from_mut(&mut wsyn.work_done_count).fetch_add(1, Ordering::Relaxed)
-        == core_count_in_use.get() - 1
-    {
+    let f = AtomicU32::from_mut(&mut wsyn.work_done_count).fetch_add(1, Ordering::Relaxed);
+    if f == 0 {
+        let p = load_and_progresses.get_mut(&w);
+        for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+            *p.p_snapshot.get_mut(&j) =
+                AtomicU32::from_mut(p.p.get_mut(&j)).load(Ordering::Relaxed);
+        }
+    } else if f == core_count_in_use.get() - 1 {
         AtomicU32::from_mut(&mut wsyn.work_done_count).store(0, Ordering::Relaxed);
 
         AtomicBool::from_mut(&mut wsyn.work_begin_flag).store(false, Ordering::Relaxed);
@@ -147,7 +152,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
     !skip_frame
 }
 
-unsafe fn ready_nwm(t: &ThreadId, w: &WorkIndex, id: u8_, is_top: bool) -> bool {
+unsafe fn ready_nwm(_t: &ThreadId, w: &WorkIndex, id: u8_, is_top: bool) -> bool {
     let wsyn = (*syn_handles).works.get(&w);
 
     loop {
@@ -326,7 +331,105 @@ fn get_bpp_for_format(mut format: u32_) -> u32_ {
     }
 }
 
-unsafe fn do_send_frame(ctx: &BlitCtx, t: &ThreadId, w: &WorkIndex) {}
+unsafe fn do_send_frame(ctx: &mut BlitCtx, t: &ThreadId, w: &WorkIndex) {
+    let cinfo = &mut (*ctx.cinfo).get_mut(&t).info;
+
+    cinfo.client_data = nwm_infos.get(&w).get(&t).info.pos as *mut _;
+    jpeg_init_destination(cinfo);
+
+    if t.get() == 0 {
+        jpeg_write_file_header(cinfo);
+        jpeg_write_frame_header(cinfo);
+        jpeg_write_scan_header(cinfo);
+    }
+
+    really_do_send_frame(
+        cinfo,
+        ctx.src,
+        ctx.src_pitch,
+        *ctx.i_start.get(&t),
+        *ctx.i_count.get(&t),
+        w,
+        t,
+        &mut ctx.should_capture,
+    );
+    jpeg_finish_pass_huff(cinfo);
+
+    if t.get() != core_count_in_use.get() - 1 {
+        jpeg_emit_marker(cinfo, (JPEG_RST0 + t.get()) as s32);
+    } else {
+        jpeg_write_file_trailer(cinfo);
+    }
+    jpeg_term_destination(cinfo);
+}
+
+unsafe fn really_do_send_frame(
+    cinfo: &mut jpeg_compress_struct,
+    src: *const u8_,
+    pitch: u32_,
+    i_start: u32_,
+    i_count: u32_,
+    w: &WorkIndex,
+    t: &ThreadId,
+    should_capture: &mut bool,
+) {
+    const in_rows_blk: u32_ = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
+    const in_rows_blk_half: u32_ = in_rows_blk / 2;
+
+    let bufs = work_buffers.get_mut(&w).get_mut(&t);
+    let output_buf = &mut bufs.prep;
+    let color_buf = &mut bufs.color;
+
+    let mut input_buf: [_; in_rows_blk_half as usize] =
+        mem::MaybeUninit::<JSAMPROW>::uninit_array();
+
+    let j_max = in_rows_blk * (i_start + i_count);
+    let _j_max = cmp::min(j_max, cinfo.image_height);
+    let j_max_half = in_rows_blk * (i_start + i_count / 2);
+    let j_max_half = cmp::min(j_max_half, cinfo.image_height);
+
+    let j_start = in_rows_blk * i_start;
+    if j_max_half == j_start {
+        capture_screen(&t, should_capture, &w);
+    }
+
+    let mut j = j_start;
+    let mut progress = 0;
+    let p = load_and_progresses.get_mut(&w).p.get_mut(&t);
+    loop {
+        let mut pre_process = |h| {
+            for i in 0..in_rows_blk_half {
+                (*input_buf.get_unchecked_mut(i as usize))
+                    .write(src.add((j * pitch) as usize) as *mut _);
+                j += 1;
+            }
+            jpeg_pre_process(
+                cinfo,
+                input_buf.as_mut_ptr() as *mut _,
+                color_buf.as_mut_ptr(),
+                output_buf.as_mut_ptr(),
+                h,
+            );
+        };
+        pre_process(0);
+        pre_process(1);
+
+        if j_max_half == j {
+            capture_screen(&t, should_capture, &w);
+        }
+
+        let mcu_buffer = &mut bufs.mcu;
+        for k in 0..cinfo.MCUs_per_row {
+            jpeg_compress_data(cinfo, output_buf.as_mut_ptr(), mcu_buffer.as_mut_ptr(), k);
+            jpeg_encode_mcu_huff(cinfo, mcu_buffer.as_mut_ptr());
+        }
+
+        progress += 1;
+        AtomicU32::from_mut(p).store(progress, Ordering::Relaxed);
+    }
+}
+
+unsafe fn capture_screen(t: &ThreadId, should_capture: &mut bool, w: &WorkIndex) {}
 
 #[named]
 #[no_mangle]
