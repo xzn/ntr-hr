@@ -37,7 +37,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
     let wsyn = (*syn_handles).works.get_mut(&w);
     let tsyn = (*syn_handles).threads.get_mut(&t);
 
-    let mut skip_frame = false;
+    let mut skip_frame = true;
 
     if !AtomicBool::from_mut(&mut wsyn.work_begin_flag).swap(true, Ordering::Relaxed) {
         while skip_frame {
