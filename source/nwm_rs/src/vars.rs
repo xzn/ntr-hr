@@ -149,10 +149,9 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
     }
 
     pub unsafe fn next_wrapped_n_unchecked(&mut self, n: u32_) {
-        if self.0 == n {
+        self.0 += 1;
+        if self.0 >= n {
             self.0 = BEG
-        } else {
-            self.0 += 1
         }
     }
 }
