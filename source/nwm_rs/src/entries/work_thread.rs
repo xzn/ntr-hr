@@ -429,7 +429,18 @@ unsafe fn really_do_send_frame(
     }
 }
 
-unsafe fn capture_screen(t: &ThreadId, should_capture: &mut bool, w: &WorkIndex) {}
+unsafe fn capture_screen(_t: &ThreadId, should_capture: &mut bool, w: &WorkIndex) {
+    if !AtomicBool::from_mut(should_capture).swap(true, Ordering::Relaxed) {
+        let mut w = *w;
+        w.next_wrapped();
+
+        AtomicU32::from_ptr(ptr::addr_of_mut!(screen_work_index) as *mut u32_)
+            .store(w.get(), Ordering::Relaxed);
+
+        let mut count = mem::MaybeUninit::uninit();
+        let _res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).screen_ready, 1);
+    }
+}
 
 #[named]
 #[no_mangle]

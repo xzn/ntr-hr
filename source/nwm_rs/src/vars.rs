@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::*;
 
 pub const rp_config: *mut RP_CONFIG =
