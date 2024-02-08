@@ -63,4 +63,10 @@ impl nsDbgPrint_t {
     nsDbgPrint_fn!(setThreadPriorityFailed, "Set thread priority failed: %08x\n", res: s32);
 
     nsDbgPrint_fn!(createSemaphoreFailed, "Create %s semaphore failed: %08x\n", name: *const c_char, res: s32);
+
+    nsDbgPrint_fn!(allocFailed, "Bad alloc, size: %x/%x\n", total_size: u32_, alloc_size: u32_);
+
+    nsDbgPrint_fn!(sendBufferOverflow, "Send buffer overflow\n");
+
+    nsDbgPrint_fn!(nwmEventSignalFailed, "Signal nwm event failed %08x\n", ret: s32);
 }

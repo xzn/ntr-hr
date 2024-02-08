@@ -77,7 +77,7 @@ mod first_time_init {
             info.color_reuse = 1;
 
             let idx = i.get();
-            info.user_work_next = (idx / RP_CORE_COUNT_MAX) % WORK_COUNT;
+            info.user_work_index = (idx / RP_CORE_COUNT_MAX) % WORK_COUNT;
             info.user_thread_id = idx % RP_CORE_COUNT_MAX;
         }
 
