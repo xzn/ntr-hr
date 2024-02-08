@@ -127,7 +127,7 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
 
         let mut count = mem::MaybeUninit::<s32>::uninit();
 
-        if AtomicBool::from_mut(skip_frame.get_mut(&work_index)).load(Ordering::Relaxed) {
+        if AtomicBool::from_mut(skip_frames.get_mut(&work_index)).load(Ordering::Relaxed) {
             let thread_id = AtomicU32::from_ptr(ptr::addr_of_mut!(screen_thread_id) as *mut u32_)
                 .load(Ordering::Relaxed);
 

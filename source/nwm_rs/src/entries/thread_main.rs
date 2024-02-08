@@ -20,7 +20,7 @@ mod first_time_init {
         buf: &'static mut MemRegion8<NWM_BUFFER_SIZE>,
     ) {
         let info = nwm_infos.get_mut(&i).get_mut(&j);
-        info.buf = buf.to_ptr().add(NWM_HDR_SIZE as usize);
+        info.buf = buf.to_ptr().add(NWM_HDR_SIZE + DATA_HDR_SIZE as usize);
         info.buf_packet_last = buf.to_ptr().add(NWM_BUFFER_SIZE - PACKET_DATA_SIZE);
     }
 
@@ -449,7 +449,7 @@ mod loop_main {
 
             for j in ThreadId::up_to_unchecked(core_count) {
                 let info = nwm_infos.get_mut(&i).get_mut(&j);
-                let buf = info.buf.add(DATA_HDR_SIZE);
+                let buf = info.buf;
                 let info = &mut info.info;
                 info.send_pos = buf;
                 info.pos = buf;
@@ -473,7 +473,7 @@ mod loop_main {
         InitCleanup::init(vars)
     }
 
-    unsafe fn reset_jpeg_compress(config: &Config, vars: &InitVars) {
+    unsafe fn reset_jpeg_compress(config: &Config, _vars: &InitVars) {
         let infos = &mut *cinfos_all;
 
         for i in Ranged::<CINFOS_COUNT>::all() {

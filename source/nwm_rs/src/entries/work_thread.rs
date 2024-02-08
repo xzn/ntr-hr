@@ -5,16 +5,328 @@ pub unsafe fn reset_threads() -> bool {
 }
 
 pub unsafe fn no_skip_next_frames() {
-    todo!()
+    let _ = svcSignalEvent(*(*syn_handles).port_screen_ready.get_b(false));
+    let _ = svcSignalEvent(*(*syn_handles).port_screen_ready.get_b(true));
+
+    for i in Ranged::<IMG_WORK_COUNT>::all() {
+        **img_infos.get_b_mut(false).bufs.get_mut(&i) += 1;
+        **img_infos.get_b_mut(true).bufs.get_mut(&i) += 1;
+    }
 }
 
 pub unsafe fn work_thread_loop(t: ThreadId) {
-    let w = WorkIndex::init();
+    let mut w = WorkIndex::init();
 
     while !reset_threads() {
-        todo!()
+        let res = svcWaitSynchronization((*syn_handles).threads.get(&t).work_ready, THREAD_WAIT_NS);
+        if R_FAILED(res) {
+            if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                svcSleepThread(THREAD_WAIT_NS);
+            }
+            continue;
+        }
+
+        if send_frame(&t, &w) {
+            w.next_wrapped();
+        }
     }
 }
+
+unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
+    let ctx = blit_ctxes.get_mut(&w);
+    let wsyn = (*syn_handles).works.get_mut(&w);
+    let tsyn = (*syn_handles).threads.get_mut(&t);
+
+    let mut skip_frame = false;
+
+    if !AtomicBool::from_mut(&mut wsyn.work_begin_flag).swap(true, Ordering::Relaxed) {
+        while skip_frame {
+            ctx.is_top = currently_updating;
+            ctx.cinfo = cinfos
+                .get_mut(&Ranged::<SCREEN_COUNT>::init_unchecked(ctx.is_top as u32_))
+                .get_mut(&w);
+            let iinfo = img_infos.get_b_mut(ctx.is_top);
+            let format_changed = bctx_init(
+                ctx,
+                if ctx.is_top { 400 } else { 320 },
+                240,
+                cap_info.format,
+                *iinfo.bufs.get(&iinfo.index),
+            );
+            let current_frame_id = current_frame_ids.get_b_mut(ctx.is_top);
+            ctx.frame_id = *current_frame_id;
+
+            let _res = svcWaitSynchronization(*cap_params.dmas.get(&w), THREAD_WAIT_NS);
+
+            let mut img_work_Index = iinfo.index;
+            img_work_Index.prev_wrapped();
+
+            let src_len = ctx.width * ctx.src_pitch;
+            skip_frame = !format_changed
+                && slice::from_raw_parts(ctx.src, src_len as usize)
+                    == slice::from_raw_parts(*iinfo.bufs.get(&img_work_Index), src_len as usize);
+
+            if !skip_frame {
+                if !ready_nwm(&t, &w, ctx.frame_id, ctx.is_top) {
+                    skip_frame = true;
+                } else {
+                    iinfo.index.next_wrapped();
+                    *current_frame_id += 1;
+                    ready_work(ctx, &w);
+                }
+            }
+
+            AtomicBool::from_mut(skip_frames.get_mut(&w)).store(skip_frame, Ordering::Relaxed);
+
+            let mut count = mem::MaybeUninit::uninit();
+            if !skip_frame {
+                AtomicBool::from_mut(screens_synced.get_mut(&w)).store(false, Ordering::Relaxed);
+
+                for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+                    if j != *t {
+                        let _res =
+                            svcReleaseSemaphore(count.as_mut_ptr(), tsyn.work_begin_ready, 1);
+                    }
+                }
+            } else {
+                AtomicU32::from_ptr(ptr::addr_of_mut!(screen_thread_id) as *mut _)
+                    .store(t.get(), Ordering::Release);
+
+                let _res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).screen_ready, 1);
+
+                loop {
+                    if reset_threads() {
+                        return false;
+                    }
+
+                    let res = svcWaitSynchronization(tsyn.work_ready, THREAD_WAIT_NS);
+                    if R_FAILED(res) {
+                        if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                            svcSleepThread(THREAD_WAIT_NS);
+                        }
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+    } else {
+        loop {
+            if reset_threads() {
+                return false;
+            }
+            let res = svcWaitSynchronization(tsyn.work_begin_ready, THREAD_WAIT_NS);
+            if R_FAILED(res) {
+                if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                    svcSleepThread(THREAD_WAIT_NS);
+                }
+                continue;
+            }
+            break;
+        }
+        skip_frame = AtomicBool::from_mut(skip_frames.get_mut(&w)).load(Ordering::Relaxed);
+    }
+
+    if !skip_frame {
+        do_send_frame(&ctx, &t, &w);
+    }
+
+    if AtomicU32::from_mut(&mut wsyn.work_done_count).fetch_add(1, Ordering::Relaxed)
+        == core_count_in_use.get() - 1
+    {
+        AtomicU32::from_mut(&mut wsyn.work_done_count).store(0, Ordering::Relaxed);
+
+        AtomicBool::from_mut(&mut wsyn.work_begin_flag).store(false, Ordering::Relaxed);
+
+        if !skip_frame {
+            let mut count = mem::MaybeUninit::uninit();
+            let _res = svcReleaseSemaphore(count.as_mut_ptr(), wsyn.work_done, 1);
+        }
+    }
+
+    !skip_frame
+}
+
+unsafe fn ready_nwm(t: &ThreadId, w: &WorkIndex, id: u8_, is_top: bool) -> bool {
+    let wsyn = (*syn_handles).works.get(&w);
+
+    loop {
+        if reset_threads() {
+            return false;
+        }
+
+        let res = svcWaitSynchronization(wsyn.nwm_done, THREAD_WAIT_NS);
+        if R_FAILED(res) {
+            if R_DESCRIPTION(res) != RD_TIMEOUT as s32 {
+                svcSleepThread(THREAD_WAIT_NS);
+            }
+            continue;
+        }
+        break;
+    }
+
+    for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+        let ninfo = nwm_infos.get_mut(&w).get_mut(&j);
+        let info = &mut ninfo.info;
+        let buf = ninfo.buf;
+        info.send_pos = buf;
+        info.pos = buf;
+        info.flag = 0;
+    }
+
+    let mut count = mem::MaybeUninit::uninit();
+    let _res = svcReleaseSemaphore(count.as_mut_ptr(), wsyn.nwm_ready, 1);
+
+    let hdr = data_buf_hdrs.get_mut(&w);
+    *hdr.get_unchecked_mut(0) = id;
+    *hdr.get_unchecked_mut(1) = is_top as u8_;
+    *hdr.get_unchecked_mut(2) = 2;
+    *hdr.get_unchecked_mut(3) = 0;
+
+    true
+}
+
+unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
+    let mut work_index = *w;
+    work_index.prev_wrapped();
+
+    let l = load_and_progresses.get_mut(&w);
+    for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+        AtomicU32::from_mut(l.p.get_mut(&j)).store(0, Ordering::Relaxed);
+    }
+
+    let mcu_size = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
+    let mcus_per_row = ctx.height / mcu_size;
+    let mcu_rows = ctx.width / mcu_size;
+    let mcu_rows_per_thread = (mcu_rows + core_count_in_use.get() - 1) / core_count_in_use.get();
+
+    l.n = mcu_rows_per_thread;
+    l.n_last = mcu_rows - l.n * (core_count_in_use.get() - 1);
+
+    let p = load_and_progresses.get(&work_index);
+
+    if core_count_in_use.get() > 1 && p.n > 0 {
+        let mut rows = l.n;
+        let mut rows_last = l.n_last;
+
+        let s = p.p_snapshot;
+        let progress_last = *s.get(&Ranged::init_unchecked(core_count_in_use.get() - 1));
+        if progress_last < p.n_last_adjusted {
+            rows_last = (rows_last * (1 << 16) * progress_last / p.n_last + (1 << 15)) >> 16;
+
+            if rows_last == 0 {
+                rows_last = 1
+            } else if rows_last > l.n_last {
+                rows_last = l.n_last
+            }
+
+            rows = (mcu_rows - rows_last) / (core_count_in_use.get() - 1);
+        } else {
+            let mut progress_rest = 0;
+            for j in ThreadId::up_to_unchecked(core_count_in_use.get() - 1) {
+                progress_rest += s.get(&j);
+            }
+            rows = (rows * (1 << 16) * progress_rest / p.n / (core_count_in_use.get() - 1)
+                + (1 << 15))
+                >> 16;
+            if rows < l.n {
+                rows = l.n
+            } else {
+                let rows_max = (mcu_rows - 1) / (core_count_in_use.get() - 1);
+                if rows > rows_max {
+                    rows = rows_max;
+                }
+            }
+        }
+        l.n_adjusted = rows;
+        l.n_last_adjusted = mcu_rows - rows * (core_count_in_use.get() - 1);
+    } else {
+        l.n_adjusted = l.n;
+        l.n_last_adjusted = l.n_last;
+    }
+
+    for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+        let cinfo = &mut (*ctx.cinfo).get_mut(&j).info;
+        cinfo.image_width = ctx.height;
+        cinfo.image_height = ctx.width;
+        cinfo.input_components = if ctx.format == 0 { 4 } else { 3 };
+        cinfo.in_color_space = match ctx.format {
+            0 => JCS_EXT_XBGR,
+            1 => JCS_EXT_BGR,
+            2 => JCS_EXT_RGB565,
+            3 => JCS_EXT_RGB5A1,
+            _ => JCS_EXT_RGB4,
+        };
+        cinfo.restart_in_rows = l.n_adjusted as i32;
+        cinfo.restart_interval = cinfo.restart_in_rows as u32 * mcus_per_row;
+
+        if cinfo.global_state == JPEG_CSTATE_START {
+            jpeg_start_compress(cinfo, 1);
+        } else {
+            jpeg_suppress_tables(cinfo, 0);
+            jpeg_start_pass_prep(cinfo, 0);
+            jpeg_start_pass_huff(cinfo, j.get() as i32);
+            jpeg_start_pass_coef(cinfo, 0);
+            jpeg_start_pass_main(cinfo, 0);
+            cinfo.next_scanline = 0;
+        }
+
+        *ctx.i_start.get_mut(&j) = cinfo.restart_in_rows as u32 * j.get();
+        *ctx.i_count.get_mut(&j) = if j.get() == core_count_in_use.get() - 1 {
+            l.n_last_adjusted
+        } else {
+            l.n_adjusted
+        };
+    }
+    ctx.should_capture = false;
+}
+
+unsafe fn bctx_init(
+    ctx: &mut BlitCtx,
+    w: u32_,
+    h: u32_,
+    mut format: u32_,
+    src: *const u8_,
+) -> bool {
+    let mut ret = false;
+    ctx.bpp = get_bpp_for_format(format);
+    format &= 0xf;
+    if ctx.format != format {
+        ret = true;
+
+        for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+            let info = (*ctx.cinfo).get_mut(&j);
+            if info.info.global_state != JPEG_CSTATE_START {
+                ptr::copy_nonoverlapping(
+                    ptr::addr_of!(info.info.alloc.stats),
+                    ptr::addr_of_mut!(info.alloc_stats.comp),
+                    1,
+                );
+                info.info.global_state = JPEG_CSTATE_START;
+            }
+        }
+    }
+    ctx.format = format;
+    ctx.width = w;
+    ctx.height = h;
+    ctx.src_pitch = ctx.bpp * ctx.height;
+    ctx.src = src;
+
+    ret
+}
+
+fn get_bpp_for_format(mut format: u32_) -> u32_ {
+    format &= 0xf;
+    if format == 0 {
+        4
+    } else if format == 1 {
+        3
+    } else {
+        2
+    }
+}
+
+unsafe fn do_send_frame(ctx: &BlitCtx, t: &ThreadId, w: &WorkIndex) {}
 
 #[named]
 #[no_mangle]

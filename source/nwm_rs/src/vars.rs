@@ -10,6 +10,7 @@ pub const ntr_config: *mut NTR_CONFIG =
 
 // CSTATE_START from jpegint.h
 pub const JPEG_CSTATE_START: c_int = 100;
+pub const JPEG_SAMP_FACTOR: c_int = 2;
 
 pub const THREAD_WAIT_NS: s64 = 100_000_000;
 
@@ -126,6 +127,14 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
             self.0 = END
         } else {
             self.0 = v
+        }
+    }
+
+    pub fn prev_wrapped(&mut self) {
+        if self.0 == BEG {
+            self.0 = END
+        } else {
+            self.0 -= 1
         }
     }
 
@@ -253,8 +262,9 @@ pub struct CInfo {
     pub alloc_stats: AllocStats,
 }
 
-pub type CInfos =
-    RangedArray<RangedArray<RangedArray<CInfo, RP_CORE_COUNT_MAX>, WORK_COUNT>, SCREEN_COUNT>;
+pub type CInfosThreads = RangedArray<CInfo, RP_CORE_COUNT_MAX>;
+
+pub type CInfos = RangedArray<RangedArray<CInfosThreads, WORK_COUNT>, SCREEN_COUNT>;
 
 pub type CInfosAll = RangedArray<CInfo, CINFOS_COUNT>;
 
@@ -301,7 +311,7 @@ pub struct BlitCtx {
     pub frame_id: u8_,
     pub is_top: bool,
 
-    pub cinfo: *mut CInfo,
+    pub cinfo: *mut CInfosThreads,
 
     pub i_start: RowIndexes,
     pub i_count: RowIndexes,
@@ -345,7 +355,7 @@ pub static mut nwm_thread_id: ThreadId = ThreadId::init();
 pub static mut screen_work_index: WorkIndex = WorkIndex::init();
 pub static mut screen_thread_id: ThreadId = ThreadId::init();
 
-pub static mut skip_frame: RangedArray<bool, WORK_COUNT> =
+pub static mut skip_frames: RangedArray<bool, WORK_COUNT> =
     <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
 
 pub static mut nwm_need_syn: RangedArray<bool, WORK_COUNT> =
