@@ -157,7 +157,7 @@ impl NwmHdr<'_> {
 
 #[no_mangle]
 extern "C" fn rpStartup(buf: *const u8_) {
-    let buf = unsafe { mem::transmute::<*const u8_, &[u8_; NwmHdr::N]>(buf) };
+    let buf = unsafe { mem::transmute(buf) };
     let buf = NwmHdr(buf);
     safe_impl::start_up(ThreadVars(()), buf)
 }

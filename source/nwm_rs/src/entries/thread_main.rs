@@ -85,7 +85,7 @@ mod first_time_init {
             RangedArraySlice<CInfo, 1>,
             RangedArraySlice<CInfo, { CINFOS_COUNT - 1 }>,
         ) = infos.split_at_mut::<1>();
-        let info0 = &mut info0.0.get_mut(&Ranged::init()).info;
+        let info0 = &mut info0.0.get_mut(&Ranged::<1>::init()).info;
 
         jpeg_std_huff_tables(info0 as j_compress_ptr as j_common_ptr);
         for j in Ranged::<{ CINFOS_COUNT - 1 }>::all() {
@@ -351,6 +351,42 @@ mod loop_main {
         }
     }
 
+    macro_rules! LOG {
+        ($v:expr) => {
+            unsafe { FIX(core::intrinsics::log2f64(($v + 1) as c_double)) }
+        };
+    }
+
+    macro_rules! LOG8 {
+        ($v:expr) => {
+            [
+                LOG!($v),
+                LOG!($v + 1),
+                LOG!($v + 2),
+                LOG!($v + 3),
+                LOG!($v + 4),
+                LOG!($v + 5),
+                LOG!($v + 6),
+                LOG!($v + 7),
+            ]
+        };
+    }
+
+    macro_rules! LOG64 {
+        ($v:literal) => {
+            [
+                LOG8!($v),
+                LOG8!($v + 8),
+                LOG8!($v + 16),
+                LOG8!($v + 24),
+                LOG8!($v + 32),
+                LOG8!($v + 40),
+                LOG8!($v + 48),
+                LOG8!($v + 56),
+            ]
+        };
+    }
+
     #[named]
     unsafe fn reset_init() -> Option<InitCleanup> {
         reset_threads_clear();
@@ -361,12 +397,16 @@ mod loop_main {
         let core_count = core_count().get();
         config.set_core_count_ar(core_count);
 
+        let log_scaled_tab_nested: [[[u32_; 8]; 8]; 4] =
+            [LOG64!(0), LOG64!(64), LOG64!(128), LOG64!(192)];
+        let log_scaled_tab: &[u32_; 256] = mem::transmute(&log_scaled_tab_nested);
+
         let mode = config.mode_ar();
         let isTop = (mode & 0xff00) > 0;
         let factor = mode & 0xff;
         priority_is_top = isTop;
         priority_factor = factor;
-        priority_factor_scaled = FIX(core::intrinsics::log2f64((factor + 1) as c_double));
+        priority_factor_scaled = *log_scaled_tab.get_unchecked(factor as usize);
         crate::entries::work_thread::no_skip_next_frames();
 
         if config.dst_port_ar() == 0 {
@@ -379,13 +419,17 @@ mod loop_main {
         min_send_interval_ns =
             (min_send_interval_tick as u64_ * 1000_000_000 / SYSCLOCK_ARM11 as u64_) as u32_;
 
-        reset_jpeg_compress();
-
         let thread_prio = config.thread_prio_ar();
         let res = svcSetThreadPriority(thread_main_handle, thread_prio as i32);
         if R_FAILED(res) {
             nsDbgPrint!(setThreadPriorityFailed, res);
         }
+
+        let vars = InitVars {
+            core_count,
+            thread_prio,
+        };
+        reset_jpeg_compress(&config, &vars);
 
         currently_updating = priority_is_top;
         for i in Ranged::<SCREEN_COUNT>::all() {
@@ -426,14 +470,120 @@ mod loop_main {
         nwm_thread_id = ThreadId::init();
         screen_work_index = WorkIndex::init();
 
-        InitCleanup::init(InitVars {
-            core_count,
-            thread_prio,
-        })
+        InitCleanup::init(vars)
     }
 
-    fn reset_jpeg_compress() {
-        todo!()
+    unsafe fn reset_jpeg_compress(config: &Config, vars: &InitVars) {
+        let infos = &mut *cinfos_all;
+
+        for i in Ranged::<CINFOS_COUNT>::all() {
+            infos.get_mut(&i).info.global_state = JPEG_CSTATE_START;
+        }
+
+        {
+            let (info0, info1): (
+                RangedArraySlice<CInfo, 1>,
+                RangedArraySlice<CInfo, { CINFOS_COUNT - 1 }>,
+            ) = infos.split_at_mut::<1>();
+            let info0 = &mut info0.0.get_mut(&Ranged::<1>::init()).info;
+
+            jpeg_set_quality(info0, config.quality_ar() as c_int, 1);
+            for j in Ranged::<{ CINFOS_COUNT - 1 }>::all() {
+                for i in Ranged::<NUM_QUANT_TBLS>::all() {
+                    let idx = i.get() as usize;
+                    let info = &mut info1.0.get_mut(&j).info;
+
+                    *info.quant_tbl_ptrs.get_unchecked_mut(idx) =
+                        *info0.quant_tbl_ptrs.get_unchecked(idx);
+                }
+            }
+        }
+
+        for i in Ranged::<CINFOS_COUNT>::all() {
+            let info = infos.get_mut(&i);
+
+            let alloc_stats = &mut info.alloc_stats;
+            let cinfo = &mut info.info;
+
+            if alloc_stats.qual.offset == 0 {
+                ptr::copy_nonoverlapping(
+                    ptr::addr_of!(cinfo.alloc.stats),
+                    ptr::addr_of_mut!(alloc_stats.qual),
+                    mem::size_of::<rp_alloc_stats>(),
+                );
+            } else {
+                ptr::copy_nonoverlapping(
+                    ptr::addr_of!(alloc_stats.qual),
+                    ptr::addr_of_mut!(cinfo.alloc.stats),
+                    mem::size_of::<rp_alloc_stats>(),
+                );
+            }
+        }
+
+        {
+            let (info0, info1): (
+                RangedArraySlice<CInfo, 1>,
+                RangedArraySlice<CInfo, { CINFOS_COUNT - 1 }>,
+            ) = infos.split_at_mut::<1>();
+            let info0 = &mut info0.0.get_mut(&Ranged::<1>::init()).info;
+
+            jpeg_jinit_forward_dct(info0);
+            info0.fdct_reuse = 1;
+
+            for j in Ranged::<{ CINFOS_COUNT - 1 }>::all() {
+                let info = &mut info1.0.get_mut(&j).info;
+
+                info.fdct = info0.fdct;
+                info.fdct_reuse = 1;
+            }
+
+            jpeg_start_pass_fdctmgr(info0);
+        }
+
+        for h in WorkIndex::all() {
+            let info = &mut infos.get_mut(&h).info as j_compress_ptr as j_common_ptr;
+
+            for i in ThreadId::all() {
+                let bufs = work_buffers.get_mut(&h).get_mut(&i);
+
+                for ci in Ranged::<MAX_COMPONENTS>::all() {
+                    *bufs.prep.get_unchecked_mut(ci.get() as usize) = jpeg_alloc_sarray(
+                        info,
+                        JPOOL_IMAGE as c_int,
+                        240,
+                        MAX_SAMP_FACTOR * DCTSIZE,
+                    );
+                }
+
+                for ci in Ranged::<MAX_COMPONENTS>::all() {
+                    *bufs.color.get_unchecked_mut(ci.get() as usize) =
+                        jpeg_alloc_sarray(info, JPOOL_IMAGE as c_int, 240, MAX_SAMP_FACTOR);
+                }
+
+                let buf = jpeg_alloc_large(
+                    info,
+                    JPOOL_IMAGE as c_int,
+                    C_MAX_BLOCKS_IN_MCU as usize * mem::size_of::<JBLOCK>(),
+                ) as JBLOCKROW;
+                for b in Ranged::<C_MAX_BLOCKS_IN_MCU>::all() {
+                    let b_i = b.get() as usize;
+                    *bufs.mcu.get_unchecked_mut(b_i) = buf.add(b_i);
+                }
+            }
+        }
+
+        for i in Ranged::<CINFOS_COUNT>::all() {
+            let info = infos.get_mut(&i);
+
+            let alloc_stats = &mut info.alloc_stats;
+            let cinfo = &mut info.info;
+
+            ptr::copy_nonoverlapping(
+                ptr::addr_of!(cinfo.alloc.stats),
+                ptr::addr_of_mut!(alloc_stats.comp),
+                mem::size_of::<rp_alloc_stats>(),
+            );
+        }
     }
 
     unsafe fn reset_threads_clear() {

@@ -10,6 +10,9 @@ pub const rp_config_u32_count: usize = mem::size_of::<RP_CONFIG>() / mem::size_o
 pub const ntr_config: *mut NTR_CONFIG =
     (NS_CONFIG_ADDR as usize + mem::offset_of!(NS_CONFIG, ntrConfig)) as *mut NTR_CONFIG;
 
+// CSTATE_START from jpegint.h
+pub const JPEG_CSTATE_START: c_int = 100;
+
 #[derive(Copy, Clone, ConstDefault, ConstParamTy, Eq, PartialEq)]
 pub struct IRanged<const BEG: u32_, const END: u32_>(u32_);
 
@@ -134,9 +137,10 @@ where
         unsafe { self.0.get_unchecked(i.0 as usize) }
     }
 
-    pub fn get_mut(&mut self, i: &Ranged<N>) -> &mut T
+    pub fn get_mut<const N2: u32_>(&mut self, i: &Ranged<N2>) -> &mut T
     where
-        [(); { N - 1 } as usize]:,
+        [(); { N - N2 } as usize]:,
+        [(); { N2 - 1 } as usize]:,
     {
         unsafe { self.0.get_unchecked_mut(i.0 as usize) }
     }

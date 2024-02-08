@@ -48,7 +48,7 @@ pub struct MemRegionBase<B, const T: usize>(mem::MaybeUninit<[B; T]>);
 
 impl<B, const T: usize> MemRegionBase<B, T> {
     pub fn to_ptr(&mut self) -> *mut B {
-        unsafe { mem::transmute::<&mut Self, *mut B>(self) }
+        unsafe { mem::transmute(self) }
     }
 }
 
@@ -56,7 +56,7 @@ pub type MemRegion8<const T: usize> = MemRegionBase<u8_, T>;
 
 impl<const T: usize> MemRegion8<T> {
     unsafe fn from_ptr<'a>(p: *mut u8_) -> &'a mut Self {
-        mem::transmute::<*mut u8_, &mut MemRegion8<T>>(p)
+        mem::transmute(p)
     }
 }
 
@@ -80,7 +80,7 @@ pub fn stack_region_from_mem_region<'a, const T: usize>(
 where
     [(); StackRegionCount::<T>::N]:,
 {
-    unsafe { mem::transmute::<&mut MemRegion8<T>, &mut StackRegion<T>>(m) }
+    unsafe { mem::transmute(m) }
 }
 
 pub fn request_mem_from_pool<const T: usize>() -> Option<&'static mut MemRegion8<T>> {
