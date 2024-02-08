@@ -94,7 +94,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
 
                 for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
                     if j != *t {
-                        let res = svcReleaseSemaphore(count.as_mut_ptr(), tsyn.work_begin_ready, 1);
+                        let res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).threads.get(&j).work_begin_ready, 1);
                         if R_FAILED(res) {
                             nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_begin_ready"), res);
                         }
