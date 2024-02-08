@@ -29,9 +29,29 @@ impl<const BEG: u32_, const END: u32_> Iterator for IRangedIter<BEG, END> {
     }
 }
 
+pub struct IRangedIterN<const BEG: u32_, const END: u32_>(u32_, u32_);
+
+impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterN<BEG, END> {
+    type Item = IRanged<BEG, END>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0 > self.1 {
+            None
+        } else {
+            let r = unsafe { IRanged::<BEG, END>::init_unchecked(self.0) };
+            self.0 += 1;
+            Some(r)
+        }
+    }
+}
+
 impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
     pub fn all() -> IRangedIter<BEG, END> {
         IRangedIter::<BEG, END>(BEG)
+    }
+
+    pub unsafe fn up_to_unchecked(n: u32_) -> IRangedIterN<BEG, END> {
+        IRangedIterN::<BEG, END>(BEG, n)
     }
 }
 
@@ -165,12 +185,12 @@ pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct LoadAndProgress {
-    n: u32_,
-    n_last: u32_,
-    n_adjusted: u32_,
-    n_last_adjusted: u32_,
-    p: RowIndexes,
-    p_snapshot: RowIndexes,
+    pub n: u32_,
+    pub n_last: u32_,
+    pub n_adjusted: u32_,
+    pub n_last_adjusted: u32_,
+    pub p: RowIndexes,
+    pub p_snapshot: RowIndexes,
 }
 
 pub type LoadAndProgresses = RangedArray<LoadAndProgress, WORK_COUNT>;
@@ -179,9 +199,9 @@ pub static mut load_and_progresses: LoadAndProgresses =
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct Buffers {
-    prep: [JSAMPARRAY; MAX_COMPONENTS as usize],
-    color: [JSAMPARRAY; MAX_COMPONENTS as usize],
-    mcu: [JBLOCKROW; C_MAX_BLOCKS_IN_MCU as usize],
+    pub prep: [JSAMPARRAY; MAX_COMPONENTS as usize],
+    pub color: [JSAMPARRAY; MAX_COMPONENTS as usize],
+    pub mcu: [JBLOCKROW; C_MAX_BLOCKS_IN_MCU as usize],
 }
 
 pub type WorkBuffers = RangedArray<RangedArray<Buffers, RP_CORE_COUNT_MAX>, WORK_COUNT>;
@@ -189,22 +209,22 @@ pub static mut work_buffers: WorkBuffers = <WorkBuffers as ConstDefault>::DEFAUL
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct BlitCtx {
-    width: u32_,
-    height: u32_,
-    format: u32_,
-    src: *const u8_,
-    src_pitch: u32_,
-    bpp: u32_,
+    pub width: u32_,
+    pub height: u32_,
+    pub format: u32_,
+    pub src: *const u8_,
+    pub src_pitch: u32_,
+    pub bpp: u32_,
 
-    frame_id: u8_,
-    isTop: bool,
+    pub frame_id: u8_,
+    pub isTop: bool,
 
-    cinfo: *mut CInfo,
+    pub cinfo: *mut CInfo,
 
-    i_start: RowIndexes,
-    i_count: RowIndexes,
+    pub i_start: RowIndexes,
+    pub i_count: RowIndexes,
 
-    should_capture: bool,
+    pub should_capture: bool,
 }
 
 pub type BlitCtxes = RangedArray<BlitCtx, WORK_COUNT>;
@@ -221,7 +241,7 @@ pub const PACKET_DATA_SIZE: usize = PACKET_SIZE - DATA_HDR_SIZE;
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct DataBufInfo {
-    pub sendPos: *const u8_,
+    pub send_pos: *const u8_,
     pub pos: *mut u8_,
     pub flag: u32_,
 }
@@ -326,7 +346,7 @@ pub struct PerThreadHandles {
     pub work_begin_ready: Handle,
 }
 
-type ThreadHandles = RangedArray<PerThreadHandles, WORK_COUNT>;
+type ThreadHandles = RangedArray<PerThreadHandles, RP_CORE_COUNT_MAX>;
 
 type PortScreenHandles = RangedArray<Handle, SCREEN_COUNT>;
 

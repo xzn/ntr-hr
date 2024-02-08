@@ -267,9 +267,88 @@ mod loop_main {
         }
     }
 
-    struct InitCleanup {
+    struct InitVars {
         core_count: u32_,
         thread_prio: u32_,
+    }
+
+    struct InitCleanup(InitVars);
+
+    impl InitCleanup {
+        #[named]
+        unsafe fn init(v: InitVars) -> Option<Self> {
+            let res = svcCreateSemaphore(&mut (*syn_handles).screen_ready, 1, 1);
+            if R_FAILED(res) {
+                nsDbgPrint!(createSemaphoreFailed, c_str!("screen_ready"), res);
+                return None;
+            }
+
+            for i in WorkIndex::all() {
+                let work = (*syn_handles).works.get_mut(&i);
+
+                let res = svcCreateSemaphore(&mut work.work_done, 1, 1);
+                if R_FAILED(res) {
+                    nsDbgPrint!(createSemaphoreFailed, c_str!("work_done"), res);
+                    return None;
+                }
+
+                let res = svcCreateSemaphore(&mut work.nwm_done, 1, 1);
+                if R_FAILED(res) {
+                    nsDbgPrint!(createSemaphoreFailed, c_str!("nwm_done"), res);
+                    return None;
+                }
+
+                let res = svcCreateSemaphore(&mut work.nwm_ready, 0, 1);
+                if R_FAILED(res) {
+                    nsDbgPrint!(createSemaphoreFailed, c_str!("nwm_ready"), res);
+                    return None;
+                }
+
+                work.work_begin_flag = false;
+                work.work_done_count = 0;
+            }
+
+            for j in ThreadId::up_to_unchecked(v.core_count) {
+                let thread = (*syn_handles).threads.get_mut(&j);
+
+                let res = svcCreateSemaphore(&mut thread.work_ready, 0, WORK_COUNT as i32);
+                if R_FAILED(res) {
+                    nsDbgPrint!(createSemaphoreFailed, c_str!("work_ready"), res);
+                    return None;
+                }
+
+                let res = svcCreateSemaphore(&mut thread.work_begin_ready, 0, WORK_COUNT as i32);
+                if R_FAILED(res) {
+                    nsDbgPrint!(createSemaphoreFailed, c_str!("work_begin_ready"), res);
+                    return None;
+                }
+            }
+
+            Some(Self(v))
+        }
+    }
+
+    impl Drop for InitCleanup {
+        fn drop(&mut self) {
+            unsafe {
+                for j in ThreadId::up_to_unchecked(self.0.core_count) {
+                    let thread = (*syn_handles).threads.get_mut(&j);
+
+                    let _ = svcCloseHandle(thread.work_begin_ready);
+                    let _ = svcCloseHandle(thread.work_ready);
+                }
+
+                for i in WorkIndex::all() {
+                    let work = (*syn_handles).works.get_mut(&i);
+
+                    let _ = svcCloseHandle(work.nwm_ready);
+                    let _ = svcCloseHandle(work.nwm_done);
+                    let _ = svcCloseHandle(work.work_done);
+                }
+
+                let _ = svcCloseHandle((*syn_handles).screen_ready);
+            }
+        }
     }
 
     #[named]
@@ -321,9 +400,33 @@ mod loop_main {
 
         last_send_tick = svcGetSystemTick() as u32_;
 
-        for i in WorkIndex::all() {}
+        for i in WorkIndex::all() {
+            let load = load_and_progresses.get_mut(&i);
 
-        Some(InitCleanup {
+            for j in ThreadId::up_to_unchecked(core_count) {
+                let info = nwm_infos.get_mut(&i).get_mut(&j);
+                let buf = info.buf.add(DATA_HDR_SIZE);
+                let info = &mut info.info;
+                info.send_pos = buf;
+                info.pos = buf;
+                info.flag = 0;
+
+                *load.p.get_mut(&j) = 0;
+                *load.p_snapshot.get_mut(&j) = 0;
+            }
+
+            load.n = 0;
+            load.n_last = 0;
+            load.n_adjusted = 0;
+            load.n_last_adjusted = 0;
+
+            *nwm_need_syn.get_mut(&i) = true;
+        }
+        nwm_work_index = WorkIndex::init();
+        nwm_thread_id = ThreadId::init();
+        screen_work_index = WorkIndex::init();
+
+        InitCleanup::init(InitVars {
             core_count,
             thread_prio,
         })
@@ -340,7 +443,9 @@ mod loop_main {
 
     pub unsafe fn entry(_t: ThreadVars, s: &mut ThreadsStacks) -> Option<()> {
         loop {
-            let vars = reset_init()?;
+            let init = reset_init()?;
+
+            let vars = &init.0;
 
             let core_count = vars.core_count;
 
