@@ -138,7 +138,8 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
             *p.p_snapshot.get_mut(&j) =
                 AtomicU32::from_mut(p.p.get_mut(&j)).load(Ordering::Relaxed);
         }
-    } else if f == core_count_in_use.get() - 1 {
+    }
+    if f == core_count_in_use.get() - 1 {
         AtomicU32::from_mut(&mut wsyn.work_done_count).store(0, Ordering::Relaxed);
 
         AtomicBool::from_mut(&mut wsyn.work_begin_flag).store(false, Ordering::Relaxed);
