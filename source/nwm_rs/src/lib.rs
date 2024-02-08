@@ -28,6 +28,7 @@ use const_default_union_derive::ConstDefaultUnion;
 use core::panic::PanicInfo;
 use core::sync::atomic::*;
 use core::{
+    cmp,
     marker::{ConstParamTy, PhantomData},
     mem, ptr, slice,
 };

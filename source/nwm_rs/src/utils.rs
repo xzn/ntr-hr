@@ -4,6 +4,10 @@ pub const fn htons(v: u16_) -> u16_ {
     v.to_be()
 }
 
+pub const fn ntohs(v: u16_) -> u16_ {
+    v.swap_bytes()
+}
+
 pub const fn align_to_page_size(s: usize) -> usize {
     if s == 0 {
         0

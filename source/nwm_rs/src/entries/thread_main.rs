@@ -509,13 +509,13 @@ mod loop_main {
                 ptr::copy_nonoverlapping(
                     ptr::addr_of!(cinfo.alloc.stats),
                     ptr::addr_of_mut!(alloc_stats.qual),
-                    mem::size_of::<rp_alloc_stats>(),
+                    1,
                 );
             } else {
                 ptr::copy_nonoverlapping(
                     ptr::addr_of!(alloc_stats.qual),
                     ptr::addr_of_mut!(cinfo.alloc.stats),
-                    mem::size_of::<rp_alloc_stats>(),
+                    1,
                 );
             }
         }
@@ -581,7 +581,7 @@ mod loop_main {
             ptr::copy_nonoverlapping(
                 ptr::addr_of!(cinfo.alloc.stats),
                 ptr::addr_of_mut!(alloc_stats.comp),
-                mem::size_of::<rp_alloc_stats>(),
+                1,
             );
         }
     }

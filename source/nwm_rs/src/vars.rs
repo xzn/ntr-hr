@@ -59,11 +59,30 @@ impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterN<BEG, END> {
     type Item = IRanged<BEG, END>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.0 > self.1 {
+        if self.0 >= self.1 {
             None
         } else {
             let r = unsafe { IRanged::<BEG, END>::init_unchecked(self.0) };
             self.0 += 1;
+            Some(r)
+        }
+    }
+}
+
+pub struct IRangedIterW<const BEG: u32_, const END: u32_>(u32_, IRanged<BEG, END>, u32_);
+
+impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterW<BEG, END> {
+    type Item = IRanged<BEG, END>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0 == self.1 .0 {
+            None
+        } else {
+            let r = unsafe { IRanged::<BEG, END>::init_unchecked(self.0) };
+            self.0 += 1;
+            if self.0 >= self.2 {
+                self.0 = BEG
+            }
             Some(r)
         }
     }
@@ -76,6 +95,14 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
 
     pub unsafe fn up_to_unchecked(n: u32_) -> IRangedIterN<BEG, END> {
         IRangedIterN::<BEG, END>(BEG, n)
+    }
+
+    pub unsafe fn from_wrapped_to_unchecked(
+        &self,
+        o: &IRanged<BEG, END>,
+        n: u32_,
+    ) -> IRangedIterW<BEG, END> {
+        IRangedIterW::<BEG, END>(self.0, *o, n)
     }
 }
 
@@ -102,8 +129,16 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
         }
     }
 
-    fn next_wrapped(&mut self) {
+    pub fn next_wrapped(&mut self) {
         if self.0 == END {
+            self.0 = BEG
+        } else {
+            self.0 += 1
+        }
+    }
+
+    pub unsafe fn next_wrapped_n_unchecked(&mut self, n: u32_) {
+        if self.0 == n {
             self.0 = BEG
         } else {
             self.0 += 1
@@ -288,7 +323,7 @@ pub const PACKET_DATA_SIZE: usize = PACKET_SIZE - DATA_HDR_SIZE;
 
 #[derive(Copy, Clone, ConstDefault)]
 pub struct DataBufInfo {
-    pub send_pos: *const u8_,
+    pub send_pos: *mut u8_,
     pub pos: *mut u8_,
     pub flag: u32_,
 }
