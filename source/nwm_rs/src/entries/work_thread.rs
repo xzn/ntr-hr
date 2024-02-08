@@ -149,7 +149,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
     }
 
     let f = AtomicU32::from_mut(&mut wsyn.work_done_count).fetch_add(1, Ordering::Relaxed);
-    if f == 0 {
+    if f == 0 && !skip_frame {
         let p = load_and_progresses.get_mut(&w);
         for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
             *p.p_snapshot.get_mut(&j) =
