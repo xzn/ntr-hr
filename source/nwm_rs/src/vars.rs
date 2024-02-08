@@ -221,7 +221,7 @@ pub struct BlitCtx {
     pub bpp: u32_,
 
     pub frame_id: u8_,
-    pub isTop: bool,
+    pub is_top: bool,
 
     pub cinfo: *mut CInfo,
 
@@ -322,6 +322,8 @@ pub static mut frame_counts: RangedArray<u32_, SCREEN_COUNT> =
 
 pub static mut frame_queues: RangedArray<u32_, SCREEN_COUNT> =
     <RangedArray<u32_, SCREEN_COUNT> as ConstDefault>::DEFAULT;
+
+pub static mut port_game_pid: u32_ = 0;
 
 pub static mut currently_updating: bool = false;
 pub static mut priority_is_top: bool = false;

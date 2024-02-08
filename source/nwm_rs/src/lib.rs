@@ -27,7 +27,7 @@ use const_default_union_derive::ConstDefaultUnion;
 use core::marker::ConstParamTy;
 use core::panic::PanicInfo;
 use core::sync::atomic::*;
-use core::{mem, ptr};
+use core::{mem, ptr, slice};
 use ctru::*;
 use function_name::named;
 

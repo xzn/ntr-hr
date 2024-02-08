@@ -389,7 +389,7 @@ mod loop_main {
 
     #[named]
     unsafe fn reset_init() -> Option<InitCleanup> {
-        reset_threads_clear();
+        clear_reset_threads_ar();
 
         let config = Config(());
 
@@ -402,9 +402,9 @@ mod loop_main {
         let log_scaled_tab: &[u32_; 256] = mem::transmute(&log_scaled_tab_nested);
 
         let mode = config.mode_ar();
-        let isTop = (mode & 0xff00) > 0;
+        let is_top = (mode & 0xff00) > 0;
         let factor = mode & 0xff;
-        priority_is_top = isTop;
+        priority_is_top = is_top;
         priority_factor = factor;
         priority_factor_scaled = *log_scaled_tab.get_unchecked(factor as usize);
         crate::entries::work_thread::no_skip_next_frames();
@@ -586,7 +586,7 @@ mod loop_main {
         }
     }
 
-    unsafe fn reset_threads_clear() {
+    unsafe fn clear_reset_threads_ar() {
         AtomicBool::from_ptr(ptr::addr_of_mut!(crate::reset_threads))
             .store(false, Ordering::Relaxed)
     }
