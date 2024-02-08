@@ -1,6 +1,6 @@
 use crate::*;
 
-unsafe fn reset_threads() -> bool {
+pub unsafe fn reset_threads() -> bool {
     AtomicBool::from_ptr(ptr::addr_of_mut!(crate::reset_threads)).load(Ordering::Relaxed)
 }
 

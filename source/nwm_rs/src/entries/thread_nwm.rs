@@ -1,7 +1,10 @@
 use crate::*;
 
 pub extern "C" fn thread_nwm(_: *mut c_void) {
-    unsafe { svcExitThread() }
+    unsafe {
+        while !crate::entries::work_thread::reset_threads() {}
+        svcExitThread()
+    }
 }
 
 #[no_mangle]

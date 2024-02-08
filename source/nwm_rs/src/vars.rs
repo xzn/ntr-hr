@@ -13,6 +13,29 @@ pub const ntr_config: *mut NTR_CONFIG =
 // CSTATE_START from jpegint.h
 pub const JPEG_CSTATE_START: c_int = 100;
 
+pub const THREAD_WAIT_NS: s64 = 100_000_000;
+
+// From Luma3DS
+pub const GPU_FB_TOP_SIZE: u32_ = IoBasePdc + 0x45c;
+pub const GPU_FB_TOP_LEFT_ADDR_1: u32_ = IoBasePdc + 0x468;
+pub const GPU_FB_TOP_LEFT_ADDR_2: u32_ = IoBasePdc + 0x46C;
+pub const GPU_FB_TOP_FMT: u32_ = IoBasePdc + 0x470;
+pub const GPU_FB_TOP_SEL: u32_ = IoBasePdc + 0x478;
+pub const GPU_FB_TOP_COL_LUT_INDEX: u32_ = IoBasePdc + 0x480;
+pub const GPU_FB_TOP_COL_LUT_ELEM: u32_ = IoBasePdc + 0x484;
+pub const GPU_FB_TOP_STRIDE: u32_ = IoBasePdc + 0x490;
+pub const GPU_FB_TOP_RIGHT_ADDR_1: u32_ = IoBasePdc + 0x494;
+pub const GPU_FB_TOP_RIGHT_ADDR_2: u32_ = IoBasePdc + 0x498;
+
+pub const GPU_FB_BOTTOM_SIZE: u32_ = IoBasePdc + 0x55c;
+pub const GPU_FB_BOTTOM_ADDR_1: u32_ = IoBasePdc + 0x568;
+pub const GPU_FB_BOTTOM_ADDR_2: u32_ = IoBasePdc + 0x56C;
+pub const GPU_FB_BOTTOM_FMT: u32_ = IoBasePdc + 0x570;
+pub const GPU_FB_BOTTOM_SEL: u32_ = IoBasePdc + 0x578;
+pub const GPU_FB_BOTTOM_COL_LUT_INDEX: u32_ = IoBasePdc + 0x580;
+pub const GPU_FB_BOTTOM_COL_LUT_ELEM: u32_ = IoBasePdc + 0x584;
+pub const GPU_FB_BOTTOM_STRIDE: u32_ = IoBasePdc + 0x590;
+
 #[derive(Copy, Clone, ConstDefault, ConstParamTy, Eq, PartialEq)]
 pub struct IRanged<const BEG: u32_, const END: u32_>(u32_);
 
@@ -130,6 +153,14 @@ impl<T: Copy, const N: u32_> RangedArray<T, N>
 where
     [(); N as usize]:,
 {
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.0.as_mut_ptr()
+    }
+
+    pub fn as_ptr(&self) -> *const T {
+        self.0.as_ptr()
+    }
+
     pub fn get(&self, i: &Ranged<N>) -> &T
     where
         [(); { N - 1 } as usize]:,
@@ -143,6 +174,20 @@ where
         [(); { N2 - 1 } as usize]:,
     {
         unsafe { self.0.get_unchecked_mut(i.0 as usize) }
+    }
+
+    pub fn get_b(&self, b: bool) -> &T
+    where
+        [(); { N - 2 } as usize]:,
+    {
+        unsafe { self.0.get_unchecked(b as usize) }
+    }
+
+    pub fn get_b_mut(&mut self, b: bool) -> &mut T
+    where
+        [(); { N - 2 } as usize]:,
+    {
+        unsafe { self.0.get_unchecked_mut(b as usize) }
     }
 
     pub fn split_at_mut<const I: u32_>(
@@ -265,7 +310,7 @@ pub static mut nwm_work_index: WorkIndex = WorkIndex::init();
 pub static mut nwm_thread_id: ThreadId = ThreadId::init();
 
 pub static mut screen_work_index: WorkIndex = WorkIndex::init();
-pub static mut sem_thread_id: ThreadId = ThreadId::init();
+pub static mut screen_thread_id: ThreadId = ThreadId::init();
 
 pub static mut skip_frame: RangedArray<bool, WORK_COUNT> =
     <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;

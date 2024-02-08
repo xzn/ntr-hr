@@ -15,6 +15,7 @@
 #![feature(trivial_bounds)]
 #![feature(slice_split_at_unchecked)]
 #![feature(const_fn_floating_point_arithmetic)]
+#![feature(maybe_uninit_uninit_array)]
 
 use crate::dbg::*;
 use crate::fix::*;
