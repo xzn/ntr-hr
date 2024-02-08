@@ -306,7 +306,7 @@ pub struct BlitCtx {
     pub width: u32_,
     pub height: u32_,
     pub format: u32_,
-    pub src: *const u8_,
+    pub src: *mut u8_,
     pub src_pitch: u32_,
     pub bpp: u32_,
 

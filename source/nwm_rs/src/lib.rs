@@ -16,6 +16,7 @@
 #![feature(slice_split_at_unchecked)]
 #![feature(const_fn_floating_point_arithmetic)]
 #![feature(maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_array_assume_init)]
 
 use crate::dbg::*;
 use crate::fix::*;

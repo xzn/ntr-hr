@@ -286,13 +286,7 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) {
     ctx.should_capture = false;
 }
 
-unsafe fn bctx_init(
-    ctx: &mut BlitCtx,
-    w: u32_,
-    h: u32_,
-    mut format: u32_,
-    src: *const u8_,
-) -> bool {
+unsafe fn bctx_init(ctx: &mut BlitCtx, w: u32_, h: u32_, mut format: u32_, src: *mut u8_) -> bool {
     let mut ret = false;
     ctx.bpp = get_bpp_for_format(format);
     format &= 0xf;
@@ -365,7 +359,7 @@ unsafe fn do_send_frame(ctx: &mut BlitCtx, t: &ThreadId, w: &WorkIndex) {
 
 unsafe fn really_do_send_frame(
     cinfo: &mut jpeg_compress_struct,
-    src: *const u8_,
+    src: *mut u8_,
     pitch: u32_,
     i_start: u32_,
     i_count: u32_,
@@ -405,7 +399,7 @@ unsafe fn really_do_send_frame(
             }
             jpeg_pre_process(
                 cinfo,
-                input_buf.as_mut_ptr() as *mut _,
+                mem::MaybeUninit::array_assume_init(input_buf).as_mut_ptr(),
                 color_buf.as_mut_ptr(),
                 output_buf.as_mut_ptr(),
                 h,
@@ -426,6 +420,10 @@ unsafe fn really_do_send_frame(
 
         progress += 1;
         AtomicU32::from_mut(p).store(progress, Ordering::Relaxed);
+
+        if j == j_max {
+            break;
+        }
     }
 }
 
