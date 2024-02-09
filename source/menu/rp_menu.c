@@ -450,22 +450,33 @@ int remotePlayMenu(u32 localaddr) {
 	return 0;
 }
 
+static int rpUpdatingParams;
 static int rpUpdateParamsFromMenu(RP_CONFIG *config) {
-	Handle hClient = rpGetPortHandle();
-	if (!hClient)
+	if (ATSR(&rpUpdatingParams))
 		return -1;
+
+	s32 ret = 0;
+	Handle hClient = rpGetPortHandle();
+	if (!hClient) {
+		ret = -1;
+		goto final;
+	}
 
 	u32* cmdbuf = getThreadCommandBuffer();
 	cmdbuf[0] = IPC_MakeHeader(SVC_NWM_CMD_PARAMS_UPDATE, sizeof(RP_CONFIG) / sizeof(u32), 0);
 	*(RP_CONFIG *)&cmdbuf[1] = *config;
 
-	s32 ret = svcSendSyncRequest(hClient);
+	ret = svcSendSyncRequest(hClient);
 	if (ret != 0) {
 		nsDbgPrint("Send port request failed: %08"PRIx32"\n", ret);
-		return -1;
+		ret = -1;
+		goto final;
 	}
 	*rpConfig = *config;
-	return 0;
+
+final:
+	ACR(&rpUpdatingParams);
+	return ret;
 }
 
 static void rpClampParamsInMenu(RP_CONFIG *config) {
