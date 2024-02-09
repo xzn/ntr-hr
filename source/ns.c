@@ -188,7 +188,6 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int thumbR3) 
 	ret = mapRemoteMemory(hProcess, baseAddr, totalSize, MEMOP_ALLOC);
 	if (ret != 0) {
 		showDbg("mapRemoteMemory failed: %08"PRIx32, ret);
-		return ret;
 	}
 	// set rwx
 	ret = protectRemoteMemory(hProcess, (void *)baseAddr, totalSize, MEMPERM_READWRITE | MEMPERM_EXECUTE);
