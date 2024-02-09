@@ -163,7 +163,6 @@ static void tryInitRemotePlay(u32 dstAddr) {
 	}
 
 	while (1) {
-		svcSleepThread(500000000);
 		if (sendto(fd, data, sizeof(data), 0, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in)) < 0) {
 			if (!--controlCount) {
 				showMsg("Remote play send failed.");
@@ -171,6 +170,7 @@ static void tryInitRemotePlay(u32 dstAddr) {
 			}
 		}
 
+		svcSleepThread(500000000);
 		ret = rtCheckRemoteMemory(hProcess, NS_CONFIG_ADDR, 0x1000, MEMPERM_READ);
 		if (ret != 0) {
 			if (!--controlCount) {
@@ -183,7 +183,6 @@ static void tryInitRemotePlay(u32 dstAddr) {
 	}
 
 	while (1) {
-		svcSleepThread(500000000);
 		if (sendto(fd, data, sizeof(data), 0, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in)) < 0) {
 			if (!--controlCount) {
 				showMsg("Remote play send failed.");
@@ -191,6 +190,7 @@ static void tryInitRemotePlay(u32 dstAddr) {
 			}
 		}
 
+		svcSleepThread(500000000);
 		if (ALR(&rpConfig->dstAddr) != dstAddr) {
 			if (!--controlCount) {
 				showMsg("Remote play update timeout.");
