@@ -447,9 +447,9 @@ void handlePortThreadPre(void) {
 }
 
 static void createSvcHandleThread(void) {
-	u32 *threadSvcStack = (u32 *)plgRequestMemory(STACK_SIZE);
+	u32 *threadSvcStack = (u32 *)plgRequestMemory(SMALL_STACK_SIZE);
 	Handle hSvcThread;
-	s32 ret = svcCreateThread(&hSvcThread, handlePortThread, (u32)SVC_PORT_MENU, &threadSvcStack[(STACK_SIZE / 4) - 10], 0x10, 1);
+	s32 ret = svcCreateThread(&hSvcThread, handlePortThread, (u32)SVC_PORT_MENU, &threadSvcStack[(SMALL_STACK_SIZE / 4) - 10], 0x10, 1);
 	if (ret != 0) {
 		nsDbgPrint("Create menu service thread failed: %08"PRIx32"\n", ret);
 	}

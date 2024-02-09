@@ -119,7 +119,7 @@ pub fn create_thread<'a, 'b, const T: usize>(
 ) -> PhantomResult<'b>
 where
     [(); StackRegionCount::<T>::N]:,
-    [(); T - STACK_SIZE as usize]:,
+    [(); T - SMALL_STACK_SIZE as usize]:,
 {
     unsafe {
         PhantomResult(
@@ -148,7 +148,7 @@ impl<'a> CreateThread<'a> {
     ) -> Option<Self>
     where
         [(); StackRegionCount::<T>::N]:,
-        [(); T - STACK_SIZE as usize]:,
+        [(); T - SMALL_STACK_SIZE as usize]:,
     {
         let mut h = mem::MaybeUninit::<Handle>::uninit();
         let res = create_thread(h.as_mut_ptr(), f, a, t, prio, core);
@@ -194,7 +194,7 @@ pub fn create_thread_from_pool<'a, const T: usize>(
 ) -> PhantomResult<'a>
 where
     [(); StackRegionCount::<T>::N]:,
-    [(); T - STACK_SIZE as usize]:,
+    [(); T - SMALL_STACK_SIZE as usize]:,
 {
     if let Some(t) = request_mem_from_pool::<T>() {
         create_thread(h, f, a, stack_region_from_mem_region(t), prio, core)

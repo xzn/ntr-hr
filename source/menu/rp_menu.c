@@ -170,7 +170,7 @@ static void tryInitRemotePlay(u32 dstAddr) {
 			}
 		}
 
-		svcSleepThread(500000000);
+		svcSleepThread(150000000);
 		ret = rtCheckRemoteMemory(hProcess, NS_CONFIG_ADDR, 0x1000, MEMPERM_READ);
 		if (ret != 0) {
 			if (!--controlCount) {
@@ -190,7 +190,7 @@ static void tryInitRemotePlay(u32 dstAddr) {
 			}
 		}
 
-		svcSleepThread(500000000);
+		svcSleepThread(50000000);
 		if (ALR(&rpConfig->dstAddr) != dstAddr) {
 			if (!--controlCount) {
 				showMsg("Remote play update timeout.");

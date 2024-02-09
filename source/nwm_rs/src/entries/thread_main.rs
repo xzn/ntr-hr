@@ -179,7 +179,7 @@ mod first_time_init {
         }
 
         let mut svc_thread = mem::MaybeUninit::uninit();
-        let res = create_thread_from_pool::<{ STACK_SIZE as usize }>(
+        let res = create_thread_from_pool::<{ SMALL_STACK_SIZE as usize }>(
             svc_thread.as_mut_ptr(),
             Some(handlePortThread),
             SVC_PORT_NWM.as_ptr() as u32_,
