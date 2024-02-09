@@ -77,8 +77,8 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
 
             let src_len = ctx.width * ctx.src_pitch;
             skip_frame = !format_changed
-                && slice::from_raw_parts(ctx.src, src_len as usize)
-                    == slice::from_raw_parts(*iinfo.bufs.get(&img_work_Index), src_len as usize);
+                && *slice::from_raw_parts(ctx.src, src_len as usize)
+                    == *slice::from_raw_parts(*iinfo.bufs.get(&img_work_Index), src_len as usize);
 
             if !skip_frame {
                 if !ready_nwm(&t, &w, ctx.frame_id, ctx.is_top) {
