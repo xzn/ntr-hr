@@ -58,12 +58,13 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
         let prio = [get_prio_scaled(false), get_prio_scaled(true)];
 
         let get_factor = |b| -> u32_ {
-            ((1 as u64_) << SCALE_BITS * frame_queues.get_b(b) / prio[b as usize]) as u32_
+            ((1 << SCALE_BITS) as u64_ * *frame_queues.get_b(b) as u64_ / prio[b as usize] as u64_)
+                as u32_
         };
         let factor = [get_factor(false), get_factor(true)];
 
-        if factor[false as usize] < (1 << SCALE_BITS)
-            && factor[true as usize] < (1 << SCALE_BITS)
+        if factor[false as usize] < priority_factor_scaled
+            && factor[true as usize] < priority_factor_scaled
         {
             *frame_queues.get_b_mut(false) += priority_factor_scaled;
             *frame_queues.get_b_mut(true) += priority_factor_scaled;
@@ -115,7 +116,7 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
         }
         let is_top = out.assume_init() > 0;
 
-        if *frame_queues.get_b(is_top) >= prio[is_top as usize] {
+        if *frame_queues.get_b(is_top) > prio[is_top as usize] {
             *frame_queues.get_b_mut(is_top) -= prio[is_top as usize];
         } else {
             *frame_queues.get_b_mut(is_top) = 0;

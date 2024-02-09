@@ -261,8 +261,17 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
 
         let s = p.p_snapshot;
         let progress_last = *s.get(&thread_id_last);
-        if progress_last < p.v_last_adjusted {
-            rows_last = rows_last * Fix::fix(progress_last) / Fix::load_from_u32(p.n_last);
+
+        let mut progress_all = Fix::fix(0);
+        for j in ThreadId::up_to_unchecked(core_count) {
+            progress_all = progress_all + Fix::fix(*s.get(&j));
+        }
+        progress_all = progress_all / Fix::fix(core_count);
+
+        if progress_last < progress_all.unfix() {
+            rows_last = rows_last * Fix::fix(progress_last) / progress_all
+                * Fix::load_from_u32(l.n_last)
+                / Fix::load_from_u32(p.n_last);
 
             if rows_last < Fix::fix(1) {
                 rows_last = Fix::fix(1)
@@ -276,9 +285,9 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
             for j in ThreadId::up_to_unchecked(thread_id_last.get()) {
                 progress_rest += s.get(&j);
             }
-            rows = rows * Fix::fix(progress_rest)
-                / Fix::load_from_u32(p.n)
-                / Fix::fix(core_count_rest);
+            rows = rows * Fix::fix(progress_rest) / Fix::fix(core_count_rest) / progress_all
+                * Fix::load_from_u32(l.n)
+                / Fix::load_from_u32(p.n);
         }
 
         if rows < Fix::fix(mcu_rows_per_thread) {
