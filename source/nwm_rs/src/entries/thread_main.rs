@@ -629,15 +629,15 @@ mod loop_main {
                 Some(crate::entries::thread_nwm::thread_nwm),
                 0,
                 s.nwm,
-                0x8,
-                2,
+                0xc,
+                -2,
             )?);
 
             let _screen = JoinThread::create(CreateThread::create(
                 Some(crate::entries::thread_screen::thread_screen),
                 0,
                 s.screen,
-                0x8,
+                0xc,
                 2,
             )?);
 
