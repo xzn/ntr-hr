@@ -44,10 +44,10 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
     let wsyn = (*syn_handles).works.get_mut(&w);
     let tsyn = (*syn_handles).threads.get_mut(&t);
 
-    let mut skip_frame = true;
+    let mut skip_frame;
 
     if !AtomicBool::from_mut(&mut wsyn.work_begin_flag).swap(true, Ordering::Relaxed) {
-        while skip_frame {
+        loop {
             ctx.is_top = currently_updating;
             ctx.cinfo = cinfos
                 .get_mut(&Ranged::<SCREEN_COUNT>::init_unchecked(ctx.is_top as u32_))
@@ -111,6 +111,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
                         }
                     }
                 }
+                break;
             } else {
                 AtomicU32::from_ptr(ptr::addr_of_mut!(screen_thread_id) as *mut _)
                     .store(t.get(), Ordering::Release);

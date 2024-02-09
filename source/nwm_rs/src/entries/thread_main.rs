@@ -432,7 +432,10 @@ mod loop_main {
         for i in Ranged::<SCREEN_COUNT>::all() {
             *frame_counts.get_mut(&i) = 1;
             *frame_queues.get_mut(&i) = priority_factor_scaled;
+
+            *skip_frames.get_mut(&i) = false;
         }
+        screen_thread_id = ThreadId::init();
 
         for i in WorkIndex::all() {
             *screens_captured.get_mut(&i) = false;
