@@ -431,13 +431,9 @@ int remotePlayMenu(u32 localaddr) {
 			case REMOTE_PLAY_MENU_APPLY: if (keys == KEY_A) { /* apply */
 				releaseVideo();
 
-				int updateDstAddr = !started || rpConfig->dstAddr != config.dstAddr;
-				u32 daddrUpdated = config.dstAddr;
+				u32 daddr = config.dstAddr;
 				rpStartupFromMenu(&config);
-
-				if (updateDstAddr) {
-					tryInitRemotePlay(daddrUpdated);
-				}
+				tryInitRemotePlay(daddr);
 
 				acquireVideo();
 
