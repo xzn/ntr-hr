@@ -226,7 +226,7 @@ int remotePlayMenu(u32 localaddr) {
 		config.coreCount = RP_CORE_COUNT_DEFAULT;
 		config.threadPriority = RP_THREAD_PRIO_DEFAULT;
 	}
-	if (config.dstAddr == 0) {
+	if (config.dstAddr == 0 && localaddr != 0) {
 		config.dstAddr = localaddr;
 		dstAddr4[3] = 1;
 	}
@@ -429,12 +429,15 @@ int remotePlayMenu(u32 localaddr) {
 			}
 
 			case REMOTE_PLAY_MENU_APPLY: if (keys == KEY_A) { /* apply */
-				releaseVideo();
-
 				u32 daddr = config.dstAddr;
+				if (daddr == 0) {
+					showMsg("IP address cannot be empty.");
+					break;
+				}
+
+				releaseVideo();
 				rpStartupFromMenu(&config);
 				tryInitRemotePlay(daddr);
-
 				acquireVideo();
 
 				return 1;
