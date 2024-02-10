@@ -369,6 +369,7 @@ static void showMainMenu(void) {
 	}
 
 	const char *descs[MENU_ENTRIES_COUNT_MAX] = { 0 };
+	descs[MENU_ENTRY_PLUGIN_LOADER] = "Changes in here need game restart to\ntake effect.";
 	descs[MENU_ENTRY_NFC_PATCH] = "Allow remote play to continue in games\nsuch as USUM.";
 
 	u32 localAddr = gethostid();
