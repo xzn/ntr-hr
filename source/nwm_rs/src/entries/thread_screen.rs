@@ -151,7 +151,7 @@ unsafe fn try_capture_screen(work_index: &WorkIndex, wait_sync: bool) {
                 nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_ready"), res);
             }
         } else {
-            for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+            for j in ThreadId::up_to(&core_count_in_use) {
                 let res = svcReleaseSemaphore(
                     count.as_mut_ptr(),
                     (*syn_handles).threads.get(&j).work_ready,

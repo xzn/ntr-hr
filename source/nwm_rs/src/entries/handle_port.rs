@@ -84,7 +84,7 @@ impl ThreadVars {
             svcSignalEvent(
                 *(*syn_handles)
                     .port_screen_ready
-                    .get(&Ranged::<SCREEN_COUNT>::init_unchecked(is_top as u32_)),
+                    .get(&Ranged::<SCREEN_COUNT>::from_bool(is_top)),
             )
         }
     }

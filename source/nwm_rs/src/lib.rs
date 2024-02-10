@@ -17,6 +17,7 @@
 #![feature(const_fn_floating_point_arithmetic)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
+#![allow(static_mut_ref)]
 
 use crate::dbg::*;
 use crate::fix::*;

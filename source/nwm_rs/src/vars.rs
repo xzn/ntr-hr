@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use crate::*;
 
 pub const rp_config: *mut RP_CONFIG =
@@ -16,26 +14,9 @@ pub const JPEG_SAMP_FACTOR: c_int = 2;
 
 pub const THREAD_WAIT_NS: s64 = 100_000_000;
 
-// From Luma3DS
-pub const GPU_FB_TOP_SIZE: u32_ = IoBasePdc + 0x45c;
-pub const GPU_FB_TOP_LEFT_ADDR_1: u32_ = IoBasePdc + 0x468;
-pub const GPU_FB_TOP_LEFT_ADDR_2: u32_ = IoBasePdc + 0x46C;
-pub const GPU_FB_TOP_FMT: u32_ = IoBasePdc + 0x470;
-pub const GPU_FB_TOP_SEL: u32_ = IoBasePdc + 0x478;
-pub const GPU_FB_TOP_COL_LUT_INDEX: u32_ = IoBasePdc + 0x480;
-pub const GPU_FB_TOP_COL_LUT_ELEM: u32_ = IoBasePdc + 0x484;
-pub const GPU_FB_TOP_STRIDE: u32_ = IoBasePdc + 0x490;
-pub const GPU_FB_TOP_RIGHT_ADDR_1: u32_ = IoBasePdc + 0x494;
-pub const GPU_FB_TOP_RIGHT_ADDR_2: u32_ = IoBasePdc + 0x498;
+mod gpu;
 
-pub const GPU_FB_BOTTOM_SIZE: u32_ = IoBasePdc + 0x55c;
-pub const GPU_FB_BOTTOM_ADDR_1: u32_ = IoBasePdc + 0x568;
-pub const GPU_FB_BOTTOM_ADDR_2: u32_ = IoBasePdc + 0x56C;
-pub const GPU_FB_BOTTOM_FMT: u32_ = IoBasePdc + 0x570;
-pub const GPU_FB_BOTTOM_SEL: u32_ = IoBasePdc + 0x578;
-pub const GPU_FB_BOTTOM_COL_LUT_INDEX: u32_ = IoBasePdc + 0x580;
-pub const GPU_FB_BOTTOM_COL_LUT_ELEM: u32_ = IoBasePdc + 0x584;
-pub const GPU_FB_BOTTOM_STRIDE: u32_ = IoBasePdc + 0x590;
+pub use gpu::*;
 
 #[derive(Copy, Clone, ConstDefault, ConstParamTy, Eq, PartialEq)]
 pub struct IRanged<const BEG: u32_, const END: u32_>(u32_);
@@ -96,26 +77,30 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
         IRangedIter::<BEG, END>(BEG)
     }
 
-    pub unsafe fn up_to_unchecked(n: u32_) -> IRangedIterN<BEG, END> {
-        IRangedIterN::<BEG, END>(BEG, n)
+    pub fn up_to<const B2: u32_, const E2: u32_>(n: &IRanged<B2, E2>) -> IRangedIterN<BEG, END>
+    where
+        [(); { 1 - B2 } as usize]:,
+        [(); { END + 1 - E2 } as usize]:,
+    {
+        IRangedIterN::<BEG, END>(BEG, n.0)
     }
 
-    pub unsafe fn from_wrapped_to_unchecked(
+    pub unsafe fn from_wrapped_to<const B2: u32_, const E2: u32_>(
         &self,
         o: &IRanged<BEG, END>,
-        n: u32_,
-    ) -> IRangedIterW<BEG, END> {
-        IRangedIterW::<BEG, END>(self.0, *o, n)
+        n: &IRanged<B2, E2>,
+    ) -> IRangedIterW<BEG, END>
+    where
+        [(); { 1 - B2 } as usize]:,
+        [(); { END + 1 - E2 } as usize]:,
+    {
+        IRangedIterW::<BEG, END>(self.0, *o, n.0)
     }
 }
 
 impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
     pub const fn init() -> Self {
         Self(BEG)
-    }
-
-    pub const fn init_end() -> Self {
-        Self(END)
     }
 
     pub unsafe fn init_unchecked(v: u32_) -> Self {
@@ -152,9 +137,13 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
         }
     }
 
-    pub unsafe fn next_wrapped_n_unchecked(&mut self, n: u32_) {
+    pub fn next_wrapped_n<const B2: u32_, const E2: u32_>(&mut self, n: &IRanged<B2, E2>)
+    where
+        [(); { 1 - B2 } as usize]:,
+        [(); { END + 1 - E2 } as usize]:,
+    {
         self.0 += 1;
-        if self.0 >= n {
+        if self.0 >= n.0 {
             self.0 = BEG
         }
     }
@@ -162,9 +151,10 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
 
 impl<const BEG: u32_, const END: u32_> IRanged<BEG, END>
 where
+    [(); { 0 - BEG } as usize]:,
     [(); { END - 1 } as usize]:,
 {
-    fn from_bool(v: bool) -> Self {
+    pub fn from_bool(v: bool) -> Self {
         unsafe { Self::init_unchecked(v as u32_) }
     }
 }
@@ -202,10 +192,6 @@ where
 {
     pub fn as_mut_ptr(&mut self) -> *mut T {
         self.0.as_mut_ptr()
-    }
-
-    pub fn as_ptr(&self) -> *const T {
-        self.0.as_ptr()
     }
 
     pub fn get(&self, i: &Ranged<N>) -> &T

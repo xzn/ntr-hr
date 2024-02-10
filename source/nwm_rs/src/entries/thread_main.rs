@@ -265,7 +265,7 @@ mod loop_main {
     }
 
     struct InitVars {
-        core_count: u32_,
+        core_count: CoreCount,
         thread_prio: u32_,
     }
 
@@ -305,7 +305,7 @@ mod loop_main {
                 work.work_done_count = 0;
             }
 
-            for j in ThreadId::up_to_unchecked(v.core_count) {
+            for j in ThreadId::up_to(&v.core_count) {
                 let thread = (*syn_handles).threads.get_mut(&j);
 
                 let res = svcCreateSemaphore(&mut thread.work_ready, 0, WORK_COUNT as i32);
@@ -328,7 +328,7 @@ mod loop_main {
     impl Drop for InitCleanup {
         fn drop(&mut self) {
             unsafe {
-                for j in ThreadId::up_to_unchecked(self.0.core_count) {
+                for j in ThreadId::up_to(&self.0.core_count) {
                     let thread = (*syn_handles).threads.get_mut(&j);
 
                     let _ = svcCloseHandle(thread.work_begin_ready);
@@ -391,8 +391,8 @@ mod loop_main {
         let config = Config(());
 
         set_core_count(config.core_count_ar());
-        let core_count = core_count().get();
-        config.set_core_count_ar(core_count);
+        let core_count = core_count();
+        config.set_core_count_ar(core_count.get());
 
         let log_scaled_tab_nested: [[[u32_; 8]; 8]; 4] =
             [LOG64!(0), LOG64!(64), LOG64!(128), LOG64!(192)];
@@ -447,7 +447,7 @@ mod loop_main {
         for i in WorkIndex::all() {
             let load = load_and_progresses.get_mut(&i);
 
-            for j in ThreadId::up_to_unchecked(core_count) {
+            for j in ThreadId::up_to(&core_count) {
                 let info = nwm_infos.get_mut(&i).get_mut(&j);
                 let buf = info.buf;
                 let info = &mut info.info;
@@ -599,7 +599,7 @@ mod loop_main {
 
             let vars = &init.0;
 
-            let core_count = vars.core_count;
+            let core_count = vars.core_count.get();
 
             let _aux1 = if core_count >= 2 {
                 Some(JoinThread::create(CreateThread::create(

@@ -125,7 +125,7 @@ unsafe fn send_next_buffer(tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
     let mut thread_end_done = thread_done;
 
     if thread_done {
-        thread_end_id.next_wrapped_n_unchecked(core_count_in_use.get());
+        thread_end_id.next_wrapped_n(&core_count_in_use);
     }
 
     let mut total_size = size;
@@ -164,7 +164,7 @@ unsafe fn send_next_buffer(tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
 
             thread_end_done = thread_done;
             if thread_done {
-                thread_end_id.next_wrapped_n_unchecked(core_count_in_use.get());
+                thread_end_id.next_wrapped_n(&core_count_in_use);
                 if thread_end_id.get() == 0 {
                     break;
                 }
@@ -192,7 +192,7 @@ unsafe fn send_next_buffer(tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
         *send_pos = (*send_pos).add(sizes.get_unchecked(j.get() as usize).assume_init() as usize);
     };
 
-    for j in thread_id.from_wrapped_to_unchecked(&thread_end_id, core_count_in_use.get()) {
+    for j in thread_id.from_wrapped_to(&thread_end_id, &core_count_in_use) {
         update_send_pos(j);
     }
     if !thread_end_done {
@@ -200,7 +200,7 @@ unsafe fn send_next_buffer(tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
     }
 
     if thread_done {
-        for j in thread_id.from_wrapped_to_unchecked(&thread_end_id, core_count_in_use.get()) {
+        for j in thread_id.from_wrapped_to(&thread_end_id, &core_count_in_use) {
             AtomicU32::from_mut(&mut winfo.get_mut(&j).info.flag).store(0, Ordering::Relaxed);
         }
         nwm_thread_id = thread_end_id;

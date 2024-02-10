@@ -50,7 +50,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
         loop {
             ctx.is_top = currently_updating;
             ctx.cinfo = cinfos
-                .get_mut(&Ranged::<SCREEN_COUNT>::init_unchecked(ctx.is_top as u32_))
+                .get_mut(&Ranged::<SCREEN_COUNT>::from_bool(ctx.is_top))
                 .get_mut(&w);
             let iinfo = img_infos.get_b_mut(ctx.is_top);
             let format_changed = bctx_init(
@@ -99,7 +99,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
             if !skip_frame {
                 AtomicBool::from_mut(screens_synced.get_mut(&w)).store(false, Ordering::Relaxed);
 
-                for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+                for j in ThreadId::up_to(&core_count_in_use) {
                     if j != *t {
                         let res = svcReleaseSemaphore(
                             count.as_mut_ptr(),
@@ -167,7 +167,7 @@ unsafe fn send_frame(t: &ThreadId, w: &WorkIndex) -> bool {
     let f = AtomicU32::from_mut(&mut wsyn.work_done_count).fetch_add(1, Ordering::Relaxed);
     if f == 0 && !skip_frame {
         let p = load_and_progresses.get_mut(&w);
-        for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+        for j in ThreadId::up_to(&core_count_in_use) {
             *p.p_snapshot.get_mut(&j) =
                 AtomicU32::from_mut(p.p.get_mut(&j)).load(Ordering::Relaxed);
         }
@@ -209,7 +209,7 @@ unsafe fn ready_nwm(_t: &ThreadId, w: &WorkIndex, id: u8_, is_top: bool) -> bool
         break;
     }
 
-    for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+    for j in ThreadId::up_to(&core_count_in_use) {
         let ninfo = nwm_infos.get_mut(&w).get_mut(&j);
         let info = &mut ninfo.info;
         let buf = ninfo.buf;
@@ -237,26 +237,26 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
     let mut work_index = *w;
     work_index.prev_wrapped();
 
-    let core_count = core_count_in_use.get();
-    let core_count_rest = core_count - 1;
-    let thread_id_last = ThreadId::init_unchecked(core_count - 1);
+    let core_count = core_count_in_use;
+    let core_count_rest = core_count.get() - 1;
+    let thread_id_last = ThreadId::init_unchecked(core_count_rest);
 
     let l = load_and_progresses.get_mut(&w);
-    for j in ThreadId::up_to_unchecked(core_count) {
+    for j in ThreadId::up_to(&core_count) {
         AtomicU32::from_mut(l.p.get_mut(&j)).store(0, Ordering::Relaxed);
     }
 
     let mcu_size = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
     let mcus_per_row = ctx.height / mcu_size;
     let mcu_rows = ctx.width / mcu_size;
-    let mcu_rows_per_thread = (mcu_rows + core_count - 1) / core_count;
+    let mcu_rows_per_thread = (mcu_rows + core_count.get() - 1) / core_count.get();
 
     l.n = Fix::fix32(mcu_rows_per_thread);
     l.n_last = Fix::fix32(mcu_rows - mcu_rows_per_thread * core_count_rest);
 
     let p = load_and_progresses.get(&work_index);
 
-    if core_count > 1 && p.n.0 > 0 {
+    if core_count.get() > 1 && p.n.0 > 0 {
         let mut rows = Fix::load_from_u32(l.n);
         let mut rows_last = Fix::load_from_u32(l.n_last);
 
@@ -264,10 +264,10 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
         let progress_last = *s.get(&thread_id_last);
 
         let mut progress_all = Fix::fix(0);
-        for j in ThreadId::up_to_unchecked(core_count) {
+        for j in ThreadId::up_to(&core_count) {
             progress_all = progress_all + Fix::fix(*s.get(&j));
         }
-        progress_all = progress_all / Fix::fix(core_count);
+        progress_all = progress_all / Fix::fix(core_count.get());
 
         if progress_last < progress_all.unfix() {
             rows_last = rows_last * Fix::fix(progress_last) / progress_all
@@ -283,7 +283,7 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
             rows = (Fix::fix(mcu_rows) - rows_last) / Fix::fix(core_count_rest);
         } else {
             let mut progress_rest = 0;
-            for j in ThreadId::up_to_unchecked(thread_id_last.get()) {
+            for j in ThreadId::up_to(&thread_id_last) {
                 progress_rest += s.get(&j);
             }
             rows = rows * Fix::fix(progress_rest) / Fix::fix(core_count_rest) / progress_all
@@ -311,7 +311,7 @@ unsafe fn ready_work(ctx: &mut BlitCtx, w: &WorkIndex) -> bool {
         l.v_last_adjusted = Fix::load_from_u32(l.n_last).unfix();
     }
 
-    for j in ThreadId::up_to_unchecked(core_count) {
+    for j in ThreadId::up_to(&core_count) {
         let cinfo: &mut jpeg_compress_struct = &mut (*ctx.cinfo).get_mut(&j).info;
         cinfo.image_width = ctx.height;
         cinfo.image_height = ctx.width;
@@ -365,7 +365,7 @@ unsafe fn bctx_init(ctx: &mut BlitCtx, w: u32_, h: u32_, mut format: u32_, src: 
     if ctx.format != format {
         ret = true;
 
-        for j in ThreadId::up_to_unchecked(core_count_in_use.get()) {
+        for j in ThreadId::up_to(&core_count_in_use) {
             let info = (*ctx.cinfo).get_mut(&j);
             if info.info.global_state != JPEG_CSTATE_START {
                 ptr::copy_nonoverlapping(
