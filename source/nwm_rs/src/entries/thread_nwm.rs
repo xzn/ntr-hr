@@ -273,7 +273,7 @@ unsafe fn ip_checksum(data: *mut u8_, mut length: usize) -> u16_ {
 
 unsafe fn data_buf_filled(dinfo: &mut DataBufInfo) -> (bool, *mut u8_, u32_) {
     let flag = AtomicU32::from_mut(&mut dinfo.flag).load(Ordering::Acquire);
-    let pos = AtomicPtr::from_mut(&mut dinfo.pos).load(Ordering::Acquire);
+    let pos = AtomicPtr::from_mut(&mut dinfo.pos).load(Ordering::Relaxed);
     (dinfo.send_pos < pos || flag > 0, pos, flag)
 }
 
