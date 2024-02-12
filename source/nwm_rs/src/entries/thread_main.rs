@@ -452,8 +452,8 @@ mod loop_main {
                 let buf = info.buf;
                 let info = &mut info.info;
                 info.send_pos = buf;
-                info.pos = buf;
-                info.flag = 0;
+                *info.pos.as_ptr() = buf;
+                *info.flag.as_ptr() = 0;
 
                 *load.p.get_mut(&j) = 0;
                 *load.p_snapshot.get_mut(&j) = 0;

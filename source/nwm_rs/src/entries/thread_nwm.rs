@@ -201,7 +201,7 @@ unsafe fn send_next_buffer(tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
 
     if thread_done {
         for j in thread_id.from_wrapped_to(&thread_end_id, &core_count_in_use) {
-            AtomicU32::from_mut(&mut winfo.get_mut(&j).info.flag).store(0, Ordering::Relaxed);
+            winfo.get_mut(&j).info.flag.store(0, Ordering::Relaxed);
         }
         nwm_thread_id = thread_end_id;
 
@@ -272,8 +272,8 @@ unsafe fn ip_checksum(data: *mut u8_, mut length: usize) -> u16_ {
 }
 
 unsafe fn data_buf_filled(dinfo: &mut DataBufInfo) -> (bool, *mut u8_, u32_) {
-    let flag = AtomicU32::from_mut(&mut dinfo.flag).load(Ordering::Acquire);
-    let pos = AtomicPtr::from_mut(&mut dinfo.pos).load(Ordering::Relaxed);
+    let flag = dinfo.flag.load(Ordering::Acquire);
+    let pos = dinfo.pos.load(Ordering::Relaxed);
     (dinfo.send_pos < pos || flag > 0, pos, flag)
 }
 
@@ -289,7 +289,7 @@ extern "C" fn rpSendBuffer(cinfo: j_compress_ptr, _: *mut u8_, size: u32_, flag:
         let ninfo = nwm_infos.get_mut(&work_index).get_mut(&thread_id);
         let dinfo = &mut ninfo.info;
 
-        let mut pos_next = dinfo.pos.add(size as usize);
+        let mut pos_next = (*dinfo.pos.as_ptr()).add(size as usize);
         if pos_next > ninfo.buf_packet_last {
             pos_next = ninfo.buf_packet_last;
             nsDbgPrint!(sendBufferOverflow);
@@ -297,9 +297,9 @@ extern "C" fn rpSendBuffer(cinfo: j_compress_ptr, _: *mut u8_, size: u32_, flag:
 
         info.client_data = pos_next as *mut _;
 
-        AtomicPtr::from_ptr(ptr::addr_of_mut!(dinfo.pos)).store(pos_next, Ordering::Relaxed);
+        dinfo.pos.store(pos_next, Ordering::Relaxed);
         if flag > 0 {
-            AtomicU32::from_ptr(ptr::addr_of_mut!(dinfo.flag)).store(flag, Ordering::Release);
+            dinfo.flag.store(flag, Ordering::Release);
         }
 
         let res = svcSignalEvent((*syn_handles).nwm_ready);

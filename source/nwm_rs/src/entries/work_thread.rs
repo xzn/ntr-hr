@@ -214,8 +214,8 @@ unsafe fn ready_nwm(_t: &ThreadId, w: &WorkIndex, id: u8_, is_top: bool) -> bool
         let info = &mut ninfo.info;
         let buf = ninfo.buf;
         info.send_pos = buf;
-        info.pos = buf;
-        info.flag = 0;
+        *info.pos.as_ptr() = buf;
+        *info.flag.as_ptr() = 0;
     }
 
     let mut count = mem::MaybeUninit::uninit();
@@ -407,7 +407,7 @@ unsafe fn do_send_frame(ctx: &mut BlitCtx, t: &ThreadId, w: &WorkIndex) -> bool 
     }
     cinfo.has_err_jmp_buf = 1;
 
-    cinfo.client_data = nwm_infos.get(&w).get(&t).info.pos as *mut _;
+    cinfo.client_data = *nwm_infos.get(&w).get(&t).info.pos.as_ptr() as *mut c_void;
     jpeg_init_destination(cinfo);
 
     if t.get() == 0 {

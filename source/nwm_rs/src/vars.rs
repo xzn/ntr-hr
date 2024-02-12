@@ -181,12 +181,33 @@ pub struct RangedArraySlice<'a, T, const N: u32_>(pub &'a mut RangedArray<T, N>)
 where
     [(); N as usize]:;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct RangedArray<T, const N: u32_>([T; N as usize])
 where
     [(); N as usize]:;
 
-impl<T: Copy, const N: u32_> RangedArray<T, N>
+impl<T, const N: u32_> Clone for RangedArray<T, N>
+where
+    [(); N as usize]:,
+    T: Clone,
+{
+    fn clone_from(&mut self, source: &Self) {
+        *self = source.clone()
+    }
+
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T, const N: u32_> Copy for RangedArray<T, N>
+where
+    [(); N as usize]:,
+    T: Copy,
+{
+}
+
+impl<T, const N: u32_> RangedArray<T, N>
 where
     [(); N as usize]:,
 {
@@ -241,13 +262,13 @@ where
     }
 }
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct AllocStats {
     pub qual: rp_alloc_stats,
     pub comp: rp_alloc_stats,
 }
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct CInfo {
     pub info: jpeg_compress_struct,
     pub alloc_stats: AllocStats,
@@ -266,7 +287,7 @@ pub static mut jerr: jpeg_error_mgr = <jpeg_error_mgr as ConstDefault>::DEFAULT;
 
 pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct LoadAndProgress {
     pub n: Fix32,
     pub n_last: Fix32,
@@ -282,7 +303,7 @@ pub type LoadAndProgresses = RangedArray<LoadAndProgress, WORK_COUNT>;
 pub static mut load_and_progresses: LoadAndProgresses =
     <LoadAndProgresses as ConstDefault>::DEFAULT;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct Buffers {
     pub prep: [JSAMPARRAY; MAX_COMPONENTS as usize],
     pub color: [JSAMPARRAY; MAX_COMPONENTS as usize],
@@ -292,7 +313,7 @@ pub struct Buffers {
 pub type WorkBuffers = RangedArray<RangedArray<Buffers, RP_CORE_COUNT_MAX>, WORK_COUNT>;
 pub static mut work_buffers: WorkBuffers = <WorkBuffers as ConstDefault>::DEFAULT;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct BlitCtx {
     pub width: u32_,
     pub height: u32_,
@@ -324,14 +345,14 @@ pub static mut current_nwm_hdr: NwmHdr = <NwmHdr as ConstDefault>::DEFAULT;
 pub const PACKET_SIZE: usize = 1448;
 pub const PACKET_DATA_SIZE: usize = PACKET_SIZE - DATA_HDR_SIZE;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct DataBufInfo {
     pub send_pos: *mut u8_,
-    pub pos: *mut u8_,
-    pub flag: u32_,
+    pub pos: AtomicPtr<u8_>,
+    pub flag: AtomicU32,
 }
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct NwmInfo {
     pub buf: *mut u8_,
     pub buf_packet_last: *mut u8_,
@@ -364,7 +385,7 @@ pub const IMG_WORK_COUNT: u32_ = 2;
 pub type ImgWorkIndex = Ranged<IMG_WORK_COUNT>;
 pub type ImgBufs = RangedArray<*mut u8_, IMG_WORK_COUNT>;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct ImgInfo {
     pub bufs: ImgBufs,
     pub index: ImgWorkIndex,
@@ -373,7 +394,7 @@ pub struct ImgInfo {
 pub type ImgInfos = RangedArray<ImgInfo, SCREEN_COUNT>;
 pub static mut img_infos: ImgInfos = <ImgInfos as ConstDefault>::DEFAULT;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct CapInfo {
     pub src: *mut u8_,
     pub pitch: u32_,
@@ -382,7 +403,7 @@ pub struct CapInfo {
 
 type DmaHandles = RangedArray<Handle, WORK_COUNT>;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct CapParams {
     pub dmas: DmaHandles,
     pub game: Handle,
@@ -416,7 +437,7 @@ pub static mut screens_captured: RangedArray<bool, WORK_COUNT> =
 pub static mut screens_synced: RangedArray<bool, WORK_COUNT> =
     <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct PerWorkHandles {
     pub nwm_done: Handle,
     pub nwm_ready: Handle,
@@ -427,7 +448,7 @@ pub struct PerWorkHandles {
 
 type WorkHandles = RangedArray<PerWorkHandles, WORK_COUNT>;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct PerThreadHandles {
     pub work_ready: Handle,
     pub work_begin_ready: Handle,
@@ -437,7 +458,7 @@ type ThreadHandles = RangedArray<PerThreadHandles, RP_CORE_COUNT_MAX>;
 
 type PortScreenHandles = RangedArray<Handle, SCREEN_COUNT>;
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct SynHandles {
     pub works: WorkHandles,
     pub threads: ThreadHandles,
