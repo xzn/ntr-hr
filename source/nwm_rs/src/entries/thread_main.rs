@@ -81,17 +81,14 @@ mod first_time_init {
             info.user_thread_id = idx % RP_CORE_COUNT_MAX;
         }
 
-        let (info0, info1): (
-            RangedArraySlice<CInfo, 1>,
-            RangedArraySlice<CInfo, { CINFOS_COUNT - 1 }>,
-        ) = infos.split_at_mut::<1>();
+        let (info0, info1) = infos.split_at_mut::<1>();
         let info0 = &mut info0.0.get_mut(&Ranged::<1>::init()).info;
 
         jpeg_std_huff_tables(info0 as j_compress_ptr as j_common_ptr);
-        for j in Ranged::<{ CINFOS_COUNT - 1 }>::all() {
+        for info1 in info1.0.iter_mut() {
             for i in Ranged::<NUM_HUFF_TBLS>::all() {
                 let idx = i.get() as usize;
-                let info = &mut info1.0.get_mut(&j).info;
+                let info = &mut info1.info;
 
                 *info.dc_huff_tbl_ptrs.get_unchecked_mut(idx) =
                     *info0.dc_huff_tbl_ptrs.get_unchecked(idx);
@@ -102,8 +99,8 @@ mod first_time_init {
         }
 
         jpeg_jinit_color_converter(info0);
-        for j in Ranged::<{ CINFOS_COUNT - 1 }>::all() {
-            let info = &mut info1.0.get_mut(&j).info;
+        for info1 in info1.0.iter_mut() {
+            let info = &mut info1.info;
             info.cconvert = info0.cconvert;
         }
 
@@ -483,17 +480,14 @@ mod loop_main {
         }
 
         {
-            let (info0, info1): (
-                RangedArraySlice<CInfo, 1>,
-                RangedArraySlice<CInfo, { CINFOS_COUNT - 1 }>,
-            ) = infos.split_at_mut::<1>();
+            let (info0, info1) = infos.split_at_mut::<1>();
             let info0 = &mut info0.0.get_mut(&Ranged::<1>::init()).info;
 
             jpeg_set_quality(info0, config.quality_ar() as c_int, 1);
-            for j in Ranged::<{ CINFOS_COUNT - 1 }>::all() {
+            for info1 in info1.0.iter_mut() {
                 for i in Ranged::<NUM_QUANT_TBLS>::all() {
                     let idx = i.get() as usize;
-                    let info = &mut info1.0.get_mut(&j).info;
+                    let info = &mut info1.info;
 
                     *info.quant_tbl_ptrs.get_unchecked_mut(idx) =
                         *info0.quant_tbl_ptrs.get_unchecked(idx);
@@ -523,17 +517,14 @@ mod loop_main {
         }
 
         {
-            let (info0, info1): (
-                RangedArraySlice<CInfo, 1>,
-                RangedArraySlice<CInfo, { CINFOS_COUNT - 1 }>,
-            ) = infos.split_at_mut::<1>();
+            let (info0, info1) = infos.split_at_mut::<1>();
             let info0 = &mut info0.0.get_mut(&Ranged::<1>::init()).info;
 
             jpeg_jinit_forward_dct(info0);
             info0.fdct_reuse = 1;
 
-            for j in Ranged::<{ CINFOS_COUNT - 1 }>::all() {
-                let info = &mut info1.0.get_mut(&j).info;
+            for info1 in info1.0.iter_mut() {
+                let info = &mut info1.info;
 
                 info.fdct = info0.fdct;
                 info.fdct_reuse = 1;
@@ -574,9 +565,7 @@ mod loop_main {
             }
         }
 
-        for i in Ranged::<CINFOS_COUNT>::all() {
-            let info = infos.get_mut(&i);
-
+        for info in infos.iter_mut() {
             let alloc_stats = &mut info.alloc_stats;
             let cinfo = &mut info.info;
 
