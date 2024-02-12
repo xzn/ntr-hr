@@ -133,10 +133,10 @@ mod first_time_init {
             }
         }
 
-        for j in Ranged::<SCREEN_COUNT>::all() {
-            for i in ImgWorkIndex::all() {
+        for j in ScreenIndex::all() {
+            for i in crate::entries::thread_screen::ImgWorkIndex::all() {
                 if let Some(m) = request_mem_from_pool::<IMG_BUFFER_SIZE>() {
-                    *img_infos.get_mut(&j).bufs.get_mut(&i) = m.to_ptr();
+                    crate::entries::thread_screen::init_img_info(&i, &j, m);
                 } else {
                     return None;
                 }
@@ -156,7 +156,7 @@ mod first_time_init {
             return None;
         }
 
-        for i in Ranged::<SCREEN_COUNT>::all() {
+        for i in ScreenIndex::all() {
             let res = create_event((*syn_handles).port_screen_ready.get_mut(&i));
             if res != 0 {
                 nsDbgPrint!(createPortEventFailed, res);
@@ -167,11 +167,6 @@ mod first_time_init {
         let res = create_event(&mut (*syn_handles).nwm_ready);
         if res != 0 {
             nsDbgPrint!(createNwmEventFailed, res);
-            return None;
-        }
-
-        if svcOpenProcess(&mut cap_params.home, (*ntr_config).HomeMenuPid) != 0 {
-            nsDbgPrint!(openProcessFailed, res);
             return None;
         }
 
@@ -298,8 +293,8 @@ mod loop_main {
                     return None;
                 }
 
-                work.work_begin_flag = false;
-                work.work_done_count = 0;
+                *work.work_begin_flag.as_ptr() = false;
+                *work.work_done_count.as_ptr() = 0;
             }
 
             for j in ThreadId::up_to(&v.core_count) {
@@ -345,42 +340,6 @@ mod loop_main {
         }
     }
 
-    macro_rules! LOG {
-        ($v:expr) => {
-            unsafe { FIX(core::intrinsics::log2f64(($v + 1) as c_double)) }
-        };
-    }
-
-    macro_rules! LOG8 {
-        ($v:expr) => {
-            [
-                LOG!($v),
-                LOG!($v + 1),
-                LOG!($v + 2),
-                LOG!($v + 3),
-                LOG!($v + 4),
-                LOG!($v + 5),
-                LOG!($v + 6),
-                LOG!($v + 7),
-            ]
-        };
-    }
-
-    macro_rules! LOG64 {
-        ($v:literal) => {
-            [
-                LOG8!($v),
-                LOG8!($v + 8),
-                LOG8!($v + 16),
-                LOG8!($v + 24),
-                LOG8!($v + 32),
-                LOG8!($v + 40),
-                LOG8!($v + 48),
-                LOG8!($v + 56),
-            ]
-        };
-    }
-
     #[named]
     unsafe fn reset_init() -> Option<InitCleanup> {
         clear_reset_threads_ar();
@@ -391,17 +350,8 @@ mod loop_main {
         let core_count = core_count();
         config.set_core_count_ar(core_count.get());
 
-        let log_scaled_tab_nested: [[[u32_; 8]; 8]; 4] =
-            [LOG64!(0), LOG64!(64), LOG64!(128), LOG64!(192)];
-        let log_scaled_tab: &[u32_; 256] = mem::transmute(&log_scaled_tab_nested);
-
         let mode = config.mode_ar();
-        let is_top = (mode & 0xff00) > 0;
-        let factor = mode & 0xff;
-        priority_is_top = is_top;
-        priority_factor = factor;
-        priority_factor_scaled = *log_scaled_tab.get_unchecked(factor as usize);
-        crate::entries::work_thread::no_skip_next_frames();
+        crate::entries::thread_screen::reset_thread_vars(mode);
 
         if config.dst_port_ar() == 0 {
             config.set_dst_port_ar(RP_DST_PORT_DEFAULT)
@@ -425,20 +375,6 @@ mod loop_main {
         };
         reset_jpeg_compress(&config, &vars);
 
-        currently_updating = priority_is_top;
-        for i in Ranged::<SCREEN_COUNT>::all() {
-            *frame_counts.get_mut(&i) = 1;
-            *frame_queues.get_mut(&i) = priority_factor_scaled;
-
-            *skip_frames.get_mut(&i) = false;
-        }
-        screen_thread_id = ThreadId::init();
-
-        for i in WorkIndex::all() {
-            *screens_captured.get_mut(&i) = false;
-            *screens_synced.get_mut(&i) = false;
-        }
-
         last_send_tick = svcGetSystemTick() as u32_;
 
         for i in WorkIndex::all() {
@@ -452,7 +388,7 @@ mod loop_main {
                 *info.pos.as_ptr() = buf;
                 *info.flag.as_ptr() = 0;
 
-                *load.p.get_mut(&j) = 0;
+                *(*load.p.get_mut(&j)).as_ptr() = 0;
                 *load.p_snapshot.get_mut(&j) = 0;
             }
 
@@ -467,7 +403,6 @@ mod loop_main {
         }
         nwm_work_index = WorkIndex::init();
         nwm_thread_id = ThreadId::init();
-        screen_work_index = WorkIndex::init();
 
         InitCleanup::init(vars)
     }
@@ -577,9 +512,8 @@ mod loop_main {
         }
     }
 
-    unsafe fn clear_reset_threads_ar() {
-        AtomicBool::from_ptr(ptr::addr_of_mut!(crate::reset_threads))
-            .store(false, Ordering::Relaxed)
+    fn clear_reset_threads_ar() {
+        unsafe { crate::reset_threads.store(false, Ordering::Relaxed) }
     }
 
     pub unsafe fn entry(_t: ThreadVars, s: &mut ThreadsStacks) -> Option<()> {

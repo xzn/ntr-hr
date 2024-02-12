@@ -9,6 +9,7 @@ crate-type = ["staticlib"]
 [dependencies]
 libc = { version = "0.2.153", default-features = false }
 function_name = "0.3.0"
+# Modified to work with union types
 const-default = { path = "../../const_default", version = "1.0.0", features = [
     "derive",
     "unstable",

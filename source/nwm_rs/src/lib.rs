@@ -25,7 +25,7 @@ use crate::fix::*;
 use crate::utils::*;
 use crate::vars::*;
 use ::libc::*;
-use const_default::ConstDefault;
+use const_default::{const_default, ConstDefault};
 use core::ops::*;
 use core::panic::PanicInfo;
 use core::sync::atomic::*;

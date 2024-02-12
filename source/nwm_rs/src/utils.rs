@@ -16,36 +16,6 @@ pub const fn align_to_page_size(s: usize) -> usize {
     }
 }
 
-pub struct OpenProcess(Handle);
-
-impl OpenProcess {
-    #[named]
-    pub fn open(pid: u32_) -> Option<Self> {
-        let mut h = mem::MaybeUninit::uninit();
-        let res = unsafe { svcOpenProcess(h.as_mut_ptr(), pid) };
-
-        if res == 0 {
-            let h = unsafe { h.assume_init() };
-            Some(Self(h))
-        } else {
-            nsDbgPrint!(openProcessFailed, res);
-            None
-        }
-    }
-
-    pub fn handle(&self) -> Handle {
-        self.0
-    }
-}
-
-impl Drop for OpenProcess {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = svcCloseHandle(self.0);
-        }
-    }
-}
-
 pub struct MemRegionBase<B, const T: usize>(mem::MaybeUninit<[B; T]>);
 
 impl<B, const T: usize> MemRegionBase<B, T> {

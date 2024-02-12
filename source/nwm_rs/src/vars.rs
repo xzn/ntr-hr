@@ -23,7 +23,7 @@ pub use ranged::*;
 pub type CoreCount = IRanged<RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX>;
 
 pub static mut thread_main_handle: Handle = 0;
-pub static mut reset_threads: bool = false;
+pub static mut reset_threads: AtomicBool = const_default();
 pub static mut core_count_in_use: CoreCount = CoreCount::init();
 
 pub static mut min_send_interval_tick: u32_ = 0;
@@ -35,6 +35,7 @@ pub const CINFOS_COUNT: u32_ = SCREEN_COUNT * WORK_COUNT * RP_CORE_COUNT_MAX;
 
 pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
+pub type ScreenIndex = Ranged<SCREEN_COUNT>;
 
 #[derive(ConstDefault)]
 pub struct AllocStats {
@@ -60,6 +61,7 @@ pub static mut cinfos_all: *mut CInfosAll = ptr::null_mut();
 pub static mut jerr: jpeg_error_mgr = <jpeg_error_mgr as ConstDefault>::DEFAULT;
 
 pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
+pub type RowProgresses = RangedArray<AtomicU32, RP_CORE_COUNT_MAX>;
 
 #[derive(ConstDefault)]
 pub struct LoadAndProgress {
@@ -69,7 +71,7 @@ pub struct LoadAndProgress {
     pub n_last_adjusted: Fix32,
     pub v_adjusted: u32_,
     pub v_last_adjusted: u32_,
-    pub p: RowIndexes,
+    pub p: RowProgresses,
     pub p_snapshot: RowIndexes,
 }
 
@@ -103,8 +105,6 @@ pub struct BlitCtx {
 
     pub i_start: RowIndexes,
     pub i_count: RowIndexes,
-
-    pub should_capture: bool,
 }
 
 pub type BlitCtxes = RangedArray<BlitCtx, WORK_COUNT>;
@@ -140,12 +140,6 @@ pub static mut nwm_infos: NwmInfos = <NwmInfos as ConstDefault>::DEFAULT;
 pub static mut nwm_work_index: WorkIndex = WorkIndex::init();
 pub static mut nwm_thread_id: ThreadId = ThreadId::init();
 
-pub static mut screen_work_index: WorkIndex = WorkIndex::init();
-pub static mut screen_thread_id: ThreadId = ThreadId::init();
-
-pub static mut skip_frames: RangedArray<bool, WORK_COUNT> =
-    <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
-
 pub static mut nwm_need_syn: RangedArray<bool, WORK_COUNT> =
     <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
 
@@ -155,69 +149,18 @@ pub static mut data_buf_hdrs: RangedArray<NwmHdr, WORK_COUNT> =
 pub const IMG_BUFFER_SIZE: usize = 0x60000;
 pub const NWM_BUFFER_SIZE: usize = 0x28000;
 
-pub const IMG_WORK_COUNT: u32_ = 2;
-pub type ImgWorkIndex = Ranged<IMG_WORK_COUNT>;
-pub type ImgBufs = RangedArray<*mut u8_, IMG_WORK_COUNT>;
-
-#[derive(ConstDefault)]
-pub struct ImgInfo {
-    pub bufs: ImgBufs,
-    pub index: ImgWorkIndex,
-}
-
-pub type ImgInfos = RangedArray<ImgInfo, SCREEN_COUNT>;
-pub static mut img_infos: ImgInfos = <ImgInfos as ConstDefault>::DEFAULT;
-
-#[derive(ConstDefault)]
-pub struct CapInfo {
-    pub src: *mut u8_,
-    pub pitch: u32_,
-    pub format: u32_,
-}
-
-type DmaHandles = RangedArray<Handle, WORK_COUNT>;
-
-#[derive(ConstDefault)]
-pub struct CapParams {
-    pub dmas: DmaHandles,
-    pub game: Handle,
-    pub home: Handle,
-    pub game_pid: u32_,
-    pub game_fcram_base: u32_,
-}
-
-pub static mut cap_params: CapParams = <CapParams as ConstDefault>::DEFAULT;
-
-pub static mut cap_info: CapInfo = <CapInfo as ConstDefault>::DEFAULT;
+pub static mut home_process_handle: Handle = 0;
 
 pub static mut current_frame_ids: RangedArray<u8_, SCREEN_COUNT> =
     <RangedArray<u8_, SCREEN_COUNT> as ConstDefault>::DEFAULT;
-
-pub static mut frame_counts: RangedArray<u32_, SCREEN_COUNT> =
-    <RangedArray<u32_, SCREEN_COUNT> as ConstDefault>::DEFAULT;
-
-pub static mut frame_queues: RangedArray<u32_, SCREEN_COUNT> =
-    <RangedArray<u32_, SCREEN_COUNT> as ConstDefault>::DEFAULT;
-
-pub static mut port_game_pid: u32_ = 0;
-
-pub static mut currently_updating: bool = false;
-pub static mut priority_is_top: bool = false;
-pub static mut priority_factor: u32_ = 0;
-pub static mut priority_factor_scaled: u32_ = 0;
-
-pub static mut screens_captured: RangedArray<bool, WORK_COUNT> =
-    <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
-pub static mut screens_synced: RangedArray<bool, WORK_COUNT> =
-    <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
 
 #[derive(ConstDefault)]
 pub struct PerWorkHandles {
     pub nwm_done: Handle,
     pub nwm_ready: Handle,
-    pub work_done_count: u32_,
+    pub work_done_count: AtomicU32,
     pub work_done: Handle,
-    pub work_begin_flag: bool,
+    pub work_begin_flag: AtomicBool,
 }
 
 type WorkHandles = RangedArray<PerWorkHandles, WORK_COUNT>;
