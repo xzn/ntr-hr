@@ -35,7 +35,7 @@ impl ParseCallbacks for Callback {
         if self.names.contains(info.name) {
             vec!["ConstDefault".into()]
         } else if self.union_names.contains(info.name) {
-            vec!["ConstDefaultUnion".into()]
+            vec!["ConstDefault".into()]
         } else {
             vec![]
         }

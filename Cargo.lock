@@ -70,47 +70,14 @@ dependencies = [
 name = "const-default"
 version = "1.0.0"
 dependencies = [
- "const-default-derive 0.2.0",
- "const-default-union-derive",
-]
-
-[[package]]
-name = "const-default"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b396d1f76d455557e1218ec8066ae14bba60b4b36ecd55577ba979f5db7ecaa"
-dependencies = [
- "const-default-derive 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "const-default-derive",
 ]
 
 [[package]]
 name = "const-default-derive"
 version = "0.2.0"
 dependencies = [
- "const-default 1.0.0",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "const-default-derive"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f814dd8cbb812233751ff6857b7fa86d9f52e88ac64e8f54e7a1ca0168f03da"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "const-default-union-derive"
-version = "0.2.0"
-dependencies = [
- "const-default 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "const-default",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
@@ -261,7 +228,7 @@ name = "nwm_rs"
 version = "0.1.0"
 dependencies = [
  "bindgen",
- "const-default 1.0.0",
+ "const-default",
  "function_name",
  "libc",
 ]

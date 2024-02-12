@@ -47,6 +47,23 @@ use syn::{spanned::Spanned, Error};
 ///     Vec3(0.0, 0.0, 0.0),
 /// )
 /// ```
+///
+/// ## Union
+///
+/// ```
+/// const CAT_SIZE: usize = 0x16;
+/// # use const_default::ConstDefault;
+/// #[derive(ConstDefault)]
+/// pub union Animal {
+///     Dog: u8,
+///     Cat: [u8; CAT_SIZE],
+/// }
+///
+/// assert_eq!(
+///     unsafe { <Animal as ConstDefault>::DEFAULT.Cat },
+///     [0; CAT_SIZE],
+/// )
+/// ```
 #[proc_macro_derive(ConstDefault, attributes(const_default))]
 pub fn derive(input: TokenStream) -> TokenStream {
     match derive_default(input.into()) {
@@ -60,8 +77,29 @@ fn derive_default(input: TokenStream2) -> Result<TokenStream2, syn::Error> {
     let crate_ident = query_crate_ident()?;
     let input = syn::parse2::<syn::DeriveInput>(input)?;
     let ident = input.ident;
-    let data_struct = match input.data {
-        syn::Data::Struct(data_struct) => data_struct,
+    let (default_impl, generics) = match input.data {
+        syn::Data::Struct(data_struct) => {
+            let default_impl =
+                generate_default_impl_struct(&crate_ident, &data_struct)?;
+            let mut generics = input.generics;
+            generate_default_impl_where_bounds(
+                &crate_ident,
+                &data_struct,
+                &mut generics,
+            )?;
+            (default_impl, generics)
+        }
+        syn::Data::Union(data_union) => {
+            let default_impl =
+                generate_default_impl_union(&crate_ident, &data_union)?;
+            let mut generics = input.generics;
+            generate_default_impl_union_where_bounds(
+                &crate_ident,
+                &data_union,
+                &mut generics,
+            )?;
+            (default_impl, generics)
+        }
         _ => {
             return Err(Error::new(
                 Span::call_site(),
@@ -69,14 +107,6 @@ fn derive_default(input: TokenStream2) -> Result<TokenStream2, syn::Error> {
             ))
         }
     };
-    let default_impl =
-        generate_default_impl_struct(&crate_ident, &data_struct)?;
-    let mut generics = input.generics;
-    generate_default_impl_where_bounds(
-        &crate_ident,
-        &data_struct,
-        &mut generics,
-    )?;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     Ok(quote! {
         impl #impl_generics #crate_ident::ConstDefault for #ident #ty_generics #where_clause {
@@ -151,6 +181,56 @@ fn generate_default_impl_where_bounds(
 ) -> Result<(), syn::Error> {
     let where_clause = generics.make_where_clause();
     for field in &data_struct.fields {
+        let field_type = &field.ty;
+        where_clause.predicates.push(syn::parse_quote!(
+            #field_type: #crate_ident::ConstDefault
+        ))
+    }
+    Ok(())
+}
+
+/// Generates the `ConstDefaultUnion` implementation for `union` input types.
+///
+/// # Note
+///
+/// Zero initialize the first field in the union, rest is handled automatically.
+fn generate_default_impl_union(
+    crate_ident: &TokenStream2,
+    data_union: &syn::DataUnion,
+) -> Result<TokenStream2, syn::Error> {
+    let fields_impl = data_union
+        .fields
+        .named
+        .first()
+        .map(|field| {
+            let field_span = field.span();
+            let field_type = &field.ty;
+            let field_pos = Literal::usize_unsuffixed(0);
+            let field_ident = field
+                .ident
+                .as_ref()
+                .map(|ident| quote_spanned!(field_span=> #ident))
+                .unwrap_or_else(|| quote_spanned!(field_span=> #field_pos));
+            quote_spanned!(field_span=>
+                #field_ident: <#field_type as #crate_ident::ConstDefault>::DEFAULT
+            )
+        })
+        .unwrap();
+    Ok(quote! {
+        Self {
+            #fields_impl
+        }
+    })
+}
+
+/// Generates `ConstDefault` where bounds for all fields of the input.
+fn generate_default_impl_union_where_bounds(
+    crate_ident: &TokenStream2,
+    data_union: &syn::DataUnion,
+    generics: &mut syn::Generics,
+) -> Result<(), syn::Error> {
+    let where_clause = generics.make_where_clause();
+    if let Some(field) = &data_union.fields.named.first() {
         let field_type = &field.ty;
         where_clause.predicates.push(syn::parse_quote!(
             #field_type: #crate_ident::ConstDefault

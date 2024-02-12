@@ -21,10 +21,6 @@ extern crate alloc;
 #[cfg_attr(feature = "unstable-docs", doc(cfg(feature = "derive")))]
 pub use const_default_derive::ConstDefault;
 
-#[cfg(feature = "derive")]
-#[cfg_attr(feature = "unstable-docs", doc(cfg(feature = "derive")))]
-pub use const_default_union_derive::ConstDefaultUnion;
-
 /// Implements a compilation time default value for the implemented type.
 ///
 /// # Note

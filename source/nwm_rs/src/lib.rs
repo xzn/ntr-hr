@@ -25,7 +25,7 @@ use crate::fix::*;
 use crate::utils::*;
 use crate::vars::*;
 use ::libc::*;
-use const_default::{ConstDefault, ConstDefaultUnion};
+use const_default::ConstDefault;
 use core::ops::*;
 use core::panic::PanicInfo;
 use core::sync::atomic::*;
@@ -45,7 +45,6 @@ fn panic(_: &PanicInfo) -> ! {
 #[allow(unused)]
 mod ctru {
     use crate::ConstDefault;
-    use crate::ConstDefaultUnion;
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 

@@ -14,13 +14,12 @@ license = "MIT"
 
 [dependencies]
 const-default-derive = { path = "derive", version = "0.2.0", optional = true }
-const-default-union-derive = { path = "derive_union", version = "0.2.0", optional = true }
 
 [features]
 default = ["enable-atomics"]
 std = ["alloc"]
 alloc = []
-derive = ["const-default-derive", "const-default-union-derive"]
+derive = ["const-default-derive"]
 unstable = []
 unstable-docs = []
 enable-atomics = []
