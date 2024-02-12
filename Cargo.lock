@@ -246,7 +246,6 @@ dependencies = [
  "const-default-union-derive",
  "function_name",
  "libc",
- "setjmp",
 ]
 
 [[package]]
@@ -339,15 +338,6 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "setjmp"
-version = "0.1.4"
-dependencies = [
- "bindgen",
- "clang-sys",
- "libc",
 ]
 
 [[package]]
