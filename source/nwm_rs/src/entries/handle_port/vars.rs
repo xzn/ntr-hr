@@ -4,8 +4,7 @@ pub struct Config(());
 
 impl Config {
     pub fn set_game_pid_ar(&self, v: u32_) {
-        unsafe { AtomicU32::from_ptr(ptr::addr_of_mut!((*rp_config).gamePid)) }
-            .store(v, Ordering::Relaxed);
+        unsafe { AtomicU32::from_mut(&mut (*rp_config).gamePid) }.store(v, Ordering::Relaxed);
     }
 
     pub fn set_ar(&self, a: &[u32_]) -> bool {

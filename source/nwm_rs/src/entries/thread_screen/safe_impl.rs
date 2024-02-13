@@ -322,7 +322,7 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
                     *vars.frame_queue(true) += vars.priority_factor_scaled();
                 }
 
-                let mut is_top = if factor[is_top as usize] >= factor[!is_top as usize] {
+                is_top = if factor[is_top as usize] >= factor[!is_top as usize] {
                     is_top
                 } else {
                     !is_top
@@ -374,8 +374,8 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
                 vars.img_dst(is_top),
                 vars.screen_work_index(),
             ) {
-                let s = vars.screen_work_index();
-                vars.release(ScreenEncodeVars::init(is_top, cap_info.format, s));
+                let w = vars.screen_work_index();
+                vars.release(is_top, cap_info.format, w);
                 break;
             }
         }

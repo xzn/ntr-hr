@@ -1,8 +1,8 @@
 use super::*;
 
-pub fn send_frame(t: &ThreadId, vars: ThreadVars) {
-    match vars.work_begin_acquire() {
-        Ok(v) => loop {
+pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
+    let v = match vars.work_begin_acquire() {
+        Ok(mut v) => loop {
             let format_changed = bctx_init(&v);
 
             v.dma_sync();
@@ -11,66 +11,49 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) {
 
             if !skip_frame {
                 if !ready_nwm(&t, &v) {
-                    return;
+                    return None;
                 } else {
                     v.ready_next();
                     if !ready_work(&v) {
                         set_reset_threads_ar();
-                        break;
+                        return None;
                     }
                 }
             }
 
             if !skip_frame {
-                v.release(&t);
-                capture_screen(&vars);
-                break;
+                break v.release_and_capture_screen(&t);
             } else {
-                if !v.release_skip_frame(&t) {
-                    return;
+                if let Some(_) = v.release_skip_frame(&t) {
+                    v.v_mut().read_is_top();
+                } else {
+                    return None;
                 }
             }
         },
-        Err(v) => {
-            if !v.acquire(&t) {
-                return;
-            }
-        }
+        Err(v) => v.acquire(&t)?,
     };
 
     if reset_threads() {
-        return;
+        return None;
     }
 
-    do_send_frame(&t, &vars);
+    do_send_frame(&t, &v);
 
-    vars.release();
+    v.release();
+    Some(())
 }
 
-#[named]
 fn ready_nwm(_t: &ThreadId, v: &ThreadBeginVars) -> bool {
     unsafe {
         let w = v.v().work_index();
-        let wsyn = (*syn_handles).works.get(&w);
 
-        loop {
-            if reset_threads() {
-                return false;
-            }
-
-            let res = svcWaitSynchronization(wsyn.nwm_done, THREAD_WAIT_NS);
-            if res != 0 {
-                if res != RES_TIMEOUT as s32 {
-                    nsDbgPrint!(waitForSyncFailed, c_str!("nwm_done"), res);
-                    svcSleepThread(THREAD_WAIT_NS);
-                }
-                continue;
-            }
-            break;
+        if !crate::entries::thread_nwm::wait_nwm_done(&w) {
+            return false;
         }
 
-        for j in ThreadId::up_to(&core_count_in_use) {
-            let ninfo = nwm_infos.get_mut(&w).get_mut(&j);
+        for j in ThreadId::up_to(&get_core_count_in_use()) {
+            let ninfo = v.nwm_infos().get_mut(&j);
             let info = &mut ninfo.info;
             let buf = ninfo.buf;
             info.send_pos = buf;
@@ -78,13 +61,9 @@ fn ready_nwm(_t: &ThreadId, v: &ThreadBeginVars) -> bool {
             *info.flag.as_ptr() = 0;
         }
 
-        let mut count = mem::MaybeUninit::uninit();
-        let res = svcReleaseSemaphore(count.as_mut_ptr(), wsyn.nwm_ready, 1);
-        if res != 0 {
-            nsDbgPrint!(releaseSemaphoreFailed, c_str!("nwm_ready"), res);
-        }
+        crate::entries::thread_nwm::release_nwm_ready(&w);
 
-        let hdr = data_buf_hdrs.get_mut(&w);
+        let hdr = v.data_buf_hdr();
         let ctx = v.ctx();
         *hdr.get_unchecked_mut(0) = ctx.frame_id;
         *hdr.get_unchecked_mut(1) = ctx.is_top as u8_;
@@ -103,11 +82,11 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
         let mut work_index = w;
         work_index.prev_wrapped();
 
-        let core_count = core_count_in_use;
+        let core_count = get_core_count_in_use();
         let core_count_rest = core_count.get() - 1;
         let thread_id_last = ThreadId::init_unchecked(core_count_rest);
 
-        let l = load_and_progresses.get_mut(&w);
+        let l = v.load_and_progresses().get_mut(&w);
         for j in ThreadId::up_to(&core_count) {
             l.p.get_mut(&j).store(0, Ordering::Relaxed);
         }
@@ -120,7 +99,7 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
         l.n = Fix::fix32(mcu_rows_per_thread);
         l.n_last = Fix::fix32(mcu_rows - mcu_rows_per_thread * core_count_rest);
 
-        let p = load_and_progresses.get(&work_index);
+        let p = v.load_and_progresses().get(&work_index);
 
         if core_count.get() > 1 && p.n.0 > 0 {
             let mut rows = Fix::load_from_u32(l.n);
@@ -238,7 +217,7 @@ fn bctx_init(v: &ThreadBeginVars) -> bool {
         if ctx.format != format {
             ret = true;
 
-            for j in ThreadId::up_to(&core_count_in_use) {
+            for j in ThreadId::up_to(&get_core_count_in_use()) {
                 let info = (*ctx.cinfo).get_mut(&j);
                 if info.info.global_state != JPEG_CSTATE_START {
                     ptr::copy_nonoverlapping(
@@ -257,6 +236,8 @@ fn bctx_init(v: &ThreadBeginVars) -> bool {
         ctx.src = v.v().img_src();
         ctx.frame_id = v.frame_id();
 
+        *ctx.should_capture.as_ptr() = false;
+
         ret
     }
 }
@@ -272,11 +253,9 @@ fn get_bpp_for_format(mut format: u32_) -> u32_ {
     }
 }
 
-fn do_send_frame(t: &ThreadId, vars: &ThreadVars) -> bool {
+fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
     unsafe {
         let ctx = vars.blit_ctx();
-        let w = vars.v().work_index();
-
         let cinfo = &mut (*ctx.cinfo).get_mut(&t).info;
 
         if setjmp::setjmp(&mut cinfo.err_jmp_buf) != 0 {
@@ -286,7 +265,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadVars) -> bool {
         }
         cinfo.has_err_jmp_buf = 1;
 
-        cinfo.client_data = *nwm_infos.get(&w).get(&t).info.pos.as_ptr() as *mut c_void;
+        cinfo.client_data = *vars.nwm_infos().get(&t).info.pos.as_ptr() as *mut c_void;
         jpeg_init_destination(cinfo);
 
         if t.get() == 0 {
@@ -294,19 +273,19 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadVars) -> bool {
             jpeg_write_frame_header(cinfo);
             jpeg_write_scan_header(cinfo);
         }
-
         really_do_send_frame(
             cinfo,
             ctx.src,
             ctx.src_pitch,
             *ctx.i_start.get(&t),
             *ctx.i_count.get(&t),
-            &w,
             t,
+            vars,
+            &mut ctx.should_capture,
         );
         jpeg_finish_pass_huff(cinfo);
 
-        if t.get() != core_count_in_use.get() - 1 {
+        if t.get() != get_core_count_in_use().get() - 1 {
             jpeg_emit_marker(cinfo, (JPEG_RST0 + t.get()) as s32);
         } else {
             jpeg_write_file_trailer(cinfo);
@@ -324,9 +303,13 @@ unsafe fn really_do_send_frame(
     pitch: u32_,
     i_start: u32_,
     i_count: u32_,
-    w: &WorkIndex,
     t: &ThreadId,
+    vars: &ThreadDoVars,
+    should_capture: &mut AtomicBool,
 ) {
+    let w = vars.v().work_index();
+    let p = vars.load_and_progresses().get_mut(&w).p.get_mut(&t);
+
     const in_rows_blk: u32_ = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
     const in_rows_blk_half: u32_ = in_rows_blk / 2;
 
@@ -338,12 +321,17 @@ unsafe fn really_do_send_frame(
         mem::MaybeUninit::<JSAMPROW>::uninit_array();
 
     let j_max = in_rows_blk * (i_start + i_count);
-    let j_max = cmp::min(j_max, cinfo.image_height);
+    let j_max: u32 = cmp::min(j_max, cinfo.image_height);
+    let j_max_half = in_rows_blk * (i_start + i_count / 2);
+    let j_max_half = cmp::min(j_max_half, cinfo.image_height);
 
     let j_start = in_rows_blk * i_start;
+    if j_max_half == j_start {
+        capture_screen(should_capture, vars);
+    }
+
     let mut j = j_start;
     let mut progress = 0;
-    let p = load_and_progresses.get_mut(&w).p.get_mut(&t);
     loop {
         let mut pre_process = |h| {
             for i in 0..in_rows_blk_half {
@@ -362,6 +350,10 @@ unsafe fn really_do_send_frame(
         pre_process(0);
         pre_process(1);
 
+        if j_max_half == j {
+            capture_screen(should_capture, vars);
+        }
+
         let mcu_buffer = &mut bufs.mcu;
         for k in 0..cinfo.MCUs_per_row {
             jpeg_compress_data(cinfo, output_buf.as_mut_ptr(), mcu_buffer.as_mut_ptr(), k);
@@ -377,18 +369,8 @@ unsafe fn really_do_send_frame(
     }
 }
 
-#[named]
-fn capture_screen(vars: &ThreadVars) {
-    unsafe {
-        let mut w = vars.v().work_index();
-        w.next_wrapped();
-
-        vars.v().set_screen_work_index(&w);
-
-        let mut count = mem::MaybeUninit::uninit();
-        let res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).screen_ready, 1);
-        if res != 0 {
-            nsDbgPrint!(releaseSemaphoreFailed, c_str!("screen_ready"), res);
-        }
+fn capture_screen(should_capture: &mut AtomicBool, vars: &ThreadDoVars) {
+    if should_capture.swap(true, Ordering::Relaxed) == false {
+        vars.capture_screen();
     }
 }

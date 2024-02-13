@@ -14,7 +14,7 @@ pub struct Config(());
 
 impl Config {
     fn dst_addr_ar_wrap(&self) -> &AtomicU32 {
-        unsafe { AtomicU32::from_ptr(ptr::addr_of_mut!((*rp_config).dstAddr)) }
+        unsafe { AtomicU32::from_mut(&mut (*rp_config).dstAddr) }
     }
 
     pub fn dst_addr_ar(&self) -> u32_ {
@@ -83,7 +83,13 @@ impl ThreadVars {
     }
 
     pub fn set_nwm_hdr(&self, v: &NwmHdr) {
-        unsafe { ptr::copy_nonoverlapping(v.0.as_ptr(), current_nwm_hdr.as_mut_ptr(), NwmHdr::N) }
+        unsafe {
+            ptr::copy_nonoverlapping(
+                v.0.as_ptr(),
+                crate::entries::thread_nwm::get_current_nwm_hdr().as_mut_ptr(),
+                NwmHdr::N,
+            )
+        }
     }
 }
 

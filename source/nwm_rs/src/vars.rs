@@ -23,11 +23,6 @@ pub use ranged::*;
 pub type CoreCount = IRanged<RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX>;
 
 pub static mut thread_main_handle: Handle = 0;
-pub static mut reset_threads: AtomicBool = const_default();
-pub static mut core_count_in_use: CoreCount = CoreCount::init();
-
-pub static mut min_send_interval_tick: u32_ = 0;
-pub static mut min_send_interval_ns: u32_ = 0;
 
 pub const SCREEN_COUNT: u32_ = 2;
 pub const WORK_COUNT: u32_ = 2;
@@ -37,122 +32,16 @@ pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
 pub type ScreenIndex = Ranged<SCREEN_COUNT>;
 
-#[derive(ConstDefault)]
-pub struct AllocStats {
-    pub qual: rp_alloc_stats,
-    pub comp: rp_alloc_stats,
-}
-
-#[derive(ConstDefault)]
-pub struct CInfo {
-    pub info: jpeg_compress_struct,
-    pub alloc_stats: AllocStats,
-}
-
-pub type CInfosThreads = RangedArray<CInfo, RP_CORE_COUNT_MAX>;
-
-pub type CInfos = RangedArray<RangedArray<CInfosThreads, WORK_COUNT>, SCREEN_COUNT>;
-
-pub type CInfosAll = RangedArray<CInfo, CINFOS_COUNT>;
-
-pub static mut cinfos: CInfos = <CInfos as ConstDefault>::DEFAULT;
-pub static mut cinfos_all: *mut CInfosAll = ptr::null_mut();
-
-pub static mut jerr: jpeg_error_mgr = <jpeg_error_mgr as ConstDefault>::DEFAULT;
-
-pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
-pub type RowProgresses = RangedArray<AtomicU32, RP_CORE_COUNT_MAX>;
-
-#[derive(ConstDefault)]
-pub struct LoadAndProgress {
-    pub n: Fix32,
-    pub n_last: Fix32,
-    pub n_adjusted: Fix32,
-    pub n_last_adjusted: Fix32,
-    pub v_adjusted: u32_,
-    pub v_last_adjusted: u32_,
-    pub p: RowProgresses,
-    pub p_snapshot: RowIndexes,
-}
-
-pub type LoadAndProgresses = RangedArray<LoadAndProgress, WORK_COUNT>;
-pub static mut load_and_progresses: LoadAndProgresses =
-    <LoadAndProgresses as ConstDefault>::DEFAULT;
-
-#[derive(ConstDefault)]
-pub struct Buffers {
-    pub prep: [JSAMPARRAY; MAX_COMPONENTS as usize],
-    pub color: [JSAMPARRAY; MAX_COMPONENTS as usize],
-    pub mcu: [JBLOCKROW; C_MAX_BLOCKS_IN_MCU as usize],
-}
-
-pub type WorkBuffers = RangedArray<RangedArray<Buffers, RP_CORE_COUNT_MAX>, WORK_COUNT>;
-pub static mut work_buffers: WorkBuffers = <WorkBuffers as ConstDefault>::DEFAULT;
-
-#[derive(ConstDefault)]
-pub struct BlitCtx {
-    pub width: u32_,
-    pub height: u32_,
-    pub format: u32_,
-    pub src: *mut u8_,
-    pub src_pitch: u32_,
-    pub bpp: u32_,
-
-    pub frame_id: u8_,
-    pub is_top: bool,
-
-    pub cinfo: *mut CInfosThreads,
-
-    pub i_start: RowIndexes,
-    pub i_count: RowIndexes,
-}
-
-pub type BlitCtxes = RangedArray<BlitCtx, WORK_COUNT>;
-pub static mut blit_ctxes: BlitCtxes = <BlitCtxes as ConstDefault>::DEFAULT;
-
 pub const NWM_HDR_SIZE: usize = 0x2a + 8;
 pub const DATA_HDR_SIZE: usize = 4;
-pub static mut last_send_tick: u32_ = 0;
-pub type NwmHdr = [u8_; NWM_HDR_SIZE];
-pub static mut current_nwm_hdr: NwmHdr = <NwmHdr as ConstDefault>::DEFAULT;
 
 pub const PACKET_SIZE: usize = 1448;
 pub const PACKET_DATA_SIZE: usize = PACKET_SIZE - DATA_HDR_SIZE;
-
-#[derive(ConstDefault)]
-pub struct DataBufInfo {
-    pub send_pos: *mut u8_,
-    pub pos: AtomicPtr<u8_>,
-    pub flag: AtomicU32,
-}
-
-#[derive(ConstDefault)]
-pub struct NwmInfo {
-    pub buf: *mut u8_,
-    pub buf_packet_last: *mut u8_,
-    pub info: DataBufInfo,
-}
-
-pub type NwmThreadInfos = RangedArray<NwmInfo, RP_CORE_COUNT_MAX>;
-pub type NwmInfos = RangedArray<NwmThreadInfos, WORK_COUNT>;
-pub static mut nwm_infos: NwmInfos = <NwmInfos as ConstDefault>::DEFAULT;
-
-pub static mut nwm_work_index: WorkIndex = WorkIndex::init();
-pub static mut nwm_thread_id: ThreadId = ThreadId::init();
-
-pub static mut nwm_need_syn: RangedArray<bool, WORK_COUNT> =
-    <RangedArray<bool, WORK_COUNT> as ConstDefault>::DEFAULT;
-
-pub static mut data_buf_hdrs: RangedArray<NwmHdr, WORK_COUNT> =
-    <RangedArray<NwmHdr, WORK_COUNT> as ConstDefault>::DEFAULT;
 
 pub const IMG_BUFFER_SIZE: usize = 0x60000;
 pub const NWM_BUFFER_SIZE: usize = 0x28000;
 
 pub static mut home_process_handle: Handle = 0;
-
-pub static mut current_frame_ids: RangedArray<u8_, SCREEN_COUNT> =
-    <RangedArray<u8_, SCREEN_COUNT> as ConstDefault>::DEFAULT;
 
 #[derive(ConstDefault)]
 pub struct PerWorkHandles {

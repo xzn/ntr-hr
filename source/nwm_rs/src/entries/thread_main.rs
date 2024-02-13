@@ -19,7 +19,9 @@ mod first_time_init {
         j: ThreadId,
         buf: &'static mut MemRegion8<NWM_BUFFER_SIZE>,
     ) {
-        let info = nwm_infos.get_mut(&i).get_mut(&j);
+        let info = crate::entries::thread_nwm::get_nwm_infos()
+            .get_mut(&i)
+            .get_mut(&j);
         info.buf = buf.to_ptr().add(NWM_HDR_SIZE + DATA_HDR_SIZE as usize);
         info.buf_packet_last = buf.to_ptr().add(NWM_BUFFER_SIZE - PACKET_DATA_SIZE);
     }
@@ -36,12 +38,17 @@ mod first_time_init {
     }
 
     unsafe fn init_jpeg_compress() -> Option<()> {
-        cinfos_all = ptr::addr_of_mut!(cinfos) as *mut CInfosAll;
+        use crate::entries::work_thread::{
+            get_cinfos, get_cinfos_all, get_jerr, CInfos, CInfosAll,
+        };
+
+        let cinfos_all = get_cinfos_all();
+        *cinfos_all = get_cinfos() as *mut CInfos as *mut CInfosAll;
 
         const _assert_cond: bool = mem::size_of::<CInfosAll>() == mem::size_of::<CInfos>();
         let _assert = <[(); _assert_cond as usize - 1]>::default();
 
-        let infos = &mut *cinfos_all;
+        let infos = &mut **cinfos_all;
 
         for i in Ranged::<CINFOS_COUNT>::all() {
             let info = &mut infos.get_mut(&i).info;
@@ -53,7 +60,7 @@ mod first_time_init {
             info.alloc.stats.offset = 0;
             info.alloc.stats.remaining = buf.len() as u32_;
 
-            info.err = jpeg_std_error(ptr::addr_of_mut!(jerr));
+            info.err = jpeg_std_error(get_jerr());
 
             info.mem_pool_manual = 1;
             jpeg_CreateCompress(
@@ -200,25 +207,25 @@ mod first_time_init {
 mod loop_main {
     use super::*;
 
-    unsafe fn core_count() -> CoreCount {
-        core_count_in_use
+    fn core_count() -> CoreCount {
+        crate::entries::work_thread::get_core_count_in_use()
     }
 
     unsafe fn set_core_count(v: u32_) {
-        core_count_in_use.set(v);
+        crate::entries::work_thread::set_core_count_in_use(v);
     }
 
     struct Config(());
 
     macro_rules! config_ar {
         ($v:ident) => {
-            AtomicU32::from_ptr(ptr::addr_of_mut!((*rp_config).$v)).load(Ordering::Relaxed)
+            AtomicU32::from_mut(&mut (*rp_config).$v).load(Ordering::Relaxed)
         };
     }
 
     macro_rules! set_config_ar {
         ($v:ident, $n:ident) => {
-            AtomicU32::from_ptr(ptr::addr_of_mut!((*rp_config).$v)).store($n, Ordering::Relaxed)
+            AtomicU32::from_mut(&mut (*rp_config).$v).store($n, Ordering::Relaxed)
         };
     }
 
@@ -358,10 +365,7 @@ mod loop_main {
         }
 
         let qos = config.qos_ar();
-        min_send_interval_tick =
-            (SYSCLOCK_ARM11 as u64_ * PACKET_SIZE as u64_ / qos as u64_) as u32_;
-        min_send_interval_ns =
-            (min_send_interval_tick as u64_ * 1000_000_000 / SYSCLOCK_ARM11 as u64_) as u32_;
+        crate::entries::thread_nwm::init_min_send_interval(qos);
 
         let thread_prio = config.thread_prio_ar();
         let res = svcSetThreadPriority(thread_main_handle, thread_prio as i32);
@@ -375,40 +379,14 @@ mod loop_main {
         };
         reset_jpeg_compress(&config, &vars);
 
-        last_send_tick = svcGetSystemTick() as u32_;
-
-        for i in WorkIndex::all() {
-            let load = load_and_progresses.get_mut(&i);
-
-            for j in ThreadId::up_to(&core_count) {
-                let info = nwm_infos.get_mut(&i).get_mut(&j);
-                let buf = info.buf;
-                let info = &mut info.info;
-                info.send_pos = buf;
-                *info.pos.as_ptr() = buf;
-                *info.flag.as_ptr() = 0;
-
-                *(*load.p.get_mut(&j)).as_ptr() = 0;
-                *load.p_snapshot.get_mut(&j) = 0;
-            }
-
-            load.n.0 = 0;
-            load.n_last.0 = 0;
-            load.n_adjusted.0 = 0;
-            load.n_last_adjusted.0 = 0;
-            load.v_adjusted = 0;
-            load.v_last_adjusted = 0;
-
-            *nwm_need_syn.get_mut(&i) = true;
-        }
-        nwm_work_index = WorkIndex::init();
-        nwm_thread_id = ThreadId::init();
+        crate::entries::work_thread::reset_vars();
+        crate::entries::thread_nwm::reset_vars();
 
         InitCleanup::init(vars)
     }
 
     unsafe fn reset_jpeg_compress(config: &Config, _vars: &InitVars) {
-        let infos = &mut *cinfos_all;
+        let infos = &mut **crate::entries::work_thread::get_cinfos_all();
 
         for i in Ranged::<CINFOS_COUNT>::all() {
             infos.get_mut(&i).info.global_state = JPEG_CSTATE_START;
@@ -472,7 +450,9 @@ mod loop_main {
             let info = &mut infos.get_mut(&h).info as j_compress_ptr as j_common_ptr;
 
             for i in ThreadId::all() {
-                let bufs = work_buffers.get_mut(&h).get_mut(&i);
+                let bufs = crate::entries::work_thread::get_work_buffers()
+                    .get_mut(&h)
+                    .get_mut(&i);
 
                 for ci in Ranged::<MAX_COMPONENTS>::all() {
                     *bufs.prep.get_unchecked_mut(ci.get() as usize) = jpeg_alloc_sarray(
@@ -513,7 +493,7 @@ mod loop_main {
     }
 
     fn clear_reset_threads_ar() {
-        unsafe { crate::reset_threads.store(false, Ordering::Relaxed) }
+        crate::entries::work_thread::clear_reset_threads_ar()
     }
 
     pub unsafe fn entry(_t: ThreadVars, s: &mut ThreadsStacks) -> Option<()> {
