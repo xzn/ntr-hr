@@ -301,6 +301,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
     }
 }
 
+#[named]
 unsafe fn really_do_send_frame(
     cinfo: &mut jpeg_compress_struct,
     src: *mut u8_,
@@ -361,7 +362,12 @@ unsafe fn really_do_send_frame(
         let mcu_buffer = &mut bufs.mcu;
         for k in 0..cinfo.MCUs_per_row {
             jpeg_compress_data(cinfo, output_buf.as_mut_ptr(), mcu_buffer.as_mut_ptr(), k);
-            jpeg_encode_mcu_huff(cinfo, mcu_buffer.as_mut_ptr());
+            if jpeg_encode_mcu_huff(cinfo, mcu_buffer.as_mut_ptr()) == 0 {
+                nsDbgPrint!(encodeMcuFailed);
+                (*cinfo.err).msg_code = JERR_OUT_OF_MEMORY as s32;
+                (*cinfo.err).msg_parm.i[0] = 0;
+                (*cinfo.err).error_exit.unwrap_unchecked()(cinfo as j_compress_ptr as j_common_ptr);
+            }
         }
 
         progress += 1;

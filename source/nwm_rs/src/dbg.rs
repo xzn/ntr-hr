@@ -73,4 +73,6 @@ impl nsDbgPrint_t {
     nsDbgPrint_fn!(nwmEventSignalFailed, "Signal nwm event failed %08x\n", ret: s32);
 
     nsDbgPrint_fn!(waitForSyncFailed, "Wait for %s sync failed: %08x\n", name: *const c_char, res: s32);
+
+    nsDbgPrint_fn!(encodeMcuFailed, "Encode MCUs failed, restarting...\n");
 }
