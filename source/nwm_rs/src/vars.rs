@@ -75,3 +75,7 @@ pub struct SynHandles {
 }
 
 pub static mut syn_handles: *mut SynHandles = ptr::null_mut();
+
+pub const fn J_MAX_HALF_FACTOR(_v: u32_) -> u32_ {
+    0
+}

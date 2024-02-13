@@ -322,7 +322,7 @@ unsafe fn really_do_send_frame(
 
     let j_max = in_rows_blk * (i_start + i_count);
     let j_max: u32 = cmp::min(j_max, cinfo.image_height);
-    let j_max_half = in_rows_blk * (i_start + i_count / 2);
+    let j_max_half = in_rows_blk * (i_start + J_MAX_HALF_FACTOR(i_count));
     let j_max_half = cmp::min(j_max_half, cinfo.image_height);
 
     let j_start = in_rows_blk * i_start;
