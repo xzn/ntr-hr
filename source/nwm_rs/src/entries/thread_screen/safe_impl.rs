@@ -143,12 +143,7 @@ unsafe fn get_game_handle() -> Handle {
     cap_params.game
 }
 
-fn capture_screen(
-    is_top: bool,
-    cap_info: &CapInfo,
-    dst: u32,
-    screen_work_index: WorkIndex,
-) -> bool {
+fn capture_screen(is_top: bool, cap_info: &CapInfo, dst: u32, w: WorkIndex) -> bool {
     unsafe {
         let phys = cap_info.src as u32_;
 
@@ -218,7 +213,7 @@ fn capture_screen(
         }
 
         let _ = svcInvalidateProcessDataCache(CUR_PROCESS_HANDLE, dst, buf_size);
-        let dma = cap_params.dmas.get_mut(&screen_work_index);
+        let dma = cap_params.dmas.get_mut(&w);
         if *dma != 0 {
             let _ = svcCloseHandle(*dma);
             *dma = 0;
@@ -368,13 +363,8 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
             }
             let cap_info = update_gpu_regs(is_top);
 
-            if capture_screen(
-                is_top,
-                &cap_info,
-                vars.img_dst(is_top),
-                vars.screen_work_index(),
-            ) {
-                let w = vars.screen_work_index();
+            let w = vars.screen_work_index();
+            if capture_screen(is_top, &cap_info, vars.img_dst(is_top), w) {
                 vars.release(is_top, cap_info.format, w);
                 break;
             }

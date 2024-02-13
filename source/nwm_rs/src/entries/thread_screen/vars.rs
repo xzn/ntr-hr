@@ -155,12 +155,12 @@ impl ScreenThreadVars {
     pub fn img_dst(&self, is_top: bool) -> u32_ {
         unsafe {
             let iinfo = img_infos.get_b_mut(is_top);
-            *iinfo.bufs.get(&iinfo.index) as u32_
+            *iinfo.bufs.get(&ptr::read_volatile(&iinfo.index)) as u32_
         }
     }
 
     pub fn screen_work_index(&self) -> WorkIndex {
-        unsafe { screen_work_index }
+        unsafe { ptr::read_volatile(&screen_work_index) }
     }
 
     #[named]
@@ -212,10 +212,13 @@ impl ScreenThreadVars {
             screen_work_vars = ScreenWorkVars::init(is_top, format, work_index);
 
             let mut count = mem::MaybeUninit::<s32>::uninit();
-            if *skip_frames.get(&screen_work_index) {
+            if ptr::read_volatile(skip_frames.get(&ptr::read_volatile(&screen_work_index))) {
                 let res = svcReleaseSemaphore(
                     count.as_mut_ptr(),
-                    (*syn_handles).threads.get(&screen_thread_id).work_ready,
+                    (*syn_handles)
+                        .threads
+                        .get(&ptr::read_volatile(&screen_thread_id))
+                        .work_ready,
                     1,
                 );
                 if res != 0 {
@@ -251,9 +254,9 @@ pub struct ScreenWorkVars {
 }
 
 impl ScreenEncodeVars {
-    pub fn init(is_top: bool, format: u32_) -> Self {
+    pub fn init(is_top: bool, format: u32_, work_index: WorkIndex) -> Self {
         unsafe {
-            let dma = *cap_params.dmas.get_b(is_top);
+            let dma = *cap_params.dmas.get(&work_index);
             ScreenEncodeVars {
                 is_top,
                 format,
@@ -266,12 +269,9 @@ impl ScreenEncodeVars {
 impl ScreenWorkVars {
     pub fn init(is_top: bool, format: u32_, work_index: WorkIndex) -> Self {
         unsafe {
-            screen_encode_vars = ScreenEncodeVars::init(is_top, format);
+            screen_encode_vars = ScreenEncodeVars::init(is_top, format, work_index);
 
-            Self {
-                is_top: is_top,
-                work_index: work_index,
-            }
+            Self { is_top, work_index }
         }
     }
 
@@ -305,7 +305,7 @@ impl ScreenWorkVars {
     pub fn img_src_prev(&self) -> *mut u8_ {
         unsafe {
             let iinfo = img_infos.get_b_mut(self.is_top());
-            let mut index = iinfo.index;
+            let mut index = ptr::read_volatile(&iinfo.index);
             index.prev_wrapped();
             *iinfo.bufs.get(&index)
         }
@@ -317,19 +317,19 @@ impl ScreenWorkVars {
     }
 
     pub unsafe fn set_skip_frame(&self, skip_frame: bool) {
-        *skip_frames.get_mut(&self.work_index) = skip_frame
+        ptr::write_volatile(skip_frames.get_mut(&self.work_index), skip_frame);
     }
 
     pub unsafe fn clear_screen_synced(&self) {
-        *screens_synced.get_mut(&self.work_index) = false
+        ptr::write_volatile(screens_synced.get_mut(&self.work_index), false);
     }
 
     pub unsafe fn set_screen_thread_id(&self, t: &ThreadId) {
-        screen_thread_id = *t;
+        ptr::write_volatile(&mut screen_thread_id, *t);
     }
 
     pub unsafe fn set_screen_work_index(&self, w: &WorkIndex) {
-        screen_work_index = *w;
+        ptr::write_volatile(&mut screen_work_index, *w);
     }
 
     #[named]
@@ -411,10 +411,11 @@ impl ScreenThreadVarsSync {
                 if crate::entries::work_thread::reset_threads() {
                     return None;
                 }
-                let synced = screens_synced.get_mut(&screen_work_index);
-                if !*synced {
+                let w = ptr::read_volatile(&screen_work_index);
+                let synced = screens_synced.get_mut(&w);
+                if !ptr::read_volatile(synced) {
                     let res = svcWaitSynchronization(
-                        (*syn_handles).works.get_mut(&screen_work_index).work_done,
+                        (*syn_handles).works.get_mut(&w).work_done,
                         if wait_sync { THREAD_WAIT_NS } else { 0 },
                     );
                     if res != 0 {
