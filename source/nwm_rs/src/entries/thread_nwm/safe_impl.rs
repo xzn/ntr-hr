@@ -76,8 +76,8 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
 
     let send_pos = dinfo.send_pos;
     let mut data_buf = send_pos;
-    let mut packet_buf = data_buf.sub(DATA_HDR_SIZE);
-    let mut nwm_buf = packet_buf.sub(NWM_HDR_SIZE);
+    let mut packet_buf = data_buf.sub(DATA_HDR_SIZE as usize);
+    let mut nwm_buf = packet_buf.sub(NWM_HDR_SIZE as usize);
 
     let size = pos.offset_from(send_pos) as u32_;
     let size = cmp::min(size, PACKET_DATA_SIZE as u32_);
@@ -115,8 +115,8 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
             let send_pos = dinfo.send_pos;
 
             data_buf = send_pos.sub(total_size as usize);
-            packet_buf = data_buf.sub(DATA_HDR_SIZE);
-            nwm_buf = packet_buf.sub(NWM_HDR_SIZE);
+            packet_buf = data_buf.sub(DATA_HDR_SIZE as usize);
+            nwm_buf = packet_buf.sub(NWM_HDR_SIZE as usize);
 
             let remaining_size = (PACKET_DATA_SIZE - total_size as usize) as u32_;
 
@@ -144,17 +144,22 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
                 }
                 continue;
             }
-            if remaining_size - size == 0 {
-                break;
-            }
-            return false;
+            break;
         }
     }
 
-    ptr::copy_nonoverlapping(get_current_nwm_hdr().as_mut_ptr(), nwm_buf, NWM_HDR_SIZE);
+    ptr::copy_nonoverlapping(
+        get_current_nwm_hdr().as_mut_ptr(),
+        nwm_buf,
+        NWM_HDR_SIZE as usize,
+    );
     let packet_len = init_udp_packet(nwm_buf, total_size + DATA_HDR_SIZE as u32_);
     let data_buf_hdr = v.data_buf_hdr();
-    ptr::copy(data_buf_hdr.as_ptr(), packet_buf as *mut u8_, DATA_HDR_SIZE);
+    ptr::copy(
+        data_buf_hdr.as_ptr(),
+        packet_buf as *mut u8_,
+        DATA_HDR_SIZE as usize,
+    );
     if thread_end_done && thread_end_id.get() == 0 {
         *packet_buf.add(1) |= flag as u8_;
     }

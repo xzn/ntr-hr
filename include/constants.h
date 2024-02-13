@@ -93,6 +93,10 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define RP_THREAD_PRIO_MAX (0x3f)
 #define RP_CORE_COUNT_DEFAULT RP_CORE_COUNT_MAX
 
+#define NWM_HDR_SIZE (0x2a + 8)
+#define DATA_HDR_SIZE (4)
+#define PACKET_SIZE (1448)
+
 #define DEBUG_BUF_SIZE (0x2000)
 
 #define SMALL_STACK_SIZE (0x1000)

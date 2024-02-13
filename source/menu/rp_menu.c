@@ -131,7 +131,7 @@ static void tryInitRemotePlay(u32 dstAddr) {
 		goto socket_exit;
 	}
 
-	u8 data[1] = {0};
+	u8 data[DATA_HDR_SIZE] = {0};
 
 	u32 controlCount = 10;
 	s32 ret;

@@ -32,11 +32,7 @@ pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
 pub type ScreenIndex = Ranged<SCREEN_COUNT>;
 
-pub const NWM_HDR_SIZE: usize = 0x2a + 8;
-pub const DATA_HDR_SIZE: usize = 4;
-
-pub const PACKET_SIZE: usize = 1448;
-pub const PACKET_DATA_SIZE: usize = PACKET_SIZE - DATA_HDR_SIZE;
+pub const PACKET_DATA_SIZE: usize = (PACKET_SIZE - DATA_HDR_SIZE) as usize;
 
 pub const IMG_BUFFER_SIZE: usize = 0x60000;
 pub const NWM_BUFFER_SIZE: usize = 0x28000;

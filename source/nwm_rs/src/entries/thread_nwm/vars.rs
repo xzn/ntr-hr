@@ -28,14 +28,14 @@ static mut nwm_thread_id: ThreadId = ThreadId::init();
 static mut nwm_need_syn: RangedArray<bool, WORK_COUNT> = const_default();
 
 static mut last_send_tick: u32_ = 0;
-pub type NwmHdr = [u8_; NWM_HDR_SIZE];
+pub type NwmHdr = [u8_; NWM_HDR_SIZE as usize];
 static mut current_nwm_hdr: NwmHdr = const_default();
 
 pub unsafe fn get_current_nwm_hdr() -> &'static mut NwmHdr {
     &mut current_nwm_hdr
 }
 
-pub type DataHdr = [u8_; DATA_HDR_SIZE];
+pub type DataHdr = [u8_; DATA_HDR_SIZE as usize];
 static mut data_buf_hdrs: RangedArray<DataHdr, WORK_COUNT> = const_default();
 
 pub unsafe fn get_data_buf_hdrs() -> &'static mut RangedArray<DataHdr, WORK_COUNT> {
