@@ -132,9 +132,15 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
             let thread_emptied = send_pos.add(size as usize) == pos;
             let thread_done = thread_emptied && flag > 0;
 
-            ptr::copy_nonoverlapping(send_pos, data_buf.add(total_size as usize), size as usize);
-            total_size += size;
-            remaining_size -= size;
+            if size > 0 {
+                ptr::copy_nonoverlapping(
+                    send_pos,
+                    data_buf.add(total_size as usize),
+                    size as usize,
+                );
+                total_size += size;
+                remaining_size -= size;
+            }
 
             sizes
                 .get_unchecked_mut(thread_end_id.get() as usize)
@@ -170,17 +176,11 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
         *send_pos = (*send_pos).add(sizes.get_unchecked(j.get() as usize).assume_init() as usize);
     };
 
-    for j in thread_id.from_wrapped_to(&thread_end_id, &core_count) {
-        update_send_pos(j);
-    }
     if !thread_end_done {
         update_send_pos(thread_end_id);
     }
 
     if thread_done {
-        for j in thread_id.from_wrapped_to(&thread_end_id, &core_count) {
-            winfo.get_mut(&j).info.flag.store(0, Ordering::Relaxed);
-        }
         *v.thread_id() = thread_end_id;
 
         if v.thread_id().get() == 0 {

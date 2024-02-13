@@ -66,18 +66,6 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
     {
         IRangedIterN::<BEG, END>(BEG, n.0)
     }
-
-    pub unsafe fn from_wrapped_to<const B2: u32_, const E2: u32_>(
-        &self,
-        o: &IRanged<BEG, END>,
-        n: &IRanged<B2, E2>,
-    ) -> IRangedIterW<BEG, END>
-    where
-        [(); { 1 - B2 } as usize]:,
-        [(); { END + 1 - E2 } as usize]:,
-    {
-        IRangedIterW::<BEG, END>(self.0, *o, n.0)
-    }
 }
 
 impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
