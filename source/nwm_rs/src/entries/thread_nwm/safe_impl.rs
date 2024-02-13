@@ -70,9 +70,6 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     let thread_id = *v.thread_id();
     let core_count = crate::entries::work_thread::get_core_count_in_use();
 
-    let mut nwm_buf_tmp: [mem::MaybeUninit<u8_>; PACKET_SIZE + NWM_HDR_SIZE] =
-        mem::MaybeUninit::<u8_>::uninit_array();
-
     let winfo = v.nwm_infos();
     let ninfo = winfo.get_mut(&thread_id);
     let dinfo = &mut ninfo.info;
@@ -104,13 +101,6 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     let mut total_size = size;
 
     if thread_done && thread_end_id.get() != 0 {
-        nwm_buf = nwm_buf_tmp.as_mut_ptr() as *mut _;
-        packet_buf = nwm_buf.add(NWM_HDR_SIZE);
-        data_buf = packet_buf.add(DATA_HDR_SIZE);
-
-        ptr::copy_nonoverlapping(send_pos, data_buf, size as usize);
-        let mut remaining_size = (PACKET_DATA_SIZE - size as usize) as u32_;
-
         loop {
             let ninfo = winfo.get_mut(&thread_end_id);
             let dinfo = &mut ninfo.info;
@@ -120,7 +110,17 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
                 return false;
             }
 
+            let data_buf_end = data_buf;
+
             let send_pos = dinfo.send_pos;
+
+            data_buf = send_pos.sub(total_size as usize);
+            packet_buf = data_buf.sub(DATA_HDR_SIZE);
+            nwm_buf = packet_buf.sub(NWM_HDR_SIZE);
+
+            ptr::copy_nonoverlapping(data_buf_end, data_buf, total_size as usize);
+            let mut remaining_size = (PACKET_DATA_SIZE - size as usize) as u32_;
+
             let size = pos.offset_from(send_pos) as u32_;
             let size = cmp::min(size, remaining_size);
 
@@ -132,11 +132,6 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
             }
 
             if size > 0 {
-                ptr::copy_nonoverlapping(
-                    send_pos,
-                    data_buf.add(total_size as usize),
-                    size as usize,
-                );
                 total_size += size;
                 remaining_size -= size;
             }
