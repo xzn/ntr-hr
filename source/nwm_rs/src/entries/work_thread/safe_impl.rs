@@ -15,7 +15,6 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
                 } else {
                     v.ready_next();
                     if !ready_work(&v) {
-                        set_reset_threads_ar();
                         return None;
                     }
                 }
@@ -38,7 +37,9 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
         return None;
     }
 
-    do_send_frame(&t, &v);
+    if !do_send_frame(&t, &v) {
+        return None;
+    }
 
     v.release();
     Some(())
@@ -279,7 +280,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
             ctx.src_pitch,
             *ctx.i_start.get(&t),
             *ctx.i_count.get(&t),
-            t,
+            &t,
             vars,
             &mut ctx.should_capture,
         );

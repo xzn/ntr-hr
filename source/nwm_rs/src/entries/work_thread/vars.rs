@@ -108,7 +108,7 @@ pub fn clear_reset_threads_ar() {
 }
 
 pub fn get_core_count_in_use() -> CoreCount {
-    unsafe { core_count_in_use }
+    unsafe { ptr::read_volatile(&core_count_in_use) }
 }
 
 pub unsafe fn set_core_count_in_use(v: u32_) {

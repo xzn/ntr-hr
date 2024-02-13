@@ -68,6 +68,7 @@ fn send_next_buffer_delay(v: &ThreadVars, work_flush: bool, pos: *mut u8, flag: 
 
 unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_) -> bool {
     let thread_id = *v.thread_id();
+    let core_count = crate::entries::work_thread::get_core_count_in_use();
 
     let mut nwm_buf_tmp: [mem::MaybeUninit<u8_>; PACKET_SIZE + NWM_HDR_SIZE] =
         mem::MaybeUninit::<u8_>::uninit_array();
@@ -102,7 +103,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     let mut thread_end_done = thread_done;
 
     if thread_done {
-        thread_end_id.next_wrapped_n(&crate::entries::work_thread::get_core_count_in_use());
+        thread_end_id.next_wrapped_n(&core_count);
     }
 
     let mut total_size = size;
@@ -141,7 +142,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
 
             thread_end_done = thread_done;
             if thread_done {
-                thread_end_id.next_wrapped_n(&crate::entries::work_thread::get_core_count_in_use());
+                thread_end_id.next_wrapped_n(&core_count);
                 if thread_end_id.get() == 0 {
                     break;
                 }
@@ -169,10 +170,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
         *send_pos = (*send_pos).add(sizes.get_unchecked(j.get() as usize).assume_init() as usize);
     };
 
-    for j in thread_id.from_wrapped_to(
-        &thread_end_id,
-        &crate::entries::work_thread::get_core_count_in_use(),
-    ) {
+    for j in thread_id.from_wrapped_to(&thread_end_id, &core_count) {
         update_send_pos(j);
     }
     if !thread_end_done {
@@ -180,10 +178,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     }
 
     if thread_done {
-        for j in thread_id.from_wrapped_to(
-            &thread_end_id,
-            &crate::entries::work_thread::get_core_count_in_use(),
-        ) {
+        for j in thread_id.from_wrapped_to(&thread_end_id, &core_count) {
             winfo.get_mut(&j).info.flag.store(0, Ordering::Relaxed);
         }
         *v.thread_id() = thread_end_id;
