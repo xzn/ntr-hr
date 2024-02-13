@@ -118,8 +118,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
             packet_buf = data_buf.sub(DATA_HDR_SIZE);
             nwm_buf = packet_buf.sub(NWM_HDR_SIZE);
 
-            ptr::copy_nonoverlapping(data_buf_end, data_buf, total_size as usize);
-            let mut remaining_size = (PACKET_DATA_SIZE - size as usize) as u32_;
+            let remaining_size = (PACKET_DATA_SIZE - total_size as usize) as u32_;
 
             let size = pos.offset_from(send_pos) as u32_;
             let size = cmp::min(size, remaining_size);
@@ -127,14 +126,13 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
             let thread_emptied = send_pos.add(size as usize) == pos;
             let thread_done = thread_emptied && flag > 0;
 
-            if !thread_done && size < remaining_size {
+            if size < remaining_size && !thread_done {
                 return false;
             }
 
-            if size > 0 {
-                total_size += size;
-                remaining_size -= size;
-            }
+            ptr::copy_nonoverlapping(data_buf_end, data_buf, total_size as usize);
+
+            total_size += size;
 
             end_size = size;
 
@@ -144,10 +142,12 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
                 if thread_end_id.get() == 0 {
                     break;
                 }
+                continue;
             }
-            if remaining_size == 0 {
+            if remaining_size - size == 0 {
                 break;
             }
+            return false;
         }
     }
 
@@ -163,13 +163,9 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     nwmSendPacket.unwrap_unchecked()(nwm_buf, packet_len);
     *v.last_send_tick() = tick;
 
-    let mut update_send_pos = |j| {
-        let send_pos = &mut winfo.get_mut(&j).info.send_pos;
-        *send_pos = (*send_pos).add(end_size as usize);
-    };
-
     if !thread_end_done {
-        update_send_pos(thread_end_id);
+        let send_pos = &mut winfo.get_mut(&thread_end_id).info.send_pos;
+        *send_pos = (*send_pos).add(end_size as usize);
     }
 
     if thread_done {
