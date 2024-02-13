@@ -72,12 +72,12 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
 
     let winfo = v.nwm_infos();
     let ninfo = winfo.get_mut(&thread_id);
-    let dinfo = &mut ninfo.info;
+    let dinfo = &ninfo.info;
 
     let send_pos = dinfo.send_pos;
-    let mut data_buf = send_pos;
-    let mut packet_buf = data_buf.sub(DATA_HDR_SIZE as usize);
-    let mut nwm_buf = packet_buf.sub(NWM_HDR_SIZE as usize);
+    let data_buf = send_pos;
+    let packet_buf = data_buf.sub(DATA_HDR_SIZE as usize);
+    let nwm_buf = packet_buf.sub(NWM_HDR_SIZE as usize);
 
     let size = pos.offset_from(send_pos) as u32_;
     let size = cmp::min(size, PACKET_DATA_SIZE as u32_);
@@ -110,15 +110,11 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
                 return false;
             }
 
-            let data_buf_end = data_buf;
+            let data_buf_end = data_buf.add(total_size as usize);
 
             let send_pos = dinfo.send_pos;
 
-            data_buf = send_pos.sub(total_size as usize);
-            packet_buf = data_buf.sub(DATA_HDR_SIZE as usize);
-            nwm_buf = packet_buf.sub(NWM_HDR_SIZE as usize);
-
-            let remaining_size = (PACKET_DATA_SIZE - total_size as usize) as u32_;
+            let remaining_size = PACKET_DATA_SIZE as u32_ - total_size;
 
             let size = pos.offset_from(send_pos) as u32_;
             let size = cmp::min(size, remaining_size);
@@ -130,7 +126,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
                 return false;
             }
 
-            ptr::copy_nonoverlapping(data_buf_end, data_buf, total_size as usize);
+            ptr::copy_nonoverlapping(send_pos, data_buf_end, size as usize);
             total_size += size;
 
             end_size = size;

@@ -22,11 +22,9 @@ mod first_time_init {
         let info = crate::entries::thread_nwm::get_nwm_infos()
             .get_mut(&i)
             .get_mut(&j);
-        info.buf = buf.to_ptr().add(
-            NWM_HDR_SIZE as usize
-                + DATA_HDR_SIZE as usize
-                + (if j.get() == 0 { 0 } else { PACKET_DATA_SIZE }) as usize,
-        );
+        info.buf = buf
+            .to_ptr()
+            .add(NWM_HDR_SIZE as usize + DATA_HDR_SIZE as usize);
         info.buf_packet_last = buf.to_ptr().add(NWM_BUFFER_SIZE - PACKET_DATA_SIZE);
     }
 
