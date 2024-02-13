@@ -64,7 +64,7 @@ impl nsDbgPrint_t {
 
     nsDbgPrint_fn!(createSemaphoreFailed, "Create %s semaphore failed: %08x\n", name: *const c_char, res: s32);
 
-    nsDbgPrint_fn!(releaseSemaphoreFailed, "Release %s semaphore failed: %08x\n", name: *const c_char, res: s32);
+    nsDbgPrint_fn!(releaseSemaphoreFailed, "Release %s semaphore failed (%x): %08x\n", name: *const c_char, w: u32_, res: s32);
 
     nsDbgPrint_fn!(allocFailed, "Bad alloc, size: %x/%x\n", total_size: u32_, alloc_size: u32_);
 

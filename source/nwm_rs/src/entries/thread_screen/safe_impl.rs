@@ -298,7 +298,7 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
                     if s == vars.priority_is_top() {
                         1 << SCALE_BITS
                     } else {
-                        vars.priority_factor_scaled()
+                        cmp::max(1 << SCALE_BITS, vars.priority_factor_scaled())
                     }
                 };
 

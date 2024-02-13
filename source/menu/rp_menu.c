@@ -8,25 +8,6 @@
 
 #include <memory.h>
 
-#define RP_QUALITY_DEFAULT (75)
-#define RP_QUALITY_MIN (10)
-#define RP_QUALITY_MAX (100)
-
-// 2.0 MBps or 16 Mbps
-#define RP_QOS_DEFAULT (2 * 1024 * 1024)
-// 0.5 MBps or 4 Mbps
-#define RP_QOS_MIN (1 * 1024 * 1024 / 2)
-// 2.5 MBps or 20 Mbps
-#define RP_QOS_MAX (5 * 1024 * 1024 / 2)
-
-#define RP_PORT_MIN (1024)
-#define RP_PORT_MAX (65535)
-
-#define RP_THREAD_PRIO_MIN (0x10)
-#define RP_THREAD_PRIO_MAX (0x3f)
-
-#define RP_CORE_COUNT_DEFAULT RP_CORE_COUNT_MAX
-
 static u32 rpStarted;
 
 enum {

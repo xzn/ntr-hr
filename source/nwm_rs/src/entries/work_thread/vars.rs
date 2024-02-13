@@ -184,8 +184,8 @@ impl ThreadDoVars {
                 }
             }
             if f == core_count_in_use.get() - 1 {
-                syn.work_done_count.store(0, Ordering::Relaxed);
-                syn.work_begin_flag.store(false, Ordering::Relaxed);
+                ptr::write_volatile(syn.work_done_count.as_ptr(), 0);
+                ptr::write_volatile(syn.work_begin_flag.as_ptr(), false);
 
                 self.v().release_work_done();
             }
@@ -328,7 +328,12 @@ impl ThreadBeginVars {
                         1,
                     );
                     if res != 0 {
-                        nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_begin_ready"), res);
+                        nsDbgPrint!(
+                            releaseSemaphoreFailed,
+                            c_str!("work_begin_ready"),
+                            self.v().work_index().get(),
+                            res
+                        );
                     }
                 }
             }
@@ -357,9 +362,16 @@ impl ThreadBeginVars {
 }
 
 pub unsafe fn work_thread_loop(t: ThreadId) -> Option<()> {
+    let mut work_index = WorkIndex::init();
     loop {
-        let vars = crate::entries::thread_screen::screen_encode_acquire(&t)?;
-        safe_impl::send_frame(&t, ThreadVars(vars))?
+        crate::entries::thread_screen::screen_encode_acquire(&t)?;
+        safe_impl::send_frame(
+            &t,
+            ThreadVars(crate::entries::thread_screen::ScreenWorkVars::init(
+                work_index,
+            )),
+        )?;
+        work_index.next_wrapped();
     }
 }
 

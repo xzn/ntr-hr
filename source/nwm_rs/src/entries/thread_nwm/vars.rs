@@ -47,6 +47,7 @@ static mut min_send_interval_ns: u32_ = 0;
 
 pub fn init_min_send_interval(qos: u32_) {
     unsafe {
+        let qos = cmp::max(qos, RP_QOS_MIN);
         min_send_interval_tick =
             (SYSCLOCK_ARM11 as u64_ * PACKET_SIZE as u64_ / qos as u64_) as u32_;
         min_send_interval_ns =
@@ -124,7 +125,7 @@ impl ThreadVars {
             let res =
                 svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).works.get(w).nwm_done, 1);
             if res != 0 {
-                nsDbgPrint!(releaseSemaphoreFailed, c_str!("nwm_done"), res);
+                nsDbgPrint!(releaseSemaphoreFailed, c_str!("nwm_done"), w.get(), res);
             }
 
             *nwm_need_syn.get_mut(w) = true;
@@ -176,7 +177,7 @@ pub unsafe fn release_nwm_ready(w: &WorkIndex) {
     let mut count = mem::MaybeUninit::uninit();
     let res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).works.get(w).nwm_ready, 1);
     if res != 0 {
-        nsDbgPrint!(releaseSemaphoreFailed, c_str!("nwm_ready"), res);
+        nsDbgPrint!(releaseSemaphoreFailed, c_str!("nwm_ready"), w.get(), res);
     }
 }
 

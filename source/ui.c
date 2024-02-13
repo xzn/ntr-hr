@@ -64,7 +64,7 @@ int __attribute__((weak)) showMsgVAPre() {
 void printTitleAndMsg(char title[LOCAL_TITLE_BUF_SIZE], const char *file_name, int line_number, const char *func_name, char msg[LOCAL_MSG_BUF_SIZE], const char* fmt, va_list va) {
 	if (file_name && func_name) {
 		u64 ticks = svcGetSystemTick();
-		u64 mono_us = ticks * 1000000000ULL / SYSCLOCK_ARM11;
+		u64 mono_us = ticks * 1000 / (SYSCLOCK_ARM11 / 1000000);
 		u32 pid = getCurrentProcessId();
 		xsnprintf(title, LOCAL_TITLE_BUF_SIZE, DBG_VERBOSE_TITLE, (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
 	} else {

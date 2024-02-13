@@ -209,7 +209,10 @@ impl ScreenThreadVars {
     #[named]
     pub fn release(self, is_top: bool, format: u32_, work_index: WorkIndex) {
         unsafe {
-            screen_work_vars = ScreenWorkVars::init(is_top, format, work_index);
+            ptr::write_volatile(
+                screen_encode_vars.get_mut(&work_index),
+                ScreenEncodeVars::init(is_top, format, work_index),
+            );
 
             let mut count = mem::MaybeUninit::<s32>::uninit();
             if ptr::read_volatile(skip_frames.get(&ptr::read_volatile(&screen_work_index))) {
@@ -222,7 +225,12 @@ impl ScreenThreadVars {
                     1,
                 );
                 if res != 0 {
-                    nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_ready"), res);
+                    nsDbgPrint!(
+                        releaseSemaphoreFailed,
+                        c_str!("work_ready"),
+                        work_index.get(),
+                        res
+                    );
                 }
             } else {
                 for j in ThreadId::up_to(&crate::entries::work_thread::get_core_count_in_use()) {
@@ -232,7 +240,12 @@ impl ScreenThreadVars {
                         1,
                     );
                     if res != 0 {
-                        nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_ready"), res);
+                        nsDbgPrint!(
+                            releaseSemaphoreFailed,
+                            c_str!("work_ready"),
+                            work_index.get(),
+                            res
+                        );
                     }
                 }
             }
@@ -267,11 +280,12 @@ impl ScreenEncodeVars {
 }
 
 impl ScreenWorkVars {
-    pub fn init(is_top: bool, format: u32_, work_index: WorkIndex) -> Self {
+    pub fn init(work_index: WorkIndex) -> Self {
         unsafe {
-            screen_encode_vars = ScreenEncodeVars::init(is_top, format, work_index);
-
-            Self { is_top, work_index }
+            Self {
+                is_top: ptr::read_volatile(&screen_encode_vars.get(&work_index).is_top),
+                work_index,
+            }
         }
     }
 
@@ -281,13 +295,13 @@ impl ScreenWorkVars {
 
     pub fn read_is_top(&mut self) -> bool {
         unsafe {
-            self.is_top = ptr::read_volatile(&screen_encode_vars.is_top);
+            self.is_top = ptr::read_volatile(&screen_encode_vars.get(&self.work_index).is_top);
             self.is_top
         }
     }
 
     pub fn format(&self) -> u32_ {
-        unsafe { ptr::read_volatile(&screen_encode_vars.format) }
+        unsafe { ptr::read_volatile(&screen_encode_vars.get(&self.work_index).format) }
     }
 
     pub fn work_index(&self) -> WorkIndex {
@@ -295,7 +309,7 @@ impl ScreenWorkVars {
     }
 
     pub fn dma(&self) -> Handle {
-        unsafe { ptr::read_volatile(&screen_encode_vars.dma) }
+        unsafe { ptr::read_volatile(&screen_encode_vars.get(&self.work_index).dma) }
     }
 
     pub fn img_src(&self) -> *mut u8_ {
@@ -337,7 +351,12 @@ impl ScreenWorkVars {
         let mut count = mem::MaybeUninit::uninit();
         let res = svcReleaseSemaphore(count.as_mut_ptr(), (*syn_handles).screen_ready, 1);
         if res != 0 {
-            nsDbgPrint!(releaseSemaphoreFailed, c_str!("screen_ready"), res);
+            nsDbgPrint!(
+                releaseSemaphoreFailed,
+                c_str!("screen_ready"),
+                self.work_index.get(),
+                res
+            );
         }
     }
 
@@ -350,22 +369,27 @@ impl ScreenWorkVars {
             1,
         );
         if res != 0 {
-            nsDbgPrint!(releaseSemaphoreFailed, c_str!("work_done"), res);
+            nsDbgPrint!(
+                releaseSemaphoreFailed,
+                c_str!("work_done"),
+                self.work_index.get(),
+                res
+            );
         }
     }
 }
 
-static mut screen_encode_vars: ScreenEncodeVars = const_default();
-static mut screen_work_vars: ScreenWorkVars = const_default();
+static mut screen_encode_vars: RangedArray<ScreenEncodeVars, WORK_COUNT> = const_default();
 
 #[named]
-pub unsafe fn screen_encode_acquire(t: &ThreadId) -> Option<ScreenWorkVars> {
+pub unsafe fn screen_encode_acquire(t: &ThreadId) -> Option<()> {
     loop {
         if crate::entries::work_thread::reset_threads() {
             return None;
         }
 
         let res = svcWaitSynchronization((*syn_handles).threads.get(&t).work_ready, THREAD_WAIT_NS);
+
         if res != 0 {
             if res != RES_TIMEOUT as s32 {
                 nsDbgPrint!(waitForSyncFailed, c_str!("work_ready"), res);
@@ -374,7 +398,7 @@ pub unsafe fn screen_encode_acquire(t: &ThreadId) -> Option<ScreenWorkVars> {
             continue;
         }
 
-        return Some(screen_work_vars);
+        return Some(());
     }
 }
 
@@ -413,6 +437,7 @@ impl ScreenThreadVarsSync {
                 }
                 let w = ptr::read_volatile(&screen_work_index);
                 let synced = screens_synced.get_mut(&w);
+
                 if !ptr::read_volatile(synced) {
                     let res = svcWaitSynchronization(
                         (*syn_handles).works.get_mut(&w).work_done,
