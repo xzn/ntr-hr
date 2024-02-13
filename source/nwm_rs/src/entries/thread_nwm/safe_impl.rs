@@ -127,6 +127,10 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
             let thread_emptied = send_pos.add(size as usize) == pos;
             let thread_done = thread_emptied && flag > 0;
 
+            if !thread_done && size < remaining_size {
+                return false;
+            }
+
             if size > 0 {
                 ptr::copy_nonoverlapping(
                     send_pos,
