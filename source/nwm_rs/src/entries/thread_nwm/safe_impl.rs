@@ -93,12 +93,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     }
 
     let mut thread_end_id = thread_id;
-    let mut sizes: [mem::MaybeUninit<u32_>; RP_CORE_COUNT_MAX as usize] =
-        mem::MaybeUninit::<u32_>::uninit_array();
-
-    sizes
-        .get_unchecked_mut(thread_id.get() as usize)
-        .write(size);
+    let mut end_size = size;
 
     let mut thread_end_done = thread_done;
 
@@ -142,9 +137,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
                 remaining_size -= size;
             }
 
-            sizes
-                .get_unchecked_mut(thread_end_id.get() as usize)
-                .write(size);
+            end_size = size;
 
             thread_end_done = thread_done;
             if thread_done {
@@ -173,7 +166,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
 
     let mut update_send_pos = |j| {
         let send_pos = &mut winfo.get_mut(&j).info.send_pos;
-        *send_pos = (*send_pos).add(sizes.get_unchecked(j.get() as usize).assume_init() as usize);
+        *send_pos = (*send_pos).add(end_size as usize);
     };
 
     if !thread_end_done {
