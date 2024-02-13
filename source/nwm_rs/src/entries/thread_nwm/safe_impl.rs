@@ -14,7 +14,7 @@ fn try_send_next_buffer_may_skip(v: ThreadVars, work_flush: bool, mut may_skip: 
         }
 
         let ninfo = v.nwm_info();
-        let dinfo = &mut ninfo.info;
+        let dinfo = &ninfo.info;
 
         let (filled, pos, flag) = data_buf_filled(dinfo);
         if !filled {
@@ -103,7 +103,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     if thread_done && thread_end_id.get() != 0 {
         loop {
             let ninfo = winfo.get_mut(&thread_end_id);
-            let dinfo = &mut ninfo.info;
+            let dinfo = &ninfo.info;
 
             let (filled, pos, flag) = data_buf_filled(dinfo);
             if !filled {
@@ -131,7 +131,6 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
             }
 
             ptr::copy_nonoverlapping(data_buf_end, data_buf, total_size as usize);
-
             total_size += size;
 
             end_size = size;
