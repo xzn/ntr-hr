@@ -47,9 +47,10 @@ static mut min_send_interval_ns: u32_ = 0;
 
 pub fn init_min_send_interval(qos: u32_) {
     unsafe {
-        let qos = cmp::max(qos, RP_QOS_MIN);
-        min_send_interval_tick =
-            (SYSCLOCK_ARM11 as u64_ * PACKET_SIZE as u64_ / qos as u64_) as u32_;
+        min_send_interval_tick = core::intrinsics::unchecked_div(
+            SYSCLOCK_ARM11 as u64_ * PACKET_SIZE as u64_,
+            qos as u64_,
+        ) as u32_;
         min_send_interval_ns =
             (min_send_interval_tick as u64_ * 1000_000_000 / SYSCLOCK_ARM11 as u64_) as u32_;
     }

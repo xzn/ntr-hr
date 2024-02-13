@@ -64,6 +64,6 @@ impl Div for Fix {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
-        Self((self.0 << SCALE_BITS) / rhs.0)
+        unsafe { Self(core::intrinsics::unchecked_div(self.0 << SCALE_BITS, rhs.0)) }
     }
 }

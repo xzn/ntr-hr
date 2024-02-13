@@ -298,15 +298,19 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
                     if s == vars.priority_is_top() {
                         1 << SCALE_BITS
                     } else {
-                        cmp::max(1 << SCALE_BITS, vars.priority_factor_scaled())
+                        vars.priority_factor_scaled()
                     }
                 };
 
                 let prio = [get_prio_scaled(false), get_prio_scaled(true)];
 
                 let get_factor = |b| -> u32_ {
-                    ((1 << SCALE_BITS) as u64_ * *vars.frame_queue(b) as u64_
-                        / prio[b as usize] as u64_) as u32_
+                    unsafe {
+                        core::intrinsics::unchecked_div(
+                            (1 << SCALE_BITS) as u64_ * *vars.frame_queue(b) as u64_,
+                            prio[b as usize] as u64_,
+                        ) as u32_
+                    }
                 };
                 let factor = [get_factor(false), get_factor(true)];
 

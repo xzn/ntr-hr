@@ -95,7 +95,8 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
         let mcu_size = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
         let mcus_per_row = ctx.height / mcu_size;
         let mcu_rows = ctx.width / mcu_size;
-        let mcu_rows_per_thread = (mcu_rows + core_count.get() - 1) / core_count.get();
+        let mcu_rows_per_thread =
+            core::intrinsics::unchecked_div(mcu_rows + core_count.get() - 1, core_count.get());
 
         l.n = Fix::fix32(mcu_rows_per_thread);
         l.n_last = Fix::fix32(mcu_rows - mcu_rows_per_thread * core_count_rest);
@@ -114,6 +115,8 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
                 progress_all = progress_all + Fix::fix(*s.get(&j));
             }
             progress_all = progress_all / Fix::fix(core_count.get());
+
+            progress_all = cmp::max(progress_all, Fix::fix(1));
 
             if progress_last < progress_all.unfix() {
                 rows_last = rows_last * Fix::fix(progress_last) / progress_all
@@ -140,7 +143,7 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
             if rows < Fix::fix(mcu_rows_per_thread) {
                 rows = Fix::fix(mcu_rows_per_thread)
             } else {
-                let rows_max = (mcu_rows - 1) / core_count_rest;
+                let rows_max = core::intrinsics::unchecked_div(mcu_rows - 1, core_count_rest);
                 if rows > Fix::fix(rows_max) {
                     rows = Fix::fix(rows_max);
                 }
