@@ -64,7 +64,18 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
         [(); { 1 - B2 } as usize]:,
         [(); { END + 1 - E2 } as usize]:,
     {
-        IRangedIterN::<BEG, END>(BEG, n.0)
+        Self::init().from_up_to(n)
+    }
+
+    pub fn from_up_to<const B2: u32_, const E2: u32_>(
+        &self,
+        n: &IRanged<B2, E2>,
+    ) -> IRangedIterN<BEG, END>
+    where
+        [(); { 1 - B2 } as usize]:,
+        [(); { END + 1 - E2 } as usize]:,
+    {
+        IRangedIterN::<BEG, END>(self.0, n.0)
     }
 }
 

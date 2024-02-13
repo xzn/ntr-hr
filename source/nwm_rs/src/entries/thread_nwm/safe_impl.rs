@@ -231,7 +231,7 @@ unsafe fn ip_checksum(data: *mut u8_, mut length: usize) -> u16_ {
     htons(!acc as u16_)
 }
 
-fn data_buf_filled(dinfo: &mut DataBufInfo) -> (bool, *mut u8_, u32_) {
+fn data_buf_filled(dinfo: &DataBufInfo) -> (bool, *mut u8_, u32_) {
     let flag = dinfo.flag.load(Ordering::Acquire);
     let pos = dinfo.pos.load(Ordering::Relaxed);
     (dinfo.send_pos < pos || flag > 0, pos, flag)
