@@ -37,7 +37,7 @@ pub struct CInfo {
 
 pub type CInfosThreads = RangedArray<CInfo, RP_CORE_COUNT_MAX>;
 
-pub type CInfos = RangedArray<RangedArray<CInfosThreads, WORK_COUNT>, SCREEN_COUNT>;
+pub type CInfos = RangedArray<CInfosThreads, WORK_COUNT>;
 
 pub type CInfosAll = RangedArray<CInfo, CINFOS_COUNT>;
 
@@ -119,7 +119,7 @@ pub unsafe fn reset_vars() {
     for i in WorkIndex::all() {
         let load = load_and_progresses.get_mut(&i);
 
-        for j in ThreadId::up_to(&core_count_in_use) {
+        for j in ThreadId::up_to(&get_core_count_in_use()) {
             let info = crate::entries::thread_nwm::get_nwm_infos()
                 .get_mut(&i)
                 .get_mut(&j);
@@ -177,13 +177,14 @@ impl ThreadDoVars {
             let syn = (*syn_handles).works.get(&w);
 
             let f = syn.work_done_count.fetch_add(1, Ordering::Relaxed);
+            let core_count = get_core_count_in_use();
             if f == 0 {
                 let p = load_and_progresses.get_mut(&w);
-                for j in ThreadId::up_to(&core_count_in_use) {
+                for j in ThreadId::up_to(&core_count) {
                     *p.p_snapshot.get_mut(&j) = p.p.get_mut(&j).load(Ordering::Relaxed);
                 }
             }
-            if f == core_count_in_use.get() - 1 {
+            if f == core_count.get() - 1 {
                 ptr::write_volatile(syn.work_done_count.as_ptr(), 0);
                 ptr::write_volatile(syn.work_begin_flag.as_ptr(), false);
 
@@ -260,11 +261,7 @@ impl ThreadBeginVars {
     }
 
     pub fn cinfos(&self) -> &mut CInfosThreads {
-        unsafe {
-            cinfos
-                .get_mut(&ScreenIndex::from_bool(self.v().is_top()))
-                .get_mut(&self.v().work_index())
-        }
+        unsafe { cinfos.get_mut(&self.v().work_index()) }
     }
 
     pub fn nwm_infos(&self) -> &mut crate::entries::thread_nwm::NwmThreadInfos {
@@ -320,7 +317,7 @@ impl ThreadBeginVars {
     pub fn release_and_capture_screen(self, t: &ThreadId) -> ThreadDoVars {
         unsafe {
             let mut count = mem::MaybeUninit::uninit();
-            for j in ThreadId::up_to(&core_count_in_use) {
+            for j in ThreadId::up_to(&get_core_count_in_use()) {
                 if j != *t {
                     let res = svcReleaseSemaphore(
                         count.as_mut_ptr(),

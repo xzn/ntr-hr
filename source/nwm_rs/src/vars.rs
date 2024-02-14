@@ -26,7 +26,7 @@ pub static mut thread_main_handle: Handle = 0;
 
 pub const SCREEN_COUNT: u32_ = 2;
 pub const WORK_COUNT: u32_ = 2;
-pub const CINFOS_COUNT: u32_ = SCREEN_COUNT * WORK_COUNT * RP_CORE_COUNT_MAX;
+pub const CINFOS_COUNT: u32_ = WORK_COUNT * RP_CORE_COUNT_MAX;
 
 pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
