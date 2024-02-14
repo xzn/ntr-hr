@@ -33,8 +33,8 @@ Removed all other features aside from streaming and PLG loading:
 
 - Some games are not compatible with streaming.
 - When cheat plugins have been loaded, launching another game (or the same game again) would hang for certain plugins.
-- - [CTRPluginFramework](https://github.com/Nanquitas/CTRPluginFramework-BlankTemplate) is known to hang the launching of next game. Most simpler plugins should no longer cause a hang.
 - [UWPStreamer](https://github.com/toolboc/UWPStreamer) flickers and crashes sometimes.
+- [NTRView for Wii U](https://github.com/yawut/ntrview-wiiu) flickers when core count is more than one.
 - 3DS web browser will crash if used with remote play.
 
 ## Credits
