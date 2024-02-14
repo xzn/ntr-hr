@@ -313,8 +313,8 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
                 };
                 let factor = [get_factor(false), get_factor(true)];
 
-                if factor[false as usize] < vars.priority_factor_scaled()
-                    && factor[true as usize] < vars.priority_factor_scaled()
+                if factor[false as usize] < (1 << SCALE_BITS)
+                    && factor[true as usize] < (1 << SCALE_BITS)
                 {
                     *vars.frame_queue(false) += vars.priority_factor_scaled();
                     *vars.frame_queue(true) += vars.priority_factor_scaled();
@@ -328,7 +328,7 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
 
                 let s = is_top;
                 let mut try_dequeue = |b| -> bool {
-                    if *vars.frame_queue(b) > prio[b as usize] {
+                    if *vars.frame_queue(b) >= prio[b as usize] {
                         if vars.port_screen_sync(b, false) {
                             is_top = b;
                             *vars.frame_queue(b) -= prio[b as usize];
@@ -348,7 +348,7 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
 
                 if let Some(s) = vars.port_screens_sync() {
                     is_top = s;
-                    if *vars.frame_queue(is_top) > prio[is_top as usize] {
+                    if *vars.frame_queue(is_top) >= prio[is_top as usize] {
                         *vars.frame_queue(is_top) -= prio[is_top as usize];
                     } else {
                         *vars.frame_queue(is_top) = 0;
