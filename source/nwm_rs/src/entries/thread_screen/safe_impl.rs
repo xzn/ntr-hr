@@ -289,9 +289,8 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
                 if vars.priority_factor() == 0 {
                     if vars.port_screen_sync(is_top, true) {
                         break;
-                    } else {
-                        continue;
                     }
+                    continue;
                 }
 
                 let get_prio_scaled = |s| -> u32_ {
