@@ -12,22 +12,22 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
             if !skip_frame {
                 if !ready_nwm(&t, &v) {
                     return None;
-                } else {
-                    v.ready_next();
-                    if !ready_work(&v) {
-                        return None;
-                    }
+                }
+
+                v.ready_next();
+                if !ready_work(&v) {
+                    return None;
                 }
             }
 
             if !skip_frame {
                 break v.release_and_capture_screen(&t);
+            }
+
+            if let Some(_) = v.release_skip_frame(&t) {
+                v.v_mut().read_is_top();
             } else {
-                if let Some(_) = v.release_skip_frame(&t) {
-                    v.v_mut().read_is_top();
-                } else {
-                    return None;
-                }
+                return None;
             }
         },
         Err(v) => v.acquire(&t)?,
