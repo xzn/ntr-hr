@@ -76,6 +76,7 @@ typedef unsigned short J16SAMPLE;
  */
 
 typedef short JCOEF;
+// typedef int JCOEF;
 
 
 /* Compressed datastreams are represented as arrays of JOCTET.

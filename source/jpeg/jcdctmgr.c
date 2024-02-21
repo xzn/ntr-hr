@@ -611,6 +611,9 @@ forward_DCT_float(j_compress_ptr cinfo, jpeg_component_info *compptr,
   sample_data += start_row;     /* fold in the vertical offset once */
 
   for (bi = 0; bi < num_blocks; bi++, start_col += DCTSIZE) {
+    if (sizeof(*workspace) == sizeof(*coef_blocks[bi]))
+      workspace = coef_blocks[bi];
+
     /* Load data into workspace, applying unsigned->signed conversion */
     (*do_convsamp) (sample_data, start_col, workspace);
 
@@ -729,18 +732,23 @@ _jinit_forward_dct(j_compress_ptr cinfo)
 
   /* Allocate workspace memory */
 #ifdef DCT_FLOAT_SUPPORTED
-  if (cinfo->dct_method == JDCT_FLOAT)
-    fdct->float_workspace = (FAST_FLOAT *)
-      (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
-                                  sizeof(FAST_FLOAT) * DCTSIZE2);
-  else
+  if (cinfo->dct_method == JDCT_FLOAT) {
+    if (!cinfo->skip_buffers)
+      fdct->float_workspace = (FAST_FLOAT *)
+        (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
+                                    sizeof(FAST_FLOAT) * DCTSIZE2);
+    else
+      fdct->float_workspace = 0;
+  } else
 #endif
+  {
     if (!cinfo->skip_buffers)
       fdct->workspace = (DCTELEM *)
         (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
                                     sizeof(DCTELEM) * DCTSIZE2);
     else
       fdct->workspace = 0;
+  }
 
   /* Mark divisor tables unallocated */
   for (i = 0; i < NUM_QUANT_TBLS; i++) {
