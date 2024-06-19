@@ -31,6 +31,7 @@ Removed all other features aside from streaming and PLG loading:
 
 ## Known issues
 
+- Skip duplicate frames doesn't work as expected sometimes.
 - Some games are not compatible with streaming.
 - When cheat plugins have been loaded, launching another game (or the same game again) would hang for certain plugins.
 - [UWPStreamer](https://github.com/toolboc/UWPStreamer) flickers and crashes sometimes.
