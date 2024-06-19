@@ -35,6 +35,7 @@ impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterN<BEG, END> {
     }
 }
 
+#[allow(dead_code)]
 pub struct IRangedIterW<const BEG: u32_, const END: u32_>(u32_, IRanged<BEG, END>, u32_);
 
 impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterW<BEG, END> {

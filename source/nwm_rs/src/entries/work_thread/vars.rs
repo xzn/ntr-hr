@@ -373,13 +373,11 @@ pub unsafe fn work_thread_loop(t: ThreadId) -> Option<()> {
 }
 
 pub unsafe fn no_skip_next_frames() {
+    crate::entries::thread_screen::set_no_skip_frame(false);
+    crate::entries::thread_screen::set_no_skip_frame(true);
+
     let _ = svcSignalEvent(*(*syn_handles).port_screen_ready.get_b(false));
     let _ = svcSignalEvent(*(*syn_handles).port_screen_ready.get_b(true));
-
-    for i in crate::entries::thread_screen::ImgWorkIndex::all() {
-        **crate::entries::thread_screen::get_img_info(false, &i) += 1;
-        **crate::entries::thread_screen::get_img_info(false, &i) += 1;
-    }
 }
 
 #[named]

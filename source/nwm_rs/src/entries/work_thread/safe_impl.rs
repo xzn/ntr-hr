@@ -6,8 +6,19 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
             let format_changed = bctx_init(&v);
 
             v.dma_sync();
+            let is_top = v.v().is_top();
 
-            let skip_frame = !format_changed && !v.frame_changed();
+            let timing = unsafe { svcGetSystemTick() as u32_ };
+            unsafe {
+                let last_timing = crate::entries::thread_screen::get_last_frame_timing(is_top);
+                if timing - last_timing >= SYSCLOCK_ARM11 {
+                    crate::entries::thread_screen::set_no_skip_frame(is_top);
+                }
+            }
+
+            let skip_frame = !unsafe { crate::entries::thread_screen::reset_no_skip_frame(is_top) }
+                && !format_changed
+                && !v.frame_changed();
 
             if !skip_frame {
                 if !ready_nwm(&t, &v) {
@@ -18,9 +29,11 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
                 if !ready_work(&v) {
                     return None;
                 }
-            }
 
-            if !skip_frame {
+                unsafe {
+                    crate::entries::thread_screen::set_last_frame_timing(is_top, timing);
+                }
+
                 break v.release_and_capture_screen(&t);
             }
 

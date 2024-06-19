@@ -9,6 +9,8 @@ static mut frame_queues: RangedArray<u32_, SCREEN_COUNT> = const_default();
 static mut screen_work_index: WorkIndex = WorkIndex::init();
 static mut screen_thread_id: ThreadId = ThreadId::init();
 static mut skip_frames: RangedArray<bool, WORK_COUNT> = const_default();
+static mut no_skip_frames: RangedArray<bool, SCREEN_COUNT> = const_default();
+static mut last_frame_timings: RangedArray<u32_, SCREEN_COUNT> = const_default();
 static mut port_game_pid: AtomicU32 = const_default();
 
 type DmaHandles = RangedArray<Handle, WORK_COUNT>;
@@ -42,6 +44,24 @@ pub struct ImgInfo {
 
 pub type ImgInfos = RangedArray<ImgInfo, SCREEN_COUNT>;
 pub static mut img_infos: ImgInfos = const_default();
+
+pub unsafe fn reset_no_skip_frame(is_top: bool) -> bool {
+    let b = *no_skip_frames.get_b(is_top);
+    *no_skip_frames.get_b_mut(is_top) = false;
+    b
+}
+
+pub unsafe fn set_no_skip_frame(is_top: bool) {
+    *no_skip_frames.get_b_mut(is_top) = true;
+}
+
+pub unsafe fn get_last_frame_timing(is_top: bool) -> u32_ {
+    *last_frame_timings.get_b(is_top)
+}
+
+pub unsafe fn set_last_frame_timing(is_top: bool, timing: u32_) {
+    *last_frame_timings.get_b_mut(is_top) = timing;
+}
 
 pub unsafe fn set_port_game_pid(v: u32_) {
     port_game_pid.store(v, Ordering::Relaxed);
@@ -121,6 +141,7 @@ pub unsafe fn init_img_info<const T: usize>(
     *img_infos.get_mut(&j).bufs.get_mut(&i) = m.to_ptr();
 }
 
+#[allow(dead_code)]
 pub unsafe fn get_img_info(is_top: bool, j: &ImgWorkIndex) -> &mut *mut u8 {
     img_infos.get_b_mut(is_top).bufs.get_mut(&j)
 }
