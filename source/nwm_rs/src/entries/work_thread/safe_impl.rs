@@ -317,7 +317,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
 #[named]
 unsafe fn really_do_send_frame(
     cinfo: &mut jpeg_compress_struct,
-    src: *mut u8_,
+    src: *const u8_,
     pitch: u32_,
     i_start: u32_,
     i_count: u32_,

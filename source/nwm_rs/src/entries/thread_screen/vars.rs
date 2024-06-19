@@ -333,11 +333,11 @@ impl ScreenWorkVars {
         unsafe { ptr::read_volatile(&screen_encode_vars.get(&self.work_index).dma) }
     }
 
-    pub fn img_src(&self) -> *mut u8_ {
-        ScreenThreadVars(()).img_dst(self.is_top()) as *mut u8_
+    pub fn img_src(&self) -> *const u8_ {
+        ScreenThreadVars(()).img_dst(self.is_top()) as *const u8_
     }
 
-    pub fn img_src_prev(&self) -> *mut u8_ {
+    pub fn img_src_prev(&self) -> *const u8_ {
         unsafe {
             let iinfo = img_infos.get_b_mut(self.is_top());
             let mut index = ptr::read_volatile(&iinfo.index);

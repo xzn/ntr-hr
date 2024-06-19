@@ -142,8 +142,8 @@ mod first_time_init {
             }
         }
 
-        for j in ScreenIndex::all() {
-            for i in crate::entries::thread_screen::ImgWorkIndex::all() {
+        for i in ScreenIndex::all() {
+            for j in crate::entries::thread_screen::ImgWorkIndex::all() {
                 if let Some(m) = request_mem_from_pool::<IMG_BUFFER_SIZE>() {
                     crate::entries::thread_screen::init_img_info(&i, &j, m);
                 } else {

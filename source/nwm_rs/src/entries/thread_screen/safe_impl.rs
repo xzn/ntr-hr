@@ -212,7 +212,6 @@ fn capture_screen(is_top: bool, cap_info: &CapInfo, dst: u32, w: WorkIndex) -> b
             return false;
         }
 
-        let _ = svcInvalidateProcessDataCache(CUR_PROCESS_HANDLE, dst, buf_size);
         let dma = cap_params.dmas.get_mut(&w);
         if *dma != 0 {
             let _ = svcCloseHandle(*dma);

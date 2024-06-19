@@ -5,7 +5,7 @@ pub struct BlitCtx {
     pub width: u32_,
     pub height: u32_,
     pub format: u32_,
-    pub src: *mut u8_,
+    pub src: *const u8_,
     pub src_pitch: u32_,
     pub bpp: u32_,
 
@@ -294,6 +294,10 @@ impl ThreadBeginVars {
                     svcSleepThread(THREAD_WAIT_NS);
                 }
             }
+
+            let ctx = self.ctx();
+            let src_len = ctx.width * ctx.src_pitch;
+            let _ = svcInvalidateProcessDataCache(CUR_PROCESS_HANDLE, ctx.src as u32_, src_len);
         }
     }
 
