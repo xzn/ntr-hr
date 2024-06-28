@@ -8,7 +8,7 @@
         "-isystem",
         "/opt/devkitpro/devkitARM/arm-none-eabi/include",
         "-isystem",
-        "/opt/devkitpro/devkitARM/lib/gcc/arm-none-eabi/13.2.0/include",
+        "/opt/devkitpro/devkitARM/lib/gcc/arm-none-eabi/14.1.0/include",
         "-I${workspaceFolder}/include",
         "-I${workspaceFolder}/libctru/libctru/include",
         "-I${workspaceFolder}/include/jpeg",

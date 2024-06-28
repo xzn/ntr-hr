@@ -275,7 +275,7 @@ lock_final:
 
 	return 0;
 
-final:
+final:;
 	s32 res = mapRemoteMemory(hProcess, baseAddr, totalSize, MEMOP_FREE);
 	if (res != 0) {
 		nsDbgPrint("mapRemoteMemory free failed: %08"PRIx32"\n", res);
