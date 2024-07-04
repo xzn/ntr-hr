@@ -16,6 +16,7 @@
 #![feature(const_fn_floating_point_arithmetic)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
+#![feature(stmt_expr_attributes)]
 #![allow(static_mut_refs)]
 
 use crate::dbg::*;
@@ -50,6 +51,7 @@ mod ctru {
 mod dbg;
 mod entries;
 mod fix;
+mod jpeg;
 mod setjmp;
 mod utils;
 mod vars;
