@@ -35,7 +35,7 @@ typedef struct {
 
 typedef my_destination_mgr *my_dest_ptr;
 
-/* (PACKET_SIZE - rp_data_hdr_size) */
+/* (PACKET_SIZE - DATA_HDR_SIZE) */
 #define OUTPUT_BUF_SIZE  1444   /* choose an efficiently fwrite'able size */
 
 

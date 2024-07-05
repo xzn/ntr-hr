@@ -85,6 +85,12 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
         Self(BEG)
     }
 
+    pub fn init_val(v: u32_) -> Self {
+        let mut r = Self::init();
+        r.set(v);
+        r
+    }
+
     pub unsafe fn init_unchecked(v: u32_) -> Self {
         Self(v)
     }

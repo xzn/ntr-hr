@@ -95,29 +95,27 @@ fn addHuffTable(tbl: &mut HuffTbl, bits: &[u8; 17], val: &[u8]) {
 }
 
 impl HuffTbls {
-    pub fn init() -> Self {
-        let mut tbls: Self = const_default();
+    pub fn init(&mut self) {
         addHuffTable(
-            &mut tbls.dcHuffTbls[0],
+            &mut self.dcHuffTbls[0],
             &bits_dc_luminance,
             val_dc_luminance.as_slice(),
         );
         addHuffTable(
-            &mut tbls.acHuffTbls[0],
+            &mut self.acHuffTbls[0],
             &bits_ac_luminance,
             val_ac_luminance.as_slice(),
         );
         addHuffTable(
-            &mut tbls.dcHuffTbls[1],
+            &mut self.dcHuffTbls[1],
             &bits_dc_chrominance,
             val_dc_chrominance.as_slice(),
         );
         addHuffTable(
-            &mut tbls.acHuffTbls[0],
+            &mut self.acHuffTbls[1],
             &bits_ac_chrominance,
             val_ac_chrominance.as_slice(),
         );
-        tbls
     }
 }
 
@@ -150,88 +148,90 @@ const fn FIX(x: f64) -> isize {
 }
 
 impl ColorConvTabs {
-    pub fn init() -> Self {
-        let mut tabs: Self = const_default();
+    pub fn init(&mut self) {
         for i in 0..=MAXJSAMPLE {
-            tabs.rgb_ycc_tab[i + R_Y_OFF] = (FIX(0.29900) * i as isize) as i32;
-            tabs.rgb_ycc_tab[i + G_Y_OFF] = (FIX(0.58700) * i as isize) as i32;
-            tabs.rgb_ycc_tab[i + B_Y_OFF] = ((FIX(0.11400) * i as isize) + ONE_HALF) as i32;
-            tabs.rgb_ycc_tab[i + R_CB_OFF] = ((-FIX(0.16874)) * i as isize) as i32;
-            tabs.rgb_ycc_tab[i + G_CB_OFF] = ((-FIX(0.33126)) * i as isize) as i32;
+            self.rgb_ycc_tab[i + R_Y_OFF] = (FIX(0.29900) * i as isize) as i32;
+            self.rgb_ycc_tab[i + G_Y_OFF] = (FIX(0.58700) * i as isize) as i32;
+            self.rgb_ycc_tab[i + B_Y_OFF] = ((FIX(0.11400) * i as isize) + ONE_HALF) as i32;
+            self.rgb_ycc_tab[i + R_CB_OFF] = ((-FIX(0.16874)) * i as isize) as i32;
+            self.rgb_ycc_tab[i + G_CB_OFF] = ((-FIX(0.33126)) * i as isize) as i32;
             /* We use a rounding fudge-factor of 0.5-epsilon for Cb and Cr.
              * This ensures that the maximum output will round to _MAXJSAMPLE
              * not _MAXJSAMPLE+1, and thus that we don't have to range-limit.
              */
-            tabs.rgb_ycc_tab[i + B_CB_OFF] =
+            self.rgb_ycc_tab[i + B_CB_OFF] =
                 ((FIX(0.50000) * i as isize) + CBCR_OFFSET + ONE_HALF - 1) as i32;
             /*  B=>Cb and R=>Cr tables are the same
                 rgb_ycc_tab[i + R_CR_OFF] = FIX(0.50000) * i  + CBCR_OFFSET + ONE_HALF - 1;
             */
-            tabs.rgb_ycc_tab[i + G_CR_OFF] = ((-FIX(0.41869)) * i as isize) as i32;
-            tabs.rgb_ycc_tab[i + B_CR_OFF] = ((-FIX(0.08131)) * i as isize) as i32;
+            self.rgb_ycc_tab[i + G_CR_OFF] = ((-FIX(0.41869)) * i as isize) as i32;
+            self.rgb_ycc_tab[i + B_CR_OFF] = ((-FIX(0.08131)) * i as isize) as i32;
         }
 
         for i in 0..(1 << 5) {
-            tabs.rb_5_tab[i] = ((FIX((((1 << 8) - 1) as f64) / ((1 << 5) - 1) as f64) * i as isize
+            self.rb_5_tab[i] = ((FIX((((1 << 8) - 1) as f64) / ((1 << 5) - 1) as f64) * i as isize
                 + ONE_HALF as isize)
                 >> SCALEBITS) as u8;
         }
         for i in 0..(1 << 6) {
-            tabs.g_6_tab[i] = ((FIX((((1 << 8) - 1) as f64) / ((1 << 6) - 1) as f64) * i as isize
+            self.g_6_tab[i] = ((FIX((((1 << 8) - 1) as f64) / ((1 << 6) - 1) as f64) * i as isize
                 + ONE_HALF as isize)
                 >> SCALEBITS) as u8;
         }
-        tabs
     }
 }
 
+#[derive(ConstDefault)]
 pub struct CompInfo {
     /* These values are fixed over the whole image. */
     /* For compression, they must be supplied by parameter setup; */
     /* for decompression, they are read from the SOF marker. */
-    component_id: i32,    /* identifier for this component (0..255) */
-    component_index: i32, /* its index in SOF or cinfo->comp_info[] */
-    h_samp_factor: i32,   /* horizontal sampling factor (1..4) */
-    v_samp_factor: i32,   /* vertical sampling factor (1..4) */
-    quant_tbl_no: i32,    /* quantization table selector (0..3) */
+    pub component_id: u8,    /* identifier for this component (0..255) */
+    pub component_index: u8, /* its index in SOF or cinfo->comp_info[] */
+    pub h_samp_factor: u8,   /* horizontal sampling factor (1..4) */
+    pub v_samp_factor: u8,   /* vertical sampling factor (1..4) */
+    pub quant_tbl_no: u8,    /* quantization table selector (0..3) */
     /* These values may vary between scans. */
     /* For compression, they must be supplied by parameter setup; */
     /* for decompression, they are read from the SOS marker. */
     /* The decompressor output side may not use these variables. */
-    dc_tbl_no: i32, /* DC entropy table selector (0..3) */
-    ac_tbl_no: i32, /* AC entropy table selector (0..3) */
+    pub dc_tbl_no: u8, /* DC entropy table selector (0..3) */
+    pub ac_tbl_no: u8, /* AC entropy table selector (0..3) */
 }
 
 const MAX_COMPONENTS: usize = 3;
 
-fn setComp(
-    comp: &mut [CompInfo; MAX_COMPONENTS],
-    index: usize,
-    id: i32,
-    hsamp: i32,
-    vsamp: i32,
-    quant: i32,
-    dctbl: i32,
-    actbl: i32,
-) {
-    let compptr = &mut comp[index];
-    compptr.component_id = id;
-    compptr.component_index = index as i32;
-    compptr.h_samp_factor = hsamp;
-    compptr.v_samp_factor = vsamp;
-    compptr.quant_tbl_no = quant;
-    compptr.dc_tbl_no = dctbl;
-    compptr.ac_tbl_no = actbl;
-}
-
+#[derive(ConstDefault)]
 pub struct CompInfos {
-    infos: [CompInfo; MAX_COMPONENTS],
+    pub infos: [CompInfo; MAX_COMPONENTS],
 }
 
-fn setColorSpaceYCbCr(infos: &mut CompInfos) {
-    setComp(&mut infos.infos, 0, 1, 2, 2, 0, 0, 0);
-    setComp(&mut infos.infos, 1, 2, 1, 1, 1, 1, 1);
-    setComp(&mut infos.infos, 2, 3, 1, 1, 1, 1, 1);
+impl CompInfos {
+    fn setComp(
+        &mut self,
+        index: usize,
+        id: u8,
+        hsamp: u8,
+        vsamp: u8,
+        quant: u8,
+        dctbl: u8,
+        actbl: u8,
+    ) {
+        let compptr = &mut self.infos[index];
+        compptr.component_id = id;
+        compptr.component_index = index as u8;
+        compptr.h_samp_factor = hsamp;
+        compptr.v_samp_factor = vsamp;
+        compptr.quant_tbl_no = quant;
+        compptr.dc_tbl_no = dctbl;
+        compptr.ac_tbl_no = actbl;
+    }
+
+    pub fn setColorSpaceYCbCr(&mut self) {
+        self.setComp(0, 1, 2, 2, 0, 0, 0);
+        self.setComp(1, 2, 1, 1, 1, 1, 1);
+        self.setComp(2, 3, 1, 1, 1, 1, 1);
+    }
 }
 
 fn qualityScaling(quality: u32) -> u32
@@ -287,54 +287,51 @@ pub struct QuantTbl {
      * CAUTION: IJG versions prior to v6a kept this array in zigzag order.
      */
     /* quantization step for each coefficient */
-    quantval: [u8; DCTSIZE2],
+    pub quantval: [u8; DCTSIZE2],
 }
 
 const NUM_QUANT_TBLS: usize = 2;
 
 #[derive(ConstDefault)]
 pub struct QuantTbls {
-    quantTbls: [QuantTbl; NUM_QUANT_TBLS],
+    pub quantTbls: [QuantTbl; NUM_QUANT_TBLS],
 }
 
-fn setQuantTable(
-    tbls: &mut QuantTbls,
-    which_tbl: usize,
-    basic_table: &[u8; DCTSIZE2],
-    scale_factor: u32,
-) {
-    let tbl = &mut tbls.quantTbls[which_tbl];
-    for i in 0..DCTSIZE2 {
-        let temp = ((basic_table[i] as u32) * scale_factor + 50) / 100;
-        /* limit the values to the valid range */
-        let temp = if temp <= 0 {
-            1
-        } else if temp > 255 {
-            255
-        } else {
-            temp
-        };
-        tbl.quantval[i] = temp as u8;
+impl QuantTbls {
+    fn setQuantTable(&mut self, which_tbl: usize, basic_table: &[u8; DCTSIZE2], scale_factor: u32) {
+        let tbl = &mut self.quantTbls[which_tbl];
+        for i in 0..DCTSIZE2 {
+            let temp = ((basic_table[i] as u32) * scale_factor + 50) / 100;
+            /* limit the values to the valid range */
+            let temp = if temp <= 0 {
+                1
+            } else if temp > 255 {
+                255
+            } else {
+                temp
+            };
+            tbl.quantval[i] = temp as u8;
+        }
     }
-}
 
-fn setLinearQuality(tbls: &mut QuantTbls, scale_factor: u32) {
-    setQuantTable(tbls, 0, &std_luminance_quant_tbl, scale_factor);
-    setQuantTable(tbls, 1, &std_chrominance_quant_tbl, scale_factor);
-}
+    fn setLinearQuality(&mut self, scale_factor: u32) {
+        self.setQuantTable(0, &std_luminance_quant_tbl, scale_factor);
+        self.setQuantTable(1, &std_chrominance_quant_tbl, scale_factor);
+    }
 
-pub fn setQuality(tbls: &mut QuantTbls, quality: u32)
-/* Set or change the 'quality' (quantization) setting, using default tables.
- * This is the standard quality-adjusting entry point for typical user
- * interfaces; only those who want detailed control over quantization tables
- * would use the preceding three routines directly.
- */
-{
-    /* Convert user 0-100 rating to percentage scaling */
-    let quality = qualityScaling(quality);
+    pub fn setQuality(&mut self, quality: u32)
+    /* Set or change the 'quality' (quantization) setting, using default tables.
+     * This is the standard quality-adjusting entry point for typical user
+     * interfaces; only those who want detailed control over quantization tables
+     * would use the preceding three routines directly.
+     */
+    {
+        /* Convert user 0-100 rating to percentage scaling */
+        let quality = qualityScaling(quality);
 
-    /* Set up standard quality tables */
-    setLinearQuality(tbls, quality);
+        /* Set up standard quality tables */
+        self.setLinearQuality(quality);
+    }
 }
 
 #[derive(ConstDefault)]
@@ -421,20 +418,22 @@ fn computeReciprocal(divisor: u16, divisors: &mut [[i16; DCTSIZE2]; 3], i: usize
     divisors[2][i] = r as i16; /* shift */
 }
 
-pub fn setDivisors(divisors: &mut Divisors, quantTbls: &QuantTbls) {
-    for t in 0..NUM_QUANT_TBLS {
-        let divisors = &mut divisors.divisors[t];
-        let quantTbl = &quantTbls.quantTbls[t];
+impl Divisors {
+    pub fn setDivisors(&mut self, quantTbls: &QuantTbls) {
+        for t in 0..NUM_QUANT_TBLS {
+            let divisors = &mut self.divisors[t];
+            let quantTbl = &quantTbls.quantTbls[t];
 
-        for i in 0..DCTSIZE2 {
-            computeReciprocal(
-                DESCALE(
-                    (quantTbl.quantval[i] as u32) * (aanscales[i] as u32),
-                    CONST_BITS as u32 - 3,
-                ),
-                divisors,
-                i,
-            );
+            for i in 0..DCTSIZE2 {
+                computeReciprocal(
+                    DESCALE(
+                        (quantTbl.quantval[i] as u32) * (aanscales[i] as u32),
+                        CONST_BITS as u32 - 3,
+                    ),
+                    divisors,
+                    i,
+                );
+            }
         }
     }
 }
@@ -537,9 +536,67 @@ fn setDerivedTbl(tbl: &mut DerivedTbl, isDC: bool, tblno: usize, huffTbls: &Huff
     }
 }
 
-pub fn setEntropyTbls(tbls: &mut EntropyTbls, huffTbls: &HuffTbls) {
-    for i in 0..NUM_HUFF_TBLS {
-        setDerivedTbl(&mut tbls.dc_derived_tbls[i], true, i, huffTbls);
-        setDerivedTbl(&mut tbls.ac_derived_tbls[i], false, i, huffTbls);
+impl EntropyTbls {
+    pub fn setEntropyTbls(&mut self, huffTbls: &HuffTbls) {
+        for i in 0..NUM_HUFF_TBLS {
+            setDerivedTbl(&mut self.dc_derived_tbls[i], true, i, huffTbls);
+            setDerivedTbl(&mut self.ac_derived_tbls[i], false, i, huffTbls);
+        }
     }
 }
+
+const MAX_SAMP_FACTOR: usize = 2;
+const GSP_SCREEN_WIDTH: usize = ctru::GSP_SCREEN_WIDTH as usize;
+
+type JCoef = u16;
+type JBlock = [JCoef; DCTSIZE2];
+const MAX_BLOCKS_IN_MCU: usize = MAX_SAMP_FACTOR * MAX_SAMP_FACTOR * MAX_COMPONENTS;
+
+#[derive(ConstDefault)]
+pub struct WorkerBufs {
+    color: [[[u8; GSP_SCREEN_WIDTH]; MAX_SAMP_FACTOR]; MAX_COMPONENTS],
+    prep: [[[u8; GSP_SCREEN_WIDTH]; MAX_SAMP_FACTOR * DCTSIZE]; MAX_COMPONENTS],
+    mcu: [JBlock; MAX_BLOCKS_IN_MCU],
+}
+
+#[derive(Default)]
+pub enum ColorSpace {
+    #[default]
+    XBGR,
+    BGR,
+    RGB565,
+    RGB5A1,
+    RGB4,
+}
+
+pub const OUTPUT_BUF_SIZE: u32 = PACKET_SIZE - DATA_HDR_SIZE;
+
+pub const M_SOI: u8 = 0xd8;
+pub const M_APP0: u8 = 0xe0;
+pub const M_DQT: u8 = 0xdb;
+pub const M_SOF0: u8 = 0xc0;
+pub const M_DHT: u8 = 0xc4;
+pub const M_DRI: u8 = 0xdd;
+pub const M_SOS: u8 = 0xda;
+pub const M_EOI: u8 = 0xd9;
+pub const JPEG_RST0: u8 = 0xD0;
+
+/*
+ * jpeg_natural_order[i] is the natural-order position of the i'th element
+ * of zigzag order.
+ *
+ * When reading corrupted data, the Huffman decoders could attempt
+ * to reference an entry beyond the end of this array (if the decoded
+ * zero run length reaches past the end of the block).  To prevent
+ * wild stores without adding an inner-loop test, we put some extra
+ * "63"s after the real entries.  This will cause the extra coefficient
+ * to be stored in location 63 of the block, not somewhere random.
+ * The worst case would be a run-length of 15, which means we need 16
+ * fake entries.
+ */
+
+pub const jpeg_natural_order: [u8; DCTSIZE2] = [
+    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
+    13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59,
+    52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+];
