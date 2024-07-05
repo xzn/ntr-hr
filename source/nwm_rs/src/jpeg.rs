@@ -256,11 +256,11 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
         let qtbl = &self.shared.quantTbls.quantTbls[index];
 
         self.write_marker(M_DQT);
-        self.write_2bytes((DCTSIZE2 + 1 + 2) as u16);
+        self.write_2bytes((vars::DCTSIZE2 + 1 + 2) as u16);
         self.write_byte(index as u8);
-        for i in 0..DCTSIZE2 {
+        for i in 0..vars::DCTSIZE2 {
             /* The table entries must be emitted in zigzag order. */
-            let qval = qtbl.quantval[jpeg_natural_order[i as usize] as usize];
+            let qval = qtbl.quantval[jpeg_natural_order[i] as usize];
             self.write_byte(qval);
         }
     }
@@ -350,7 +350,7 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
         }
 
         self.write_byte(0);
-        self.write_byte((DCTSIZE2 - 1) as u8);
+        self.write_byte((vars::DCTSIZE2 - 1) as u8);
         self.write_byte(0);
     }
 
@@ -476,8 +476,102 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
         }
     }
 
-    fn process(&mut self) {
+    fn convsamp(
+        input: &[[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR * vars::DCTSIZE],
+        ypos: u8,
+        xpos: u8,
+        output: &mut JBlock,
+    ) {
+        let mut oidx = 0;
+        for yidx in 0..vars::DCTSIZE {
+            let input = input[ypos as usize + yidx];
+            for xidx in 0..vars::DCTSIZE {
+                output[oidx] =
+                    (input[xpos as usize + xidx] - vars::CENTERJSAMPLE as u8) as i8 as i16;
+
+                oidx += 1;
+            }
+        }
+    }
+
+    fn fdct_ifast(inout: &mut JBlock) {
         todo!()
+    }
+
+    fn quantize(inout: &mut JBlock, divisors: &[[i16; vars::DCTSIZE2]; 3]) {
+        for i in 0..vars::DCTSIZE2 {
+            let mut temp = inout[i] as i16;
+            let recip = divisors[0][i];
+            let corr = divisors[1][i];
+            let shift = divisors[2][i];
+
+            if temp < 0 {
+                temp = -temp;
+                let mut product = (temp as u32 + corr as u32) * recip as u32;
+                product >>= shift as usize + mem::size_of::<i16>() * 8;
+                temp = product as i16;
+                temp = -temp;
+            } else {
+                let mut product = (temp as u32 + corr as u32) * recip as u32;
+                product >>= shift as usize + mem::size_of::<i16>() * 8;
+                temp = product as i16;
+            }
+            inout[i] = temp;
+        }
+    }
+
+    fn forward_DCT(
+        input: &[[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR * vars::DCTSIZE],
+        output: &mut JBlock,
+        ypos: u8,
+        xpos: u8,
+        divisors: &[[i16; vars::DCTSIZE2]; 3],
+    ) {
+        Self::convsamp(input, ypos, xpos, output);
+        Self::fdct_ifast(output);
+        Self::quantize(output, divisors);
+    }
+
+    fn compress(&mut self, MCU_col_num: u8) {
+        let mut blkn = 0;
+
+        for ci in 0..vars::MAX_COMPONENTS {
+            let comp = &self.shared.compInfos.infos[ci];
+            let MCU_width = comp.h_samp_factor;
+            let MCU_sample_width = MCU_width * vars::DCTSIZE as u8;
+            let MCU_height = comp.v_samp_factor;
+
+            let xpos = MCU_col_num * MCU_sample_width;
+            let mut ypos = 0;
+
+            for _ in 0..MCU_height {
+                let mut xpos = xpos;
+                for _ in 0..MCU_width {
+                    Self::forward_DCT(
+                        &self.bufs.prep[ci],
+                        &mut self.bufs.mcu[blkn as usize],
+                        ypos,
+                        xpos,
+                        &self.shared.divisors.divisors[comp.quant_tbl_no as usize],
+                    );
+
+                    xpos += vars::DCTSIZE as u8;
+                    blkn += 1;
+                }
+                ypos += vars::DCTSIZE as u8;
+            }
+        }
+    }
+
+    fn encode_mcu(&mut self) {
+        todo!()
+    }
+
+    fn process(&mut self) {
+        for MCU_col_num in 0..MCUs_per_row {
+            self.compress(MCU_col_num);
+            self.encode_mcu();
+        }
     }
 
     pub fn encode<F, G, H>(&mut self, src: &[u8], pre_progress: F, mut progress: G)

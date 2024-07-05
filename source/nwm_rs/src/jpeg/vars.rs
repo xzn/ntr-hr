@@ -1,8 +1,8 @@
 use super::*;
 
 const CONST_BITS: usize = 14;
-const DCTSIZE: usize = 8;
-const DCTSIZE2: usize = DCTSIZE * DCTSIZE;
+pub const DCTSIZE: usize = 8;
+pub const DCTSIZE2: usize = DCTSIZE * DCTSIZE;
 const aanscales: [u16; DCTSIZE2] = [
     16384, 22725, 21407, 19266, 16384, 12873, 8867, 4520, 22725, 31521, 29692, 26722, 22725, 17855,
     12299, 6270, 21407, 29692, 27969, 25172, 21407, 16819, 11585, 5906, 19266, 26722, 25172, 22654,
@@ -120,7 +120,7 @@ impl HuffTbls {
 }
 
 const MAXJSAMPLE: usize = 255;
-const CENTERJSAMPLE: usize = 128;
+pub const CENTERJSAMPLE: usize = 128;
 
 pub const R_Y_OFF: usize = 0; /* offset to R => Y section */
 pub const G_Y_OFF: usize = 1 * (MAXJSAMPLE + 1); /* offset to G => Y section */
@@ -336,7 +336,7 @@ impl QuantTbls {
 
 #[derive(ConstDefault)]
 pub struct Divisors {
-    divisors: [[[i16; DCTSIZE2]; 3]; NUM_QUANT_TBLS],
+    pub divisors: [[[i16; DCTSIZE2]; 3]; NUM_QUANT_TBLS],
 }
 
 const ONE: u32 = 1;
@@ -548,8 +548,8 @@ impl EntropyTbls {
 pub const MAX_SAMP_FACTOR: usize = 2;
 pub const GSP_SCREEN_WIDTH: usize = ctru::GSP_SCREEN_WIDTH as usize;
 
-type JCoef = u16;
-type JBlock = [JCoef; DCTSIZE2];
+type JCoef = i16;
+pub type JBlock = [JCoef; DCTSIZE2];
 const MAX_BLOCKS_IN_MCU: usize = MAX_SAMP_FACTOR * MAX_SAMP_FACTOR + MAX_COMPONENTS - 1;
 
 #[derive(ConstDefault)]
@@ -603,3 +603,13 @@ pub const jpeg_natural_order: [u8; DCTSIZE2] = [
 
 pub const in_rows_blk: usize = DCTSIZE * MAX_SAMP_FACTOR;
 pub const in_rows_blk_half: usize = in_rows_blk / 2;
+
+const fn jdiv_round_up(a: u32, b: u32) -> u32
+/* Compute a/b rounded up to next integer, ie, ceil(a/b) */
+/* Assumes a >= 0, b > 0 */
+{
+    (a + b - 1) / b
+}
+
+pub const MCUs_per_row: u8 =
+    jdiv_round_up(GSP_SCREEN_WIDTH as u32, (MAX_SAMP_FACTOR * DCTSIZE) as u32) as u8;
