@@ -17,6 +17,8 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(stmt_expr_attributes)]
+#![feature(array_chunks)]
+#![feature(iter_array_chunks)]
 #![allow(static_mut_refs)]
 
 use crate::dbg::*;

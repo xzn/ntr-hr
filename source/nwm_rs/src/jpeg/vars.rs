@@ -122,25 +122,25 @@ impl HuffTbls {
 const MAXJSAMPLE: usize = 255;
 const CENTERJSAMPLE: usize = 128;
 
-const R_Y_OFF: usize = 0; /* offset to R => Y section */
-const G_Y_OFF: usize = 1 * (MAXJSAMPLE + 1); /* offset to G => Y section */
-const B_Y_OFF: usize = 2 * (MAXJSAMPLE + 1); /* etc. */
-const R_CB_OFF: usize = 3 * (MAXJSAMPLE + 1);
-const G_CB_OFF: usize = 4 * (MAXJSAMPLE + 1);
-const B_CB_OFF: usize = 5 * (MAXJSAMPLE + 1);
-const R_CR_OFF: usize = B_CB_OFF; /* B=>Cb, R=>Cr are the same */
-const G_CR_OFF: usize = 6 * (MAXJSAMPLE + 1);
-const B_CR_OFF: usize = 7 * (MAXJSAMPLE + 1);
-const TABLE_SIZE: usize = 8 * (MAXJSAMPLE + 1);
+pub const R_Y_OFF: usize = 0; /* offset to R => Y section */
+pub const G_Y_OFF: usize = 1 * (MAXJSAMPLE + 1); /* offset to G => Y section */
+pub const B_Y_OFF: usize = 2 * (MAXJSAMPLE + 1); /* etc. */
+pub const R_CB_OFF: usize = 3 * (MAXJSAMPLE + 1);
+pub const G_CB_OFF: usize = 4 * (MAXJSAMPLE + 1);
+pub const B_CB_OFF: usize = 5 * (MAXJSAMPLE + 1);
+pub const R_CR_OFF: usize = B_CB_OFF; /* B=>Cb, R=>Cr are the same */
+pub const G_CR_OFF: usize = 6 * (MAXJSAMPLE + 1);
+pub const B_CR_OFF: usize = 7 * (MAXJSAMPLE + 1);
+pub const TABLE_SIZE: usize = 8 * (MAXJSAMPLE + 1);
 
 #[derive(ConstDefault)]
 pub struct ColorConvTabs {
-    rgb_ycc_tab: [i32; TABLE_SIZE],
-    rb_5_tab: [u8; 1 << 5],
-    g_6_tab: [u8; 1 << 6],
+    pub rgb_ycc_tab: [i32; TABLE_SIZE],
+    pub rb_5_tab: [u8; 1 << 5],
+    pub g_6_tab: [u8; 1 << 6],
 }
 
-const SCALEBITS: usize = 16; /* speediest right-shift on some machines */
+pub const SCALEBITS: usize = 16; /* speediest right-shift on some machines */
 const CBCR_OFFSET: isize = (CENTERJSAMPLE as isize) << SCALEBITS;
 const ONE_HALF: isize = (1 as isize) << (SCALEBITS - 1);
 const fn FIX(x: f64) -> isize {
@@ -199,7 +199,7 @@ pub struct CompInfo {
     pub ac_tbl_no: u8, /* AC entropy table selector (0..3) */
 }
 
-const MAX_COMPONENTS: usize = 3;
+pub const MAX_COMPONENTS: usize = 3;
 
 #[derive(ConstDefault)]
 pub struct CompInfos {
@@ -217,14 +217,14 @@ impl CompInfos {
         dctbl: u8,
         actbl: u8,
     ) {
-        let compptr = &mut self.infos[index];
-        compptr.component_id = id;
-        compptr.component_index = index as u8;
-        compptr.h_samp_factor = hsamp;
-        compptr.v_samp_factor = vsamp;
-        compptr.quant_tbl_no = quant;
-        compptr.dc_tbl_no = dctbl;
-        compptr.ac_tbl_no = actbl;
+        let comp = &mut self.infos[index];
+        comp.component_id = id;
+        comp.component_index = index as u8;
+        comp.h_samp_factor = hsamp;
+        comp.v_samp_factor = vsamp;
+        comp.quant_tbl_no = quant;
+        comp.dc_tbl_no = dctbl;
+        comp.ac_tbl_no = actbl;
     }
 
     pub fn setColorSpaceYCbCr(&mut self) {
@@ -545,18 +545,18 @@ impl EntropyTbls {
     }
 }
 
-const MAX_SAMP_FACTOR: usize = 2;
-const GSP_SCREEN_WIDTH: usize = ctru::GSP_SCREEN_WIDTH as usize;
+pub const MAX_SAMP_FACTOR: usize = 2;
+pub const GSP_SCREEN_WIDTH: usize = ctru::GSP_SCREEN_WIDTH as usize;
 
 type JCoef = u16;
 type JBlock = [JCoef; DCTSIZE2];
-const MAX_BLOCKS_IN_MCU: usize = MAX_SAMP_FACTOR * MAX_SAMP_FACTOR * MAX_COMPONENTS;
+const MAX_BLOCKS_IN_MCU: usize = MAX_SAMP_FACTOR * MAX_SAMP_FACTOR + MAX_COMPONENTS - 1;
 
 #[derive(ConstDefault)]
 pub struct WorkerBufs {
-    color: [[[u8; GSP_SCREEN_WIDTH]; MAX_SAMP_FACTOR]; MAX_COMPONENTS],
-    prep: [[[u8; GSP_SCREEN_WIDTH]; MAX_SAMP_FACTOR * DCTSIZE]; MAX_COMPONENTS],
-    mcu: [JBlock; MAX_BLOCKS_IN_MCU],
+    pub color: [[[u8; GSP_SCREEN_WIDTH]; MAX_SAMP_FACTOR]; MAX_COMPONENTS],
+    pub prep: [[[u8; GSP_SCREEN_WIDTH]; MAX_SAMP_FACTOR * DCTSIZE]; MAX_COMPONENTS],
+    pub mcu: [JBlock; MAX_BLOCKS_IN_MCU],
 }
 
 #[derive(Default)]
@@ -600,3 +600,6 @@ pub const jpeg_natural_order: [u8; DCTSIZE2] = [
     13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59,
     52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 ];
+
+pub const in_rows_blk: usize = DCTSIZE * MAX_SAMP_FACTOR;
+pub const in_rows_blk_half: usize = in_rows_blk / 2;

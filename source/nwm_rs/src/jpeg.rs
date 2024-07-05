@@ -106,6 +106,93 @@ impl Jpeg {
     }
 }
 
+fn pconvert(r: u8, g: u8, b: u8, y: &mut u8, cb: &mut u8, cr: &mut u8, ctab: &[i32; TABLE_SIZE]) {
+    /* If the inputs are 0.._MAXJSAMPLE, the outputs of these equations
+     * must be too; we do not need an explicit range-limiting operation.
+     * Hence the value being shifted is never negative, and we don't
+     * need the general RIGHT_SHIFT macro.
+     */
+    /* Y */
+    *y = ((ctab[r as usize + R_Y_OFF] + ctab[g as usize + G_Y_OFF] + ctab[b as usize + B_Y_OFF])
+        >> SCALEBITS) as u8;
+    /* Cb */
+    *cb =
+        ((ctab[r as usize + R_CB_OFF] + ctab[g as usize + G_CB_OFF] + ctab[b as usize + B_CB_OFF])
+            >> SCALEBITS) as u8;
+    /* Cr */
+    *cr =
+        ((ctab[r as usize + R_CR_OFF] + ctab[g as usize + G_CR_OFF] + ctab[b as usize + B_CR_OFF])
+            >> SCALEBITS) as u8;
+}
+
+fn cconvert<const R: usize, const G: usize, const B: usize, const P: usize, const N: usize>(
+    input: &[&[u8]; N],
+    output: &mut [[[u8; vars::GSP_SCREEN_WIDTH]; N]; vars::MAX_COMPONENTS],
+    tab: &[i32; TABLE_SIZE],
+) {
+    for i in 0..N {
+        let input = input[i];
+        let [output0, output1, output2] = output;
+        let output0 = &mut output0[i];
+        let output1 = &mut output1[i];
+        let output2 = &mut output2[i];
+
+        for (((input, output0), output1), output2) in input
+            .array_chunks::<P>()
+            .zip(output0.into_iter())
+            .zip(output1.into_iter())
+            .zip(output2.into_iter())
+        {
+            let r = input[R];
+            let g = input[G];
+            let b = input[B];
+
+            pconvert(r, g, b, output0, output1, output2, tab);
+        }
+    }
+}
+
+fn cconvert2<const N: usize, F>(
+    input: &[&[u8]; N],
+    comps: F,
+    output: &mut [[[u8; vars::GSP_SCREEN_WIDTH]; N]; vars::MAX_COMPONENTS],
+    tab: &ColorConvTabs,
+) where
+    F: Fn(u16, &ColorConvTabs) -> (u8, u8, u8),
+{
+    for i in 0..N {
+        let input = input[i];
+        let [output0, output1, output2] = output;
+        let output0 = &mut output0[i];
+        let output1 = &mut output1[i];
+        let output2 = &mut output2[i];
+
+        for (((input, output0), output1), output2) in input
+            .array_chunks::<2>()
+            .zip(output0.into_iter())
+            .zip(output1.into_iter())
+            .zip(output2.into_iter())
+        {
+            let (r, g, b) = comps(input[0] as u16 | ((input[1] as u16) << 8), tab);
+
+            pconvert(r, g, b, output0, output1, output2, &tab.rgb_ycc_tab);
+        }
+    }
+}
+
+fn rgb565_comps(input: u16, tab: &ColorConvTabs) -> (u8, u8, u8) {
+    let r = tab.rb_5_tab[((input >> 11) & 0x1f) as usize];
+    let g = tab.g_6_tab[((input >> 5) & 0x3f) as usize];
+    let b = tab.rb_5_tab[(input & 0x1f) as usize];
+    (r, g, b)
+}
+fn rgb5a1_comps(input: u16, tab: &ColorConvTabs) -> (u8, u8, u8) {
+    let r = tab.rb_5_tab[((input >> 11) & 0x1f) as usize];
+    let g = tab.rb_5_tab[((input >> 6) & 0x1f) as usize];
+    let b = tab.rb_5_tab[((input >> 1) & 0x1f) as usize];
+    (r, g, b)
+}
+
 impl<'a, 'b> JpegWorker<'a, 'b> {
     pub fn setDst<'c: 'b>(&mut self, dst: WorkerDst<'c>) {
         self.dst = dst;
@@ -181,13 +268,13 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
     fn write_sof(&mut self, code: u8) {
         self.write_marker(code);
 
-        self.write_2bytes((3 * MAX_COMPONENTS + 2 + 5 + 1) as u16); /* length */
+        self.write_2bytes((3 * vars::MAX_COMPONENTS + 2 + 5 + 1) as u16); /* length */
 
         self.write_byte(8);
         self.write_2bytes(self.screen_height() as u16);
-        self.write_2bytes(GSP_SCREEN_WIDTH as u16);
+        self.write_2bytes(vars::GSP_SCREEN_WIDTH as u16);
 
-        self.write_byte(MAX_COMPONENTS as u8);
+        self.write_byte(vars::MAX_COMPONENTS as u8);
 
         for info in &self.shared.compInfos.infos {
             self.write_byte(info.component_id);
@@ -242,12 +329,12 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
     fn write_sos(&mut self) {
         self.write_marker(M_SOS);
 
-        self.write_2bytes((2 * MAX_COMPONENTS + 2 + 1 + 3) as u16); /* length */
+        self.write_2bytes((2 * vars::MAX_COMPONENTS + 2 + 1 + 3) as u16); /* length */
 
-        self.write_byte(MAX_COMPONENTS as u8);
+        self.write_byte(vars::MAX_COMPONENTS as u8);
 
-        for i in 0..MAX_COMPONENTS {
-            let comp = &self.shared.compInfos.infos[i as usize];
+        for i in 0..vars::MAX_COMPONENTS {
+            let comp = &self.shared.compInfos.infos[i];
             self.write_byte(comp.component_id);
 
             /* We emit 0 for unused field(s); this is recommended by the P&M text
@@ -297,5 +384,131 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
 
     pub fn write_term(&mut self) {
         self.dst.term();
+    }
+
+    fn get_bpp_for_format(&self) -> u8 {
+        match self.info.colorSpace {
+            ColorSpace::XBGR => 4,
+            ColorSpace::BGR => 3,
+            _ => 2,
+        }
+    }
+
+    fn color_convert(&mut self, input: &[&[u8]; vars::MAX_SAMP_FACTOR]) {
+        match self.info.colorSpace {
+            ColorSpace::XBGR => cconvert::<3, 2, 1, 4, { vars::MAX_SAMP_FACTOR }>(
+                input,
+                &mut self.bufs.color,
+                &self.shared.colorConvTbls.rgb_ycc_tab,
+            ),
+            ColorSpace::BGR => cconvert::<2, 1, 0, 3, { vars::MAX_SAMP_FACTOR }>(
+                input,
+                &mut self.bufs.color,
+                &self.shared.colorConvTbls.rgb_ycc_tab,
+            ),
+            ColorSpace::RGB565 => cconvert2::<{ vars::MAX_SAMP_FACTOR }, _>(
+                input,
+                rgb565_comps,
+                &mut self.bufs.color,
+                &self.shared.colorConvTbls,
+            ),
+            ColorSpace::RGB5A1 => cconvert2::<{ vars::MAX_SAMP_FACTOR }, _>(
+                input,
+                rgb5a1_comps,
+                &mut self.bufs.color,
+                &self.shared.colorConvTbls,
+            ),
+            ColorSpace::RGB4 => todo!(),
+        }
+    }
+
+    fn fullsize_downsample(
+        input: &[[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR],
+        output: &mut [[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR],
+    ) {
+        *output = *input;
+    }
+
+    fn h2v2_downsample(
+        input: &[[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR],
+        output: &mut [u8; vars::GSP_SCREEN_WIDTH],
+    ) {
+        let [input0, input1] = input;
+        let input0 = input0.array_chunks::<{ vars::MAX_SAMP_FACTOR }>();
+        let input1 = input1.array_chunks::<{ vars::MAX_SAMP_FACTOR }>();
+        let mut bias = 1;
+
+        for ((input0, input1), output) in input0.zip(input1).zip(output) {
+            *output = ((input0[0] as u16
+                + input0[1] as u16
+                + input1[0] as u16
+                + input1[1] as u16
+                + bias as u16)
+                >> 2) as u8;
+            bias ^= 3; /* 1=>2, 2=>1 */
+        }
+    }
+
+    fn downsample<const N: usize>(&mut self, output_base: usize) {
+        for (ci, comp) in (&self.shared.compInfos.infos).into_iter().enumerate() {
+            let input = &self.bufs.color[ci];
+            let output = &mut self.bufs.prep[ci]
+                .split_at_mut(output_base * comp.v_samp_factor as usize)
+                .1
+                .split_at_mut(comp.v_samp_factor as usize)
+                .0;
+            if comp.v_samp_factor < vars::MAX_SAMP_FACTOR as u8 {
+                Self::h2v2_downsample(input, &mut output[0]);
+            } else {
+                Self::fullsize_downsample(input, (*output).try_into().unwrap());
+            }
+        }
+    }
+
+    fn pre_process(&mut self, src: [&[u8]; in_rows_blk_half], which_half: bool) {
+        for (base, chunk) in src.array_chunks::<{ vars::MAX_SAMP_FACTOR }>().enumerate() {
+            self.color_convert(chunk);
+            self.downsample::<{ vars::MAX_SAMP_FACTOR }>(if which_half {
+                base + in_rows_blk_half
+            } else {
+                base
+            });
+        }
+    }
+
+    fn process(&mut self) {
+        todo!()
+    }
+
+    pub fn encode<F, G, H>(&mut self, src: &[u8], pre_progress: F, mut progress: G)
+    where
+        F: FnOnce(u8) -> H,
+        G: FnMut(),
+        H: FnMut(),
+    {
+        let bpp = self.get_bpp_for_format();
+        let pitch = vars::GSP_SCREEN_WIDTH * bpp as usize;
+        let src_chunks = src.chunks_exact(pitch);
+        let mut pre_progress = pre_progress(src_chunks.len() as u8);
+
+        pre_progress();
+
+        for chunks in src_chunks.array_chunks::<in_rows_blk>() {
+            /* Pre-process */
+            let mut chunks = chunks.array_chunks::<in_rows_blk_half>();
+
+            let chunk0 = chunks.next().unwrap();
+            self.pre_process(*chunk0, false);
+
+            let chunk1 = chunks.next().unwrap();
+            self.pre_process(*chunk1, true);
+
+            pre_progress();
+
+            /* Compress and encode */
+            self.process();
+
+            progress();
+        }
     }
 }
