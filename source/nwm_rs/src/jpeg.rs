@@ -2,7 +2,7 @@
 
 use crate::*;
 mod vars;
-use vars::*;
+use vars::{DCTSIZE, MAX_COMPONENTS, *};
 
 #[derive(ConstDefault)]
 struct JpegShared {
@@ -48,12 +48,20 @@ pub struct CInfo {
 }
 
 #[derive(ConstDefault)]
+pub struct HuffState {
+    c: usize,
+    free_bits: usize,
+    last_dc_val: [i32; MAX_COMPONENTS],
+}
+
+#[derive(ConstDefault)]
 pub struct JpegWorker<'a, 'b> {
     shared: &'a JpegShared,
     bufs: &'a mut WorkerBufs,
     dst: WorkerDst<'b>,
     info: &'a CInfo,
     threadId: ThreadId,
+    huffState: HuffState,
 }
 
 type JpegWorkers<'a, 'b> = [JpegWorker<'a, 'b>; RP_CORE_COUNT_MAX as usize];
@@ -87,6 +95,7 @@ impl Jpeg {
                 dst: Default::default(),
                 info: &self.info,
                 threadId: ThreadId::init_val(0),
+                huffState: const_default(),
             },
             JpegWorker {
                 shared: &self.shared,
@@ -94,6 +103,7 @@ impl Jpeg {
                 dst: Default::default(),
                 info: &self.info,
                 threadId: ThreadId::init_val(1),
+                huffState: const_default(),
             },
             JpegWorker {
                 shared: &self.shared,
@@ -101,6 +111,7 @@ impl Jpeg {
                 dst: Default::default(),
                 info: &self.info,
                 threadId: ThreadId::init_val(2),
+                huffState: const_default(),
             },
         ]
     }
@@ -482,6 +493,12 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
         xpos: u8,
         output: &mut JBlock,
     ) {
+        if ypos as usize > input.len() - vars::DCTSIZE
+            || xpos as usize > input[0].len() - vars::DCTSIZE
+        {
+            panic!();
+        };
+
         let mut oidx = 0;
         for yidx in 0..vars::DCTSIZE {
             let input = input[ypos as usize + yidx];
@@ -495,7 +512,110 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
     }
 
     fn fdct_ifast(inout: &mut JBlock) {
-        todo!()
+        const CONST_BITS: u8 = 8;
+
+        const FIX_0_382683433: i32 = 98; /* FIX(0.382683433) */
+        const FIX_0_541196100: i32 = 139; /* FIX(0.541196100) */
+        const FIX_0_707106781: i32 = 181; /* FIX(0.707106781) */
+        const FIX_1_306562965: i32 = 334; /* FIX(1.306562965) */
+
+        fn MULTIPLY(v: i16, c: i32) -> i16 {
+            ((v as i32 * c) >> CONST_BITS) as i16
+        }
+
+        /* Pass 1: process rows. */
+
+        for i in (0..vars::DCTSIZE2).step_by(DCTSIZE) {
+            let tmp0 = inout[i + 0] + inout[i + 7];
+            let tmp7 = inout[i + 0] - inout[i + 7];
+            let tmp1 = inout[i + 1] + inout[i + 6];
+            let tmp6 = inout[i + 1] - inout[i + 6];
+            let tmp2 = inout[i + 2] + inout[i + 5];
+            let tmp5 = inout[i + 2] - inout[i + 5];
+            let tmp3 = inout[i + 3] + inout[i + 4];
+            let tmp4 = inout[i + 3] - inout[i + 4];
+
+            /* Even part */
+
+            let tmp10 = tmp0 + tmp3; /* phase 2 */
+            let tmp13 = tmp0 - tmp3;
+            let tmp11 = tmp1 + tmp2;
+            let tmp12 = tmp1 - tmp2;
+
+            inout[i + 0] = tmp10 + tmp11; /* phase 3 */
+            inout[i + 4] = tmp10 - tmp11;
+
+            let z1 = MULTIPLY(tmp12 + tmp13, FIX_0_707106781); /* c4 */
+            inout[i + 2] = tmp13 + z1; /* phase 5 */
+            inout[i + 6] = tmp13 - z1;
+
+            /* Odd part */
+
+            let tmp10 = tmp4 + tmp5; /* phase 2 */
+            let tmp11 = tmp5 + tmp6;
+            let tmp12 = tmp6 + tmp7;
+
+            /* The rotator is modified from fig 4-8 to avoid extra negations. */
+            let z5 = MULTIPLY(tmp10 - tmp12, FIX_0_382683433); /* c6 */
+            let z2 = MULTIPLY(tmp10, FIX_0_541196100) + z5; /* c2-c6 */
+            let z4 = MULTIPLY(tmp12, FIX_1_306562965) + z5; /* c2+c6 */
+            let z3 = MULTIPLY(tmp11, FIX_0_707106781); /* c4 */
+
+            let z11 = tmp7 + z3; /* phase 5 */
+            let z13 = tmp7 - z3;
+
+            inout[i + 5] = z13 + z2; /* phase 6 */
+            inout[i + 3] = z13 - z2;
+            inout[i + 1] = z11 + z4;
+            inout[i + 7] = z11 - z4;
+        }
+
+        /* Pass 2: process columns. */
+
+        for i in 0..vars::DCTSIZE {
+            let tmp0 = inout[i + DCTSIZE * 0] + inout[i + DCTSIZE * 7];
+            let tmp7 = inout[i + DCTSIZE * 0] - inout[i + DCTSIZE * 7];
+            let tmp1 = inout[i + DCTSIZE * 1] + inout[i + DCTSIZE * 6];
+            let tmp6 = inout[i + DCTSIZE * 1] - inout[i + DCTSIZE * 6];
+            let tmp2 = inout[i + DCTSIZE * 2] + inout[i + DCTSIZE * 5];
+            let tmp5 = inout[i + DCTSIZE * 2] - inout[i + DCTSIZE * 5];
+            let tmp3 = inout[i + DCTSIZE * 3] + inout[i + DCTSIZE * 4];
+            let tmp4 = inout[i + DCTSIZE * 3] - inout[i + DCTSIZE * 4];
+
+            /* Even part */
+
+            let tmp10 = tmp0 + tmp3; /* phase 2 */
+            let tmp13 = tmp0 - tmp3;
+            let tmp11 = tmp1 + tmp2;
+            let tmp12 = tmp1 - tmp2;
+
+            inout[i + DCTSIZE * 0] = tmp10 + tmp11; /* phase 3 */
+            inout[i + DCTSIZE * 4] = tmp10 - tmp11;
+
+            let z1 = MULTIPLY(tmp12 + tmp13, FIX_0_707106781); /* c4 */
+            inout[i + DCTSIZE * 2] = tmp13 + z1; /* phase 5 */
+            inout[i + DCTSIZE * 6] = tmp13 - z1;
+
+            /* Odd part */
+
+            let tmp10 = tmp4 + tmp5; /* phase 2 */
+            let tmp11 = tmp5 + tmp6;
+            let tmp12 = tmp6 + tmp7;
+
+            /* The rotator is modified from fig 4-8 to avoid extra negations. */
+            let z5 = MULTIPLY(tmp10 - tmp12, FIX_0_382683433); /* c6 */
+            let z2 = MULTIPLY(tmp10, FIX_0_541196100) + z5; /* c2-c6 */
+            let z4 = MULTIPLY(tmp12, FIX_1_306562965) + z5; /* c2+c6 */
+            let z3 = MULTIPLY(tmp11, FIX_0_707106781); /* c4 */
+
+            let z11 = tmp7 + z3; /* phase 5 */
+            let z13 = tmp7 - z3;
+
+            inout[i + DCTSIZE * 5] = z13 + z2; /* phase 6 */
+            inout[i + DCTSIZE * 3] = z13 - z2;
+            inout[i + DCTSIZE * 1] = z11 + z4;
+            inout[i + DCTSIZE * 7] = z11 - z4;
+        }
     }
 
     fn quantize(inout: &mut JBlock, divisors: &[[i16; vars::DCTSIZE2]; 3]) {
@@ -535,12 +655,20 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
     fn compress(&mut self, MCU_col_num: u8) {
         let mut blkn = 0;
 
+        if MCU_col_num > MCUs_per_row {
+            panic!();
+        }
+
         for ci in 0..vars::MAX_COMPONENTS {
             let comp = &self.shared.compInfos.infos[ci];
             let MCU_width = comp.h_samp_factor;
-            let MCU_sample_width = MCU_width * vars::DCTSIZE as u8;
             let MCU_height = comp.v_samp_factor;
 
+            if MCU_width > vars::MAX_SAMP_FACTOR as u8 || MCU_height > vars::MAX_SAMP_FACTOR as u8 {
+                panic!();
+            }
+
+            let MCU_sample_width = MCU_width * vars::DCTSIZE as u8;
             let xpos = MCU_col_num * MCU_sample_width;
             let mut ypos = 0;
 
@@ -567,6 +695,15 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
         todo!()
     }
 
+    fn reset_mcu(&mut self) {
+        self.huffState = const_default();
+        self.huffState.free_bits = mem::size_of_val(&self.huffState.c) * 8;
+    }
+
+    fn flush_mcu(&mut self) {
+        todo!()
+    }
+
     fn process(&mut self) {
         for MCU_col_num in 0..MCUs_per_row {
             self.compress(MCU_col_num);
@@ -582,11 +719,17 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
     {
         let bpp = self.get_bpp_for_format();
         let pitch = vars::GSP_SCREEN_WIDTH * bpp as usize;
+
+        if src.len() != pitch * self.screen_height() as usize {
+            panic!();
+        }
+
         let src_chunks = src.chunks_exact(pitch);
         let mut pre_progress = pre_progress(src_chunks.len() as u8);
 
         pre_progress();
 
+        self.reset_mcu();
         for chunks in src_chunks.array_chunks::<in_rows_blk>() {
             /* Pre-process */
             let mut chunks = chunks.array_chunks::<in_rows_blk_half>();
@@ -604,5 +747,6 @@ impl<'a, 'b> JpegWorker<'a, 'b> {
 
             progress();
         }
+        self.flush_mcu();
     }
 }
