@@ -182,34 +182,30 @@ pub unsafe fn release_nwm_ready(w: &WorkIndex) {
     }
 }
 
-#[no_mangle]
 #[named]
-extern "C" fn rpSendBuffer(cinfo: j_compress_ptr, _: *mut u8_, size: u32_, flag: u32_) {
-    unsafe {
-        let info = &mut *cinfo;
+pub unsafe fn rpSendBuffer(dst: &mut crate::jpeg::WorkerDst, term: bool) {
+    let ninfo = &*dst.info;
+    let dinfo = &ninfo.info;
 
-        let work_index = WorkIndex::init_unchecked(info.user_work_index);
-        let thread_id = ThreadId::init_unchecked(info.user_thread_id);
+    let size = crate::jpeg::vars::OUTPUT_BUF_SIZE as usize - dst.free_in_bytes as usize;
 
-        let ninfo = get_nwm_infos().get_mut(&work_index).get_mut(&thread_id);
-        let dinfo = &mut ninfo.info;
+    let mut pos_next = (*dinfo.pos.as_ptr()).add(size);
 
-        let mut pos_next = (*dinfo.pos.as_ptr()).add(size as usize);
-        if pos_next > ninfo.buf_packet_last {
-            pos_next = ninfo.buf_packet_last;
-            nsDbgPrint!(sendBufferOverflow);
-        }
+    dinfo.pos.store(pos_next, Ordering::Relaxed);
+    if term {
+        dinfo.flag.store(term as u32, Ordering::Release);
+    }
 
-        info.client_data = pos_next as *mut _;
+    if pos_next > ninfo.buf_packet_last {
+        pos_next = ninfo.buf_packet_last;
+        nsDbgPrint!(sendBufferOverflow);
+    }
 
-        dinfo.pos.store(pos_next, Ordering::Relaxed);
-        if flag > 0 {
-            dinfo.flag.store(flag, Ordering::Release);
-        }
+    dst.dst = pos_next as *mut _;
+    dst.free_in_bytes = crate::jpeg::vars::OUTPUT_BUF_SIZE as u16;
 
-        let res = svcSignalEvent((*syn_handles).nwm_ready);
-        if res != 0 {
-            nsDbgPrint!(nwmEventSignalFailed, res);
-        }
+    let res = svcSignalEvent((*syn_handles).nwm_ready);
+    if res != 0 {
+        nsDbgPrint!(nwmEventSignalFailed, res);
     }
 }

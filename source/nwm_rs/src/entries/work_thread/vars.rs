@@ -2,17 +2,11 @@ use super::*;
 
 #[derive(ConstDefault)]
 pub struct BlitCtx {
-    pub width: u32_,
-    pub height: u32_,
     pub format: u32_,
     pub src: *const u8_,
-    pub src_pitch: u32_,
-    pub bpp: u32_,
 
     pub frame_id: u8_,
     pub is_top: bool,
-
-    pub cinfo: *mut CInfosThreads,
 
     pub i_start: RowIndexes,
     pub i_count: RowIndexes,
@@ -20,43 +14,58 @@ pub struct BlitCtx {
     pub should_capture: AtomicBool,
 }
 
+impl BlitCtx {
+    pub fn pitch(&self) -> u32_ {
+        self.bpp() * self.height()
+    }
+
+    pub fn src_len(&self) -> u32_ {
+        self.width() * self.pitch()
+    }
+
+    pub fn width(&self) -> u32_ {
+        GSP_SCREEN_WIDTH
+    }
+
+    pub fn height(&self) -> u32_ {
+        if self.is_top {
+            GSP_SCREEN_HEIGHT_TOP
+        } else {
+            GSP_SCREEN_HEIGHT_BOTTOM
+        }
+    }
+
+    pub fn bpp(&self) -> u32_ {
+        let format = self.format & 0xf;
+        if format == 0 {
+            4
+        } else if format == 1 {
+            3
+        } else {
+            2
+        }
+    }
+}
+
 pub type BlitCtxes = RangedArray<BlitCtx, WORK_COUNT>;
 pub static mut blit_ctxes: BlitCtxes = const_default();
 
 #[derive(ConstDefault)]
-pub struct AllocStats {
-    pub qual: rp_alloc_stats,
-    pub comp: rp_alloc_stats,
+pub struct JpegGlobal {
+    jpeg: *mut crate::jpeg::Jpeg,
 }
 
-#[derive(ConstDefault)]
-pub struct CInfo {
-    pub info: jpeg_compress_struct,
-    pub alloc_stats: AllocStats,
+unsafe impl core::marker::Sync for JpegGlobal {}
+unsafe impl core::marker::Send for JpegGlobal {}
+
+static mut jpeg_mem: JpegGlobal = const_default();
+
+pub unsafe fn set_jpeg(buf: &'static mut [u8; mem::size_of::<crate::jpeg::Jpeg>()]) {
+    jpeg_mem.jpeg = buf.as_mut_ptr() as *mut crate::jpeg::Jpeg;
 }
-
-pub type CInfosThreads = RangedArray<CInfo, RP_CORE_COUNT_MAX>;
-
-pub type CInfos = RangedArray<CInfosThreads, WORK_COUNT>;
-
-pub type CInfosAll = RangedArray<CInfo, CINFOS_COUNT>;
-
-static mut cinfos: CInfos = const_default();
-static mut cinfos_all: *mut CInfosAll = ptr::null_mut();
-
-pub unsafe fn get_jerr() -> &'static mut jpeg_error_mgr {
-    unsafe { &mut jerr }
+pub unsafe fn get_jpeg() -> &'static mut crate::jpeg::Jpeg {
+    &mut *jpeg_mem.jpeg
 }
-
-pub unsafe fn get_cinfos() -> &'static mut CInfos {
-    unsafe { &mut cinfos }
-}
-
-pub unsafe fn get_cinfos_all() -> &'static mut *mut CInfosAll {
-    unsafe { &mut cinfos_all }
-}
-
-static mut jerr: jpeg_error_mgr = const_default();
 
 pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
 pub type RowProgresses = RangedArray<AtomicU32, RP_CORE_COUNT_MAX>;
@@ -80,20 +89,6 @@ static mut reset_threads_flag: AtomicBool = const_default();
 static mut core_count_in_use: CoreCount = CoreCount::init();
 
 pub static mut current_frame_ids: RangedArray<u8_, SCREEN_COUNT> = const_default();
-
-#[derive(ConstDefault)]
-pub struct Buffers {
-    pub prep: [JSAMPARRAY; MAX_COMPONENTS as usize],
-    pub color: [JSAMPARRAY; MAX_COMPONENTS as usize],
-    pub mcu: [JBLOCKROW; C_MAX_BLOCKS_IN_MCU as usize],
-}
-
-pub type WorkBuffers = RangedArray<RangedArray<Buffers, RP_CORE_COUNT_MAX>, WORK_COUNT>;
-pub static mut work_buffers: WorkBuffers = const_default();
-
-pub unsafe fn get_work_buffers() -> &'static mut WorkBuffers {
-    &mut work_buffers
-}
 
 pub fn reset_threads() -> bool {
     unsafe { reset_threads_flag.load(Ordering::Relaxed) }
@@ -260,10 +255,6 @@ impl ThreadBeginVars {
         self.0.blit_ctx()
     }
 
-    pub fn cinfos(&self) -> &mut CInfosThreads {
-        unsafe { cinfos.get_mut(&self.v().work_index()) }
-    }
-
     pub fn nwm_infos(&self) -> &mut crate::entries::thread_nwm::NwmThreadInfos {
         unsafe { crate::entries::thread_nwm::get_nwm_infos().get_mut(&self.v().work_index()) }
     }
@@ -296,7 +287,7 @@ impl ThreadBeginVars {
             }
 
             let ctx = self.ctx();
-            let src_len = ctx.width * ctx.src_pitch;
+            let src_len = ctx.src_len();
             let _ = svcInvalidateProcessDataCache(CUR_PROCESS_HANDLE, ctx.src as u32_, src_len);
         }
     }
@@ -304,7 +295,7 @@ impl ThreadBeginVars {
     pub fn frame_changed(&self) -> bool {
         unsafe {
             let ctx = self.ctx();
-            let src_len = ctx.width * ctx.src_pitch;
+            let src_len = ctx.src_len();
             *slice::from_raw_parts(ctx.src, src_len as usize)
                 != *slice::from_raw_parts(self.v().img_src_prev(), src_len as usize)
         }
@@ -383,36 +374,3 @@ pub unsafe fn no_skip_next_frames() {
     let _ = svcSignalEvent(*(*syn_handles).port_screen_ready.get_b(false));
     let _ = svcSignalEvent(*(*syn_handles).port_screen_ready.get_b(true));
 }
-
-#[named]
-#[no_mangle]
-#[allow(unreachable_code)]
-extern "C" fn rpMalloc(cinfo: j_common_ptr, size: u32_) -> *mut c_void {
-    unsafe {
-        let info = &mut *cinfo;
-        let ret = info.alloc.buf.add(info.alloc.stats.offset as usize);
-        let mut total_size = size;
-
-        if total_size % 32 != 0 {
-            total_size += 32 - (total_size % 32);
-        }
-
-        if info.alloc.stats.remaining < total_size {
-            let alloc_size = info.alloc.stats.offset + info.alloc.stats.remaining;
-            nsDbgPrint!(allocFailed, total_size, alloc_size);
-
-            (*info.err).msg_code = JERR_OUT_OF_MEMORY as s32;
-            (*info.err).msg_parm.i[0] = 0;
-            (*info.err).error_exit.unwrap_unchecked()(cinfo);
-            return ptr::null_mut();
-        }
-
-        info.alloc.stats.offset += total_size;
-        info.alloc.stats.remaining -= total_size;
-
-        return ret as *mut _;
-    }
-}
-
-#[no_mangle]
-extern "C" fn rpFree(_: j_common_ptr, _: *mut c_void) {}

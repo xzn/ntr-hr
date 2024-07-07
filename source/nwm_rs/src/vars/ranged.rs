@@ -3,6 +3,12 @@ use super::*;
 #[derive(Copy, Clone, ConstDefault, ConstParamTy, Eq, PartialEq)]
 pub struct IRanged<const BEG: u32_, const END: u32_>(u32_);
 
+impl<const BEG: u32_, const END: u32_> Default for IRanged<BEG, END> {
+    fn default() -> Self {
+        Self(BEG)
+    }
+}
+
 pub struct IRangedIter<const BEG: u32_, const END: u32_>(u32_);
 
 impl<const BEG: u32_, const END: u32_> Iterator for IRangedIter<BEG, END> {
@@ -85,10 +91,12 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
         Self(BEG)
     }
 
-    pub fn init_val(v: u32_) -> Self {
-        let mut r = Self::init();
-        r.set(v);
-        r
+    pub fn init_val<const N: u32_>() -> Self
+    where
+        [(); { N >= BEG } as usize - 1]:,
+        [(); { N <= END } as usize - 1]:,
+    {
+        Self(N)
     }
 
     pub unsafe fn init_unchecked(v: u32_) -> Self {
@@ -149,6 +157,7 @@ where
 
 pub type Ranged<const N: u32_> = IRanged<0, { N - 1 }>;
 
+#[allow(dead_code)]
 pub struct RangedArraySlice<'a, T, const N: u32_>(pub &'a mut RangedArray<T, N>)
 where
     [(); N as usize]:;

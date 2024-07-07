@@ -55,6 +55,5 @@ mod dbg;
 mod entries;
 mod fix;
 mod jpeg;
-mod setjmp;
 mod utils;
 mod vars;

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::*;
-mod vars;
+pub mod vars;
 use vars::{DCTSIZE, MAX_COMPONENTS, *};
 
 #[derive(ConstDefault)]
@@ -16,13 +16,13 @@ pub struct JpegShared {
 }
 
 #[derive(Clone)]
-pub struct WorkerDst<'a> {
-    dst: *mut u8,
-    free_in_bytes: u16,
-    phantom: PhantomData<&'a mut [u8]>,
+pub struct WorkerDst {
+    pub dst: *mut u8,
+    pub free_in_bytes: u16,
+    pub info: *mut crate::entries::thread_nwm::NwmInfo,
 }
 
-impl<'a> WorkerDst<'a> {
+impl WorkerDst {
     fn write_bytes(&mut self, bytes: &[u8]) {
         let mut src = bytes.as_ptr();
         let mut len = bytes.len() as u16;
@@ -50,11 +50,11 @@ impl<'a> WorkerDst<'a> {
     }
 
     fn flush(&mut self) {
-        todo!()
+        unsafe { crate::entries::thread_nwm::rpSendBuffer(self, false) };
     }
 
     fn term(&mut self) {
-        todo!()
+        unsafe { crate::entries::thread_nwm::rpSendBuffer(self, true) };
     }
 
     pub unsafe fn advance_to(&mut self, dst: *mut u8) {
@@ -63,12 +63,12 @@ impl<'a> WorkerDst<'a> {
     }
 }
 
-#[derive(ConstDefault)]
+#[derive(ConstDefault, Clone, Copy)]
 pub struct CInfo {
-    isTop: bool,
-    colorSpace: ColorSpace,
-    restartInterval: u16,
-    workIndex: WorkIndex,
+    pub isTop: bool,
+    pub colorSpace: ColorSpace,
+    pub restartInterval: u16,
+    pub workIndex: WorkIndex,
 }
 
 type BitBufType = usize;
@@ -91,18 +91,16 @@ pub struct JpegWorker<'a> {
     last_dc_val: [i16; MAX_COMPONENTS],
 }
 
-pub struct JpegEncode<'a, 'b, 'c> {
+pub struct JpegEncode<'a, 'c> {
     worker: &'c mut JpegWorker<'a>,
-    dst: WorkerDst<'b>,
+    dst: WorkerDst,
 }
-
-type JpegWorkers<'a> = [JpegWorker<'a>; RP_CORE_COUNT_MAX as usize];
 
 #[derive(ConstDefault)]
 pub struct Jpeg {
     shared: JpegShared,
-    bufs: [WorkerBufs; RP_CORE_COUNT_MAX as usize],
-    info: CInfo,
+    bufs: [[WorkerBufs; RP_CORE_COUNT_MAX as usize]; WORK_COUNT as usize],
+    info: [CInfo; WORK_COUNT as usize],
 }
 
 impl Jpeg {
@@ -115,16 +113,22 @@ impl Jpeg {
         self.shared.compInfos.setColorSpaceYCbCr();
     }
 
-    pub fn reset<'a>(&'a mut self, quality: u32) -> JpegWorkers<'a> {
+    pub fn reset<'a>(&'a mut self, quality: u32) {
         self.shared.quantTbls.setQuality(quality);
         self.shared.divisors.setDivisors(&self.shared.quantTbls);
+    }
 
-        let [b0, b1, b2] = &mut self.bufs;
-        [
-            JpegWorker::init(&self.shared, b0, &self.info, ThreadId::init_val(0)),
-            JpegWorker::init(&self.shared, b1, &self.info, ThreadId::init_val(1)),
-            JpegWorker::init(&self.shared, b2, &self.info, ThreadId::init_val(2)),
-        ]
+    pub fn setInfo(&mut self, info: CInfo) {
+        self.info[info.workIndex.get() as usize] = info;
+    }
+
+    pub unsafe fn getWorker(&mut self, workIndex: WorkIndex, threadId: ThreadId) -> JpegWorker {
+        JpegWorker::init(
+            &self.shared,
+            &mut self.bufs[workIndex.get() as usize][threadId.get() as usize],
+            &self.info[workIndex.get() as usize],
+            threadId,
+        )
     }
 }
 
@@ -231,20 +235,20 @@ enum EncodeBufferBase<'a, const N: usize> {
     Dst,
 }
 
-struct EncodeBuffer<'a, 'b, 'c, 'd, const N: usize> {
+struct EncodeBuffer<'a, 'c, 'd, const N: usize> {
     buf: *mut u8,
     base: EncodeBufferBase<'a, N>,
     state: &'c mut HuffState,
-    dst: &'d mut WorkerDst<'b>,
+    dst: &'d mut WorkerDst,
 }
 
-impl<'a, 'b, 'c, 'd, const N: usize> EncodeBuffer<'a, 'b, 'c, 'd, N>
+impl<'a, 'c, 'd, const N: usize> EncodeBuffer<'a, 'c, 'd, N>
 where
     'a: 'd,
 {
     pub fn init<'e: 'a>(
         state: &'c mut HuffState,
-        dst: &'a mut WorkerDst<'b>,
+        dst: &'a mut WorkerDst,
         buf: &'e mut [u8; N],
     ) -> Self {
         if dst.free_in_bytes < N as u16 {
@@ -334,16 +338,10 @@ fn JPEG_NBITS(x: i16) -> u8 {
 }
 
 impl<'a> JpegWorker<'a> {
-    pub fn encode<'b, F, G, H>(
-        &'a mut self,
-        dst: WorkerDst<'b>,
-        src: &[u8],
-        pre_progress: F,
-        progress: G,
-    ) where
-        F: FnOnce(u8) -> H,
+    pub fn encode<F, G>(&'a mut self, dst: WorkerDst, src: &[u8], pre_progress: F, progress: G)
+    where
+        F: FnMut(),
         G: FnMut(),
-        H: FnMut(),
     {
         JpegEncode { worker: self, dst }.encode(src, pre_progress, progress);
     }
@@ -365,7 +363,7 @@ impl<'a> JpegWorker<'a> {
     }
 }
 
-impl<'a, 'b, 'c> JpegEncode<'a, 'b, 'c> {
+impl<'a, 'c> JpegEncode<'a, 'c> {
     fn write_marker(&mut self, mark: u8)
     /* Emit a marker code */
     {
@@ -980,11 +978,10 @@ impl<'a, 'b, 'c> JpegEncode<'a, 'b, 'c> {
         }
     }
 
-    pub fn encode<F, G, H>(&mut self, src: &[u8], pre_progress: F, mut progress: G)
+    pub fn encode<F, G>(&mut self, src: &[u8], mut pre_progress: F, mut progress: G)
     where
-        F: FnOnce(u8) -> H,
+        F: FnMut(),
         G: FnMut(),
-        H: FnMut(),
     {
         let bpp = self.get_bpp_for_format();
         let pitch = vars::GSP_SCREEN_WIDTH * bpp as usize;
@@ -993,8 +990,7 @@ impl<'a, 'b, 'c> JpegEncode<'a, 'b, 'c> {
             panic!();
         }
 
-        let src_chunks = src.chunks_exact(pitch);
-        let mut pre_progress = pre_progress(src_chunks.len() as u8);
+        let src_chunks = src.chunks_exact(pitch).array_chunks::<in_rows_blk>();
 
         pre_progress();
 
@@ -1003,7 +999,7 @@ impl<'a, 'b, 'c> JpegEncode<'a, 'b, 'c> {
         }
 
         self.reset_mcu();
-        for chunks in src_chunks.array_chunks::<in_rows_blk>() {
+        for chunks in src_chunks {
             /* Pre-process */
             let mut chunks = chunks.array_chunks::<in_rows_blk_half>();
 

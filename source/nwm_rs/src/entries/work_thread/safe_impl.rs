@@ -105,9 +105,9 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
             l.p.get_mut(&j).store(0, Ordering::Relaxed);
         }
 
-        let mcu_size = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
-        let mcus_per_row = ctx.height / mcu_size;
-        let mcu_rows = ctx.width / mcu_size;
+        let mcu_size = crate::jpeg::vars::DCTSIZE as u32_ * JPEG_SAMP_FACTOR as u32_;
+        let mcus_per_row = ctx.height() / mcu_size;
+        let mcu_rows = ctx.width() / mcu_size;
         let mcu_rows_per_thread =
             core::intrinsics::unchecked_div(mcu_rows + core_count.get() - 1, core_count.get());
 
@@ -175,41 +175,25 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
         }
 
         for j in ThreadId::up_to(&core_count) {
-            let cinfo: &mut jpeg_compress_struct = &mut (*ctx.cinfo).get_mut(&j).info;
-            cinfo.image_width = ctx.height;
-            cinfo.image_height = ctx.width;
-            cinfo.input_components = if ctx.format == 0 { 4 } else { 3 };
-            cinfo.in_color_space = match ctx.format {
-                0 => JCS_EXT_XBGR,
-                1 => JCS_EXT_BGR,
-                2 => JCS_EXT_RGB565,
-                3 => JCS_EXT_RGB5A1,
-                _ => JCS_EXT_RGB4,
+            let restart_in_rows = l.v_adjusted as s32;
+            let restart_interval = restart_in_rows as u32 * mcus_per_row;
+
+            let cinfo = crate::jpeg::CInfo {
+                isTop: ctx.is_top,
+                colorSpace: match ctx.format {
+                    0 => crate::jpeg::vars::ColorSpace::XBGR,
+                    1 => crate::jpeg::vars::ColorSpace::BGR,
+                    2 => crate::jpeg::vars::ColorSpace::RGB565,
+                    3 => crate::jpeg::vars::ColorSpace::RGB5A1,
+                    _ => crate::jpeg::vars::ColorSpace::RGB4,
+                },
+                restartInterval: restart_interval as u16,
+                workIndex: w,
             };
-            cinfo.restart_in_rows = l.v_adjusted as s32;
-            cinfo.restart_interval = cinfo.restart_in_rows as u32 * mcus_per_row;
 
-            if setjmp::setjmp(&mut cinfo.err_jmp_buf) != 0 {
-                cinfo.has_err_jmp_buf = 0;
-                set_reset_threads_ar();
-                return false;
-            }
-            cinfo.has_err_jmp_buf = 1;
+            get_jpeg().setInfo(cinfo);
 
-            if cinfo.global_state == JPEG_CSTATE_START {
-                jpeg_start_compress(cinfo, 1);
-            } else {
-                jpeg_suppress_tables(cinfo, 0);
-                jpeg_start_pass_prep(cinfo, 0);
-                jpeg_start_pass_huff(cinfo, j.get() as i32);
-                jpeg_start_pass_coef(cinfo, 0);
-                jpeg_start_pass_main(cinfo, 0);
-                cinfo.next_scanline = 0;
-            }
-
-            cinfo.has_err_jmp_buf = 0;
-
-            *ctx.i_start.get_mut(&j) = cinfo.restart_in_rows as u32 * j.get();
+            *ctx.i_start.get_mut(&j) = restart_in_rows as u32 * j.get();
             *ctx.i_count.get_mut(&j) = if j == thread_id_last {
                 l.v_last_adjusted
             } else {
@@ -228,28 +212,11 @@ fn bctx_init(v: &ThreadBeginVars) -> bool {
         let mut format = v.v().format();
 
         ctx.is_top = v.v().is_top();
-        ctx.cinfo = v.cinfos();
-        ctx.bpp = get_bpp_for_format(format);
         format &= 0xf;
         if ctx.format != format {
             ret = true;
-
-            for j in ThreadId::up_to(&get_core_count_in_use()) {
-                let info = (*ctx.cinfo).get_mut(&j);
-                if info.info.global_state != JPEG_CSTATE_START {
-                    ptr::copy_nonoverlapping(
-                        ptr::addr_of!(info.alloc_stats.comp),
-                        ptr::addr_of_mut!(info.info.alloc.stats),
-                        1,
-                    );
-                    info.info.global_state = JPEG_CSTATE_START;
-                }
-            }
         }
         ctx.format = format;
-        ctx.width = if v.v().is_top() { 400 } else { 320 };
-        ctx.height = 240;
-        ctx.src_pitch = ctx.bpp * ctx.height;
         ctx.src = v.v().img_src();
         ctx.frame_id = v.frame_id();
 
@@ -259,136 +226,51 @@ fn bctx_init(v: &ThreadBeginVars) -> bool {
     }
 }
 
-fn get_bpp_for_format(mut format: u32_) -> u32_ {
-    format &= 0xf;
-    if format == 0 {
-        4
-    } else if format == 1 {
-        3
-    } else {
-        2
-    }
-}
-
 fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
     unsafe {
         let ctx = vars.blit_ctx();
-        let cinfo = &mut (*ctx.cinfo).get_mut(&t).info;
+        let w = vars.v().work_index();
+        let p = vars.load_and_progresses().get_mut(&w).p.get_mut(&t);
+        let mut worker = get_jpeg().getWorker(w, *t);
 
-        if setjmp::setjmp(&mut cinfo.err_jmp_buf) != 0 {
-            cinfo.has_err_jmp_buf = 0;
-            set_reset_threads_ar();
-            return false;
-        }
-        cinfo.has_err_jmp_buf = 1;
+        let src = ctx.src;
+        let i_start = *ctx.i_start.get(&t);
+        let i_count = *ctx.i_count.get(&t);
+        let pitch = ctx.pitch();
 
-        cinfo.client_data = *vars.nwm_infos().get(&t).info.pos.as_ptr() as *mut c_void;
-        jpeg_init_destination(cinfo);
+        let j_start = crate::jpeg::vars::in_rows_blk * pitch as usize * i_start as usize;
+        let j_count = crate::jpeg::vars::in_rows_blk * pitch as usize * i_count as usize;
+        let i_count_half = J_MAX_HALF_FACTOR(i_count as u32_) as usize;
 
-        if t.get() == 0 {
-            jpeg_write_file_header(cinfo);
-            jpeg_write_frame_header(cinfo);
-            jpeg_write_scan_header(cinfo);
-        }
-        really_do_send_frame(
-            cinfo,
-            ctx.src,
-            ctx.src_pitch,
-            *ctx.i_start.get(&t),
-            *ctx.i_count.get(&t),
-            &t,
-            vars,
-            &mut ctx.should_capture,
-        );
-        jpeg_finish_pass_huff(cinfo);
+        let src = &slice::from_raw_parts(src, ctx.src_len() as usize)[j_start..(j_start + j_count)];
 
-        if t.get() != get_core_count_in_use().get() - 1 {
-            jpeg_emit_marker(cinfo, (JPEG_RST0 + t.get()) as s32);
-        } else {
-            jpeg_write_file_trailer(cinfo);
-        }
-        jpeg_term_destination(cinfo);
-
-        cinfo.has_err_jmp_buf = 0;
-        true
-    }
-}
-
-#[named]
-unsafe fn really_do_send_frame(
-    cinfo: &mut jpeg_compress_struct,
-    src: *const u8_,
-    pitch: u32_,
-    i_start: u32_,
-    i_count: u32_,
-    t: &ThreadId,
-    vars: &ThreadDoVars,
-    should_capture: &mut AtomicBool,
-) {
-    let w = vars.v().work_index();
-    let p = vars.load_and_progresses().get_mut(&w).p.get_mut(&t);
-
-    const in_rows_blk: u32_ = DCTSIZE * JPEG_SAMP_FACTOR as u32_;
-    const in_rows_blk_half: u32_ = in_rows_blk / 2;
-
-    let bufs = work_buffers.get_mut(&w).get_mut(&t);
-    let output_buf = &mut bufs.prep;
-    let color_buf = &mut bufs.color;
-
-    let mut input_buf: [_; in_rows_blk_half as usize] =
-        mem::MaybeUninit::<JSAMPROW>::uninit_array();
-
-    let j_max = in_rows_blk * (i_start + i_count);
-    let j_max: u32 = cmp::min(j_max, cinfo.image_height);
-    let j_max_half = in_rows_blk * (i_start + J_MAX_HALF_FACTOR(i_count));
-    let j_max_half = cmp::min(j_max_half, cinfo.image_height);
-
-    let j_start = in_rows_blk * i_start;
-    if j_max_half == j_start {
-        capture_screen(should_capture, vars);
-    }
-
-    let mut j = j_start;
-    let mut progress = 0;
-    loop {
-        let mut pre_process = |h| {
-            for i in 0..in_rows_blk_half {
-                (*input_buf.get_unchecked_mut(i as usize))
-                    .write(src.add((j * pitch) as usize) as *mut _);
-                j += 1;
+        let mut pre_progress_count = 0;
+        let pre_progress = || {
+            if pre_progress_count >= i_count_half {
+                capture_screen(&mut ctx.should_capture, vars);
             }
-            jpeg_pre_process(
-                cinfo,
-                mem::MaybeUninit::array_assume_init(input_buf).as_mut_ptr(),
-                color_buf.as_mut_ptr(),
-                output_buf.as_mut_ptr(),
-                h,
-            );
+            pre_progress_count += 1;
         };
-        pre_process(0);
-        pre_process(1);
 
-        if j_max_half == j {
-            capture_screen(should_capture, vars);
-        }
+        let mut progress_count = 0;
+        let progress = || {
+            progress_count += 1;
+            p.store(progress_count, Ordering::Relaxed);
+        };
 
-        let mcu_buffer = &mut bufs.mcu;
-        for k in 0..cinfo.MCUs_per_row {
-            jpeg_compress_data(cinfo, output_buf.as_mut_ptr(), mcu_buffer.as_mut_ptr(), k);
-            if jpeg_encode_mcu_huff(cinfo, mcu_buffer.as_mut_ptr()) == 0 {
-                nsDbgPrint!(encodeMcuFailed);
-                (*cinfo.err).msg_code = JERR_OUT_OF_MEMORY as s32;
-                (*cinfo.err).msg_parm.i[0] = 0;
-                (*cinfo.err).error_exit.unwrap_unchecked()(cinfo as j_compress_ptr as j_common_ptr);
-            }
-        }
+        let ninfo = crate::entries::thread_nwm::get_nwm_infos()
+            .get_mut(&w)
+            .get_mut(t);
 
-        progress += 1;
-        p.store(progress, Ordering::Relaxed);
+        let dst = *vars.nwm_infos().get(&t).info.pos.as_ptr() as *mut c_void;
+        let dst = crate::jpeg::WorkerDst {
+            dst: dst as *mut u8,
+            free_in_bytes: crate::jpeg::vars::OUTPUT_BUF_SIZE as u16,
+            info: ninfo,
+        };
 
-        if j == j_max {
-            break;
-        }
+        worker.encode(dst, src, pre_progress, progress);
+        true
     }
 }
 

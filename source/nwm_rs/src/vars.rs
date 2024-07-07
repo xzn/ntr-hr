@@ -8,8 +8,6 @@ pub const rp_config_u32_count: usize = mem::size_of::<RP_CONFIG>() / mem::size_o
 pub const ntr_config: *mut NTR_CONFIG =
     (NS_CONFIG_ADDR as usize + mem::offset_of!(NS_CONFIG, ntrConfig)) as *mut NTR_CONFIG;
 
-// CSTATE_START from jpegint.h
-pub const JPEG_CSTATE_START: c_int = 100;
 pub const JPEG_SAMP_FACTOR: c_int = 2;
 
 pub const THREAD_WAIT_NS: s64 = 100_000_000;
@@ -26,7 +24,6 @@ pub static mut thread_main_handle: Handle = 0;
 
 pub const SCREEN_COUNT: u32_ = 2;
 pub const WORK_COUNT: u32_ = 2;
-pub const CINFOS_COUNT: u32_ = WORK_COUNT * RP_CORE_COUNT_MAX;
 
 pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;

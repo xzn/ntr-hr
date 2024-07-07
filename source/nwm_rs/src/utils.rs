@@ -16,7 +16,7 @@ pub const fn align_to_page_size(s: usize) -> usize {
     }
 }
 
-pub struct MemRegionBase<B, const T: usize>(mem::MaybeUninit<[B; T]>);
+pub struct MemRegionBase<B, const T: usize>(pub mem::MaybeUninit<[B; T]>);
 
 impl<B, const T: usize> MemRegionBase<B, T> {
     pub fn to_ptr(&mut self) -> *mut B {
@@ -67,6 +67,7 @@ pub fn request_mem_from_pool<const T: usize>() -> Option<&'static mut MemRegion8
     }
 }
 
+#[allow(dead_code)]
 pub fn request_mem_from_pool_vsize(t: usize) -> Option<&'static mut [u8_]> {
     let s = unsafe { plgRequestMemory(t as u32_) };
     if s > 0 {

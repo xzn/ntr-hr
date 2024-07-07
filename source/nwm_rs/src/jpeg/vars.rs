@@ -67,7 +67,7 @@ pub struct HuffTbl {
     pub huffVal: [u8; 256],
 }
 
-const NUM_HUFF_TBLS: usize = 2;
+pub const NUM_HUFF_TBLS: usize = 2;
 
 #[derive(ConstDefault)]
 pub struct HuffTbls {
@@ -290,7 +290,7 @@ pub struct QuantTbl {
     pub quantval: [u8; DCTSIZE2],
 }
 
-const NUM_QUANT_TBLS: usize = 2;
+pub const NUM_QUANT_TBLS: usize = 2;
 
 #[derive(ConstDefault)]
 pub struct QuantTbls {
@@ -559,7 +559,7 @@ pub struct WorkerBufs {
     pub mcu: [JBlock; MAX_BLOCKS_IN_MCU],
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub enum ColorSpace {
     #[default]
     XBGR,
