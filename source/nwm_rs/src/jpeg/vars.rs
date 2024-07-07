@@ -440,15 +440,15 @@ impl Divisors {
 
 #[derive(ConstDefault)]
 pub struct DerivedTbl {
-    ehufco: [u32; 256], /* code for each symbol */
-    ehufsi: [u8; 256],  /* length of code for each symbol */
-                        /* If no code has been allocated for a symbol S, ehufsi[S] contains 0 */
+    pub ehufco: [u32; 256], /* code for each symbol */
+    pub ehufsi: [u8; 256],  /* length of code for each symbol */
+                            /* If no code has been allocated for a symbol S, ehufsi[S] contains 0 */
 }
 
 #[derive(ConstDefault)]
 pub struct EntropyTbls {
-    dc_derived_tbls: [DerivedTbl; NUM_HUFF_TBLS],
-    ac_derived_tbls: [DerivedTbl; NUM_HUFF_TBLS],
+    pub dc_derived_tbls: [DerivedTbl; NUM_HUFF_TBLS],
+    pub ac_derived_tbls: [DerivedTbl; NUM_HUFF_TBLS],
 }
 
 fn setDerivedTbl(tbl: &mut DerivedTbl, isDC: bool, tblno: usize, huffTbls: &HuffTbls) {
@@ -550,7 +550,7 @@ pub const GSP_SCREEN_WIDTH: usize = ctru::GSP_SCREEN_WIDTH as usize;
 
 type JCoef = i16;
 pub type JBlock = [JCoef; DCTSIZE2];
-const MAX_BLOCKS_IN_MCU: usize = MAX_SAMP_FACTOR * MAX_SAMP_FACTOR + MAX_COMPONENTS - 1;
+pub const MAX_BLOCKS_IN_MCU: usize = MAX_SAMP_FACTOR * MAX_SAMP_FACTOR + 1 + 1;
 
 #[derive(ConstDefault)]
 pub struct WorkerBufs {

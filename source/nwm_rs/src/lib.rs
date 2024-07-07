@@ -19,6 +19,7 @@
 #![feature(stmt_expr_attributes)]
 #![feature(array_chunks)]
 #![feature(iter_array_chunks)]
+#![feature(ptr_sub_ptr)]
 #![allow(static_mut_refs)]
 
 use crate::dbg::*;
