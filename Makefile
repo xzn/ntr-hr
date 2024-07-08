@@ -32,11 +32,8 @@ OBJ_GAME := $(addprefix obj/,$(notdir $(SRC_GAME_C:.c=.o)))
 SRC_NWM_C := $(wildcard source/nwm/*.c)
 OBJ_NWM := $(addprefix obj/,$(notdir $(SRC_NWM_C:.c=.o)))
 
-SRC_RP_C += $(wildcard source/jpeg/*.c)
-OBJ_RP := $(addprefix obj/,$(notdir $(SRC_RP_C:.c=.o)))
-
 OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_S:.s=.o)))
-DEP := $(OBJ:.o=.d) $(OBJ_BOOT:.o=.d) $(OBJ_MENU:.o=.d) $(OBJ_PM:.o=.d) $(OBJ_GAME:.o=.d) $(OBJ_NWM:.o=.d) $(OBJ_RP:.o=.d)
+DEP := $(OBJ:.o=.d) $(OBJ_BOOT:.o=.d) $(OBJ_MENU:.o=.d) $(OBJ_PM:.o=.d) $(OBJ_GAME:.o=.d) $(OBJ_NWM:.o=.d)
 
 NTR_BIN_BOOT := ntr.hr.boot.bin
 NTR_BIN_MENU := ntr.hr.menu.bin
@@ -73,23 +70,26 @@ release/%.bin: bin/%.elf | release
 release:
 	mkdir $@
 
-bin/$(NTR_BIN_BOOT:.bin=.elf): $(OBJ) $(OBJ_BOOT) libctru_ntr.a 3ds.ld
+bin/$(NTR_BIN_BOOT:.bin=.elf): $(OBJ) $(OBJ_BOOT) libctru_ntr.a 3ds.ld | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_BOOT)) $(LDLIBS)
 
-bin/$(NTR_BIN_MENU:.bin=.elf): $(OBJ) $(OBJ_MENU) libctru_ntr.a 3ds.ld
+bin/$(NTR_BIN_MENU:.bin=.elf): $(OBJ) $(OBJ_MENU) libctru_ntr.a 3ds.ld | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_MENU)) $(LDLIBS)
 
-bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) libctru_ntr.a 3ds.ld
+bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) libctru_ntr.a 3ds.ld | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_PM)) $(LDLIBS)
 
-bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) libctru_ntr.a 3ds.ld
+bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) libctru_ntr.a 3ds.ld | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_GAME)) $(LDLIBS)
 
-bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/rp_lto.o libctru_ntr.a 3dst.ld $(LIB_NWM_RS)
+bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/rp_lto.o libctru_ntr.a 3dst.ld $(LIB_NWM_RS) | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) obj/rp_lto.o) $(LDLIBS) -lnwm_rs
 
-$(LIB_NWM_RS): source/nwm_rs FORCE
-	cargo -Z unstable-options -C $< build --release
+bin:
+	mkdir $@
+
+$(LIB_NWM_RS): $(shell find source/nwm_rs -type f)
+	cargo -Z unstable-options -C source/nwm_rs build --release
 
 libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
 	$(CP_CMD)
@@ -102,40 +102,41 @@ CC_WARNS = -Wall -Wextra
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
 RP_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS) -Iinclude/jpeg
 
-obj/%.o: source/%.s
+obj/%.o: source/%.s | obj
 	$(CC_CMD)
 
-obj/%.o: source/%.c
+obj/%.o: source/%.c | obj
 	$(CC_CMD)
 
-obj/%.o: source/boot/%.c
+obj/%.o: source/boot/%.c | obj
 	$(CC_CMD)
 
-obj/%.o: source/menu/%.c
+obj/%.o: source/menu/%.c | obj
 	$(CC_CMD) -DNTR_BIN_PM=\"$(NTR_BIN_PM)\" -DNTR_BIN_NWM=\"$(NTR_BIN_NWM)\"
 
-obj/%.o: source/pm/%.c
+obj/%.o: source/pm/%.c | obj
 	$(CC_CMD) -DNTR_BIN_GAME=\"$(NTR_BIN_GAME)\"
 
-obj/%.o: source/game/%.c
+obj/%.o: source/game/%.c | obj
 	$(CC_CMD)
 
-obj/%.o: source/nwm/%.c
+obj/%.o: source/nwm/%.c | obj
 	$(RP_CC_CMD)
 
-obj/%.o: source/jpeg/%.c
+obj/%.o: source/jpeg/%.c | obj
 	$(RP_CC_CMD) -Wno-attribute-alias -Wno-unused-variable -Wno-unused-parameter -Wno-unused-but-set-variable
 
-obj/rp_lto.o: $(OBJ_NWM) $(OBJ_RP)
+obj/rp_lto.o: $(OBJ_NWM) | obj
 	$(CC) -flto $(CFLAGS) -r -o $@ $^
+
+obj:
+	mkdir $@
 
 -include $(DEP)
 
 .PHONY: clean all install
 
 clean:
-	-rm *.map bin/*.elf release/*.bin obj/*.d obj/*.o lib*.a
+	-rm *.map bin/* release/* obj/* lib*.a
 	-rm target/ -rf
 	$(MAKE) -C $(CTRU_DIR) clean
-
-FORCE: ;

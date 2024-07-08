@@ -577,7 +577,7 @@ pub const M_DHT: u8 = 0xc4;
 pub const M_DRI: u8 = 0xdd;
 pub const M_SOS: u8 = 0xda;
 pub const M_EOI: u8 = 0xd9;
-pub const JPEG_RST0: u8 = 0xD0;
+pub const M_RST0: u8 = 0xd0;
 
 /*
  * jpeg_natural_order[i] is the natural-order position of the i'th element

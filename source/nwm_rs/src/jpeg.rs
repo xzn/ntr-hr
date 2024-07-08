@@ -540,7 +540,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     }
 
     fn write_rst(&mut self) {
-        self.write_marker(JPEG_RST0 + self.worker.threadId.get() as u8);
+        self.write_marker(M_RST0 + self.worker.threadId.get() as u8);
     }
 
     fn write_trailer(&mut self) {
