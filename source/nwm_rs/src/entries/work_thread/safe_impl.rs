@@ -21,7 +21,7 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
                 && !v.frame_changed();
 
             if !skip_frame {
-                if !ready_nwm(&t, &v) {
+                if !ready_nwm(&v) {
                     return None;
                 }
 
@@ -58,7 +58,7 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
     Some(())
 }
 
-fn ready_nwm(_t: &ThreadId, v: &ThreadBeginVars) -> bool {
+fn ready_nwm(v: &ThreadBeginVars) -> bool {
     unsafe {
         let w = v.v().work_index();
 
@@ -258,11 +258,9 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
             p.store(progress_count, Ordering::Relaxed);
         };
 
-        let ninfo = crate::entries::thread_nwm::get_nwm_infos()
-            .get_mut(&w)
-            .get_mut(t);
+        let ninfo = vars.nwm_infos().get(&t);
 
-        let dst = *vars.nwm_infos().get(&t).info.pos.as_ptr() as *mut c_void;
+        let dst = *ninfo.info.pos.as_ptr() as *mut c_void;
         let dst = crate::jpeg::WorkerDst {
             dst: dst as *mut u8,
             free_in_bytes: crate::jpeg::vars::OUTPUT_BUF_SIZE as u16,

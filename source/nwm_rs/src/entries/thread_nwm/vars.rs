@@ -191,14 +191,14 @@ pub unsafe fn rpSendBuffer(dst: &mut crate::jpeg::WorkerDst, term: bool) {
 
     let mut pos_next = (*dinfo.pos.as_ptr()).add(size);
 
-    dinfo.pos.store(pos_next, Ordering::Relaxed);
-    if term {
-        dinfo.flag.store(term as u32, Ordering::Release);
-    }
-
     if pos_next > ninfo.buf_packet_last {
         pos_next = ninfo.buf_packet_last;
         nsDbgPrint!(sendBufferOverflow);
+    }
+
+    dinfo.pos.store(pos_next, Ordering::Relaxed);
+    if term {
+        dinfo.flag.store(0x10, Ordering::Release);
     }
 
     dst.dst = pos_next as *mut _;

@@ -39,11 +39,6 @@ use core::{
 use ctru::*;
 use function_name::named;
 
-#[panic_handler]
-fn panic(_: &PanicInfo) -> ! {
-    core::intrinsics::abort();
-}
-
 #[allow(unused)]
 mod ctru {
     use crate::ConstDefault;
@@ -57,3 +52,23 @@ mod fix;
 mod jpeg;
 mod utils;
 mod vars;
+
+#[panic_handler]
+fn panic(panic_info: &PanicInfo) -> ! {
+    unsafe {
+        if let Some(location) = panic_info.location() {
+            panicHandle(
+                location.file().as_ptr(),
+                location.file().len() as i32,
+                location.line() as i32,
+                location.column() as i32,
+            )
+        } else {
+            showMsgRaw(c_str!("Panic!"));
+        }
+
+        loop {
+            svcSleepThread(THREAD_WAIT_NS);
+        }
+    }
+}

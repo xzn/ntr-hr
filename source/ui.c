@@ -82,7 +82,7 @@ int __attribute__((weak)) showMsgVA(const char *file_name, int line_number, cons
 	char msg[LOCAL_MSG_BUF_SIZE];
 	printTitleAndMsg(title, file_name, line_number, func_name, msg, fmt, va);
 
-	showMsgRaw2(*title ? title : NULL, msg);
+	showMsgRaw2(title, msg);
 
 	return 0;
 }
@@ -95,4 +95,12 @@ void disp(u32 t, u32 cl) {
 		svcSleepThread(5000000);
 	}
 	REG(LCD_TOP_FILLCOLOR) = 0;
+}
+
+void panicHandle(const char *file, int file_len, int line, int column) {
+	char file_c[LOCAL_MSG_BUF_SIZE];
+	file_len = file_len > LOCAL_MSG_BUF_SIZE - 1 ? LOCAL_MSG_BUF_SIZE - 1 : file_len;
+	memcpy(file_c, file, file_len);
+	file_c[file_len] = 0;
+	showMsgRaw("Panic: %s:%d:%d", file_c, line, column);
 }

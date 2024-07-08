@@ -23,6 +23,8 @@ void printTitleAndMsg(char title[LOCAL_TITLE_BUF_SIZE], const char *file_name, i
 	showMsgRaw(fmt, ## __VA_ARGS__); \
 } while (0)
 
+void panicHandle(const char *file, int file_len, int line, int column);
+
 void disp(u32 t, u32 cl);
 
 extern u32 hasDirectScreenAccess;

@@ -336,7 +336,7 @@ impl QuantTbls {
 
 #[derive(ConstDefault)]
 pub struct Divisors {
-    pub divisors: [[[i16; DCTSIZE2]; 3]; NUM_QUANT_TBLS],
+    pub divisors: [[[i16; 3]; DCTSIZE2]; NUM_QUANT_TBLS],
 }
 
 const ONE: u32 = 1;
@@ -377,21 +377,21 @@ fn flss(mut val: u16) -> u32 {
     }
 }
 
-fn computeReciprocal(divisor: u16, divisors: &mut [[i16; DCTSIZE2]; 3], i: usize) {
+fn computeReciprocal(divisor: u16, divisors: &mut [i16; 3]) {
     if divisor == 1 {
         /* divisor == 1 means unquantized, so these reciprocal/correction/shift
          * values will cause the C quantization algorithm to act like the
          * identity function.  Since only the C quantization algorithm is used in
          * these cases, the scale value is irrelevant.
          */
-        divisors[0][i] = 1; /* reciprocal */
-        divisors[1][i] = 0; /* correction */
-        divisors[2][i] = 0; /* shift */
+        divisors[0] = 1; /* reciprocal */
+        divisors[1] = 0; /* correction */
+        divisors[2] = 0; /* shift */
         return;
     }
 
-    let b: u32 = flss(divisor) - 1;
-    let mut r: u32 = mem::size_of::<i16>() as u32 * 8 + b;
+    let b: u32 = flss(divisor);
+    let mut r: u32 = mem::size_of::<i16>() as u32 * 8 + b - 1;
 
     let divisor = divisor as u32;
 
@@ -413,9 +413,9 @@ fn computeReciprocal(divisor: u16, divisors: &mut [[i16; DCTSIZE2]; 3], i: usize
         fq += 1;
     }
 
-    divisors[0][i] = fq as i16; /* reciprocal */
-    divisors[1][i] = c as i16; /* correction + roundfactor */
-    divisors[2][i] = r as i16; /* shift */
+    divisors[0] = fq as i16; /* reciprocal */
+    divisors[1] = c as i16; /* correction + roundfactor */
+    divisors[2] = r as i16; /* shift */
 }
 
 impl Divisors {
@@ -430,8 +430,7 @@ impl Divisors {
                         (quantTbl.quantval[i] as u32) * (aanscales[i] as u32),
                         CONST_BITS as u32 - 3,
                     ),
-                    divisors,
-                    i,
+                    &mut divisors[i],
                 );
             }
         }
@@ -546,7 +545,6 @@ impl EntropyTbls {
 }
 
 pub const MAX_SAMP_FACTOR: usize = 2;
-pub const GSP_SCREEN_WIDTH: usize = ctru::GSP_SCREEN_WIDTH as usize;
 
 type JCoef = i16;
 pub type JBlock = [JCoef; DCTSIZE2];
@@ -554,8 +552,8 @@ pub const MAX_BLOCKS_IN_MCU: usize = MAX_SAMP_FACTOR * MAX_SAMP_FACTOR + 1 + 1;
 
 #[derive(ConstDefault)]
 pub struct WorkerBufs {
-    pub color: [[[u8; GSP_SCREEN_WIDTH]; MAX_SAMP_FACTOR]; MAX_COMPONENTS],
-    pub prep: [[[u8; GSP_SCREEN_WIDTH]; MAX_SAMP_FACTOR * DCTSIZE]; MAX_COMPONENTS],
+    pub color: [[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR]; MAX_COMPONENTS],
+    pub prep: [[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR * DCTSIZE]; MAX_COMPONENTS],
     pub mcu: [JBlock; MAX_BLOCKS_IN_MCU],
 }
 

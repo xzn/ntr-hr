@@ -1,8 +1,6 @@
-#![allow(dead_code)]
-
 use crate::*;
 pub mod vars;
-use vars::{DCTSIZE, MAX_COMPONENTS, *};
+use vars::*;
 
 #[derive(ConstDefault)]
 pub struct JpegShared {
@@ -19,7 +17,7 @@ pub struct JpegShared {
 pub struct WorkerDst {
     pub dst: *mut u8,
     pub free_in_bytes: u16,
-    pub info: *mut crate::entries::thread_nwm::NwmInfo,
+    pub info: *const crate::entries::thread_nwm::NwmInfo,
 }
 
 impl WorkerDst {
@@ -71,7 +69,7 @@ pub struct CInfo {
     pub workIndex: WorkIndex,
 }
 
-type BitBufType = usize;
+type BitBufType = u32;
 
 #[derive(ConstDefault)]
 pub struct HuffState {
@@ -113,9 +111,10 @@ impl Jpeg {
         self.shared.compInfos.setColorSpaceYCbCr();
     }
 
-    pub fn reset<'a>(&'a mut self, quality: u32) {
+    pub fn reset<'a>(&'a mut self, quality: u32, coreCount: CoreCount) {
         self.shared.quantTbls.setQuality(quality);
         self.shared.divisors.setDivisors(&self.shared.quantTbls);
+        self.shared.coreCount = coreCount;
     }
 
     pub fn setInfo(&mut self, info: CInfo) {
@@ -153,7 +152,7 @@ fn pconvert(r: u8, g: u8, b: u8, y: &mut u8, cb: &mut u8, cr: &mut u8, ctab: &[i
 
 fn cconvert<const R: usize, const G: usize, const B: usize, const P: usize, const N: usize>(
     input: &[&[u8]; N],
-    output: &mut [[[u8; vars::GSP_SCREEN_WIDTH]; N]; vars::MAX_COMPONENTS],
+    output: &mut [[[u8; GSP_SCREEN_WIDTH as usize]; N]; MAX_COMPONENTS],
     tab: &[i32; TABLE_SIZE],
 ) {
     for i in 0..N {
@@ -181,7 +180,7 @@ fn cconvert<const R: usize, const G: usize, const B: usize, const P: usize, cons
 fn cconvert2<const N: usize, F>(
     input: &[&[u8]; N],
     comps: F,
-    output: &mut [[[u8; vars::GSP_SCREEN_WIDTH]; N]; vars::MAX_COMPONENTS],
+    output: &mut [[[u8; GSP_SCREEN_WIDTH as usize]; N]; MAX_COMPONENTS],
     tab: &ColorConvTabs,
 ) where
     F: Fn(u16, &ColorConvTabs) -> (u8, u8, u8),
@@ -228,7 +227,7 @@ fn rgb5a1_comps(input: u16, tab: &ColorConvTabs) -> (u8, u8, u8) {
  * scanning order-- 1, 8, 16, etc.), then this will produce an encoded block
  * larger than 200 bytes.
  */
-const BUFSIZE: usize = vars::DCTSIZE2 * 8;
+const BUFSIZE: usize = DCTSIZE2 * 8;
 
 enum EncodeBufferBase<'a, const N: usize> {
     Local(&'a [u8; N]),
@@ -300,7 +299,7 @@ where
         }
     }
 
-    unsafe fn PUT_AND_FLUSH(&mut self, code: usize, size: u8) {
+    unsafe fn PUT_AND_FLUSH(&mut self, code: u32, size: u8) {
         self.state.c = (self.state.c << (size as isize + self.state.free_bits))
             | (code >> -self.state.free_bits);
         self.FLUSH();
@@ -308,7 +307,7 @@ where
         self.state.c = code;
     }
 
-    pub unsafe fn PUT_BITS(&mut self, code: usize, size: u8) {
+    pub unsafe fn PUT_BITS(&mut self, code: u32, size: u8) {
         self.state.free_bits -= size as isize;
         if self.state.free_bits < 0 {
             self.PUT_AND_FLUSH(code, size);
@@ -317,19 +316,19 @@ where
         }
     }
 
-    pub unsafe fn PUT_CODE(&mut self, code: usize, size: u8, temp: &mut i16, nbits: &mut i16) {
+    pub unsafe fn PUT_CODE(&mut self, code: u32, size: u8, temp: &mut i32, nbits: &mut i32) {
         *temp &= (1 << *nbits) - 1;
-        *temp |= (code as i16) << *nbits;
-        *nbits += size as i16;
-        self.PUT_BITS(*temp as usize, *nbits as u8);
+        *temp |= (code as i32) << *nbits;
+        *nbits += size as i32;
+        self.PUT_BITS(*temp as u32, *nbits as u8);
     }
 }
 
-fn JPEG_NBITS_NONZERO(x: i16) -> u8 {
+fn JPEG_NBITS_NONZERO(x: i32) -> u8 {
     (mem::size_of_val(&x) * 8 - x.leading_zeros() as usize) as u8
 }
 
-fn JPEG_NBITS(x: i16) -> u8 {
+fn JPEG_NBITS(x: i32) -> u8 {
     if x > 0 {
         JPEG_NBITS_NONZERO(x)
     } else {
@@ -422,9 +421,9 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         let qtbl = &self.worker.shared.quantTbls.quantTbls[index];
 
         self.write_marker(M_DQT);
-        self.write_2bytes((vars::DCTSIZE2 + 1 + 2) as u16);
+        self.write_2bytes((DCTSIZE2 + 1 + 2) as u16);
         self.write_byte(index as u8);
-        for i in 0..vars::DCTSIZE2 {
+        for i in 0..DCTSIZE2 {
             /* The table entries must be emitted in zigzag order. */
             let qval = qtbl.quantval[jpeg_natural_order[i] as usize];
             self.write_byte(qval);
@@ -434,13 +433,13 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     fn write_sof(&mut self, code: u8) {
         self.write_marker(code);
 
-        self.write_2bytes((3 * vars::MAX_COMPONENTS + 2 + 5 + 1) as u16); /* length */
+        self.write_2bytes((3 * MAX_COMPONENTS + 2 + 5 + 1) as u16); /* length */
 
         self.write_byte(8);
         self.write_2bytes(self.screen_height() as u16);
-        self.write_2bytes(vars::GSP_SCREEN_WIDTH as u16);
+        self.write_2bytes(GSP_SCREEN_WIDTH as u16);
 
-        self.write_byte(vars::MAX_COMPONENTS as u8);
+        self.write_byte(MAX_COMPONENTS as u8);
 
         for info in &self.worker.shared.compInfos.infos {
             self.write_byte(info.component_id);
@@ -495,11 +494,11 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     fn write_sos(&mut self) {
         self.write_marker(M_SOS);
 
-        self.write_2bytes((2 * vars::MAX_COMPONENTS + 2 + 1 + 3) as u16); /* length */
+        self.write_2bytes((2 * MAX_COMPONENTS + 2 + 1 + 3) as u16); /* length */
 
-        self.write_byte(vars::MAX_COMPONENTS as u8);
+        self.write_byte(MAX_COMPONENTS as u8);
 
-        for i in 0..vars::MAX_COMPONENTS {
+        for i in 0..MAX_COMPONENTS {
             let comp = &self.worker.shared.compInfos.infos[i];
             self.write_byte(comp.component_id);
 
@@ -516,7 +515,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         }
 
         self.write_byte(0);
-        self.write_byte((vars::DCTSIZE2 - 1) as u8);
+        self.write_byte((DCTSIZE2 - 1) as u8);
         self.write_byte(0);
     }
 
@@ -541,7 +540,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     }
 
     fn write_rst(&mut self) {
-        self.write_marker(vars::JPEG_RST0 + self.worker.threadId.get() as u8);
+        self.write_marker(JPEG_RST0 + self.worker.threadId.get() as u8);
     }
 
     fn write_trailer(&mut self) {
@@ -560,25 +559,25 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         }
     }
 
-    fn color_convert(&mut self, input: &[&[u8]; vars::MAX_SAMP_FACTOR]) {
+    fn color_convert(&mut self, input: &[&[u8]; MAX_SAMP_FACTOR]) {
         match self.worker.info.colorSpace {
-            ColorSpace::XBGR => cconvert::<3, 2, 1, 4, { vars::MAX_SAMP_FACTOR }>(
+            ColorSpace::XBGR => cconvert::<3, 2, 1, 4, { MAX_SAMP_FACTOR }>(
                 input,
                 &mut self.worker.bufs.color,
                 &self.worker.shared.colorConvTbls.rgb_ycc_tab,
             ),
-            ColorSpace::BGR => cconvert::<2, 1, 0, 3, { vars::MAX_SAMP_FACTOR }>(
+            ColorSpace::BGR => cconvert::<2, 1, 0, 3, { MAX_SAMP_FACTOR }>(
                 input,
                 &mut self.worker.bufs.color,
                 &self.worker.shared.colorConvTbls.rgb_ycc_tab,
             ),
-            ColorSpace::RGB565 => cconvert2::<{ vars::MAX_SAMP_FACTOR }, _>(
+            ColorSpace::RGB565 => cconvert2::<{ MAX_SAMP_FACTOR }, _>(
                 input,
                 rgb565_comps,
                 &mut self.worker.bufs.color,
                 &self.worker.shared.colorConvTbls,
             ),
-            ColorSpace::RGB5A1 => cconvert2::<{ vars::MAX_SAMP_FACTOR }, _>(
+            ColorSpace::RGB5A1 => cconvert2::<{ MAX_SAMP_FACTOR }, _>(
                 input,
                 rgb5a1_comps,
                 &mut self.worker.bufs.color,
@@ -589,19 +588,19 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     }
 
     fn fullsize_downsample(
-        input: &[[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR],
-        output: &mut [[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR],
+        input: &[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
+        output: &mut [[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
     ) {
         *output = *input;
     }
 
     fn h2v2_downsample(
-        input: &[[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR],
-        output: &mut [u8; vars::GSP_SCREEN_WIDTH],
+        input: &[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
+        output: &mut [u8; GSP_SCREEN_WIDTH as usize],
     ) {
         let [input0, input1] = input;
-        let input0 = input0.array_chunks::<{ vars::MAX_SAMP_FACTOR }>();
-        let input1 = input1.array_chunks::<{ vars::MAX_SAMP_FACTOR }>();
+        let input0 = input0.array_chunks::<{ MAX_SAMP_FACTOR }>();
+        let input1 = input1.array_chunks::<{ MAX_SAMP_FACTOR }>();
         let mut bias = 1;
 
         for ((input0, input1), output) in input0.zip(input1).zip(output) {
@@ -615,54 +614,47 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         }
     }
 
-    fn downsample<const N: usize>(&mut self, output_base: usize) {
+    fn downsample(&mut self, output_base: usize) {
         for (ci, comp) in (&self.worker.shared.compInfos.infos)
             .into_iter()
             .enumerate()
         {
             let input = &self.worker.bufs.color[ci];
-            let output = &mut self.worker.bufs.prep[ci]
+            let output = self.worker.bufs.prep[ci]
                 .split_at_mut(output_base * comp.v_samp_factor as usize)
                 .1
                 .split_at_mut(comp.v_samp_factor as usize)
                 .0;
-            if comp.v_samp_factor < vars::MAX_SAMP_FACTOR as u8 {
+            if comp.v_samp_factor < MAX_SAMP_FACTOR as u8 {
                 Self::h2v2_downsample(input, &mut output[0]);
             } else {
-                Self::fullsize_downsample(input, (*output).try_into().unwrap());
+                Self::fullsize_downsample(input, output.try_into().unwrap());
             }
         }
     }
 
     fn pre_process(&mut self, src: [&[u8]; in_rows_blk_half], which_half: bool) {
-        for (base, chunk) in src.array_chunks::<{ vars::MAX_SAMP_FACTOR }>().enumerate() {
+        for (base, chunk) in src.array_chunks::<{ MAX_SAMP_FACTOR }>().enumerate() {
             self.color_convert(chunk);
-            self.downsample::<{ vars::MAX_SAMP_FACTOR }>(if which_half {
-                base + in_rows_blk_half
-            } else {
-                base
-            });
+            self.downsample(if which_half { base + DCTSIZE / 2 } else { base });
         }
     }
 
     fn convsamp(
-        input: &[[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR * vars::DCTSIZE],
+        input: &[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR * DCTSIZE],
         ypos: u8,
         xpos: u8,
         output: &mut JBlock,
     ) {
-        if ypos as usize > input.len() - vars::DCTSIZE
-            || xpos as usize > input[0].len() - vars::DCTSIZE
-        {
+        if ypos as usize > input.len() - DCTSIZE || xpos as usize > input[0].len() - DCTSIZE {
             panic!();
         };
 
         let mut oidx = 0;
-        for yidx in 0..vars::DCTSIZE {
+        for yidx in 0..DCTSIZE {
             let input = input[ypos as usize + yidx];
-            for xidx in 0..vars::DCTSIZE {
-                output[oidx] =
-                    (input[xpos as usize + xidx] - vars::CENTERJSAMPLE as u8) as i8 as i16;
+            for xidx in 0..DCTSIZE {
+                output[oidx] = input[xpos as usize + xidx] as i16 - CENTERJSAMPLE as i16;
 
                 oidx += 1;
             }
@@ -683,7 +675,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
 
         /* Pass 1: process rows. */
 
-        for i in (0..vars::DCTSIZE2).step_by(DCTSIZE) {
+        for i in (0..DCTSIZE2).step_by(DCTSIZE) {
             let tmp0 = inout[i + 0] + inout[i + 7];
             let tmp7 = inout[i + 0] - inout[i + 7];
             let tmp1 = inout[i + 1] + inout[i + 6];
@@ -730,7 +722,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
 
         /* Pass 2: process columns. */
 
-        for i in 0..vars::DCTSIZE {
+        for i in 0..DCTSIZE {
             let tmp0 = inout[i + DCTSIZE * 0] + inout[i + DCTSIZE * 7];
             let tmp7 = inout[i + DCTSIZE * 0] - inout[i + DCTSIZE * 7];
             let tmp1 = inout[i + DCTSIZE * 1] + inout[i + DCTSIZE * 6];
@@ -776,22 +768,22 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         }
     }
 
-    fn quantize(inout: &mut JBlock, divisors: &[[i16; vars::DCTSIZE2]; 3]) {
-        for i in 0..vars::DCTSIZE2 {
+    fn quantize(inout: &mut JBlock, divisors: &[[i16; 3]; DCTSIZE2]) {
+        for i in 0..DCTSIZE2 {
             let mut temp = inout[i] as i16;
-            let recip = divisors[0][i];
-            let corr = divisors[1][i];
-            let shift = divisors[2][i];
+            let recip = divisors[i][0];
+            let corr = divisors[i][1];
+            let shift = divisors[i][2];
 
             if temp < 0 {
                 temp = -temp;
-                let mut product = (temp as u32 + corr as u32) * recip as u32;
-                product >>= shift as usize + mem::size_of::<i16>() * 8;
+                let mut product = (temp as i32 + corr as i32) as u32 * recip as u32;
+                product >>= shift as usize;
                 temp = product as i16;
                 temp = -temp;
             } else {
-                let mut product = (temp as u32 + corr as u32) * recip as u32;
-                product >>= shift as usize + mem::size_of::<i16>() * 8;
+                let mut product = (temp as i32 + corr as i32) as u32 * recip as u32;
+                product >>= shift as usize;
                 temp = product as i16;
             }
             inout[i] = temp;
@@ -799,11 +791,11 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     }
 
     fn forward_DCT(
-        input: &[[u8; vars::GSP_SCREEN_WIDTH]; vars::MAX_SAMP_FACTOR * vars::DCTSIZE],
+        input: &[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR * DCTSIZE],
         output: &mut JBlock,
         ypos: u8,
         xpos: u8,
-        divisors: &[[i16; vars::DCTSIZE2]; 3],
+        divisors: &[[i16; 3]; DCTSIZE2],
     ) {
         Self::convsamp(input, ypos, xpos, output);
         Self::fdct_ifast(output);
@@ -817,16 +809,16 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
             panic!();
         }
 
-        for ci in 0..vars::MAX_COMPONENTS {
+        for ci in 0..MAX_COMPONENTS {
             let comp = &self.worker.shared.compInfos.infos[ci];
             let MCU_width = comp.h_samp_factor;
             let MCU_height = comp.v_samp_factor;
 
-            if MCU_width > vars::MAX_SAMP_FACTOR as u8 || MCU_height > vars::MAX_SAMP_FACTOR as u8 {
+            if MCU_width > MAX_SAMP_FACTOR as u8 || MCU_height > MAX_SAMP_FACTOR as u8 {
                 panic!();
             }
 
-            let MCU_sample_width = MCU_width * vars::DCTSIZE as u8;
+            let MCU_sample_width = MCU_width * DCTSIZE as u8;
             let xpos = MCU_col_num * MCU_sample_width;
             let mut ypos = 0;
 
@@ -841,10 +833,10 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
                         &self.worker.shared.divisors.divisors[comp.quant_tbl_no as usize],
                     );
 
-                    xpos += vars::DCTSIZE as u8;
+                    xpos += DCTSIZE as u8;
                     blkn += 1;
                 }
-                ypos += vars::DCTSIZE as u8;
+                ypos += DCTSIZE as u8;
             }
         }
     }
@@ -852,7 +844,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     fn encode_one_block(
         dst: &mut WorkerDst,
         state: &mut HuffState,
-        block: &mut [i16; vars::DCTSIZE2],
+        block: &mut [i16; DCTSIZE2],
         last_dc_val: i16,
         dc_derived_tbl: &DerivedTbl,
         ac_derived_tbl: &DerivedTbl,
@@ -860,15 +852,15 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         let mut localbuf: [u8; BUFSIZE] = const_default();
         let mut buf = EncodeBuffer::init(state, dst, &mut localbuf);
 
-        let mut temp = block[0] - last_dc_val;
+        let mut temp = block[0] as i32 - last_dc_val as i32;
         let mut nbits = temp >> (core::mem::size_of_val(&temp) * 8 - 1);
         temp += nbits;
         nbits ^= temp;
 
-        nbits = JPEG_NBITS(nbits) as i16;
+        nbits = JPEG_NBITS(nbits) as i32;
         unsafe {
             buf.PUT_CODE(
-                dc_derived_tbl.ehufco[nbits as usize] as usize,
+                dc_derived_tbl.ehufco[nbits as usize],
                 dc_derived_tbl.ehufsi[nbits as usize],
                 &mut temp,
                 &mut nbits,
@@ -878,7 +870,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         let mut r = 0;
 
         for jpeg_natural_order_of_k in jpeg_natural_order.into_iter().skip(1) {
-            temp = block[jpeg_natural_order_of_k as usize];
+            temp = block[jpeg_natural_order_of_k as usize] as i32;
             if temp == 0 {
                 r += 16;
             } else {
@@ -886,21 +878,18 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
                 temp += nbits;
                 nbits ^= temp;
 
-                nbits = JPEG_NBITS_NONZERO(nbits) as i16;
+                nbits = JPEG_NBITS_NONZERO(nbits) as i32;
 
                 while r >= 16 * 16 {
                     r -= 16 * 16;
                     unsafe {
-                        buf.PUT_BITS(
-                            ac_derived_tbl.ehufco[0xf0] as usize,
-                            ac_derived_tbl.ehufsi[0xf0],
-                        )
+                        buf.PUT_BITS(ac_derived_tbl.ehufco[0xf0], ac_derived_tbl.ehufsi[0xf0])
                     };
                 }
                 r += nbits;
                 unsafe {
                     buf.PUT_CODE(
-                        ac_derived_tbl.ehufco[r as usize] as usize,
+                        ac_derived_tbl.ehufco[r as usize],
                         ac_derived_tbl.ehufsi[r as usize],
                         &mut temp,
                         &mut nbits,
@@ -911,7 +900,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         }
 
         if r > 0 {
-            unsafe { buf.PUT_BITS(ac_derived_tbl.ehufco[0] as usize, ac_derived_tbl.ehufsi[0]) };
+            unsafe { buf.PUT_BITS(ac_derived_tbl.ehufco[0], ac_derived_tbl.ehufsi[0]) };
         }
 
         buf.store();
@@ -920,7 +909,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     fn encode_mcu(&mut self) {
         let mut blkn = 0;
 
-        for ci in 0..vars::MAX_COMPONENTS {
+        for ci in 0..MAX_COMPONENTS {
             let comp = &self.worker.shared.compInfos.infos[ci];
             let MCU_width = comp.h_samp_factor;
             let MCU_height = comp.v_samp_factor;
@@ -953,7 +942,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     fn flush_mcu(&mut self) {
         let mut put_bits = BIT_BUF_SIZE as isize - self.worker.huffState.free_bits;
 
-        let mut localbuf: [u8; mem::size_of::<BitBufType>()] = const_default();
+        let mut localbuf: [u8; mem::size_of::<BitBufType>() * 4] = const_default();
         let put_buffer = self.worker.huffState.c;
         let mut buf = EncodeBuffer::init(&mut self.worker.huffState, &mut self.dst, &mut localbuf);
 
@@ -968,7 +957,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
             unsafe { buf.EMIT_BYTE(temp as u8) }
         }
 
-        buf.store()
+        buf.store();
     }
 
     fn process(&mut self) {
@@ -984,11 +973,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         G: FnMut(),
     {
         let bpp = self.get_bpp_for_format();
-        let pitch = vars::GSP_SCREEN_WIDTH * bpp as usize;
-
-        if src.len() != pitch * self.screen_height() as usize {
-            panic!();
-        }
+        let pitch = GSP_SCREEN_WIDTH as usize * bpp as usize;
 
         let src_chunks = src.chunks_exact(pitch).array_chunks::<in_rows_blk>();
 

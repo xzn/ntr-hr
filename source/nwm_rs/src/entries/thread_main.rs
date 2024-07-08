@@ -305,9 +305,9 @@ mod loop_main {
         InitCleanup::init(vars)
     }
 
-    unsafe fn reset_jpeg_compress(config: &Config, _vars: &InitVars) {
+    unsafe fn reset_jpeg_compress(config: &Config, vars: &InitVars) {
         let jpeg = crate::entries::work_thread::get_jpeg();
-        jpeg.reset(config.quality_ar());
+        jpeg.reset(config.quality_ar(), vars.core_count);
     }
 
     fn clear_reset_threads_ar() {
