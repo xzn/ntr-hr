@@ -16,11 +16,11 @@ pub struct BlitCtx {
 
 impl BlitCtx {
     pub fn pitch(&self) -> u32_ {
-        self.bpp() * self.height()
+        self.bpp() * self.width()
     }
 
     pub fn src_len(&self) -> u32_ {
-        self.width() * self.pitch()
+        self.height() * self.pitch()
     }
 
     pub fn width(&self) -> u32_ {

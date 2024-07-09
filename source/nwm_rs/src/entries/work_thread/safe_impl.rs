@@ -106,8 +106,8 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
         }
 
         let mcu_size = crate::jpeg::vars::DCTSIZE as u32_ * JPEG_SAMP_FACTOR as u32_;
-        let mcus_per_row = ctx.height() / mcu_size;
-        let mcu_rows = ctx.width() / mcu_size;
+        let mcus_per_row = ctx.width() / mcu_size;
+        let mcu_rows = ctx.height() / mcu_size;
         let mcu_rows_per_thread =
             core::intrinsics::unchecked_div(mcu_rows + core_count.get() - 1, core_count.get());
 

@@ -64,7 +64,7 @@ pub struct HuffTbl {
     /* length k bits; bits[0] is unused */
     pub bits: [u8; 17],
     /* The symbols, in order of incr code length */
-    pub huffVal: [u8; 256],
+    pub huffval: [u8; 256],
 }
 
 pub const NUM_HUFF_TBLS: usize = 2;
@@ -87,10 +87,10 @@ fn addHuffTable(tbl: &mut HuffTbl, bits: &[u8; 17], val: &[u8]) {
     }
 
     for i in 0..nsymbols {
-        tbl.huffVal[i] = val[i];
+        tbl.huffval[i] = val[i];
     }
     for i in nsymbols..256 {
-        tbl.huffVal[i] = 0;
+        tbl.huffval[i] = 0;
     }
 }
 
@@ -526,7 +526,7 @@ fn setDerivedTbl(tbl: &mut DerivedTbl, isDC: bool, tblno: usize, huffTbls: &Huff
     let maxsymbol = if isDC { 15 } else { 255 };
 
     for p in 0..lastp {
-        let i = htbl.huffVal[p];
+        let i = htbl.huffval[p];
         if i > maxsymbol || tbl.ehufsi[i as usize] > 0 {
             panic!();
         }
@@ -609,5 +609,5 @@ const fn jdiv_round_up(a: u32, b: u32) -> u32
     (a + b - 1) / b
 }
 
-pub const MCUs_per_row: u8 =
-    jdiv_round_up(GSP_SCREEN_WIDTH as u32, (MAX_SAMP_FACTOR * DCTSIZE) as u32) as u8;
+pub const MCUs_per_row: u16 =
+    jdiv_round_up(GSP_SCREEN_WIDTH as u32, (MAX_SAMP_FACTOR * DCTSIZE) as u32) as u16;

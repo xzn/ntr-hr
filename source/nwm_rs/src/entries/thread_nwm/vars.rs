@@ -183,7 +183,7 @@ pub unsafe fn release_nwm_ready(w: &WorkIndex) {
 }
 
 #[named]
-pub unsafe fn rpSendBuffer(dst: &mut crate::jpeg::WorkerDst, term: bool) {
+pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) {
     let ninfo = &*dst.info;
     let dinfo = &ninfo.info;
 
