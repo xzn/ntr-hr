@@ -58,7 +58,7 @@ fn panic(panic_info: &PanicInfo) -> ! {
     unsafe {
         if let Some(location) = panic_info.location() {
             panicHandle(
-                location.file().as_ptr(),
+                location.file().as_ptr() as *mut _,
                 location.file().len() as i32,
                 location.line() as i32,
                 location.column() as i32,

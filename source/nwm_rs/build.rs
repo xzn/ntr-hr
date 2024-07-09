@@ -51,7 +51,6 @@ fn main() {
 
     let gcc_version = get_gcc_version(PathBuf::from(&devkitarm).join("bin/arm-none-eabi-gcc"));
     let include_path = Path::new("../../include");
-    let jpeg_include_path = Path::new("../../include/jpeg");
     let ctru_include_path = Path::new("../../libctru/libctru/include");
     let nwm_header_str = "nwm_rs.h";
     let nwm_header = Path::new(nwm_header_str);
@@ -94,8 +93,6 @@ fn main() {
             gcc_include.to_str().unwrap(),
             "-I",
             include_path.to_str().unwrap(),
-            "-I",
-            jpeg_include_path.to_str().unwrap(),
             "-I",
             ctru_include_path.to_str().unwrap(),
             "-mfloat-abi=hard",

@@ -21,30 +21,38 @@ pub struct WorkerDst {
 }
 
 impl WorkerDst {
+    fn write_byte(&mut self, byte: u8) {
+        if self.free_in_bytes == 0 {
+            self.flush();
+        }
+        unsafe { *self.dst = byte };
+        self.dst = unsafe { self.dst.add(1) };
+        self.free_in_bytes -= 1;
+    }
+
     fn write_bytes(&mut self, bytes: &[u8]) {
         let mut src = bytes.as_ptr();
         let mut len = bytes.len() as u16;
 
-        if len > 0 {
-            loop {
-                if self.free_in_bytes > 0 {
-                    let bytes_to_copy = core::cmp::min(self.free_in_bytes, len);
-                    unsafe {
-                        ptr::copy_nonoverlapping(src, self.dst, bytes_to_copy as usize);
-                    }
-
-                    len -= bytes_to_copy;
-                    src = unsafe { src.add(bytes_to_copy as usize) };
-                    self.free_in_bytes -= bytes_to_copy;
-                    self.dst = unsafe { self.dst.add(bytes_to_copy as usize) };
+        if self.free_in_bytes > 0 {
+            if self.free_in_bytes < len {
+                unsafe {
+                    ptr::copy_nonoverlapping(src, self.dst, self.free_in_bytes as usize);
                 }
-                if len > 0 {
-                    self.flush();
-                } else {
-                    break;
-                }
+                len -= self.free_in_bytes;
+                src = unsafe { src.add(self.free_in_bytes as usize) };
+                self.flush();
             }
+        } else {
+            self.flush();
         }
+
+        unsafe {
+            ptr::copy_nonoverlapping(src, self.dst, len as usize);
+        }
+
+        self.free_in_bytes -= len;
+        self.dst = unsafe { self.dst.add(len as usize) };
     }
 
     fn flush(&mut self) {
@@ -118,14 +126,14 @@ impl Jpeg {
     }
 
     pub fn setInfo(&mut self, info: CInfo) {
-        self.info[info.workIndex.get() as usize] = info;
+        *info.workIndex.index_into_mut(&mut self.info) = info;
     }
 
     pub unsafe fn getWorker(&mut self, workIndex: WorkIndex, threadId: ThreadId) -> JpegWorker {
         JpegWorker::init(
             &self.shared,
-            &mut self.bufs[workIndex.get() as usize][threadId.get() as usize],
-            &self.info[workIndex.get() as usize],
+            threadId.index_into_mut(workIndex.index_into_mut(&mut self.bufs)),
+            workIndex.index_into(&self.info),
             threadId,
         )
     }
@@ -374,7 +382,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     }
 
     fn write_byte(&mut self, value: u8) {
-        self.dst.write_bytes(&[value]);
+        self.dst.write_byte(value);
     }
 
     fn write_2bytes(&mut self, value: u16)
@@ -428,7 +436,8 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         self.write_byte(index as u8);
         for i in 0..DCTSIZE2 {
             /* The table entries must be emitted in zigzag order. */
-            let qval = qtbl.quantval[jpeg_natural_order[i] as usize] as u8;
+            let qval =
+                *unsafe { qtbl.quantval.get_unchecked(jpeg_natural_order[i] as usize) } as u8;
             self.write_byte(qval);
         }
     }
@@ -472,18 +481,18 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         self.write_marker(M_DHT);
 
         let mut length = 0 as u16;
-        for i in 1..=16 {
-            length += tbl.bits[i as usize] as u16;
+        for i in 1..=16 as usize {
+            length += tbl.bits[i] as u16;
         }
 
         self.write_2bytes((length + 2 + 1 + 16) as u16);
         self.write_byte(index as u8);
 
-        for i in 1..=16 {
-            self.write_byte(tbl.bits[i as usize]);
+        for i in 1..=16 as usize {
+            self.write_byte(tbl.bits[i]);
         }
 
-        for i in 0..length {
+        for i in 0..length as u8 {
             self.write_byte(tbl.huffval[i as usize]);
         }
     }
@@ -647,15 +656,12 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         xpos: u16,
         output: &mut JBlock,
     ) {
-        if ypos as usize > input.len() - DCTSIZE || xpos as usize > input[0].len() - DCTSIZE {
-            panic!();
-        };
-
         let mut oidx = 0;
         for yidx in 0..DCTSIZE {
-            let input = input[ypos as usize + yidx];
+            let input = unsafe { input.get_unchecked(ypos as usize + yidx) };
             for xidx in 0..DCTSIZE {
-                output[oidx] = input[xpos as usize + xidx] as i16 - CENTERJSAMPLE as i16;
+                output[oidx] = *unsafe { input.get_unchecked(xpos as usize + xidx) } as i16
+                    - CENTERJSAMPLE as i16;
 
                 oidx += 1;
             }
@@ -815,10 +821,6 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
             let MCU_width = comp.h_samp_factor;
             let MCU_height = comp.v_samp_factor;
 
-            if MCU_width > MAX_SAMP_FACTOR as u8 || MCU_height > MAX_SAMP_FACTOR as u8 {
-                panic!();
-            }
-
             let MCU_sample_width = MCU_width as u16 * DCTSIZE as u16;
             let xpos = MCU_col_num * MCU_sample_width;
             let mut ypos = 0;
@@ -828,10 +830,16 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
                 for _ in 0..MCU_width {
                     Self::forward_DCT(
                         &self.worker.bufs.prep[ci],
-                        &mut self.worker.bufs.mcu[blkn as usize],
+                        unsafe { self.worker.bufs.mcu.get_unchecked_mut(blkn as usize) },
                         ypos,
                         xpos,
-                        &self.worker.shared.divisors.divisors[comp.quant_tbl_no as usize],
+                        unsafe {
+                            self.worker
+                                .shared
+                                .divisors
+                                .divisors
+                                .get_unchecked(comp.quant_tbl_no as usize)
+                        },
                     );
 
                     xpos += DCTSIZE as u16;
@@ -845,7 +853,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     fn encode_one_block(
         dst: &mut WorkerDst,
         state: &mut HuffState,
-        block: &mut [i16; DCTSIZE2],
+        block: &[i16; DCTSIZE2],
         last_dc_val: i16,
         dc_derived_tbl: &DerivedTbl,
         ac_derived_tbl: &DerivedTbl,
@@ -861,8 +869,8 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         nbits = JPEG_NBITS(nbits) as i32;
         unsafe {
             buf.PUT_CODE(
-                dc_derived_tbl.ehufco[nbits as usize],
-                dc_derived_tbl.ehufsi[nbits as usize],
+                *dc_derived_tbl.ehufco.get_unchecked(nbits as usize),
+                *dc_derived_tbl.ehufsi.get_unchecked(nbits as usize),
                 &mut temp,
                 &mut nbits,
             )
@@ -871,7 +879,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         let mut r = 0;
 
         for jpeg_natural_order_of_k in jpeg_natural_order.into_iter().skip(1) {
-            temp = block[jpeg_natural_order_of_k as usize] as i32;
+            temp = *unsafe { block.get_unchecked(jpeg_natural_order_of_k as usize) } as i32;
             if temp == 0 {
                 r += 16;
             } else {
@@ -890,8 +898,8 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
                 r += nbits;
                 unsafe {
                     buf.PUT_CODE(
-                        ac_derived_tbl.ehufco[r as usize],
-                        ac_derived_tbl.ehufsi[r as usize],
+                        *ac_derived_tbl.ehufco.get_unchecked(r as usize),
+                        *ac_derived_tbl.ehufsi.get_unchecked(r as usize),
                         &mut temp,
                         &mut nbits,
                     )
@@ -921,12 +929,25 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
                     Self::encode_one_block(
                         &mut self.dst,
                         &mut self.worker.huffState,
-                        &mut self.worker.bufs.mcu[blkn],
+                        unsafe { self.worker.bufs.mcu.get_unchecked(blkn) },
                         last_dc_val,
-                        &self.worker.shared.entropyTbls.dc_derived_tbls[comp.dc_tbl_no as usize],
-                        &self.worker.shared.entropyTbls.ac_derived_tbls[comp.ac_tbl_no as usize],
+                        unsafe {
+                            self.worker
+                                .shared
+                                .entropyTbls
+                                .dc_derived_tbls
+                                .get_unchecked(comp.dc_tbl_no as usize)
+                        },
+                        unsafe {
+                            self.worker
+                                .shared
+                                .entropyTbls
+                                .ac_derived_tbls
+                                .get_unchecked(comp.ac_tbl_no as usize)
+                        },
                     );
-                    self.worker.last_dc_val[ci] = self.worker.bufs.mcu[blkn][0];
+                    self.worker.last_dc_val[ci] =
+                        (*unsafe { self.worker.bufs.mcu.get_unchecked_mut(blkn) })[0];
 
                     blkn += 1;
                 }

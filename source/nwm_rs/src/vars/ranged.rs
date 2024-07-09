@@ -11,7 +11,10 @@ impl<const BEG: u32_, const END: u32_> Default for IRanged<BEG, END> {
 
 pub struct IRangedIter<const BEG: u32_, const END: u32_>(u32_);
 
-impl<const BEG: u32_, const END: u32_> Iterator for IRangedIter<BEG, END> {
+impl<const BEG: u32_, const END: u32_> Iterator for IRangedIter<BEG, END>
+where
+    [(); (END - BEG) as usize]:,
+{
     type Item = IRanged<BEG, END>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -27,7 +30,10 @@ impl<const BEG: u32_, const END: u32_> Iterator for IRangedIter<BEG, END> {
 
 pub struct IRangedIterN<const BEG: u32_, const END: u32_>(u32_, u32_);
 
-impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterN<BEG, END> {
+impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterN<BEG, END>
+where
+    [(); (END - BEG) as usize]:,
+{
     type Item = IRanged<BEG, END>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -44,7 +50,10 @@ impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterN<BEG, END> {
 #[allow(dead_code)]
 pub struct IRangedIterW<const BEG: u32_, const END: u32_>(u32_, IRanged<BEG, END>, u32_);
 
-impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterW<BEG, END> {
+impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterW<BEG, END>
+where
+    [(); (END - BEG) as usize]:,
+{
     type Item = IRanged<BEG, END>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -61,7 +70,10 @@ impl<const BEG: u32_, const END: u32_> Iterator for IRangedIterW<BEG, END> {
     }
 }
 
-impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
+impl<const BEG: u32_, const END: u32_> IRanged<BEG, END>
+where
+    [(); (END - BEG) as usize]:,
+{
     pub fn all() -> IRangedIter<BEG, END> {
         IRangedIter::<BEG, END>(BEG)
     }
@@ -84,9 +96,7 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
     {
         IRangedIterN::<BEG, END>(self.0, n.0)
     }
-}
 
-impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
     pub const fn init() -> Self {
         Self(BEG)
     }
@@ -143,12 +153,27 @@ impl<const BEG: u32_, const END: u32_> IRanged<BEG, END> {
             self.0 = BEG
         }
     }
+
+    pub fn index_into<'a, T, const N: usize>(&self, t: &'a [T; N]) -> &'a T
+    where
+        [(); END as usize - (N - 1)]:,
+    {
+        unsafe { t.get_unchecked(self.0 as usize) }
+    }
+
+    pub fn index_into_mut<'a, T, const N: usize>(&self, t: &'a mut [T; N]) -> &'a mut T
+    where
+        [(); END as usize - (N - 1)]:,
+    {
+        unsafe { t.get_unchecked_mut(self.0 as usize) }
+    }
 }
 
 impl<const BEG: u32_, const END: u32_> IRanged<BEG, END>
 where
     [(); { 0 - BEG } as usize]:,
     [(); { END - 1 } as usize]:,
+    [(); (END - BEG) as usize]:,
 {
     pub fn from_bool(v: bool) -> Self {
         unsafe { Self::init_unchecked(v as u32_) }

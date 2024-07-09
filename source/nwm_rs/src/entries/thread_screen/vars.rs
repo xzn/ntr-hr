@@ -71,9 +71,26 @@ pub unsafe fn get_port_game_pid() -> u32_ {
     *port_game_pid.as_ptr()
 }
 
+const fn log_scale(mut v: u8) -> c_double {
+    let mut ret = 0.0f64;
+    let mut i = 0;
+    loop {
+        let mark = 1 << i;
+        if v > mark {
+            ret += 1.0f64 / mark as f64;
+            v -= mark;
+        }
+        i += 1;
+        if i >= 8 {
+            break;
+        }
+    }
+    ret
+}
+
 macro_rules! LOG {
     ($v:expr) => {
-        unsafe { FIX(core::intrinsics::log2f64(($v + 1) as c_double)) }
+        FIX(log_scale($v))
     };
 }
 
@@ -107,9 +124,10 @@ macro_rules! LOG64 {
     };
 }
 
+const log_scaled_tab_nested: [[[u32_; 8]; 8]; 4] =
+    [LOG64!(0), LOG64!(64), LOG64!(128), LOG64!(192)];
+
 pub unsafe fn reset_thread_vars(mode: u32_) {
-    let log_scaled_tab_nested: [[[u32_; 8]; 8]; 4] =
-        [LOG64!(0), LOG64!(64), LOG64!(128), LOG64!(192)];
     let log_scaled_tab: &[u32_; 256] = mem::transmute(&log_scaled_tab_nested);
 
     let is_top = (mode & 0xff00) > 0;

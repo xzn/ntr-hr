@@ -187,7 +187,10 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) {
     let ninfo = &*dst.info;
     let dinfo = &ninfo.info;
 
-    let size = crate::jpeg::vars::OUTPUT_BUF_SIZE as usize - dst.free_in_bytes as usize;
+    let mut size = crate::jpeg::vars::OUTPUT_BUF_SIZE as usize;
+    if term {
+        size -= dst.free_in_bytes as usize;
+    }
 
     let mut pos_next = (*dinfo.pos.as_ptr()).add(size);
 
