@@ -200,7 +200,7 @@ int remotePlayMenu(u32 localaddr) {
 
 	/* default values */
 	if (config.quality == 0) {
-		config.mode = 0x0103;
+		config.mode = 0x0102;
 		config.quality = RP_QUALITY_DEFAULT;
 		config.qos = RP_QOS_DEFAULT;
 		config.dstPort = RP_DST_PORT_DEFAULT;

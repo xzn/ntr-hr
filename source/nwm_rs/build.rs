@@ -17,14 +17,9 @@ struct Callback {
 
 impl Callback {
     fn new() -> Self {
-        let mut names = HashSet::<String>::new();
-        names.insert("jpeg_compress_struct".into());
-        names.insert("rp_alloc_state".into());
-        names.insert("rp_alloc_stats".into());
-        names.insert("jpeg_error_mgr".into());
+        let names = HashSet::<String>::new();
 
-        let mut union_names = HashSet::<String>::new();
-        union_names.insert("jpeg_error_mgr__bindgen_ty_1".into());
+        let union_names = HashSet::<String>::new();
 
         Self { names, union_names }
     }

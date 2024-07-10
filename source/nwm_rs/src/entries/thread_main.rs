@@ -31,7 +31,6 @@ mod first_time_init {
     unsafe fn init_jpeg_compress() -> Option<()> {
         let jpeg_mem = request_mem_from_pool::<{ mem::size_of::<crate::jpeg::Jpeg>() }>()?;
         crate::entries::work_thread::set_jpeg(jpeg_mem.0.assume_init_mut());
-        crate::entries::work_thread::get_jpeg().init();
 
         Some(())
     }

@@ -4,10 +4,6 @@ use vars::*;
 
 #[derive(ConstDefault)]
 pub struct JpegShared {
-    huffTbls: HuffTbls,
-    entropyTbls: EntropyTbls,
-    colorConvTbls: ColorConvTabs,
-    compInfos: CompInfos,
     quantTbls: QuantTbls,
     divisors: Divisors,
     coreCount: CoreCount,
@@ -110,15 +106,6 @@ pub struct Jpeg {
 }
 
 impl Jpeg {
-    pub fn init(&mut self) {
-        self.shared.huffTbls.init();
-        self.shared
-            .entropyTbls
-            .setEntropyTbls(&self.shared.huffTbls);
-        self.shared.colorConvTbls.init();
-        self.shared.compInfos.setColorSpaceYCbCr();
-    }
-
     pub fn reset<'a>(&'a mut self, quality: u32, coreCount: CoreCount) {
         self.shared.quantTbls.setQuality(quality);
         self.shared.divisors.setDivisors(&self.shared.quantTbls);
@@ -453,7 +440,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
 
         self.write_byte(MAX_COMPONENTS as u8);
 
-        for info in &self.worker.shared.compInfos.infos {
+        for info in &jpegTbls.compInfos.infos {
             self.write_byte(info.component_id);
             self.write_byte((info.h_samp_factor << 4) + info.v_samp_factor);
             self.write_byte(info.quant_tbl_no);
@@ -470,9 +457,9 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
 
     fn write_dht(&mut self, mut index: usize, is_ac: bool) {
         let tbl = if is_ac {
-            &self.worker.shared.huffTbls.acHuffTbls[index]
+            &jpegTbls.huffTbls.acHuffTbls[index]
         } else {
-            &self.worker.shared.huffTbls.dcHuffTbls[index]
+            &jpegTbls.huffTbls.dcHuffTbls[index]
         };
         if is_ac {
             index |= 0x10; /* output index has AC bit set */
@@ -511,7 +498,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         self.write_byte(MAX_COMPONENTS as u8);
 
         for i in 0..MAX_COMPONENTS {
-            let comp = &self.worker.shared.compInfos.infos[i];
+            let comp = &jpegTbls.compInfos.infos[i];
             self.write_byte(comp.component_id);
 
             /* We emit 0 for unused field(s); this is recommended by the P&M text
@@ -576,24 +563,24 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
             ColorSpace::XBGR => cconvert::<3, 2, 1, 4, { MAX_SAMP_FACTOR }>(
                 input,
                 &mut self.worker.bufs.color,
-                &self.worker.shared.colorConvTbls.rgb_ycc_tab,
+                &jpegTbls.colorConvTbls.rgb_ycc_tab,
             ),
             ColorSpace::BGR => cconvert::<2, 1, 0, 3, { MAX_SAMP_FACTOR }>(
                 input,
                 &mut self.worker.bufs.color,
-                &self.worker.shared.colorConvTbls.rgb_ycc_tab,
+                &jpegTbls.colorConvTbls.rgb_ycc_tab,
             ),
             ColorSpace::RGB565 => cconvert2::<{ MAX_SAMP_FACTOR }, _>(
                 input,
                 rgb565_comps,
                 &mut self.worker.bufs.color,
-                &self.worker.shared.colorConvTbls,
+                &jpegTbls.colorConvTbls,
             ),
             ColorSpace::RGB5A1 => cconvert2::<{ MAX_SAMP_FACTOR }, _>(
                 input,
                 rgb5a1_comps,
                 &mut self.worker.bufs.color,
-                &self.worker.shared.colorConvTbls,
+                &jpegTbls.colorConvTbls,
             ),
             ColorSpace::RGB4 => todo!(),
         }
@@ -627,10 +614,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
     }
 
     pub fn downsample(&mut self, output_base: usize) {
-        for (ci, comp) in (&self.worker.shared.compInfos.infos)
-            .into_iter()
-            .enumerate()
-        {
+        for (ci, comp) in (&jpegTbls.compInfos.infos).into_iter().enumerate() {
             let output_base = output_base * comp.v_samp_factor as usize;
             let output_step = comp.v_samp_factor as usize;
             let input = &self.worker.bufs.color[ci];
@@ -817,7 +801,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         }
 
         for ci in 0..MAX_COMPONENTS {
-            let comp = &self.worker.shared.compInfos.infos[ci];
+            let comp = &jpegTbls.compInfos.infos[ci];
             let MCU_width = comp.h_samp_factor;
             let MCU_height = comp.v_samp_factor;
 
@@ -919,7 +903,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         let mut blkn = 0;
 
         for ci in 0..MAX_COMPONENTS {
-            let comp = &self.worker.shared.compInfos.infos[ci];
+            let comp = &jpegTbls.compInfos.infos[ci];
             let MCU_width = comp.h_samp_factor;
             let MCU_height = comp.v_samp_factor;
 
@@ -932,15 +916,13 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
                         unsafe { self.worker.bufs.mcu.get_unchecked(blkn) },
                         last_dc_val,
                         unsafe {
-                            self.worker
-                                .shared
+                            jpegTbls
                                 .entropyTbls
                                 .dc_derived_tbls
                                 .get_unchecked(comp.dc_tbl_no as usize)
                         },
                         unsafe {
-                            self.worker
-                                .shared
+                            jpegTbls
                                 .entropyTbls
                                 .ac_derived_tbls
                                 .get_unchecked(comp.ac_tbl_no as usize)

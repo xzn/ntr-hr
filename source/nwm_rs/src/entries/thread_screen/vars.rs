@@ -71,21 +71,8 @@ pub unsafe fn get_port_game_pid() -> u32_ {
     *port_game_pid.as_ptr()
 }
 
-const fn log_scale(mut v: u8) -> c_double {
-    let mut ret = 0.0f64;
-    let mut i = 0;
-    loop {
-        let mark = 1 << i;
-        if v > mark {
-            ret += 1.0f64 / mark as f64;
-            v -= mark;
-        }
-        i += 1;
-        if i >= 8 {
-            break;
-        }
-    }
-    ret
+const fn log_scale(v: u8) -> c_double {
+    v as c_double
 }
 
 macro_rules! LOG {

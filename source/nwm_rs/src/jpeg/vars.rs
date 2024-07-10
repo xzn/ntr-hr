@@ -75,27 +75,42 @@ pub struct HuffTbls {
     pub acHuffTbls: [HuffTbl; NUM_HUFF_TBLS],
 }
 
-fn addHuffTable(tbl: &mut HuffTbl, bits: &[u8; 17], val: &[u8]) {
+const fn addHuffTable(tbl: &mut HuffTbl, bits: &[u8; 17], val: &[u8]) {
     tbl.bits = *bits;
 
     let mut nsymbols: usize = 0;
-    for len in 1..=16 {
+    let mut len = 1;
+    loop {
         nsymbols += bits[len] as usize;
+        len += 1;
+        if len > 16 {
+            break;
+        }
     }
     if nsymbols < 1 || nsymbols > 256 {
         panic!();
     }
 
-    for i in 0..nsymbols {
+    let mut i = 0;
+    loop {
         tbl.huffval[i] = val[i];
+        i += 1;
+        if i >= nsymbols {
+            break;
+        }
     }
-    for i in nsymbols..256 {
+    let mut i = nsymbols;
+    loop {
         tbl.huffval[i] = 0;
+        i += 1;
+        if i >= 256 {
+            break;
+        }
     }
 }
 
 impl HuffTbls {
-    pub fn init(&mut self) {
+    pub const fn init(&mut self) {
         addHuffTable(
             &mut self.dcHuffTbls[0],
             &bits_dc_luminance,
@@ -148,8 +163,9 @@ const fn FIX(x: f64) -> isize {
 }
 
 impl ColorConvTabs {
-    pub fn init(&mut self) {
-        for i in 0..=MAXJSAMPLE {
+    pub const fn init(&mut self) {
+        let mut i = 0;
+        loop {
             self.rgb_ycc_tab[i + R_Y_OFF] = (FIX(0.29900) * i as isize) as i32;
             self.rgb_ycc_tab[i + G_Y_OFF] = (FIX(0.58700) * i as isize) as i32;
             self.rgb_ycc_tab[i + B_Y_OFF] = ((FIX(0.11400) * i as isize) + ONE_HALF) as i32;
@@ -166,17 +182,35 @@ impl ColorConvTabs {
             */
             self.rgb_ycc_tab[i + G_CR_OFF] = ((-FIX(0.41869)) * i as isize) as i32;
             self.rgb_ycc_tab[i + B_CR_OFF] = ((-FIX(0.08131)) * i as isize) as i32;
+
+            i += 1;
+            if i > MAXJSAMPLE {
+                break;
+            }
         }
 
-        for i in 0..(1 << 5) {
+        let mut i = 0;
+        loop {
             self.rb_5_tab[i] = ((FIX((((1 << 8) - 1) as f64) / ((1 << 5) - 1) as f64) * i as isize
                 + ONE_HALF as isize)
                 >> SCALEBITS) as u8;
+
+            i += 1;
+            if i >= (1 << 5) {
+                break;
+            }
         }
-        for i in 0..(1 << 6) {
+
+        let mut i = 0;
+        loop {
             self.g_6_tab[i] = ((FIX((((1 << 8) - 1) as f64) / ((1 << 6) - 1) as f64) * i as isize
                 + ONE_HALF as isize)
                 >> SCALEBITS) as u8;
+
+            i += 1;
+            if i >= (1 << 6) {
+                break;
+            }
         }
     }
 }
@@ -207,7 +241,7 @@ pub struct CompInfos {
 }
 
 impl CompInfos {
-    fn setComp(
+    const fn setComp(
         &mut self,
         index: usize,
         id: u8,
@@ -227,7 +261,7 @@ impl CompInfos {
         comp.ac_tbl_no = actbl;
     }
 
-    pub fn setColorSpaceYCbCr(&mut self) {
+    pub const fn setColorSpaceYCbCr(&mut self) {
         self.setComp(0, 1, 2, 2, 0, 0, 0);
         self.setComp(1, 2, 1, 1, 1, 1, 1);
         self.setComp(2, 3, 1, 1, 1, 1, 1);
@@ -450,15 +484,12 @@ pub struct EntropyTbls {
     pub ac_derived_tbls: [DerivedTbl; NUM_HUFF_TBLS],
 }
 
-fn setDerivedTbl(tbl: &mut DerivedTbl, isDC: bool, tblno: usize, huffTbls: &HuffTbls) {
+const fn setDerivedTbl(tbl: &mut DerivedTbl, isDC: bool, tblno: usize, huffTbls: &HuffTbls) {
     /* Note that huffsize[] and huffcode[] are filled in code-length order,
      * paralleling the order of the symbols themselves in htbl->huffval[].
      */
 
     /* Find the input Huffman table */
-    if tblno >= NUM_HUFF_TBLS {
-        panic!();
-    }
     let htbl = if isDC {
         &huffTbls.dcHuffTbls[tblno]
     } else {
@@ -469,7 +500,8 @@ fn setDerivedTbl(tbl: &mut DerivedTbl, isDC: bool, tblno: usize, huffTbls: &Huff
 
     let mut p: usize = 0;
     let mut huffsize: [u8; 257] = const_default();
-    for l in 1..=16 {
+    let mut l = 1;
+    loop {
         let mut i = htbl.bits[l] as usize;
         if p + i > 256
         /* protect against table overrun */
@@ -480,6 +512,11 @@ fn setDerivedTbl(tbl: &mut DerivedTbl, isDC: bool, tblno: usize, huffTbls: &Huff
             i -= 1;
             huffsize[p] = l as u8;
             p += 1;
+        }
+
+        l += 1;
+        if l > 16 {
+            break;
         }
     }
     huffsize[p] = 0;
@@ -525,21 +562,32 @@ fn setDerivedTbl(tbl: &mut DerivedTbl, isDC: bool, tblno: usize, huffTbls: &Huff
      */
     let maxsymbol = if isDC { 15 } else { 255 };
 
-    for p in 0..lastp {
+    let mut p = 0;
+    loop {
         let i = htbl.huffval[p];
         if i > maxsymbol || tbl.ehufsi[i as usize] > 0 {
             panic!();
         }
         tbl.ehufco[i as usize] = huffcode[p];
         tbl.ehufsi[i as usize] = huffsize[p];
+        p += 1;
+        if p >= lastp {
+            break;
+        }
     }
 }
 
 impl EntropyTbls {
-    pub fn setEntropyTbls(&mut self, huffTbls: &HuffTbls) {
-        for i in 0..NUM_HUFF_TBLS {
+    pub const fn setEntropyTbls(&mut self, huffTbls: &HuffTbls) {
+        let mut i = 0;
+        loop {
             setDerivedTbl(&mut self.dc_derived_tbls[i], true, i, huffTbls);
             setDerivedTbl(&mut self.ac_derived_tbls[i], false, i, huffTbls);
+
+            i += 1;
+            if i >= NUM_HUFF_TBLS {
+                break;
+            }
         }
     }
 }
@@ -611,3 +659,24 @@ const fn jdiv_round_up(a: u32, b: u32) -> u32
 
 pub const MCUs_per_row: u16 =
     jdiv_round_up(GSP_SCREEN_WIDTH as u32, (MAX_SAMP_FACTOR * DCTSIZE) as u32) as u16;
+
+#[derive(ConstDefault)]
+pub struct JpegTbls {
+    pub huffTbls: HuffTbls,
+    pub entropyTbls: EntropyTbls,
+    pub colorConvTbls: ColorConvTabs,
+    pub compInfos: CompInfos,
+}
+
+impl JpegTbls {
+    const fn init() -> Self {
+        let mut tbls: Self = const_default();
+        tbls.huffTbls.init();
+        tbls.entropyTbls.setEntropyTbls(&tbls.huffTbls);
+        tbls.colorConvTbls.init();
+        tbls.compInfos.setColorSpaceYCbCr();
+        tbls
+    }
+}
+
+pub const jpegTbls: JpegTbls = JpegTbls::init();
