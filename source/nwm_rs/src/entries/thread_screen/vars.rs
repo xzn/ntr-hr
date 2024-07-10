@@ -71,57 +71,12 @@ pub unsafe fn get_port_game_pid() -> u32_ {
     *port_game_pid.as_ptr()
 }
 
-const fn log_scale(v: u8) -> c_double {
-    v as c_double
-}
-
-macro_rules! LOG {
-    ($v:expr) => {
-        FIX(log_scale($v))
-    };
-}
-
-macro_rules! LOG8 {
-    ($v:expr) => {
-        [
-            LOG!($v),
-            LOG!($v + 1),
-            LOG!($v + 2),
-            LOG!($v + 3),
-            LOG!($v + 4),
-            LOG!($v + 5),
-            LOG!($v + 6),
-            LOG!($v + 7),
-        ]
-    };
-}
-
-macro_rules! LOG64 {
-    ($v:literal) => {
-        [
-            LOG8!($v),
-            LOG8!($v + 8),
-            LOG8!($v + 16),
-            LOG8!($v + 24),
-            LOG8!($v + 32),
-            LOG8!($v + 40),
-            LOG8!($v + 48),
-            LOG8!($v + 56),
-        ]
-    };
-}
-
-const log_scaled_tab_nested: [[[u32_; 8]; 8]; 4] =
-    [LOG64!(0), LOG64!(64), LOG64!(128), LOG64!(192)];
-
 pub unsafe fn reset_thread_vars(mode: u32_) {
-    let log_scaled_tab: &[u32_; 256] = mem::transmute(&log_scaled_tab_nested);
-
     let is_top = (mode & 0xff00) > 0;
     let factor = mode & 0xff;
     priority_is_top = is_top;
     priority_factor = factor;
-    priority_factor_scaled = *log_scaled_tab.get_unchecked(factor as usize);
+    priority_factor_scaled = FIX(factor as c_double);
     crate::entries::work_thread::no_skip_next_frames();
 
     for i in ScreenIndex::all() {
@@ -186,7 +141,7 @@ impl ScreenThreadVars {
     }
 
     pub fn screen_work_index(&self) -> WorkIndex {
-        unsafe { ptr::read_volatile(&screen_work_index) }
+        unsafe { screen_work_index }
     }
 
     #[named]
@@ -235,19 +190,14 @@ impl ScreenThreadVars {
     #[named]
     pub fn release(self, is_top: bool, format: u32_, work_index: WorkIndex) {
         unsafe {
-            ptr::write_volatile(
-                screen_encode_vars.get_mut(&work_index),
-                ScreenEncodeVars::init(is_top, format, work_index),
-            );
+            *screen_encode_vars.get_mut(&work_index) =
+                ScreenEncodeVars::init(is_top, format, work_index);
 
             let mut count = mem::MaybeUninit::<s32>::uninit();
-            if ptr::read_volatile(skip_frames.get(&ptr::read_volatile(&screen_work_index))) {
+            if *skip_frames.get(&screen_work_index) {
                 let res = svcReleaseSemaphore(
                     count.as_mut_ptr(),
-                    (*syn_handles)
-                        .threads
-                        .get(&ptr::read_volatile(&screen_thread_id))
-                        .work_ready,
+                    (*syn_handles).threads.get(&screen_thread_id).work_ready,
                     1,
                 );
                 if res != 0 {
@@ -309,7 +259,7 @@ impl ScreenWorkVars {
     pub fn init(work_index: WorkIndex) -> Self {
         unsafe {
             Self {
-                is_top: ptr::read_volatile(&screen_encode_vars.get(&work_index).is_top),
+                is_top: screen_encode_vars.get(&work_index).is_top,
                 work_index,
             }
         }
@@ -327,7 +277,7 @@ impl ScreenWorkVars {
     }
 
     pub fn format(&self) -> u32_ {
-        unsafe { ptr::read_volatile(&screen_encode_vars.get(&self.work_index).format) }
+        unsafe { screen_encode_vars.get(&self.work_index).format }
     }
 
     pub fn work_index(&self) -> WorkIndex {
@@ -335,7 +285,7 @@ impl ScreenWorkVars {
     }
 
     pub fn dma(&self) -> Handle {
-        unsafe { ptr::read_volatile(&screen_encode_vars.get(&self.work_index).dma) }
+        unsafe { screen_encode_vars.get(&self.work_index).dma }
     }
 
     pub fn img_src(&self) -> *const u8_ {
@@ -357,19 +307,19 @@ impl ScreenWorkVars {
     }
 
     pub unsafe fn set_skip_frame(&self, skip_frame: bool) {
-        ptr::write_volatile(skip_frames.get_mut(&self.work_index), skip_frame);
+        *skip_frames.get_mut(&self.work_index) = skip_frame;
     }
 
     pub unsafe fn clear_screen_synced(&self) {
-        ptr::write_volatile(screens_synced.get_mut(&self.work_index), false);
+        *screens_synced.get_mut(&self.work_index) = false;
     }
 
     pub unsafe fn set_screen_thread_id(&self, t: &ThreadId) {
-        ptr::write_volatile(&mut screen_thread_id, *t);
+        screen_thread_id = *t;
     }
 
     pub unsafe fn set_screen_work_index(&self, w: &WorkIndex) {
-        ptr::write_volatile(&mut screen_work_index, *w);
+        screen_work_index = *w;
     }
 
     #[named]

@@ -103,7 +103,7 @@ pub fn clear_reset_threads_ar() {
 }
 
 pub fn get_core_count_in_use() -> CoreCount {
-    unsafe { ptr::read_volatile(&core_count_in_use) }
+    unsafe { core_count_in_use }
 }
 
 pub unsafe fn set_core_count_in_use(v: u32_) {
@@ -180,8 +180,8 @@ impl ThreadDoVars {
                 }
             }
             if f == core_count.get() - 1 {
-                ptr::write_volatile(syn.work_done_count.as_ptr(), 0);
-                ptr::write_volatile(syn.work_begin_flag.as_ptr(), false);
+                syn.work_done_count.store(0, Ordering::Relaxed);
+                syn.work_begin_flag.store(false, Ordering::Relaxed);
 
                 self.v().release_work_done();
             }
