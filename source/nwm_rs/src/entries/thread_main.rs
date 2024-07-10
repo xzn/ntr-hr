@@ -11,22 +11,10 @@ pub struct ThreadsStacks<'a> {
     screen: &'a mut StackRegion<{ STACK_SIZE as usize }>,
 }
 
+static mut nwm_bufs: [*mut u8; WORK_COUNT as usize] = const_default();
+
 mod first_time_init {
     use super::*;
-
-    unsafe fn set_nwm_data_buf(
-        i: WorkIndex,
-        j: ThreadId,
-        buf: &'static mut MemRegion8<NWM_BUFFER_SIZE>,
-    ) {
-        let info = crate::entries::thread_nwm::get_nwm_infos()
-            .get_mut(&i)
-            .get_mut(&j);
-        info.buf = buf
-            .to_ptr()
-            .add(NWM_HDR_SIZE as usize + DATA_HDR_SIZE as usize);
-        info.buf_packet_last = buf.to_ptr().add(NWM_BUFFER_SIZE - PACKET_DATA_SIZE);
-    }
 
     unsafe fn init_jpeg_compress() -> Option<()> {
         let jpeg_mem = request_mem_from_pool::<{ mem::size_of::<crate::jpeg::Jpeg>() }>()?;
@@ -50,12 +38,10 @@ mod first_time_init {
         }
 
         for i in WorkIndex::all() {
-            for j in ThreadId::all() {
-                if let Some(m) = request_mem_from_pool::<NWM_BUFFER_SIZE>() {
-                    set_nwm_data_buf(i, j, m);
-                } else {
-                    return None;
-                }
+            if let Some(m) = request_mem_from_pool::<NWM_BUFFER_SIZE>() {
+                *i.index_into_mut(&mut nwm_bufs) = m.to_ptr();
+            } else {
+                return None;
             }
         }
 
@@ -297,6 +283,18 @@ mod loop_main {
             thread_prio,
         };
         reset_jpeg_compress(&config, &vars);
+
+        for i in WorkIndex::all() {
+            for j in ThreadId::up_to(&core_count) {
+                let info = crate::entries::thread_nwm::get_nwm_infos()
+                    .get_mut(&i)
+                    .get_mut(&j);
+                let buf_size = NWM_BUFFER_SIZE as u32 / core_count.get();
+                let buf = nwm_bufs[i.get() as usize].add((j.get() * buf_size) as usize);
+                info.buf = buf.add(NWM_HDR_SIZE as usize + DATA_HDR_SIZE as usize);
+                info.buf_packet_last = buf.add(buf_size as usize - PACKET_DATA_SIZE);
+            }
+        }
 
         crate::entries::work_thread::reset_vars();
         crate::entries::thread_nwm::reset_vars();
