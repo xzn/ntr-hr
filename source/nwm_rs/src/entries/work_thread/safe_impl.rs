@@ -9,11 +9,9 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
             let is_top = v.v().is_top();
 
             let timing = unsafe { svcGetSystemTick() as u32_ };
-            unsafe {
-                let last_timing = crate::entries::thread_screen::get_last_frame_timing(is_top);
-                if timing - last_timing >= SYSCLOCK_ARM11 {
-                    crate::entries::thread_screen::set_no_skip_frame(is_top);
-                }
+            let last_timing = v.get_last_frame_timing();
+            if timing - last_timing >= SYSCLOCK_ARM11 {
+                unsafe { crate::entries::thread_screen::set_no_skip_frame(is_top) };
             }
 
             let skip_frame = !unsafe { crate::entries::thread_screen::reset_no_skip_frame(is_top) }
@@ -30,9 +28,7 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
                     return None;
                 }
 
-                unsafe {
-                    crate::entries::thread_screen::set_last_frame_timing(is_top, timing);
-                }
+                v.set_last_frame_timing(timing);
 
                 break v.release_and_capture_screen(&t);
             }

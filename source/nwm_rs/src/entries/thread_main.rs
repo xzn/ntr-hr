@@ -9,9 +9,8 @@ pub struct ThreadsStacks<'a> {
     aux2: &'a mut StackRegion<{ RP_THREAD_STACK_SIZE as usize }>,
     nwm: &'a mut StackRegion<{ STACK_SIZE as usize }>,
     screen: &'a mut StackRegion<{ STACK_SIZE as usize }>,
+    nwm_bufs: [*mut u8; WORK_COUNT as usize]
 }
-
-static mut nwm_bufs: [*mut u8; WORK_COUNT as usize] = const_default();
 
 mod first_time_init {
     use super::*;
@@ -36,6 +35,8 @@ mod first_time_init {
             nsDbgPrint!(gspInitFailed, res);
             return None;
         }
+
+        let mut nwm_bufs: [*mut u8; WORK_COUNT as usize] = const_default();
 
         for i in WorkIndex::all() {
             if let Some(m) = request_mem_from_pool::<NWM_BUFFER_SIZE>() {
@@ -105,6 +106,7 @@ mod first_time_init {
             aux2: stack_region_from_mem_region(aux2Stack),
             nwm: stack_region_from_mem_region(nwmStack),
             screen: stack_region_from_mem_region(screenStack),
+            nwm_bufs
         })
     }
 }
@@ -253,8 +255,8 @@ mod loop_main {
     }
 
     #[named]
-    unsafe fn reset_init() -> Option<InitCleanup> {
-        clear_reset_threads_ar();
+    unsafe fn reset_init(nwm_bufs: &[*mut u8; WORK_COUNT as usize]) -> Option<InitCleanup> {
+        crate::entries::work_thread::clear_reset_threads_ar();
 
         let config = Config(());
 
@@ -282,7 +284,8 @@ mod loop_main {
             core_count,
             thread_prio,
         };
-        reset_jpeg_compress(&config, &vars);
+        let jpeg = crate::entries::work_thread::get_jpeg();
+        jpeg.reset(config.quality_ar(), vars.core_count);
 
         for i in WorkIndex::all() {
             for j in ThreadId::up_to(&core_count) {
@@ -302,18 +305,9 @@ mod loop_main {
         InitCleanup::init(vars)
     }
 
-    unsafe fn reset_jpeg_compress(config: &Config, vars: &InitVars) {
-        let jpeg = crate::entries::work_thread::get_jpeg();
-        jpeg.reset(config.quality_ar(), vars.core_count);
-    }
-
-    fn clear_reset_threads_ar() {
-        crate::entries::work_thread::clear_reset_threads_ar()
-    }
-
     pub unsafe fn entry(_t: ThreadVars, s: &mut ThreadsStacks) -> Option<()> {
         loop {
-            let init = reset_init()?;
+            let init = reset_init(&s.nwm_bufs)?;
 
             let vars = &init.0;
 

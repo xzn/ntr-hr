@@ -143,122 +143,120 @@ unsafe fn get_game_handle() -> Handle {
     cap_params.game
 }
 
-fn capture_screen(is_top: bool, cap_info: &CapInfo, dst: u32, w: WorkIndex) -> bool {
-    unsafe {
-        let phys = cap_info.src as u32_;
+unsafe fn capture_screen(is_top: bool, cap_info: &CapInfo, dst: u32, w: WorkIndex) -> bool {
+    let phys = cap_info.src as u32_;
 
-        let mut process = home_process_handle;
+    let mut process = home_process_handle;
 
-        let format = cap_info.format & 0xf;
+    let format = cap_info.format & 0xf;
 
-        if format > 3 {
-            svcSleepThread(THREAD_WAIT_NS);
-            return false;
-        }
-
-        let bpp: u32_;
-        let mut burst_size: u32_ = 16;
-
-        if format == 0 {
-            bpp = 4;
-            burst_size *= 4;
-        } else if format == 1 {
-            bpp = 3;
-        } else {
-            bpp = 2;
-            burst_size *= 2;
-        }
-        let mut transfer_size = 240 * bpp;
-        let mut pitch = cap_info.pitch;
-        let buf_size = transfer_size * if is_top { 400 } else { 320 };
-
-        if transfer_size == pitch {
-            let mut mul = if is_top { 16 } else { 64 };
-            transfer_size *= mul;
-            while transfer_size >= (1 << 15) {
-                transfer_size /= 2;
-                mul /= 2;
-            }
-
-            burst_size *= mul;
-            pitch = transfer_size;
-        }
-
-        let dma_conf = DmaConfig {
-            channelId: -1,
-            flags: (DMACFG_WAIT_AVAILABLE | DMACFG_USE_DST_CONFIG | DMACFG_USE_SRC_CONFIG) as u8_,
-            endianSwapSize: 0,
-            _padding: 0,
-            dstCfg: DmaDeviceConfig {
-                deviceId: -1,
-                allowedAlignments: 15,
-                burstSize: burst_size as s16,
-                burstStride: burst_size as s16,
-                transferSize: transfer_size as s16,
-                transferStride: transfer_size as s16,
-            },
-            srcCfg: DmaDeviceConfig {
-                deviceId: -1,
-                allowedAlignments: 15,
-                burstSize: burst_size as s16,
-                burstStride: burst_size as s16,
-                transferSize: transfer_size as s16,
-                transferStride: pitch as s16,
-            },
-        };
-
-        if buf_size > IMG_BUFFER_SIZE as u32_ {
-            svcSleepThread(THREAD_WAIT_NS);
-            return false;
-        }
-
-        let dma = cap_params.dmas.get_mut(&w);
-        if *dma != 0 {
-            let _ = svcCloseHandle(*dma);
-            *dma = 0;
-        }
-
-        if is_in_vram(phys) {
-            close_game_handle();
-            let res = svcStartInterProcessDma(
-                dma,
-                CUR_PROCESS_HANDLE,
-                dst,
-                process,
-                0x1f000000 + (phys - 0x18000000),
-                buf_size,
-                &dma_conf,
-            );
-            if res != 0 {
-                *dma = 0;
-                svcSleepThread(THREAD_WAIT_NS);
-                return false;
-            }
-        } else if is_in_fcram(phys) {
-            process = get_game_handle();
-            if process == 0 {
-                svcSleepThread(THREAD_WAIT_NS);
-                return false;
-            }
-            let res = svcStartInterProcessDma(
-                dma,
-                CUR_PROCESS_HANDLE,
-                dst,
-                process,
-                cap_params.game_fcram_base + (phys - 0x20000000),
-                buf_size,
-                &dma_conf,
-            );
-            if res != 0 {
-                *dma = 0;
-                close_game_handle();
-                svcSleepThread(THREAD_WAIT_NS);
-                return false;
-            }
-        }
-
-        true
+    if format > 3 {
+        svcSleepThread(THREAD_WAIT_NS);
+        return false;
     }
+
+    let bpp: u32_;
+    let mut burst_size: u32_ = 16;
+
+    if format == 0 {
+        bpp = 4;
+        burst_size *= 4;
+    } else if format == 1 {
+        bpp = 3;
+    } else {
+        bpp = 2;
+        burst_size *= 2;
+    }
+    let mut transfer_size = 240 * bpp;
+    let mut pitch = cap_info.pitch;
+    let buf_size = transfer_size * if is_top { 400 } else { 320 };
+
+    if transfer_size == pitch {
+        let mut mul = if is_top { 16 } else { 64 };
+        transfer_size *= mul;
+        while transfer_size >= (1 << 15) {
+            transfer_size /= 2;
+            mul /= 2;
+        }
+
+        burst_size *= mul;
+        pitch = transfer_size;
+    }
+
+    let dma_conf = DmaConfig {
+        channelId: -1,
+        flags: (DMACFG_WAIT_AVAILABLE | DMACFG_USE_DST_CONFIG | DMACFG_USE_SRC_CONFIG) as u8_,
+        endianSwapSize: 0,
+        _padding: 0,
+        dstCfg: DmaDeviceConfig {
+            deviceId: -1,
+            allowedAlignments: 15,
+            burstSize: burst_size as s16,
+            burstStride: burst_size as s16,
+            transferSize: transfer_size as s16,
+            transferStride: transfer_size as s16,
+        },
+        srcCfg: DmaDeviceConfig {
+            deviceId: -1,
+            allowedAlignments: 15,
+            burstSize: burst_size as s16,
+            burstStride: burst_size as s16,
+            transferSize: transfer_size as s16,
+            transferStride: pitch as s16,
+        },
+    };
+
+    if buf_size > IMG_BUFFER_SIZE as u32_ {
+        svcSleepThread(THREAD_WAIT_NS);
+        return false;
+    }
+
+    let dma = cap_params.dmas.get_mut(&w);
+    if *dma != 0 {
+        let _ = svcCloseHandle(*dma);
+        *dma = 0;
+    }
+
+    if is_in_vram(phys) {
+        close_game_handle();
+        let res = svcStartInterProcessDma(
+            dma,
+            CUR_PROCESS_HANDLE,
+            dst,
+            process,
+            0x1f000000 + (phys - 0x18000000),
+            buf_size,
+            &dma_conf,
+        );
+        if res != 0 {
+            *dma = 0;
+            svcSleepThread(THREAD_WAIT_NS);
+            return false;
+        }
+    } else if is_in_fcram(phys) {
+        process = get_game_handle();
+        if process == 0 {
+            svcSleepThread(THREAD_WAIT_NS);
+            return false;
+        }
+        let res = svcStartInterProcessDma(
+            dma,
+            CUR_PROCESS_HANDLE,
+            dst,
+            process,
+            cap_params.game_fcram_base + (phys - 0x20000000),
+            buf_size,
+            &dma_conf,
+        );
+        if res != 0 {
+            *dma = 0;
+            close_game_handle();
+            svcSleepThread(THREAD_WAIT_NS);
+            return false;
+        }
+    }
+
+    true
 }
 
 pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
@@ -366,7 +364,7 @@ pub fn thread_screen_loop(sync: ScreenEncodeSync) -> Option<()> {
             let cap_info = update_gpu_regs(is_top);
 
             let w = vars.screen_work_index();
-            if capture_screen(is_top, &cap_info, vars.img_dst(is_top), w) {
+            if unsafe { capture_screen(is_top, &cap_info, vars.img_dst(is_top), w) } {
                 vars.release(is_top, cap_info.format, w);
                 break;
             }

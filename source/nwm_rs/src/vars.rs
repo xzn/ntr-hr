@@ -34,6 +34,8 @@ pub const PACKET_DATA_SIZE: usize = (PACKET_SIZE - DATA_HDR_SIZE) as usize;
 pub const IMG_BUFFER_SIZE: usize = 0x60000;
 pub const NWM_BUFFER_SIZE: usize = 0x30000;
 
+pub const RP_THREAD_PRIO_DEFAULT: u32 = RP_THREAD_PRIO_MAX;
+
 pub static mut home_process_handle: Handle = 0;
 
 #[derive(ConstDefault)]

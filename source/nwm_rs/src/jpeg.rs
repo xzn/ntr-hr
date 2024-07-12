@@ -13,7 +13,7 @@ pub struct JpegShared {
 pub struct WorkerDst {
     pub dst: *mut u8,
     pub free_in_bytes: u16,
-    pub info: *const crate::entries::thread_nwm::NwmInfo,
+    pub info: *const crate::entries::NwmInfo,
 }
 
 impl WorkerDst {
@@ -52,11 +52,11 @@ impl WorkerDst {
     }
 
     fn flush(&mut self) {
-        unsafe { crate::entries::thread_nwm::rp_send_buffer(self, false) };
+        unsafe { crate::entries::rp_send_buffer(self, false) };
     }
 
     fn term(&mut self) {
-        unsafe { crate::entries::thread_nwm::rp_send_buffer(self, true) };
+        unsafe { crate::entries::rp_send_buffer(self, true) };
     }
 
     pub unsafe fn advance_to(&mut self, dst: *mut u8) {

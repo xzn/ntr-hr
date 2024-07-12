@@ -80,14 +80,14 @@ pub fn request_mem_from_pool_vsize(t: usize) -> Option<&'static mut [u8_]> {
 
 pub struct PhantomResult<'a>(pub Result, PhantomData<&'a ()>);
 
-pub fn create_thread<'a, 'b, const T: usize>(
+pub fn create_thread<'a, 'b: 'a, const T: usize>(
     h: *mut Handle,
     f: ThreadFunc,
     a: u32_,
-    t: &'a mut StackRegion<T>,
+    t: &'b mut StackRegion<T>,
     prio: s32,
     core: s32,
-) -> PhantomResult<'b>
+) -> PhantomResult<'a>
 where
     [(); StackRegionCount::<T>::N]:,
     [(); T - SMALL_STACK_SIZE as usize]:,

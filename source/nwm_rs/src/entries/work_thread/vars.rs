@@ -48,7 +48,7 @@ impl BlitCtx {
 }
 
 pub type BlitCtxes = RangedArray<BlitCtx, WORK_COUNT>;
-pub static mut blit_ctxes: BlitCtxes = const_default();
+static mut blit_ctxes: BlitCtxes = const_default();
 
 #[derive(ConstDefault)]
 pub struct JpegGlobal {
@@ -88,7 +88,8 @@ static mut load_and_progresses: LoadAndProgresses = const_default();
 static mut reset_threads_flag: AtomicBool = const_default();
 static mut core_count_in_use: CoreCount = CoreCount::init();
 
-pub static mut current_frame_ids: RangedArray<u8_, SCREEN_COUNT> = const_default();
+static mut current_frame_ids: RangedArray<u8_, SCREEN_COUNT> = const_default();
+static mut last_frame_timings: RangedArray<u32_, SCREEN_COUNT> = const_default();
 
 pub fn reset_threads() -> bool {
     unsafe { reset_threads_flag.load(Ordering::Relaxed) }
@@ -273,6 +274,14 @@ impl ThreadBeginVars {
 
     pub fn frame_id(&self) -> u8_ {
         unsafe { *current_frame_ids.get_b_mut(self.v().is_top()) }
+    }
+
+    pub fn get_last_frame_timing(&self) -> u32_ {
+        unsafe { *last_frame_timings.get_b(self.v().is_top()) }
+    }
+
+    pub fn set_last_frame_timing(&self, timing: u32_) {
+        unsafe { *last_frame_timings.get_b_mut(self.v().is_top()) = timing }
     }
 
     #[named]
