@@ -77,15 +77,15 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     let send_pos = dinfo.send_pos;
     let data_buf = send_pos;
     let packet_buf = data_buf.sub(DATA_HDR_SIZE as usize);
-    let nwm_buf = packet_buf.sub(NWM_HDR_SIZE as usize);
 
     let size = pos.offset_from(send_pos) as u32_;
-    let size = cmp::min(size, PACKET_DATA_SIZE as u32_);
+    let packet_data_size = get_packet_data_size() as u32_;
+    let size = cmp::min(size, packet_data_size);
 
     let thread_emptied = send_pos.add(size as usize) == pos;
     let thread_done = thread_emptied && flag > 0;
 
-    if size < PACKET_DATA_SIZE as u32_ && !thread_done {
+    if size < packet_data_size && !thread_done {
         return false;
     }
 
@@ -114,7 +114,7 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
 
             let send_pos = dinfo.send_pos;
 
-            let remaining_size = PACKET_DATA_SIZE as u32_ - total_size;
+            let remaining_size = packet_data_size - total_size;
 
             let size = pos.offset_from(send_pos) as u32_;
             let size = cmp::min(size, remaining_size);
@@ -143,12 +143,6 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
         }
     }
 
-    ptr::copy_nonoverlapping(
-        get_current_nwm_hdr().as_mut_ptr(),
-        nwm_buf,
-        NWM_HDR_SIZE as usize,
-    );
-    let packet_len = init_udp_packet(nwm_buf, total_size + DATA_HDR_SIZE as u32_);
     let data_buf_hdr = v.data_buf_hdr();
     ptr::copy(
         data_buf_hdr.as_ptr(),
@@ -160,7 +154,9 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     }
     *data_buf_hdr.get_unchecked_mut(3) += 1;
 
-    nwmSendPacket.unwrap_unchecked()(nwm_buf, packet_len);
+    if rp_output(packet_buf, (total_size + DATA_HDR_SIZE) as usize) == None {
+        return false;
+    }
     *v.last_send_tick() = tick;
 
     if !thread_end_done {
@@ -177,53 +173,6 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     }
 
     true
-}
-
-unsafe fn init_udp_packet(nwm_buf: *mut u8_, mut len: u32_) -> u32_ {
-    len += 8;
-    *(nwm_buf.add(0x22 + 8) as *mut u16_) = htons(RP_SRC_PORT as u16_); // src port
-    *(nwm_buf.add(0x24 + 8) as *mut u16_) =
-        htons(AtomicU32::from_mut(&mut (*rp_config).dstPort).load(Ordering::Relaxed) as u16_); // dest port
-    *(nwm_buf.add(0x26 + 8) as *mut u16_) = htons(len as u16_);
-    *(nwm_buf.add(0x28 + 8) as *mut u16_) = 0; // no checksum
-    len += 20;
-
-    *(nwm_buf.add(0x10 + 8) as *mut u16_) = htons(len as u16_);
-    *(nwm_buf.add(0x12 + 8) as *mut u16_) = 0xaf01; // packet id is a random value since we won't use the fragment
-    *(nwm_buf.add(0x14 + 8) as *mut u16_) = 0x0040; // no fragment
-    *(nwm_buf.add(0x16 + 8) as *mut u16_) = 0x1140; // ttl 64, udp
-
-    *(nwm_buf.add(0x18 + 8) as *mut u16_) = 0;
-    *(nwm_buf.add(0x18 + 8) as *mut u16_) = ip_checksum(nwm_buf.add(0xE + 8), 0x14);
-
-    len += 22;
-    *(nwm_buf.add(12) as *mut u16_) = htons(len as u16_);
-
-    len
-}
-
-unsafe fn ip_checksum(data: *mut u8_, mut length: usize) -> u16_ {
-    // Cast the data pointer to one that can be indexed.
-    // Initialise the accumulator.
-    let mut acc: u32_ = 0;
-
-    if length % 2 != 0 {
-        *data.add(length) = 0;
-        length += 1;
-    }
-
-    length /= 2;
-    let data = data as *mut u16_;
-
-    // Handle complete 16-bit blocks.
-    for i in 0..length {
-        acc += ntohs(*data.add(i)) as u32_;
-    }
-    acc = (acc & 0xffff) + (acc >> 16);
-    acc += acc >> 16;
-
-    // Return the checksum in network byte order.
-    htons(!acc as u16_)
 }
 
 fn data_buf_filled(dinfo: &DataBufInfo) -> (bool, *mut u8_, u32_) {

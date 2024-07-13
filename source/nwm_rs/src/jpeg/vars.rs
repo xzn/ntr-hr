@@ -615,8 +615,6 @@ pub enum ColorSpace {
     RGB4,
 }
 
-pub const OUTPUT_BUF_SIZE: u32 = PACKET_SIZE - DATA_HDR_SIZE;
-
 pub const M_SOI: u8 = 0xd8;
 pub const M_APP0: u8 = 0xe0;
 pub const M_DQT: u8 = 0xdb;

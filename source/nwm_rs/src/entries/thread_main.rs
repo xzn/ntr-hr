@@ -9,7 +9,7 @@ pub struct ThreadsStacks<'a> {
     aux2: &'a mut StackRegion<{ RP_THREAD_STACK_SIZE as usize }>,
     nwm: &'a mut StackRegion<{ STACK_SIZE as usize }>,
     screen: &'a mut StackRegion<{ STACK_SIZE as usize }>,
-    nwm_bufs: [*mut u8; WORK_COUNT as usize]
+    nwm_bufs: [*mut u8; WORK_COUNT as usize],
 }
 
 mod first_time_init {
@@ -96,6 +96,17 @@ mod first_time_init {
             nsDbgPrint!(createNwmSvcFailed, res);
         }
 
+        let res = svcCreateMutex(&mut reliable_stream_cb_lock, false);
+        if res != 0 {
+            nsDbgPrint!(createNwmMutexFailed, res);
+            return None;
+        }
+        let res = create_event(&mut reliable_stream_cb_evt);
+        if res != 0 {
+            nsDbgPrint!(createNwmRecvEventFailed, res);
+            return None;
+        }
+
         let aux1Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
         let aux2Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
         let nwmStack = request_mem_from_pool::<{ STACK_SIZE as usize }>()?;
@@ -106,7 +117,7 @@ mod first_time_init {
             aux2: stack_region_from_mem_region(aux2Stack),
             nwm: stack_region_from_mem_region(nwmStack),
             screen: stack_region_from_mem_region(screenStack),
-            nwm_bufs
+            nwm_bufs,
         })
     }
 }
@@ -267,12 +278,14 @@ mod loop_main {
         let mode = config.mode_ar();
         crate::entries::thread_screen::reset_thread_vars(mode);
 
-        if config.dst_port_ar() == 0 {
-            config.set_dst_port_ar(RP_DST_PORT_DEFAULT)
+        let dst_port = config.dst_port_ar();
+        let dst_flags = dst_port & 0xffff0000;
+        let dst_port = dst_port & 0xffff;
+        if dst_port == 0 {
+            config.set_dst_port_ar(RP_DST_PORT_DEFAULT | dst_flags)
         }
 
         let qos = config.qos_ar();
-        crate::entries::thread_nwm::init_min_send_interval(qos);
 
         let thread_prio = config.thread_prio_ar();
         let res = svcSetThreadPriority(thread_main_handle, thread_prio as i32);
@@ -287,6 +300,9 @@ mod loop_main {
         let jpeg = crate::entries::work_thread::get_jpeg();
         jpeg.reset(config.quality_ar(), vars.core_count);
 
+        crate::entries::work_thread::reset_vars();
+        crate::entries::thread_nwm::reset_vars(dst_flags, qos)?;
+
         for i in WorkIndex::all() {
             for j in ThreadId::up_to(&core_count) {
                 let info = crate::entries::thread_nwm::get_nwm_infos()
@@ -295,12 +311,10 @@ mod loop_main {
                 let buf_size = NWM_BUFFER_SIZE as u32 / core_count.get();
                 let buf = nwm_bufs[i.get() as usize].add((j.get() * buf_size) as usize);
                 info.buf = buf.add(NWM_HDR_SIZE as usize + DATA_HDR_SIZE as usize);
-                info.buf_packet_last = buf.add(buf_size as usize - PACKET_DATA_SIZE);
+                info.buf_packet_last =
+                    buf.add(buf_size as usize - crate::entries::thread_nwm::get_packet_data_size());
             }
         }
-
-        crate::entries::work_thread::reset_vars();
-        crate::entries::thread_nwm::reset_vars();
 
         InitCleanup::init(vars)
     }

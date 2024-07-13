@@ -259,7 +259,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
         let dst = *ninfo.info.pos.as_ptr() as *mut c_void;
         let dst = crate::jpeg::WorkerDst {
             dst: dst as *mut u8,
-            free_in_bytes: crate::jpeg::vars::OUTPUT_BUF_SIZE as u16,
+            free_in_bytes: crate::entries::thread_nwm::get_packet_data_size() as u16,
             info: ninfo,
         };
 

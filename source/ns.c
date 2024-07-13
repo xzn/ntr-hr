@@ -494,7 +494,9 @@ int nsStartup(void) {
 	u32 affinity = 0x10;
 	if (nsConfig->initMode == NS_INITMODE_FROMHOOK) {
 		listenPort = NS_HOOK_LISTEN_PORT + getCurrentProcessId();
-		affinity = 0x3f;
+		if (getCurrentProcessId() != 0x1a) { // except for nwm process
+			affinity = 0x3f;
+		}
 	}
 
 	if (!ALC(&nsConfig->debugReady)) {

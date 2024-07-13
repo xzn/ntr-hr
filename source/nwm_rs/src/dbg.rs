@@ -58,6 +58,10 @@ impl nsDbgPrint_t {
 
     nsDbgPrint_fn!(createNwmEventFailed, "Create nwm event failed %08x\n", ret: s32);
 
+    nsDbgPrint_fn!(createNwmMutexFailed, "Create nwm mutex failed %08x\n", ret: s32);
+
+    nsDbgPrint_fn!(createNwmRecvEventFailed, "Create nwm recv event failed %08x\n", ret: s32);
+
     nsDbgPrint_fn!(createNwmSvcFailed, "Create remote play service thread failed: %08x\n", ret: s32);
 
     nsDbgPrint_fn!(setThreadPriorityFailed, "Set thread priority failed: %08x\n", res: s32);
@@ -75,4 +79,10 @@ impl nsDbgPrint_t {
     nsDbgPrint_fn!(waitForSyncFailed, "Wait for %s sync failed: %08x\n", name: *const c_char, res: s32);
 
     nsDbgPrint_fn!(encodeMcuFailed, "Encode MCUs failed, restarting...\n");
+
+    nsDbgPrint_fn!(nwmOutputOverflow, "Nwm output packet len overflow: %08x\n", len: s32);
+
+    nsDbgPrint_fn!(nwmInputNothing, "Nwm input nothing\n");
+
+    nsDbgPrint_fn!(nwmInputFailed, "Nwm input failed: %08x, errno = %08x\n", ret: s32, errno: s32);
 }

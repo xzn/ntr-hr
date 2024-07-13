@@ -17,9 +17,11 @@ struct Callback {
 
 impl Callback {
     fn new() -> Self {
-        let names = HashSet::<String>::new();
+        let mut names = HashSet::<String>::new();
+        names.insert("rp_cb".into());
 
-        let union_names = HashSet::<String>::new();
+        let mut union_names = HashSet::<String>::new();
+        union_names.insert("nwm_cb".into());
 
         Self { names, union_names }
     }
@@ -42,6 +44,7 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=nwm_rs.h");
     println!("cargo:rerun-if-env-changed=DEVKITPRO");
 
     let gcc_version = get_gcc_version(PathBuf::from(&devkitarm).join("bin/arm-none-eabi-gcc"));

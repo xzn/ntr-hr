@@ -396,12 +396,17 @@ int remotePlayMenu(u32 localaddr) {
 
 			case REMOTE_PLAY_MENU_VIEWER_PORT: { /* dst port */
 				int dstPort = config.dstPort;
-				if (keys == KEY_X)
+				int dstFlag = dstPort & 0xffff0000;
+				dstPort &= 0xffff;
+				if (keys == KEY_X) {
 					dstPort = rpConfig->dstPort;
-				else
+					dstFlag = dstPort & 0xffff0000;
+					dstPort &= 0xffff;
+				} else {
 					menu_adjust_value_with_key(&dstPort, keys, 10, 100);
+				}
 
-				dstPort = CLAMP(dstPort, RP_PORT_MIN, RP_PORT_MAX);
+				dstPort = CLAMP(dstPort, RP_PORT_MIN, RP_PORT_MAX) | dstFlag;
 
 				if (dstPort != (int)config.dstPort) {
 					config.dstPort = dstPort;
@@ -475,7 +480,9 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 			config->dstPort = RP_DST_PORT_DEFAULT;
 		}
 	}
-	config->dstPort = CLAMP(config->dstPort, RP_PORT_MIN, RP_PORT_MAX);
+
+	int dstFlag = config->dstPort & 0xffff0000;
+	config->dstPort = CLAMP(config->dstPort & 0xffff, RP_PORT_MIN, RP_PORT_MAX) | dstFlag;
 
 	if (config->threadPriority == 0) {
 		config->threadPriority = rpConfig->threadPriority;

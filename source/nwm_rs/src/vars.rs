@@ -29,8 +29,6 @@ pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
 pub type ScreenIndex = Ranged<SCREEN_COUNT>;
 
-pub const PACKET_DATA_SIZE: usize = (PACKET_SIZE - DATA_HDR_SIZE) as usize;
-
 pub const IMG_BUFFER_SIZE: usize = 0x60000;
 pub const NWM_BUFFER_SIZE: usize = 0x30000;
 
@@ -74,3 +72,6 @@ pub static mut syn_handles: *mut SynHandles = ptr::null_mut();
 pub const fn J_MAX_HALF_FACTOR(v: u32_) -> u32_ {
     v / 2
 }
+
+pub static mut reliable_stream_cb_lock: Handle = 0;
+pub static mut reliable_stream_cb_evt: Handle = 0;

@@ -393,7 +393,7 @@ int ikcp_peeksize(const ikcpcb *kcp)
 int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 {
 	IKCPSEG *seg;
-	int count, i;
+	int count;
 	int sent = 0;
 
 	if (len < 0) return -1;
@@ -440,28 +440,7 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 	if (count == 0) count = 1;
 
 	// fragment
-	for (i = 0; i < count; i++) {
-		int size = len > (int)kcp->mss ? (int)kcp->mss : len;
-		seg = ikcp_segment_new(kcp, size);
-		if (seg == NULL) {
-			return -2;
-		}
-		if (buffer && len > 0) {
-			memcpy(seg->data, buffer, size);
-		}
-		seg->len = size;
-		seg->frg = (kcp->stream == 0)? (count - i - 1) : 0;
-		iqueue_init(&seg->node);
-		iqueue_add_tail(&seg->node, &kcp->snd_queue);
-		kcp->nsnd_que++;
-		if (buffer) {
-			buffer += size;
-		}
-		len -= size;
-		sent += size;
-	}
-
-	return sent;
+	return -2;
 }
 
 
