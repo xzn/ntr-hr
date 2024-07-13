@@ -17,9 +17,4 @@
         "-Wno-reserved-user-defined-literal",
         "-Wno-c2x-extensions",
     ],
-    "files.associations": {
-        "*.css": "tailwindcss",
-        "hid.h": "c",
-        "jmorecfg.h": "c"
-    }
 }

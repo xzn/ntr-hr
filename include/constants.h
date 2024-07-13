@@ -71,8 +71,11 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 
 #define NS_MENU_LISTEN_PORT (8000)
 #define NS_HOOK_LISTEN_PORT (5000)
+// Manual RP init from NTR menu
+// SRC is 3DS, DST is PC
 #define NWM_INIT_SRC_PORT (8001)
 #define NWM_INIT_DST_PORT (8001)
+// RP data ports
 #define RP_SRC_PORT (8000)
 #define RP_DST_PORT_DEFAULT (8001)
 #define RP_THREAD_PRIO_DEFAULT RP_THREAD_PRIO_MAX

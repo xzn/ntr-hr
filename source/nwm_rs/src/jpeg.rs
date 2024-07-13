@@ -534,7 +534,9 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
             self.write_dht(i as usize, false);
             self.write_dht(i as usize, true);
         }
-        self.write_dri();
+        if self.worker.shared.coreCount.get() > 1 {
+            self.write_dri();
+        }
         self.write_sos();
     }
 

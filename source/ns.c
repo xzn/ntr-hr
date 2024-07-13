@@ -339,6 +339,7 @@ void nsHandleMenuPacket(void) {
 
 static void nsMainLoop(u32 listenPort) {
 	while (1) {
+		s32 nwm_recv_sock = -1;
 		s32 listen_sock, ret, tmp, sockfd;
 		struct sockaddr_in addr;
 
@@ -369,6 +370,27 @@ static void nsMainLoop(u32 listenPort) {
 		if (ret < 0) {
 			showDbg("listen failed: %08"PRIx32, (u32)errno);
 			goto end_listen;
+		}
+
+		int is_nwm = getCurrentProcessId() == 0x1a; // nwm process
+
+		if (is_nwm) {
+			nwm_recv_sock = socket(AF_INET, SOCK_DGRAM, 0);
+			if (nwm_recv_sock < 0) {
+				showDbg("nwm socket failed: %08"PRIx32, (u32)errno);
+				goto end_listen;
+			}
+
+			struct sockaddr_in sai = {0};
+			sai.sin_family = AF_INET;
+			sai.sin_port = htons(RP_SRC_PORT);
+			sai.sin_addr.s_addr = htonl(INADDR_ANY);
+
+			int ret = bind(nwm_recv_sock, (struct sockaddr *)&sai, sizeof(sai));
+			if (ret < 0) {
+				showDbg("nwm_recv_sock bind failed: %08"PRIx32, (u32)errno);
+				goto end_listen;
+			}
 		}
 
 		while (1) {
@@ -406,6 +428,9 @@ static void nsMainLoop(u32 listenPort) {
 
 end_listen:
 		closesocket(listen_sock);
+		if (nwm_recv_sock >= 0) {
+			closesocket(nwm_recv_sock);
+		}
 	}
 }
 

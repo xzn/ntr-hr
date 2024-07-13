@@ -30,6 +30,7 @@ SRC_GAME_C := $(wildcard source/game/*.c)
 OBJ_GAME := $(addprefix obj/,$(notdir $(SRC_GAME_C:.c=.o)))
 
 SRC_NWM_C := $(wildcard source/nwm/*.c)
+SRC_NWM_C += $(wildcard source/nwm_misc/*.c)
 OBJ_NWM := $(addprefix obj/,$(notdir $(SRC_NWM_C:.c=.o)))
 
 OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_S:.s=.o)))
@@ -82,8 +83,8 @@ bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) libctru_ntr.a 3ds.ld | bin
 bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) libctru_ntr.a 3ds.ld | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_GAME)) $(LDLIBS)
 
-bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/rp_lto.o libctru_ntr.a 3dst.ld $(LIB_NWM_RS) | bin
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) obj/rp_lto.o) $(LDLIBS) -lnwm_rs
+bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/nwm_lto.o libctru_ntr.a 3dst.ld $(LIB_NWM_RS) | bin
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) obj/nwm_lto.o) $(LDLIBS) -lnwm_rs
 
 bin:
 	mkdir $@
@@ -100,7 +101,7 @@ $(CTRU_DIR)/lib/libctru.a:
 CC_WARNS = -Wall -Wextra
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
-RP_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS) -Iinclude/jpeg
+NWM_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS) -Iinclude/jpeg
 
 obj/%.o: source/%.s | obj
 	$(CC_CMD)
@@ -121,12 +122,12 @@ obj/%.o: source/game/%.c | obj
 	$(CC_CMD)
 
 obj/%.o: source/nwm/%.c | obj
-	$(RP_CC_CMD)
+	$(NWM_CC_CMD)
 
-obj/%.o: source/jpeg/%.c | obj
-	$(RP_CC_CMD) -Wno-attribute-alias -Wno-unused-variable -Wno-unused-parameter -Wno-unused-but-set-variable
+obj/%.o: source/nwm_misc/%.c | obj
+	$(NWM_CC_CMD)
 
-obj/rp_lto.o: $(OBJ_NWM) | obj
+obj/nwm_lto.o: $(OBJ_NWM) | obj
 	$(CC) -flto $(CFLAGS) -r -o $@ $^
 
 obj:
