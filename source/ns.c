@@ -3,6 +3,7 @@
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
 #include "3ds/ipc.h"
+#include "poll.h"
 
 #include <memory.h>
 #include <arpa/inet.h>
@@ -337,6 +338,8 @@ void nsHandleMenuPacket(void) {
 	}
 }
 
+void __attribute__((weak)) nsControlRecv(int) {}
+
 static void nsMainLoop(u32 listenPort) {
 	while (1) {
 		s32 nwm_recv_sock = -1;
@@ -393,37 +396,59 @@ static void nsMainLoop(u32 listenPort) {
 			}
 		}
 
+		struct pollfd pi[2];
+		int nready;
+
+#define POLL2(s) \
+	if (is_nwm) { \
+		pi[0].fd = s; \
+		pi[1].fd = nwm_recv_sock; \
+		pi[1].events = pi[0].events = POLLIN; \
+		pi[1].revents = pi[0].revents = 0; \
+		nready = poll2(pi, 2, -1); \
+		if (nready <= 0) \
+			continue; \
+	} \
+	if (is_nwm && pi[1].revents & (POLLIN | POLLHUP)) { \
+		nsControlRecv(nwm_recv_sock); \
+	} \
+	if (!is_nwm || pi[0].revents & (POLLIN | POLLHUP))
+
 		while (1) {
-			sockfd = accept(listen_sock, NULL, NULL);
-			if (sockfd < 0) {
-				int serr = errno;
-				if (serr == EWOULDBLOCK || serr == EAGAIN) {
-					svcSleepThread(100000000);
-					continue;
-				}
-				break;
-			}
-			nsContext->hSocket = sockfd;
-
-			tmp = fcntl(sockfd, F_GETFL, 0);
-			fcntl(sockfd, F_SETFL, tmp & ~O_NONBLOCK);
-
-			while (1) {
-				ret = rtRecvSocket(sockfd, (u8 *)&nsContext->packetBuf, sizeof(NS_PACKET));
-				if (ret != sizeof(NS_PACKET)) {
-					nsDbgPrint("rtRecvSocket failed: %08"PRIx32"\n", ret);
+			POLL2(listen_sock) {
+				sockfd = accept(listen_sock, NULL, NULL);
+				if (sockfd < 0) {
+					int serr = errno;
+					if (serr == EWOULDBLOCK || serr == EAGAIN) {
+						svcSleepThread(100000000);
+						continue;
+					}
 					break;
 				}
-				NS_PACKET *pac = &nsContext->packetBuf;
-				if (pac->magic != 0x12345678) {
-					nsDbgPrint("broken protocol: %08"PRIx32", %08"PRIx32"\n", pac->magic, pac->seq);
-					break;
-				}
-				nsHandlePacket();
-				pac->magic = 0;
-			}
+				nsContext->hSocket = sockfd;
 
-			closesocket(sockfd);
+				tmp = fcntl(sockfd, F_GETFL, 0);
+				fcntl(sockfd, F_SETFL, tmp & ~O_NONBLOCK);
+
+				while (1) {
+					POLL2(sockfd) {
+						ret = rtRecvSocket(sockfd, (u8 *)&nsContext->packetBuf, sizeof(NS_PACKET));
+						if (ret != sizeof(NS_PACKET)) {
+							nsDbgPrint("rtRecvSocket failed: %08"PRIx32"\n", ret);
+							break;
+						}
+						NS_PACKET *pac = &nsContext->packetBuf;
+						if (pac->magic != 0x12345678) {
+							nsDbgPrint("broken protocol: %08"PRIx32", %08"PRIx32"\n", pac->magic, pac->seq);
+							break;
+						}
+						nsHandlePacket();
+						pac->magic = 0;
+					}
+				}
+
+				closesocket(sockfd);
+			}
 		}
 
 end_listen:
