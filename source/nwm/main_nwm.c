@@ -37,13 +37,11 @@ void mainThread(void *) {
 		goto final;
 	}
 
-	if (ntrConfig->ex.nsUseDbg) {
-		ret = nsStartup();
-		if (ret != 0) {
-			disp(100, DBG_CL_USE_DBG_FAIL);
-		} else {
-			disp(100, DBG_CL_USE_DBG);
-		}
+	ret = nsStartup();
+	if (ret != 0) {
+		disp(100, DBG_CL_USE_DBG_FAIL);
+	} else {
+		disp(100, DBG_CL_USE_DBG);
 	}
 	disp(100, DBG_CL_INFO);
 

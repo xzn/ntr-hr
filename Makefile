@@ -101,7 +101,7 @@ $(CTRU_DIR)/lib/libctru.a:
 CC_WARNS = -Wall -Wextra
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
-NWM_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS) -Iinclude/jpeg
+NWM_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
 
 obj/%.o: source/%.s | obj
 	$(CC_CMD)

@@ -54,6 +54,6 @@ u32 nsAttachProcess(Handle hProcess, u32 remotePC, NS_CONFIG *cfg, int thumbR3);
 void nsHandlePacket(void);
 void nsHandleDbgPrintPacket(void);
 void nsHandleMenuPacket(void);
-void nsControlRecv(int);
+int nsControlRecv(int);
 
 #endif

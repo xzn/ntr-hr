@@ -338,7 +338,9 @@ void nsHandleMenuPacket(void) {
 	}
 }
 
-void __attribute__((weak)) nsControlRecv(int) {}
+int __attribute__((weak)) nsControlRecv(int) {
+	return 0;
+}
 
 static void nsMainLoop(u32 listenPort) {
 	while (1) {
@@ -410,7 +412,9 @@ static void nsMainLoop(u32 listenPort) {
 			continue; \
 	} \
 	if (is_nwm && pi[1].revents & (POLLIN | POLLHUP)) { \
-		nsControlRecv(nwm_recv_sock); \
+		if (nsControlRecv(nwm_recv_sock) < 0) { \
+			break; \
+		} \
 	} \
 	if (!is_nwm || pi[0].revents & (POLLIN | POLLHUP))
 

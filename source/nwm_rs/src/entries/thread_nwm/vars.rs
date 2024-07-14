@@ -71,30 +71,33 @@ unsafe fn get_reliable_stream_method() -> ReliableStreamMethod {
 unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
     let _ = NwmCbLock::lock()?;
 
+    reliable_stream_cb_inited = false;
     reliable_stream = flags & (1 << 30) > 0;
     reliable_stream_method = ((flags >> 31) & 1) as u8;
 
     if get_reliable_stream_method() != ReliableStreamMethod::None {
         if reliable_stream_cb == ptr::null_mut() {
-            reliable_stream_cb = request_mem_from_pool::<{ mem::size_of::<nwm_cb>() }>()
-                .unwrap()
-                .to_ptr() as *mut _;
-        }
-    }
-
-    match get_reliable_stream_method() {
-        ReliableStreamMethod::None => {}
-        ReliableStreamMethod::KCP => {
-            let kcp = &mut (*reliable_stream_cb).cb.ikcp;
-            ikcp_create(kcp, RP_HDR_RELIABLE_STREAM_FLAG, ptr::null_mut());
-            kcp.output = Some(rp_udp_output);
-            ikcp_nodelay(kcp, 2, 10, 2, 0);
-            ikcp_wndsize(kcp, (qos / PACKET_SIZE / 16) as i32);
+            reliable_stream_cb =
+                request_mem_from_pool::<{ mem::size_of::<rp_cb>() }>()?.to_ptr() as *mut _;
         }
     }
 
     set_packet_data_size();
 
+    match get_reliable_stream_method() {
+        ReliableStreamMethod::None => {}
+        ReliableStreamMethod::KCP => {
+            let kcp = &mut (*reliable_stream_cb).cb.ikcp;
+            if ikcp_create(kcp, RP_HDR_RELIABLE_STREAM_FLAG, ptr::null_mut()) < 0 {
+                return None;
+            }
+            kcp.output = Some(rp_udp_output);
+            ikcp_nodelay(kcp, 2, 1, 2, 0);
+            ikcp_wndsize(kcp, (qos / PACKET_SIZE / 16) as i32);
+        }
+    }
+
+    reliable_stream_cb_inited = true;
     Some(())
 }
 
@@ -105,7 +108,7 @@ pub unsafe fn get_packet_data_size() -> usize {
 unsafe fn set_packet_data_size() {
     packet_data_size = match get_reliable_stream_method() {
         ReliableStreamMethod::None => (PACKET_SIZE - DATA_HDR_SIZE) as usize,
-        ReliableStreamMethod::KCP => (PACKET_SIZE - IKCP_OVERHEAD_CONST) as usize,
+        ReliableStreamMethod::KCP => (PACKET_SIZE - IKCP_OVERHEAD_CONST - DATA_HDR_SIZE) as usize,
     }
 }
 
@@ -329,6 +332,8 @@ unsafe fn ip_checksum(data: *mut u8_, mut length: usize) -> u16_ {
     htons(!acc as u16_)
 }
 
+static mut rp_output_last_tick: u64 = 0;
+
 #[named]
 unsafe extern "C" fn rp_udp_output(
     buf: *const u8,
@@ -336,7 +341,7 @@ unsafe extern "C" fn rp_udp_output(
     _kcp: *mut ikcpcb,
     _user: *mut c_void,
 ) -> s32 {
-    let nwm_buf = &mut (*reliable_stream_cb).nwm_buf as *mut u8;
+    let nwm_buf = (*reliable_stream_cb).nwm_buf.as_mut_ptr();
     let packet_buf = nwm_buf.add(NWM_HDR_SIZE as usize);
 
     if len > PACKET_SIZE as s32 {
@@ -345,6 +350,19 @@ unsafe extern "C" fn rp_udp_output(
     }
 
     ptr::copy_nonoverlapping(buf, packet_buf, len as usize);
+
+    let curr_tick = svcGetSystemTick();
+    let tick_diff = curr_tick - rp_output_last_tick;
+    let duration = if tick_diff < min_send_interval_tick as u64 {
+        (min_send_interval_tick as u64 - tick_diff) * 1_000_000_000 / SYSCLOCK_ARM11 as u64
+    } else {
+        0
+    };
+    rp_output_last_tick = curr_tick;
+    if duration > 0 {
+        svcSleepThread(duration as s64);
+    }
+
     nwm_output(nwm_buf, len as usize);
 
     return len;
@@ -373,23 +391,29 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
             let kcp = &mut (*reliable_stream_cb).cb.ikcp;
 
             while !entries::work_thread::reset_threads() {
-                ikcp_update(kcp, iclock());
                 let waitsnd = ikcp_waitsnd(kcp);
                 if waitsnd < kcp.snd_wnd as i32 {
                     let ret = ikcp_send(kcp, packet_buf, packet_size as i32);
                     if ret < 0 {
                         // Reset KCP
+                        nsDbgPrint!(kcpInputFailed, ret);
                         todo!();
                     }
 
+                    ikcp_update(kcp, iclock());
                     break;
                 } else {
                     // Wait
-                    let res = svcWaitSynchronization(reliable_stream_cb_evt, THREAD_WAIT_NS);
-                    if res != RES_TIMEOUT as s32 {
+                    let current = iclock();
+                    let next = ikcp_check(kcp, current);
+                    let diff = (next - current) as u64 * SYSCLOCK_ARM11 as u64 / 1000;
+
+                    let res = svcWaitSynchronization(reliable_stream_cb_evt, diff as s64);
+                    if res != 0 && res != RES_TIMEOUT as s32 {
                         nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
                         return None;
                     }
+                    ikcp_update(kcp, iclock());
                 }
             }
         }
@@ -400,7 +424,7 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
 
 unsafe fn iclock64() -> IUINT64 {
     let v = svcGetSystemTick();
-    v / SYSCLOCK_ARM11 as u64
+    v * 1000 / SYSCLOCK_ARM11 as u64
 }
 
 unsafe fn iclock() -> IUINT32 {
@@ -409,42 +433,52 @@ unsafe fn iclock() -> IUINT32 {
 
 #[no_mangle]
 #[named]
-unsafe extern "C" fn nsControlRecv(fd: c_int) {
-    let cb = &mut *reliable_stream_cb;
+unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
     let ret = recv(
         fd,
-        &mut cb.recv_buf as *mut u8 as *mut _,
+        (*reliable_stream_cb).recv_buf.as_mut_ptr() as *mut _,
         NWM_RECV_SIZE as usize,
         0,
     );
 
     if ret == 0 {
         nsDbgPrint!(nwmInputNothing);
-        return;
+        return 0;
     } else if ret < 0 {
         nsDbgPrint!(nwmInputFailed, ret as i32, *__errno());
-        return;
+        return -1;
+    }
+
+    if !reliable_stream_cb_inited {
+        return 0;
     }
 
     let nwm_lock = NwmCbLock::lock();
-    if nwm_lock == None {
-        return;
+    if nwm_lock == None || !reliable_stream_cb_inited {
+        return 0;
     }
 
     match get_reliable_stream_method() {
-        ReliableStreamMethod::None => return,
+        ReliableStreamMethod::None => return 0,
         ReliableStreamMethod::KCP => {
             let kcp = &mut (*reliable_stream_cb).cb.ikcp;
             let recv_buf = &mut (*reliable_stream_cb).recv_buf;
-            let ret = ikcp_recv(kcp, recv_buf.as_mut_ptr(), recv_buf.len() as i32);
+            let ret = ikcp_input(kcp, recv_buf.as_ptr(), ret as i32);
             if ret < 0 {
                 // Reset KCP
                 todo!()
             }
-            ikcp_update(kcp, iclock());
+            loop {
+                let ret = ikcp_recv(kcp, recv_buf.as_mut_ptr(), recv_buf.len() as i32);
+                if ret < 0 {
+                    break;
+                }
+            }
             let _ = svcSignalEvent(reliable_stream_cb_evt);
         }
     }
+
+    0
 }
 
 #[derive(PartialEq, Eq)]

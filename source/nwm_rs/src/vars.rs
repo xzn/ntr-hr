@@ -73,5 +73,6 @@ pub const fn J_MAX_HALF_FACTOR(v: u32_) -> u32_ {
     v / 2
 }
 
+pub static mut reliable_stream_cb_inited: bool = false;
 pub static mut reliable_stream_cb_lock: Handle = 0;
 pub static mut reliable_stream_cb_evt: Handle = 0;

@@ -226,24 +226,24 @@ typedef struct IQUEUEHEAD iqueue_head;
 // BYTE ORDER & ALIGNMENT
 //---------------------------------------------------------------------
 #ifndef IWORDS_BIG_ENDIAN
-    #ifdef _BIG_ENDIAN_
-        #if _BIG_ENDIAN_
-            #define IWORDS_BIG_ENDIAN 1
-        #endif
-    #endif
-    #ifndef IWORDS_BIG_ENDIAN
-        #if defined(__hppa__) || \
-            defined(__m68k__) || defined(mc68000) || defined(_M_M68K) || \
-            (defined(__MIPS__) && defined(__MIPSEB__)) || \
-            defined(__ppc__) || defined(__POWERPC__) || defined(_M_PPC) || \
-            defined(__sparc__) || defined(__powerpc__) || \
-            defined(__mc68000__) || defined(__s390x__) || defined(__s390__)
-            #define IWORDS_BIG_ENDIAN 1
-        #endif
-    #endif
-    #ifndef IWORDS_BIG_ENDIAN
-        #define IWORDS_BIG_ENDIAN  0
-    #endif
+	#ifdef _BIG_ENDIAN_
+		#if _BIG_ENDIAN_
+			#define IWORDS_BIG_ENDIAN 1
+		#endif
+	#endif
+	#ifndef IWORDS_BIG_ENDIAN
+		#if defined(__hppa__) || \
+			defined(__m68k__) || defined(mc68000) || defined(_M_M68K) || \
+			(defined(__MIPS__) && defined(__MIPSEB__)) || \
+			defined(__ppc__) || defined(__POWERPC__) || defined(_M_PPC) || \
+			defined(__sparc__) || defined(__powerpc__) || \
+			defined(__mc68000__) || defined(__s390x__) || defined(__s390__)
+			#define IWORDS_BIG_ENDIAN 1
+		#endif
+	#endif
+	#ifndef IWORDS_BIG_ENDIAN
+		#define IWORDS_BIG_ENDIAN  0
+	#endif
 #endif
 
 #ifndef IWORDS_MUST_ALIGN
@@ -281,11 +281,12 @@ struct IKCPSEG
 };
 
 #define IKCP_WND_SND_MAX 128
-#define IKCP_WND_RCV_CONST 2
+#define IKCP_WND_RCV_CONST 128
 #define IKCP_OVERHEAD_CONST 24
 #include "constants.h"
 #include "mempool.h"
 #define IKCP_SEG_MEM_SIZE_CONST (sizeof(struct IKCPSEG) + PACKET_SIZE)
+#define IKCP_RCV_SEG_MEM_SIZE_CONST (sizeof(struct IKCPSEG) + IKCP_OVERHEAD_CONST * 2)
 
 //---------------------------------------------------------------------
 // IKCPCB
@@ -318,8 +319,10 @@ struct IKCPCB
 	int logmask;
 	int (*output)(const char *buf, int len, struct IKCPCB *kcp, void *user);
 	
-    char seg_mem[IKCP_WND_RCV_CONST + IKCP_WND_SND_MAX][IKCP_SEG_MEM_SIZE_CONST];
-    mp_pool_t seg_pool;
+	char seg_mem[IKCP_WND_SND_MAX][IKCP_SEG_MEM_SIZE_CONST];
+	mp_pool_t seg_pool;
+	char rcv_seg_mem[IKCP_WND_RCV_CONST][IKCP_RCV_SEG_MEM_SIZE_CONST];
+	mp_pool_t rcv_seg_pool;
 };
 
 
