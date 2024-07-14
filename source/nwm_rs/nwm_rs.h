@@ -8,7 +8,7 @@ void __system_initSyscalls(void);
 
 union nwm_cb {
 	struct IKCPCB ikcp;
-	char enet_umm_heap[200 * 1024];
+	char enet_umm_heap[512 * 1024];
 };
 
 #define NWM_RECV_SIZE (1500)
@@ -20,3 +20,5 @@ struct rp_cb {
 };
 
 #define RP_HDR_RELIABLE_STREAM_FLAG (1 << 14)
+#define RP_HDR_KCP_CONV_MASK (3)
+#define RP_HDR_KCP_CONV_SHIFT (10)

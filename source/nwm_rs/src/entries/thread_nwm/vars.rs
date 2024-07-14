@@ -51,12 +51,12 @@ const reliable_stream_kcp: u8 = 0;
 static mut packet_data_size: usize = 0;
 
 #[derive(PartialEq, Eq)]
-enum ReliableStreamMethod {
+pub enum ReliableStreamMethod {
     None,
     KCP,
 }
 
-unsafe fn get_reliable_stream_method() -> ReliableStreamMethod {
+pub unsafe fn get_reliable_stream_method() -> ReliableStreamMethod {
     if reliable_stream {
         if reliable_stream_method == reliable_stream_kcp {
             ReliableStreamMethod::KCP
@@ -67,6 +67,8 @@ unsafe fn get_reliable_stream_method() -> ReliableStreamMethod {
         ReliableStreamMethod::None
     }
 }
+
+static mut kcp_conv_count: u8 = 0;
 
 unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
     let _ = NwmCbLock::lock()?;
@@ -88,13 +90,19 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
         ReliableStreamMethod::None => {}
         ReliableStreamMethod::KCP => {
             let kcp = &mut (*reliable_stream_cb).cb.ikcp;
-            if ikcp_create(kcp, RP_HDR_RELIABLE_STREAM_FLAG, ptr::null_mut()) < 0 {
+            if ikcp_create(
+                kcp,
+                RP_HDR_RELIABLE_STREAM_FLAG
+                    | ((kcp_conv_count as u32 & RP_HDR_KCP_CONV_MASK) << RP_HDR_KCP_CONV_SHIFT),
+                ptr::null_mut(),
+            ) < 0
+            {
                 return None;
             }
             kcp.output = Some(rp_udp_output);
-            ikcp_nodelay(kcp, 2, 0, 2, 0);
-            ikcp_wndsize(kcp, (qos / PACKET_SIZE / 16) as i32);
-            kcp.rx_minrto = (kcp.snd_wnd as i32 + 15) / 16;
+            ikcp_nodelay(kcp, 2, 250, 2, 0);
+            ikcp_wndsize(kcp, (qos * 2 / PACKET_SIZE / 16) as i32);
+            kcp_conv_count += 1;
         }
     }
 
@@ -381,7 +389,7 @@ unsafe fn nwm_output(nwm_buf: *mut u8, packet_size: usize) {
 
 #[named]
 pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
-    let _ = NwmCbLock::lock()?;
+    let _ = nwm_cb_lock()?;
 
     match get_reliable_stream_method() {
         ReliableStreamMethod::None => {
@@ -392,13 +400,22 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
             let kcp = &mut (*reliable_stream_cb).cb.ikcp;
 
             while !entries::work_thread::reset_threads() {
+                if (kcp.state as i32) < 0 {
+                    // Reset KCP
+                    nsDbgPrint!(kcpStateReset);
+                    crate::entries::work_thread::set_reset_threads_ar();
+                    nwm_cb_unlock();
+                    return None;
+                }
                 let waitsnd = ikcp_waitsnd(kcp);
                 if waitsnd < kcp.snd_wnd as i32 {
                     let ret = ikcp_send(kcp, packet_buf, packet_size as i32);
                     if ret < 0 {
                         // Reset KCP
                         nsDbgPrint!(kcpInputFailed, ret);
-                        todo!();
+                        crate::entries::work_thread::set_reset_threads_ar();
+                        nwm_cb_unlock();
+                        return None;
                     }
 
                     ikcp_update(kcp, iclock());
@@ -407,6 +424,7 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
                     // Wait
                     let current = iclock();
                     let next = ikcp_check(kcp, current);
+                    nwm_cb_unlock();
                     let diff = (next - current) as u64 * SYSCLOCK_ARM11 as u64 / 1000;
 
                     let res = svcWaitSynchronization(reliable_stream_cb_evt, diff as s64);
@@ -414,18 +432,20 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
                         nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
                         return None;
                     }
+                    let _ = nwm_cb_lock()?;
                     ikcp_update(kcp, iclock());
                 }
             }
         }
     }
 
+    nwm_cb_unlock();
     Some(())
 }
 
 unsafe fn iclock64() -> IUINT64 {
     let v = svcGetSystemTick();
-    v * 1000 / SYSCLOCK_ARM11 as u64
+    v * 1_000_000 / SYSCLOCK_ARM11 as u64
 }
 
 unsafe fn iclock() -> IUINT32 {
@@ -466,8 +486,8 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
             let recv_buf = &mut (*reliable_stream_cb).recv_buf;
             let ret = ikcp_input(kcp, recv_buf.as_ptr(), ret as i32);
             if ret < 0 {
-                // Reset KCP
-                todo!()
+                crate::entries::work_thread::set_reset_threads_ar();
+                return -1;
             }
             loop {
                 let ret = ikcp_recv(kcp, recv_buf.as_mut_ptr(), recv_buf.len() as i32);
@@ -486,25 +506,34 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
 struct NwmCbLock();
 
 impl NwmCbLock {
-    #[named]
     unsafe fn lock() -> Option<Self> {
-        while !entries::work_thread::reset_threads() {
-            let res = svcWaitSynchronization(reliable_stream_cb_lock, THREAD_WAIT_NS);
-
-            if res == 0 {
-                return Some(Self());
-            }
-            if res != RES_TIMEOUT as s32 {
-                nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_sync"), res);
-                return None;
-            }
-        }
-        None
+        let _ = nwm_cb_lock()?;
+        Some(Self())
     }
 }
 
 impl Drop for NwmCbLock {
     fn drop(&mut self) {
-        let _ = unsafe { svcReleaseMutex(reliable_stream_cb_lock) };
+        unsafe { nwm_cb_unlock() };
     }
+}
+
+#[named]
+unsafe fn nwm_cb_lock() -> Option<()> {
+    while !entries::work_thread::reset_threads() {
+        let res = svcWaitSynchronization(reliable_stream_cb_lock, THREAD_WAIT_NS);
+
+        if res == 0 {
+            return Some(());
+        }
+        if res != RES_TIMEOUT as s32 {
+            nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_sync"), res);
+            return None;
+        }
+    }
+    None
+}
+
+unsafe fn nwm_cb_unlock() {
+    let _ = svcReleaseMutex(reliable_stream_cb_lock);
 }

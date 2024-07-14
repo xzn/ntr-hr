@@ -35,6 +35,9 @@ int mp_init(size_t bs, size_t bc, void *m, mp_pool_t *mp)
     if(bs < sizeof(size_t)) {
         return -1;
     }
+    if(bs % sizeof(size_t)) {
+        return -1;
+    }
     mp->bs = bs;
     mp->ul_bc = bc;
     mp->b = NULL;

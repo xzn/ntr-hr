@@ -280,7 +280,7 @@ struct IKCPSEG
 	char data[1];
 };
 
-#define IKCP_WND_SND_MAX 128
+#define IKCP_WND_SND_MAX 256
 #define IKCP_WND_RCV_CONST 128
 #define IKCP_OVERHEAD_CONST 24
 #include "constants.h"

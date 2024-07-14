@@ -86,5 +86,7 @@ impl nsDbgPrint_t {
 
     nsDbgPrint_fn!(nwmInputFailed, "Nwm input failed: %08x, errno = %08x\n", ret: s32, errno: s32);
 
+    nsDbgPrint_fn!(kcpStateReset, "KCP state reset\n");
+
     nsDbgPrint_fn!(kcpInputFailed, "KCP input failed: %08x\n", ret: s32);
 }

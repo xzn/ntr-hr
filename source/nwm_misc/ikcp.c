@@ -19,10 +19,10 @@
 //=====================================================================
 // KCP BASIC
 //=====================================================================
-const IUINT32 IKCP_RTO_NDL = 10;		// no delay min rto
-const IUINT32 IKCP_RTO_MIN = 10;		// normal min rto
-const IUINT32 IKCP_RTO_DEF = 10;
-const IUINT32 IKCP_RTO_MAX = 100;
+const IUINT32 IKCP_RTO_NDL = 25000;		// no delay min rto
+const IUINT32 IKCP_RTO_MIN = 50000;		// normal min rto
+const IUINT32 IKCP_RTO_DEF = 100000;
+const IUINT32 IKCP_RTO_MAX = 2000000;
 const IUINT32 IKCP_CMD_PUSH = 81;		// cmd: push data
 const IUINT32 IKCP_CMD_ACK  = 82;		// cmd: ack
 const IUINT32 IKCP_CMD_WASK = 83;		// cmd: window probe (ask)
@@ -32,13 +32,13 @@ const IUINT32 IKCP_ASK_TELL = 2;		// need to send IKCP_CMD_WINS
 const IUINT32 IKCP_WND_SND = IKCP_WND_SND_MAX;
 const IUINT32 IKCP_WND_RCV = IKCP_WND_RCV_CONST;       // must >= max fragment size
 const IUINT32 IKCP_ACK_FAST	= 3;
-const IUINT32 IKCP_INTERVAL	= 100;
+const IUINT32 IKCP_INTERVAL	= 100000;
 const IUINT32 IKCP_OVERHEAD = IKCP_OVERHEAD_CONST;
 const IUINT32 IKCP_DEADLINK = 20;
-const IUINT32 IKCP_THRESH_INIT = 1;
-const IUINT32 IKCP_THRESH_MIN = 1;
-const IUINT32 IKCP_PROBE_INIT = 7000;		// 7 secs to probe window size
-const IUINT32 IKCP_PROBE_LIMIT = 120000;	// up to 120 secs to probe window
+const IUINT32 IKCP_THRESH_INIT = 2;
+const IUINT32 IKCP_THRESH_MIN = 2;
+const IUINT32 IKCP_PROBE_INIT = 1000000;		// secs to probe window size
+const IUINT32 IKCP_PROBE_LIMIT = 2000000;	// max secs to probe window
 const IUINT32 IKCP_FASTACK_LIMIT = 5;		// max times to trigger fastack
 
 
