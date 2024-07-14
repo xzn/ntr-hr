@@ -19,7 +19,7 @@
 //=====================================================================
 // KCP BASIC
 //=====================================================================
-const IUINT32 IKCP_RTO_NDL = 1;		// no delay min rto
+const IUINT32 IKCP_RTO_NDL = 10;		// no delay min rto
 const IUINT32 IKCP_RTO_MIN = 10;		// normal min rto
 const IUINT32 IKCP_RTO_DEF = 10;
 const IUINT32 IKCP_RTO_MAX = 100;
@@ -1153,7 +1153,7 @@ int ikcp_setmtu(ikcpcb *kcp, int mtu)
 int ikcp_interval(ikcpcb *kcp, int interval)
 {
 	if (interval > 5000) interval = 5000;
-	else if (interval < 1) interval = 1;
+	else if (interval < 0) interval = 0;
 	kcp->interval = interval;
 	return 0;
 }
@@ -1171,7 +1171,7 @@ int ikcp_nodelay(ikcpcb *kcp, int nodelay, int interval, int resend, int nc)
 	}
 	if (interval >= 0) {
 		if (interval > 5000) interval = 5000;
-		else if (interval < 1) interval = 1;
+		else if (interval < 0) interval = 0;
 		kcp->interval = interval;
 	}
 	if (resend >= 0) {

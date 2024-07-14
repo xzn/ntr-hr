@@ -249,7 +249,7 @@ int remotePlayMenu(u32 localaddr) {
 		xsnprintf(dstAddrCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Viewer IP: %d.%d.%d.%d", dstAddr4[0], dstAddr4[1], dstAddr4[2], dstAddr4[3]);
 
 		char dstPortCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		xsnprintf(dstPortCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Port: %"PRId32, config.dstPort);
+		xsnprintf(dstPortCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Port: %"PRId32, config.dstPort & 0xffff);
 
 		const char *captions[REMOTE_PLAY_MENU_COUNT];
 		captions[REMOTE_PLAY_MENU_CORE_COUNT] = coreCountCaption,

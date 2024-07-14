@@ -92,8 +92,9 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
                 return None;
             }
             kcp.output = Some(rp_udp_output);
-            ikcp_nodelay(kcp, 2, 1, 2, 0);
+            ikcp_nodelay(kcp, 2, 0, 2, 0);
             ikcp_wndsize(kcp, (qos / PACKET_SIZE / 16) as i32);
+            kcp.rx_minrto = 16;
         }
     }
 
