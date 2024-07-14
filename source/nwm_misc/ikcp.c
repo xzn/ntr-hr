@@ -35,8 +35,8 @@ const IUINT32 IKCP_ACK_FAST	= 3;
 const IUINT32 IKCP_INTERVAL	= 100;
 const IUINT32 IKCP_OVERHEAD = IKCP_OVERHEAD_CONST;
 const IUINT32 IKCP_DEADLINK = 20;
-const IUINT32 IKCP_THRESH_INIT = 2;
-const IUINT32 IKCP_THRESH_MIN = 2;
+const IUINT32 IKCP_THRESH_INIT = 1;
+const IUINT32 IKCP_THRESH_MIN = 1;
 const IUINT32 IKCP_PROBE_INIT = 7000;		// 7 secs to probe window size
 const IUINT32 IKCP_PROBE_LIMIT = 120000;	// up to 120 secs to probe window
 const IUINT32 IKCP_FASTACK_LIMIT = 5;		// max times to trigger fastack
@@ -212,7 +212,6 @@ int ikcp_create(ikcpcb* kcp, IUINT32 conv, void *user)
 	kcp->probe = 0;
 	kcp->mtu = PACKET_SIZE;
 	kcp->mss = kcp->mtu - IKCP_OVERHEAD;
-	kcp->stream = 0;
 
 	iqueue_init(&kcp->snd_queue);
 	iqueue_init(&kcp->rcv_queue);
@@ -234,7 +233,6 @@ int ikcp_create(ikcpcb* kcp, IUINT32 conv, void *user)
 	kcp->ts_flush = IKCP_INTERVAL;
 	kcp->nodelay = 0;
 	kcp->updated = 0;
-	kcp->logmask = 0;
 	kcp->ssthresh = IKCP_THRESH_INIT;
 	kcp->fastresend = 0;
 	kcp->fastlimit = IKCP_FASTACK_LIMIT;
@@ -426,42 +424,10 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 
 	if (len < 0) return -1;
 
-	// append to previous segment in streaming mode (if possible)
-	if (kcp->stream != 0) {
-		if (!iqueue_is_empty(&kcp->snd_queue)) {
-			IKCPSEG *old = iqueue_entry(kcp->snd_queue.prev, IKCPSEG, node);
-			if (old->len < kcp->mss) {
-				int capacity = kcp->mss - old->len;
-				int extend = (len < capacity)? len : capacity;
-				seg = ikcp_segment_new(kcp, old->len + extend);
-				if (seg == NULL) {
-					return -2;
-				}
-				iqueue_add_tail(&seg->node, &kcp->snd_queue);
-				memcpy(seg->data, old->data, old->len);
-				if (buffer) {
-					memcpy(seg->data + old->len, buffer, extend);
-					buffer += extend;
-				}
-				seg->len = old->len + extend;
-				seg->frg = 0;
-				len -= extend;
-				iqueue_del_init(&old->node);
-				ikcp_segment_delete(kcp, old);
-				sent = extend;
-			}
-		}
-		if (len <= 0) {
-			return sent;
-		}
-	}
-
 	if (len <= (int)kcp->mss) count = 1;
 	else count = (len + kcp->mss - 1) / kcp->mss;
 
 	if (count >= (int)IKCP_WND_RCV) {
-		if (kcp->stream != 0 && sent > 0)
-			return sent;
 		return -2;
 	}
 
@@ -478,7 +444,7 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 			memcpy(seg->data, buffer, size);
 		}
 		seg->len = size;
-		seg->frg = (kcp->stream == 0)? (count - i - 1) : 0;
+		seg->frg = count - i - 1;
 		iqueue_init(&seg->node);
 		iqueue_add_tail(&seg->node, &kcp->snd_queue);
 		kcp->nsnd_que++;
