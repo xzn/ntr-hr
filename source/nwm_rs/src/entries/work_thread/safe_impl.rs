@@ -269,6 +269,18 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
                 )
             }
             entries::thread_nwm::ReliableStreamMethod::KCP => {
+                while !entries::work_thread::reset_threads() {
+                    let res = svcWaitSynchronization(seg_mem_sync, THREAD_WAIT_NS);
+                    if res == 0 {
+                        break;
+                    }
+                    if res != RES_TIMEOUT as s32 {
+                        nsDbgPrint!(waitForSyncFailed, c_str!("seg_mem_sync"), res);
+                        entries::work_thread::set_reset_threads_ar();
+                        return false;
+                    }
+                }
+
                 let nwm_lock = entries::thread_nwm::NwmCbLock::lock();
                 if nwm_lock == None {
                     return false;

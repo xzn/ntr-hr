@@ -76,3 +76,5 @@ pub static mut reliable_stream_cb: *mut rp_cb = const_default();
 pub static mut reliable_stream_cb_inited: bool = false;
 pub static mut reliable_stream_cb_lock: Handle = 0;
 pub static mut reliable_stream_cb_evt: Handle = 0;
+pub static mut seg_mem_sync: Handle = 0;
+pub static mut recv_seg_mem_sync: Handle = 0;

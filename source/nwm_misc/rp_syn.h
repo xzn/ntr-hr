@@ -23,14 +23,14 @@ struct rp_syn_comp_func_t {
 	rp_lock_t mutex;
 	u8 pos_head, pos_tail;
 	u8 count;
-	void *pos[];
+	void **pos;
 };
 
 u8 rp_atomic_fetch_addb_wrap(u8 *p, u8 a, u8 factor);
-int rp_syn_init1(struct rp_syn_comp_func_t *syn1, int init, void *base, u32 stride, int count);
-void *rp_syn_acq(struct rp_syn_comp_func_t *syn1, s64 timeout);
+int rp_syn_init1(struct rp_syn_comp_func_t *syn1, int init, void *base, u32 stride, int count, void **pos);
+int rp_syn_acq(struct rp_syn_comp_func_t *syn1, s64 timeout, void **pos);
 void rp_syn_rel(struct rp_syn_comp_func_t *syn1, void *pos);
-void *rp_syn_acq1(struct rp_syn_comp_func_t *syn1, s64 timeout);
+int rp_syn_acq1(struct rp_syn_comp_func_t *syn1, s64 timeout, void **pos);
 int rp_syn_rel1(struct rp_syn_comp_func_t *syn1, void *pos);
 
 #endif

@@ -113,6 +113,13 @@ mod first_time_init {
             return None;
         }
 
+        let recv_bufs_len = (*reliable_stream_cb).recv_bufs.len() as i32;
+        let res = svcCreateSemaphore(&mut recv_seg_mem_sync, recv_bufs_len, recv_bufs_len);
+        if res != 0 {
+            nsDbgPrint!(createSemaphoreFailed, c_str!("recv_seg_mem_sync"), res);
+            return None;
+        }
+
         let aux1Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
         let aux2Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
         let nwmStack = request_mem_from_pool::<{ STACK_SIZE as usize }>()?;
@@ -244,6 +251,13 @@ mod loop_main {
                 }
             }
 
+            let send_bufs_len = (*reliable_stream_cb).send_bufs.len() as i32;
+            let res = svcCreateSemaphore(&mut seg_mem_sync, send_bufs_len, send_bufs_len);
+            if res != 0 {
+                nsDbgPrint!(createSemaphoreFailed, c_str!("seg_mem_sync"), res);
+                return None;
+            }
+
             Some(Self(v))
         }
     }
@@ -251,6 +265,8 @@ mod loop_main {
     impl Drop for InitCleanup {
         fn drop(&mut self) {
             unsafe {
+                let _ = svcCloseHandle(seg_mem_sync);
+
                 for j in ThreadId::up_to(&self.0.core_count) {
                     let thread = (*syn_handles).threads.get_mut(&j);
 
@@ -332,6 +348,7 @@ mod loop_main {
             ptr::null_mut(),
             0,
             cb.nwm_syn_data.len() as i32,
+            cb.nwm_syn_data.as_mut_ptr(),
         ) != 0
         {
             return None;
