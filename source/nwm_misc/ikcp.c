@@ -555,6 +555,7 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 	IUINT32 prev_una = kcp->snd_una;
 	IUINT32 maxack = 0, latest_ts = 0;
 	int flag = 0;
+	int data_taken = 0;
 
 	if (data == NULL || (int)size < (int)IKCP_OVERHEAD) return -1;
 
@@ -567,7 +568,7 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 		if (size < (int)IKCP_OVERHEAD) break;
 
 		data = ikcp_decode32u(data, &conv);
-		if (conv != kcp->conv) return -1;
+		if (conv != kcp->conv) return -5;
 
 		data = ikcp_decode8u(data, &cmd);
 		data = ikcp_decode8u(data, &frg);
@@ -621,7 +622,7 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 				if (_itimediff(sn, kcp->rcv_nxt) >= 0) {
 					seg = ikcp_segment_new(kcp);
 					if (seg == NULL) {
-						return -2;
+						return -6;
 					}
 					seg->conv = conv;
 					seg->cmd = cmd;
@@ -634,6 +635,7 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 
 					seg->data_buf = data;
 					seg->len = len;
+					data_taken = 1;
 
 					ikcp_parse_data(kcp, seg);
 				}
@@ -648,7 +650,7 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 			// do nothing
 		}
 		else {
-			return -3;
+			return -7;
 		}
 
 		data += len;
@@ -683,7 +685,7 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 		}
 	}
 
-	return 0;
+	return data_taken;
 }
 
 

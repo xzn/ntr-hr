@@ -23,16 +23,20 @@ pub struct WorkerDst {
 }
 
 impl WorkerDst {
-    fn write_byte(&mut self, byte: u8) {
+    fn write_byte(&mut self, byte: u8) -> bool {
         if self.free_in_bytes == 0 {
-            self.flush();
+            if !self.flush() {
+                return false;
+            }
         }
         unsafe { *self.dst = byte };
         self.dst = unsafe { self.dst.add(1) };
         self.free_in_bytes -= 1;
+
+        true
     }
 
-    fn write_bytes(&mut self, bytes: &[u8]) {
+    fn write_bytes(&mut self, bytes: &[u8]) -> bool {
         let mut src = bytes.as_ptr();
         let mut len = bytes.len() as u16;
 
@@ -43,10 +47,14 @@ impl WorkerDst {
                 }
                 len -= self.free_in_bytes;
                 src = unsafe { src.add(self.free_in_bytes as usize) };
-                self.flush();
+                if !self.flush() {
+                    return false;
+                }
             }
         } else {
-            self.flush();
+            if !self.flush() {
+                return false;
+            }
         }
 
         unsafe {
@@ -55,14 +63,16 @@ impl WorkerDst {
 
         self.free_in_bytes -= len;
         self.dst = unsafe { self.dst.add(len as usize) };
+
+        true
     }
 
-    fn flush(&mut self) {
-        unsafe { crate::entries::rp_send_buffer(self, false) };
+    fn flush(&mut self) -> bool {
+        unsafe { crate::entries::rp_send_buffer(self, false) }
     }
 
-    fn term(&mut self) {
-        unsafe { crate::entries::rp_send_buffer(self, true) };
+    fn term(&mut self) -> bool {
+        unsafe { crate::entries::rp_send_buffer(self, true) }
     }
 
     pub unsafe fn advance_to(&mut self, dst: *mut u8) {

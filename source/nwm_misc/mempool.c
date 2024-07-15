@@ -71,7 +71,7 @@ void *mp_malloc(mp_pool_t *mp)
     return NULL;
 }
 
-void mp_free(mp_pool_t *mp, void *b)
+int mp_free(mp_pool_t *mp, void *b)
 {
     /*
      * We add b as the head of the list of free blocks
@@ -80,13 +80,15 @@ void mp_free(mp_pool_t *mp, void *b)
     char *m_end = (char *)mp->m + mp->bs * mp->bc;
     if (b < mp->m || b >= (void *)m_end) {
         showDbg("Out of range pointer for pool free %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
-        return;
+        return -1;
     }
     if (((char *)b - (char *)mp->m) % mp->bs) {
         showDbg("Mis-aligned pointer for pool free %08"PRIx32" (begin %08"PRIx32" bs %08"PRIx32")", (u32)b, (u32)mp->m, (u32)mp->bs);
-        return;
+        return -2;
     }
 
     ((struct block *) b)->next = mp->b;
     mp->b = b;
+
+    return 0;
 }

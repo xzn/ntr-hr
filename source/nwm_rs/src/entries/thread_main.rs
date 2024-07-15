@@ -41,24 +41,6 @@ mod first_time_init {
         if let Some(m) = request_mem_from_pool::<{ mem::size_of::<rp_cb>() }>() {
             reliable_stream_cb = m.to_ptr() as *mut rp_cb;
             let cb = &mut *reliable_stream_cb;
-            if mp_init(
-                (*cb.send_bufs.as_ptr()).len(),
-                cb.send_bufs.len(),
-                cb.send_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
-                &mut cb.send_pool,
-            ) < 0
-            {
-                return None;
-            }
-            if mp_init(
-                (*cb.recv_bufs.as_ptr()).len(),
-                cb.recv_bufs.len(),
-                cb.recv_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
-                &mut cb.recv_pool,
-            ) < 0
-            {
-                return None;
-            }
             let m = (cb.send_bufs).as_mut_ptr().as_mut_ptr();
             for i in WorkIndex::all() {
                 *i.index_into_mut(&mut nwm_bufs) = m.add(NWM_BUFFER_SIZE * i.get() as usize);
@@ -320,6 +302,29 @@ mod loop_main {
         };
         let jpeg = crate::entries::work_thread::get_jpeg();
         jpeg.reset(config.quality_ar(), vars.core_count);
+
+        let nwm_lock = crate::entries::thread_nwm::NwmCbLock::lock()?;
+        let cb = &mut *reliable_stream_cb;
+        if mp_init(
+            (*cb.send_bufs.as_ptr()).len(),
+            cb.send_bufs.len(),
+            cb.send_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
+            &mut cb.send_pool,
+        ) < 0
+        {
+            return None;
+        }
+        if mp_init(
+            (*cb.recv_bufs.as_ptr()).len(),
+            cb.recv_bufs.len(),
+            cb.recv_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
+            &mut cb.recv_pool,
+        ) < 0
+        {
+            return None;
+        }
+        reliable_stream_cb_inited = true;
+        drop(nwm_lock);
 
         crate::entries::work_thread::reset_vars();
         crate::entries::thread_nwm::reset_vars(dst_flags, qos)?;

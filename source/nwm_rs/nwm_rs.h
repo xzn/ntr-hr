@@ -9,8 +9,7 @@ void __system_initSyscalls(void);
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 #define ROUND_UP(n, d) (DIV_ROUND_UP(n, d) * (d))
 const unsigned NWM_PACKET_SIZE = ROUND_UP(PACKET_SIZE + NWM_HDR_SIZE, sizeof(void *));
-const unsigned RP_RECV_CMD_SIZE_MAX = 0;
-const unsigned RP_RECV_PACKET_SIZE = IKCP_OVERHEAD_CONST + RP_RECV_CMD_SIZE_MAX;
+const unsigned RP_RECV_PACKET_SIZE = ROUND_UP(PACKET_SIZE, sizeof(void *));
 
 const u32 WORK_COUNT = 2;
 #define COMPRESSED_SIZE_MAX (0x30000)

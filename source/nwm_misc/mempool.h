@@ -57,6 +57,6 @@ void *mp_malloc(mp_pool_t *mp);
 /*
  * Adds a block to the list of free blocks
  */
-void mp_free(mp_pool_t *mp, void *b);
+int mp_free(mp_pool_t *mp, void *b);
 
 #endif /* MEMPOOL_H */

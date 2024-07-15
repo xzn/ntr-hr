@@ -44,6 +44,8 @@ pub struct nsDbgPrint_t {
 }
 
 impl nsDbgPrint_t {
+    nsDbgPrint_fn!(trace, "Tracing...\n");
+
     nsDbgPrint_fn!(mainLoopExit, "Nwm main loop exited\n");
 
     nsDbgPrint_fn!(mainLoopReset, "Nwm main loop restarted\n");
@@ -97,4 +99,6 @@ impl nsDbgPrint_t {
     nsDbgPrint_fn!(kcpSendFailed, "KCP send failed: %08x\n", ret: s32);
 
     nsDbgPrint_fn!(mpAllocFailed, "Mem pool %s alloc failed\n", name: *const c_char);
+
+    nsDbgPrint_fn!(mpFreeFailed, "Mem pool %s free failed\n", name: *const c_char);
 }
