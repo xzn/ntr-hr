@@ -131,5 +131,6 @@ enum {
 };
 
 #define NWM_HEAP_SIZE (0x4000)
+#define WORK_COUNT (3)
 
 #endif

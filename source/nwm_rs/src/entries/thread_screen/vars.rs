@@ -31,7 +31,7 @@ pub struct CapParams {
 
 pub static mut cap_params: CapParams = const_default();
 
-pub const IMG_WORK_COUNT: u32_ = 2;
+pub const IMG_WORK_COUNT: u32_ = WORK_COUNT;
 pub type ImgWorkIndex = Ranged<IMG_WORK_COUNT>;
 pub type ImgBufs = RangedArray<*mut u8_, IMG_WORK_COUNT>;
 
@@ -89,7 +89,7 @@ pub unsafe fn init_img_info<const T: usize>(
     j: &ImgWorkIndex,
     m: &mut MemRegion8<T>,
 ) {
-    *img_infos.get_mut(&j).bufs.get_mut(&i) = m.to_ptr();
+    *img_infos.get_mut(&i).bufs.get_mut(&j) = m.to_ptr();
 }
 
 #[allow(dead_code)]

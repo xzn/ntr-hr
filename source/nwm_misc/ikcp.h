@@ -280,12 +280,22 @@ struct IKCPSEG
 	char *data_buf;
 };
 
-#define IKCP_WND_SND_MAX 256
+#define IKCP_WND_SND_MAX (DIV_ROUND_UP(COMPRESSED_SIZE_MAX, PACKET_SIZE - IKCP_OVERHEAD_CONST - DATA_HDR_SIZE) * WORK_COUNT)
 #define IKCP_WND_RCV_CONST 128
 #define IKCP_OVERHEAD_CONST 24
 #include "constants.h"
 #include "mempool.h"
 #define IKCP_SEG_MEM_SIZE_CONST (sizeof(struct IKCPSEG))
+
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+#define ROUND_UP(n, d) (DIV_ROUND_UP(n, d) * (d))
+
+const unsigned NWM_PACKET_SIZE = ROUND_UP(PACKET_SIZE + NWM_HDR_SIZE, sizeof(void *));
+const unsigned RP_RECV_PACKET_SIZE = ROUND_UP(PACKET_SIZE, sizeof(void *));
+
+#define COMPRESSED_SIZE_MAX (0x30000)
+const unsigned SEND_BUFS_COUNT = IKCP_WND_SND_MAX;
+const unsigned SEND_BUFS_SIZE = SEND_BUFS_COUNT * NWM_PACKET_SIZE;
 
 //---------------------------------------------------------------------
 // IKCPCB

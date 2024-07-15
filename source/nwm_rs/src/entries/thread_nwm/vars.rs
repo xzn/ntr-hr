@@ -91,7 +91,7 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
             }
             kcp.output = Some(rp_udp_output);
             ikcp_nodelay(kcp, 2, 250, 2, 1);
-            ikcp_wndsize(kcp, (qos * 2 / PACKET_SIZE / 16) as i32);
+            ikcp_wndsize(kcp, (SEND_BUFS_COUNT * qos / RP_QOS_MAX) as i32);
             kcp_conv_count += 1;
         }
     }
