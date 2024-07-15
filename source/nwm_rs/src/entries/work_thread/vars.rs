@@ -149,6 +149,10 @@ impl ThreadDoVars {
         unsafe { crate::entries::thread_nwm::get_nwm_infos().get_mut(&self.v().work_index()) }
     }
 
+    pub fn data_buf_hdr(&self) -> &mut crate::entries::thread_nwm::DataHdr {
+        unsafe { crate::entries::thread_nwm::get_data_buf_hdrs().get_mut(&self.v().work_index()) }
+    }
+
     pub fn blit_ctx(&self) -> &mut BlitCtx {
         unsafe { blit_ctxes.get_mut(&self.0.work_index()) }
     }

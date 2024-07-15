@@ -19,7 +19,10 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
                 && !v.frame_changed();
 
             if !skip_frame {
-                if !ready_nwm(&v) {
+                if unsafe { entries::thread_nwm::get_reliable_stream_method() }
+                    == entries::thread_nwm::ReliableStreamMethod::None
+                    && !ready_nwm(&v)
+                {
                     return None;
                 }
 
@@ -71,14 +74,14 @@ fn ready_nwm(v: &ThreadBeginVars) -> bool {
             *info.flag.as_ptr() = 0;
         }
 
-        crate::entries::thread_nwm::release_nwm_ready(&w);
-
         let hdr = v.data_buf_hdr();
         let ctx = v.ctx();
         *hdr.get_unchecked_mut(0) = ctx.frame_id;
         *hdr.get_unchecked_mut(1) = ctx.is_top as u8_;
         *hdr.get_unchecked_mut(2) = 2;
         *hdr.get_unchecked_mut(3) = 0;
+
+        crate::entries::thread_nwm::release_nwm_ready(&w);
 
         true
     }
@@ -222,6 +225,7 @@ fn bctx_init(v: &ThreadBeginVars) -> bool {
     }
 }
 
+#[named]
 fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
     unsafe {
         let ctx = vars.blit_ctx();
@@ -254,13 +258,47 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
             p.store(progress_count, Ordering::Relaxed);
         };
 
-        let ninfo = vars.nwm_infos().get(&t);
+        let (user, dst) = match entries::thread_nwm::get_reliable_stream_method() {
+            entries::thread_nwm::ReliableStreamMethod::None => {
+                let ninfo = vars.nwm_infos().get(&t);
+                (
+                    jpeg::WorkderDstUser {
+                        info: ninfo as *const _,
+                    },
+                    *ninfo.info.pos.as_ptr(),
+                )
+            }
+            entries::thread_nwm::ReliableStreamMethod::KCP => {
+                let nwm_lock = entries::thread_nwm::NwmCbLock::lock();
+                if nwm_lock == None {
+                    return false;
+                }
 
-        let dst = *ninfo.info.pos.as_ptr() as *mut c_void;
+                let cb = &mut *reliable_stream_cb;
+                let dst = mp_malloc(&mut cb.send_pool) as *mut u8;
+                if dst == ptr::null_mut() {
+                    nsDbgPrint!(mpAllocFailed, c_str!("send_pool"));
+                    crate::entries::work_thread::set_reset_threads_ar();
+                    return false;
+                }
+
+                let mut hdr = *vars.data_buf_hdr();
+
+                *hdr.get_unchecked_mut(0) = ctx.frame_id;
+                *hdr.get_unchecked_mut(1) = ctx.is_top as u8_;
+                *hdr.get_unchecked_mut(2) = (t.get() | get_core_count_in_use().get() << 4) as u8;
+                *hdr.get_unchecked_mut(3) = 0;
+
+                (
+                    jpeg::WorkderDstUser { hdr },
+                    dst.add((NWM_HDR_SIZE + IKCP_OVERHEAD_CONST + DATA_HDR_SIZE) as usize),
+                )
+            }
+        };
         let dst = crate::jpeg::WorkerDst {
             dst: dst as *mut u8,
             free_in_bytes: crate::entries::thread_nwm::get_packet_data_size() as u16,
-            info: ninfo,
+            user,
         };
 
         worker.encode(dst, src, pre_progress, progress);

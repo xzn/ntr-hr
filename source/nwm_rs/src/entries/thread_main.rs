@@ -38,12 +38,33 @@ mod first_time_init {
 
         let mut nwm_bufs: [*mut u8; WORK_COUNT as usize] = const_default();
 
-        for i in WorkIndex::all() {
-            if let Some(m) = request_mem_from_pool::<NWM_BUFFER_SIZE>() {
-                *i.index_into_mut(&mut nwm_bufs) = m.to_ptr();
-            } else {
+        if let Some(m) = request_mem_from_pool::<{ mem::size_of::<rp_cb>() }>() {
+            reliable_stream_cb = m.to_ptr() as *mut rp_cb;
+            let cb = &mut *reliable_stream_cb;
+            if mp_init(
+                (*cb.send_bufs.as_ptr()).len(),
+                cb.send_bufs.len(),
+                cb.send_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
+                &mut cb.send_pool,
+            ) < 0
+            {
                 return None;
             }
+            if mp_init(
+                (*cb.recv_bufs.as_ptr()).len(),
+                cb.recv_bufs.len(),
+                cb.recv_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
+                &mut cb.recv_pool,
+            ) < 0
+            {
+                return None;
+            }
+            let m = (cb.send_bufs).as_mut_ptr().as_mut_ptr();
+            for i in WorkIndex::all() {
+                *i.index_into_mut(&mut nwm_bufs) = m.add(NWM_BUFFER_SIZE * i.get() as usize);
+            }
+        } else {
+            return None;
         }
 
         for i in ScreenIndex::all() {
@@ -319,6 +340,7 @@ mod loop_main {
         InitCleanup::init(vars)
     }
 
+    #[named]
     pub unsafe fn entry(_t: ThreadVars, s: &mut ThreadsStacks) -> Option<()> {
         loop {
             let init = reset_init(&s.nwm_bufs)?;
@@ -351,13 +373,19 @@ mod loop_main {
                 None
             };
 
-            let _nwm = JoinThread::create(CreateThread::create(
-                Some(crate::entries::thread_nwm::thread_nwm),
-                0,
-                s.nwm,
-                0xc,
-                -2,
-            )?);
+            let _nwm = if entries::thread_nwm::get_reliable_stream_method()
+                == entries::thread_nwm::ReliableStreamMethod::None
+            {
+                Some(JoinThread::create(CreateThread::create(
+                    Some(crate::entries::thread_nwm::thread_nwm),
+                    0,
+                    s.nwm,
+                    0xc,
+                    -2,
+                )?))
+            } else {
+                None
+            };
 
             let _screen = JoinThread::create(CreateThread::create(
                 Some(crate::entries::thread_screen::thread_screen),
@@ -369,15 +397,19 @@ mod loop_main {
 
             let t = crate::ThreadId::init();
             crate::entries::work_thread::work_thread_loop(t);
+
+            nsDbgPrint!(mainLoopReset);
         }
     }
 }
 
+#[named]
 pub extern "C" fn encode_thread_main(_: *mut c_void) {
     unsafe {
         if let Some(mut s) = first_time_init::entry() {
             loop_main::entry(ThreadVars(()), &mut s);
         }
+        nsDbgPrint!(mainLoopExit);
         svcExitThread()
     }
 }

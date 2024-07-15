@@ -23,14 +23,12 @@ pub type CoreCount = IRanged<RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX>;
 pub static mut thread_main_handle: Handle = 0;
 
 pub const SCREEN_COUNT: u32_ = 2;
-pub const WORK_COUNT: u32_ = 2;
-
 pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
 pub type ScreenIndex = Ranged<SCREEN_COUNT>;
 
 pub const IMG_BUFFER_SIZE: usize = 0x60000;
-pub const NWM_BUFFER_SIZE: usize = 0x30000;
+pub const NWM_BUFFER_SIZE: usize = (SEND_BUFS_SIZE / WORK_COUNT) as usize;
 
 pub const RP_THREAD_PRIO_DEFAULT: u32 = RP_THREAD_PRIO_MAX;
 
@@ -73,6 +71,7 @@ pub const fn J_MAX_HALF_FACTOR(v: u32_) -> u32_ {
     v / 2
 }
 
+pub static mut reliable_stream_cb: *mut rp_cb = const_default();
 pub static mut reliable_stream_cb_inited: bool = false;
 pub static mut reliable_stream_cb_lock: Handle = 0;
 pub static mut reliable_stream_cb_evt: Handle = 0;

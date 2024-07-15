@@ -20,6 +20,7 @@
 #![feature(array_chunks)]
 #![feature(iter_array_chunks)]
 #![feature(ptr_sub_ptr)]
+#![feature(array_ptr_get)]
 #![allow(static_mut_refs)]
 
 use crate::dbg::*;

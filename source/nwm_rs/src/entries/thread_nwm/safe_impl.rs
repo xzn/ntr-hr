@@ -47,9 +47,7 @@ fn send_next_buffer_delay(v: &ThreadVars, work_flush: bool, pos: *mut u8, flag: 
         let next_tick = svcGetSystemTick() as u32_;
         let tick_diff = next_tick as s32 - *v.last_send_tick() as s32;
 
-        if get_reliable_stream_method() == ReliableStreamMethod::None
-            && tick_diff < v.min_send_interval_tick() as s32
-        {
+        if tick_diff < v.min_send_interval_tick() as s32 {
             if work_flush {
                 let sleep_value = (v.min_send_interval_tick() as s32 - tick_diff) as u64_
                     * 1000_000_000

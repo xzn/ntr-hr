@@ -9,11 +9,17 @@ pub struct JpegShared {
     coreCount: CoreCount,
 }
 
+#[derive(Copy, Clone, ConstDefault)]
+pub union WorkderDstUser {
+    pub info: *const crate::entries::NwmInfo,
+    pub hdr: [u8; DATA_HDR_SIZE as usize],
+}
+
 #[derive(Clone, ConstDefault)]
 pub struct WorkerDst {
     pub dst: *mut u8,
     pub free_in_bytes: u16,
-    pub info: *const crate::entries::NwmInfo,
+    pub user: WorkderDstUser,
 }
 
 impl WorkerDst {

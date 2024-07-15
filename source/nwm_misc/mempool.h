@@ -34,7 +34,10 @@ struct mp_data {
     size_t bs;      // the size of a block from the memory pool
     size_t ul_bc;   // the count of unlinked blocks in the memory pool
     void *b;        // a pointer to the head of the linked list of unused blocks
-    void *ul_b;     // a pointer to the first unlinked block 
+    void *ul_b;     // a pointer to the first unlinked block
+
+    size_t bc;
+    void *m;
 };
 
 typedef struct mp_data mp_pool_t;

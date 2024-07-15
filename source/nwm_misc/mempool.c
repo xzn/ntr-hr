@@ -25,6 +25,7 @@
 #include <stddef.h>
 
 #include "mempool.h"
+#include "global.h"
 
 struct block {
     void *next;
@@ -43,11 +44,14 @@ int mp_init(size_t bs, size_t bc, void *m, mp_pool_t *mp)
     mp->b = NULL;
     mp->ul_b = m;
 
+    mp->bc = bc;
+    mp->m = m;
+
     return 0;
 }
 
 void *mp_malloc(mp_pool_t *mp)
-{   
+{
     /*
      * 1. First we try to allocate an unlinked block
      * 2. In case there are no more unlinked blocks left we try to return the head from the list of free blocks
@@ -72,6 +76,17 @@ void mp_free(mp_pool_t *mp, void *b)
     /*
      * We add b as the head of the list of free blocks
      */
+
+    char *m_end = (char *)mp->m + mp->bs * mp->bc;
+    if (b < mp->m || b >= (void *)m_end) {
+        showDbg("Out of range pointer for pool free %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
+        return;
+    }
+    if (((char *)b - (char *)mp->m) % mp->bs) {
+        showDbg("Mis-aligned pointer for pool free %08"PRIx32" (begin %08"PRIx32" bs %08"PRIx32")", (u32)b, (u32)mp->m, (u32)mp->bs);
+        return;
+    }
+
     ((struct block *) b)->next = mp->b;
     mp->b = b;
 }

@@ -44,6 +44,10 @@ pub struct nsDbgPrint_t {
 }
 
 impl nsDbgPrint_t {
+    nsDbgPrint_fn!(mainLoopExit, "Nwm main loop exited\n");
+
+    nsDbgPrint_fn!(mainLoopReset, "Nwm main loop restarted\n");
+
     nsDbgPrint_fn!(singalPortFailed, "Signal port event failed: %08x\n", ret: s32);
 
     nsDbgPrint_fn!(openProcessFailed, "Open process failed: %08x\n", ret: s32);
@@ -89,4 +93,8 @@ impl nsDbgPrint_t {
     nsDbgPrint_fn!(kcpStateReset, "KCP state reset\n");
 
     nsDbgPrint_fn!(kcpInputFailed, "KCP input failed: %08x\n", ret: s32);
+
+    nsDbgPrint_fn!(kcpSendFailed, "KCP send failed: %08x\n", ret: s32);
+
+    nsDbgPrint_fn!(mpAllocFailed, "Mem pool %s alloc failed\n", name: *const c_char);
 }

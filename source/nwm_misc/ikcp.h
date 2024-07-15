@@ -277,7 +277,7 @@ struct IKCPSEG
 	IUINT32 rto;
 	IUINT32 fastack;
 	IUINT32 xmit;
-	char data[1];
+	char *data_buf;
 };
 
 #define IKCP_WND_SND_MAX 256
@@ -285,8 +285,7 @@ struct IKCPSEG
 #define IKCP_OVERHEAD_CONST 24
 #include "constants.h"
 #include "mempool.h"
-#define IKCP_SEG_MEM_SIZE_CONST (sizeof(struct IKCPSEG) + PACKET_SIZE)
-#define IKCP_RCV_SEG_MEM_SIZE_CONST (sizeof(struct IKCPSEG) + IKCP_OVERHEAD_CONST * 2)
+#define IKCP_SEG_MEM_SIZE_CONST (sizeof(struct IKCPSEG))
 
 //---------------------------------------------------------------------
 // IKCPCB
@@ -311,17 +310,13 @@ struct IKCPCB
 	IUINT32 acklist[IKCP_WND_RCV_CONST * 2];
 	IUINT32 ackcount;
 	IUINT32 ackblock;
-	void *user;
-	char buffer[(PACKET_SIZE + IKCP_OVERHEAD_CONST) * 3];
 	int fastresend;
 	int fastlimit;
 	int nocwnd;
-	int (*output)(const char *buf, int len, struct IKCPCB *kcp, void *user);
+	int (*output)(char *buf, int len, struct IKCPCB *kcp);
 
-	char seg_mem[IKCP_WND_SND_MAX][IKCP_SEG_MEM_SIZE_CONST];
+	char seg_mem[IKCP_WND_SND_MAX + IKCP_WND_RCV_CONST][IKCP_SEG_MEM_SIZE_CONST];
 	mp_pool_t seg_pool;
-	char rcv_seg_mem[IKCP_WND_RCV_CONST][IKCP_RCV_SEG_MEM_SIZE_CONST];
-	mp_pool_t rcv_seg_pool;
 };
 
 
@@ -344,6 +339,9 @@ typedef struct IKCPCB ikcpcb;
 extern "C" {
 #endif
 
+void free_seg_data_buf(const char *data_buf);
+void free_recv_seg_data_buf(const char *data_buf);
+
 //---------------------------------------------------------------------
 // interface
 //---------------------------------------------------------------------
@@ -351,20 +349,20 @@ extern "C" {
 // create a new kcp control object, 'conv' must equal in two endpoint
 // from the same connection. 'user' will be passed to the output callback
 // output callback can be setup like this: 'kcp->output = my_udp_output'
-int ikcp_create(ikcpcb* kcp, IUINT32 conv, void *user);
+int ikcp_create(ikcpcb* kcp, IUINT32 conv);
 
 // release kcp control object
 void ikcp_release(ikcpcb *kcp);
 
 // set output callback, which will be invoked by kcp
-void ikcp_setoutput(ikcpcb *kcp, int (*output)(const char *buf, int len,
-	ikcpcb *kcp, void *user));
+void ikcp_setoutput(ikcpcb *kcp, int (*output)(char *buf, int len,
+	ikcpcb *kcp));
 
 // user/upper level recv: returns size, returns below zero for EAGAIN
-int ikcp_recv(ikcpcb *kcp, char *buffer, int len);
+int ikcp_recv(ikcpcb *kcp, char **data_buf, int *data_len);
 
 // user/upper level send, returns below zero for error
-int ikcp_send(ikcpcb *kcp, const char *buffer, int len);
+int ikcp_send(ikcpcb *kcp, char *buffer, int len);
 
 // update state (call it repeatedly, every 10ms-100ms), or you can ask
 // ikcp_check when to call it again (without ikcp_input/_send calling).
@@ -381,7 +379,7 @@ void ikcp_update(ikcpcb *kcp, IUINT32 current);
 IUINT32 ikcp_check(const ikcpcb *kcp, IUINT32 current);
 
 // when you received a low level packet (eg. UDP packet), call it
-int ikcp_input(ikcpcb *kcp, const char *data, long size);
+int ikcp_input(ikcpcb *kcp, char *data, long size);
 
 // flush pending data
 void ikcp_flush(ikcpcb *kcp);
@@ -412,7 +410,7 @@ void ikcp_log(ikcpcb *kcp, int mask, const char *fmt, ...);
 void ikcp_allocator(void* (*new_malloc)(size_t), void (*new_free)(void*));
 
 // read conv
-IUINT32 ikcp_getconv(const void *ptr);
+IUINT32 ikcp_getconv(void *ptr);
 
 
 #ifdef __cplusplus
