@@ -598,3 +598,9 @@ unsafe extern "C" fn free_recv_seg_data_buf(data_buf: *const ::libc::c_char) {
         nsDbgPrint!(mpFreeFailed, c_str!("recv_pool"));
     }
 }
+
+pub unsafe extern "C" fn kcp_thread_nwm(_: *mut c_void) {
+    while !crate::entries::work_thread::reset_threads() {
+    }
+    svcExitThread()
+}

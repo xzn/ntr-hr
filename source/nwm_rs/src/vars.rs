@@ -9,8 +9,7 @@ pub const ntr_config: *mut NTR_CONFIG =
     (NS_CONFIG_ADDR as usize + mem::offset_of!(NS_CONFIG, ntrConfig)) as *mut NTR_CONFIG;
 
 pub const JPEG_SAMP_FACTOR: c_int = 2;
-
-pub const THREAD_WAIT_NS: s64 = 100_000_000;
+pub const THREAD_WAIT_NS: s64 = NWM_THREAD_WAIT_NS as s64;
 
 mod gpu;
 mod ranged;
@@ -23,6 +22,8 @@ pub type CoreCount = IRanged<RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX>;
 pub static mut thread_main_handle: Handle = 0;
 
 pub const SCREEN_COUNT: u32_ = 2;
+pub const WORK_COUNT: u32_ = NWM_WORK_COUNT;
+
 pub type WorkIndex = Ranged<WORK_COUNT>;
 pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
 pub type ScreenIndex = Ranged<SCREEN_COUNT>;

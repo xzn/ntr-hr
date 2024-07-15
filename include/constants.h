@@ -131,6 +131,19 @@ enum {
 };
 
 #define NWM_HEAP_SIZE (0x4000)
-#define WORK_COUNT (3)
+#define NWM_WORK_COUNT (3)
+#define NWM_THREAD_WAIT_NS (100000000)
+
+#define RP_COMPRESSED_SIZE_MAX (0x30000)
+
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+#define ROUND_UP(n, d) (DIV_ROUND_UP(n, d) * (d))
+
+#define IKCP_WND_SND_MAX (DIV_ROUND_UP(RP_COMPRESSED_SIZE_MAX, PACKET_SIZE - IKCP_OVERHEAD_CONST - DATA_HDR_SIZE) * NWM_WORK_COUNT)
+#define IKCP_WND_RCV_CONST 128
+#define IKCP_OVERHEAD_CONST 24
+#define IKCP_SEG_MEM_SIZE_CONST (sizeof(struct IKCPSEG))
+
+#define SEND_BUFS_MP_COUNT (IKCP_WND_SND_MAX + NWM_WORK_COUNT)
 
 #endif

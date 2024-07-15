@@ -45,6 +45,9 @@ mod first_time_init {
             for i in WorkIndex::all() {
                 *i.index_into_mut(&mut nwm_bufs) = m.add(NWM_BUFFER_SIZE * i.get() as usize);
             }
+
+            cb.nwm_syn.sem = 0;
+            cb.nwm_syn.mutex = 0;
         } else {
             return None;
         }
@@ -323,6 +326,16 @@ mod loop_main {
         {
             return None;
         }
+        if rp_syn_init1(
+            &mut cb.nwm_syn,
+            0,
+            ptr::null_mut(),
+            0,
+            cb.nwm_syn_data.len() as i32,
+        ) != 0
+        {
+            return None;
+        }
         reliable_stream_cb_inited = true;
         drop(nwm_lock);
 
@@ -378,19 +391,20 @@ mod loop_main {
                 None
             };
 
-            let _nwm = if entries::thread_nwm::get_reliable_stream_method()
-                == entries::thread_nwm::ReliableStreamMethod::None
-            {
-                Some(JoinThread::create(CreateThread::create(
-                    Some(crate::entries::thread_nwm::thread_nwm),
-                    0,
-                    s.nwm,
-                    0xc,
-                    -2,
-                )?))
-            } else {
-                None
-            };
+            let _nwm = JoinThread::create(CreateThread::create(
+                Some(match entries::thread_nwm::get_reliable_stream_method() {
+                    entries::thread_nwm::ReliableStreamMethod::None => {
+                        crate::entries::thread_nwm::thread_nwm
+                    }
+                    entries::thread_nwm::ReliableStreamMethod::KCP => {
+                        crate::entries::thread_nwm::kcp_thread_nwm
+                    }
+                }),
+                0,
+                s.nwm,
+                0xc,
+                -2,
+            )?);
 
             let _screen = JoinThread::create(CreateThread::create(
                 Some(crate::entries::thread_screen::thread_screen),
