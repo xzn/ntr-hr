@@ -31,7 +31,7 @@ pub struct CapParams {
 
 pub static mut cap_params: CapParams = const_default();
 
-pub const IMG_WORK_COUNT: u32_ = WORK_COUNT;
+pub const IMG_WORK_COUNT: u32_ = 2;
 pub type ImgWorkIndex = Ranged<IMG_WORK_COUNT>;
 pub type ImgBufs = RangedArray<*mut u8_, IMG_WORK_COUNT>;
 

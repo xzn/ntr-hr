@@ -413,6 +413,7 @@ static void nsMainLoop(u32 listenPort) {
 	} \
 	if (is_nwm && pi[1].revents & (POLLIN | POLLHUP)) { \
 		if (nsControlRecv(nwm_recv_sock) < 0) { \
+			nsDbgPrint("nsControlRecv failed\n"); \
 			break; \
 		} \
 	} \

@@ -90,7 +90,7 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
                 return None;
             }
             kcp.output = Some(rp_udp_output);
-            ikcp_nodelay(kcp, 2, 250, 2, 1);
+            ikcp_nodelay(kcp, 2, 250, 2, 0);
             ikcp_wndsize(kcp, (SEND_BUFS_COUNT * qos / RP_QOS_MAX) as i32);
             kcp_conv_count += 1;
         }
@@ -314,30 +314,11 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
             if term {
                 return true;
             } else {
-                while !entries::work_thread::reset_threads() {
-                    let res = svcWaitSynchronization(seg_mem_sync, THREAD_WAIT_NS);
-                    if res == 0 {
-                        break;
-                    }
-                    if res != RES_TIMEOUT as s32 {
-                        nsDbgPrint!(waitForSyncFailed, c_str!("seg_mem_sync"), res);
-                        entries::work_thread::set_reset_threads_ar();
-                        return false;
-                    }
-                }
-
-                let nwm_lock = NwmCbLock::lock();
-                if nwm_lock == None {
+                if let Some(dst) = alloc_seg() {
+                    dst.add((NWM_HDR_SIZE + IKCP_OVERHEAD_CONST + DATA_HDR_SIZE) as usize)
+                } else {
                     return false;
                 }
-
-                let dst = mp_malloc(&mut cb.send_pool) as *mut u8;
-                if dst == ptr::null_mut() {
-                    nsDbgPrint!(mpAllocFailed, c_str!("send_pool"));
-                    crate::entries::work_thread::set_reset_threads_ar();
-                    return false;
-                }
-                dst.add((NWM_HDR_SIZE + IKCP_OVERHEAD_CONST + DATA_HDR_SIZE) as usize)
             }
         }
     };
@@ -446,77 +427,52 @@ unsafe fn iclock() -> IUINT32 {
 #[no_mangle]
 #[named]
 unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
-    if !reliable_stream_cb_inited {
+    let recv_buf = if let Some(dst) = alloc_recv_seg() {
+        dst
+    } else {
         return -1;
-    }
-
-    while !entries::work_thread::reset_threads() {
-        let res = svcWaitSynchronization(recv_seg_mem_sync, THREAD_WAIT_NS);
-        if res == 0 {
-            break;
-        }
-        if res != RES_TIMEOUT as s32 {
-            nsDbgPrint!(waitForSyncFailed, c_str!("recv_seg_mem_sync"), res);
-            entries::work_thread::set_reset_threads_ar();
-            return -1;
-        }
-    }
-
-    let nwm_lock = NwmCbLock::lock();
-    if nwm_lock == None {
-        return -1;
-    }
-
-    if !reliable_stream_cb_inited {
-        return -1;
-    }
-    let cb = &mut *reliable_stream_cb;
-    let recv_buf = mp_malloc(&mut cb.recv_pool) as *mut u8;
-    if recv_buf == ptr::null_mut() {
-        crate::entries::work_thread::set_reset_threads_ar();
-        reliable_stream_cb_inited = false;
-        nsDbgPrint!(mpAllocFailed, c_str!("recv_pool"));
-        return -1;
-    }
+    };
 
     let ret = recv(fd, recv_buf as *mut _, RP_RECV_PACKET_SIZE as usize, 0);
-    let mut count = mem::MaybeUninit::uninit();
 
     if ret == 0 {
         nsDbgPrint!(nwmInputNothing);
-        mp_free(&mut cb.recv_pool, recv_buf as *mut _);
-        let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sync, 1);
+        free_recv_seg(recv_buf);
         return 0;
     } else if ret < 0 {
         nsDbgPrint!(nwmInputFailed, ret as i32, *__errno());
-        mp_free(&mut cb.recv_pool, recv_buf as *mut _);
-        let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sync, 1);
-        return 0;
-    }
-
-    if !reliable_stream_cb_inited {
-        mp_free(&mut cb.recv_pool, recv_buf as *mut _);
-        let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sync, 1);
+        free_recv_seg(recv_buf);
         return 0;
     }
 
     match get_reliable_stream_method() {
         ReliableStreamMethod::None => {
-            mp_free(&mut cb.recv_pool, recv_buf as *mut _);
-            let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sync, 1);
+            free_recv_seg(recv_buf);
             return 0;
         }
         ReliableStreamMethod::KCP => {
+            let cb = &mut (*reliable_stream_cb);
             let kcp = &mut cb.ikcp;
+
+            let nwm_lock = if let Some(l) = NwmCbLock::lock() {
+                l
+            } else {
+                return -1;
+            };
             let ret = ikcp_input(kcp, recv_buf, ret as i32);
             if ret < 0 {
-                nsDbgPrint!(kcpInputFailed, ret);
-                mp_free(&mut cb.recv_pool, recv_buf as *mut _);
-                let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sync, 1);
-                return 0;
+                if ret != -5 {
+                    // Not wrong conv value
+                    nsDbgPrint!(kcpInputFailed, ret);
+                    free_recv_seg(recv_buf);
+                    return -1;
+                } else {
+                    free_recv_seg(recv_buf);
+                    return 0;
+                }
             } else if ret == 0 {
-                mp_free(&mut cb.recv_pool, recv_buf as *mut _);
-                let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sync, 1);
+                // recv_buf not taken
+                free_recv_seg(recv_buf);
             }
             loop {
                 let mut data_buf: *mut u8 = ptr::null_mut();
@@ -526,6 +482,7 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
                     break;
                 }
             }
+            drop(nwm_lock);
             let _ = svcSignalEvent(reliable_stream_cb_evt);
         }
     }
@@ -570,42 +527,114 @@ unsafe fn nwm_cb_unlock() {
     let _ = svcReleaseMutex(reliable_stream_cb_lock);
 }
 
-#[no_mangle]
 #[named]
-unsafe extern "C" fn free_seg_data_buf(data_buf: *const ::libc::c_char) {
+unsafe fn thread_wait_sync(h: Handle) -> Option<()> {
+    while !entries::work_thread::reset_threads() {
+        let res = svcWaitSynchronization(h, THREAD_WAIT_NS);
+        if res == 0 {
+            return Some(());
+        }
+        if res != RES_TIMEOUT as s32 {
+            nsDbgPrint!(waitForSyncFailed, c_str!("..."), res);
+            entries::work_thread::set_reset_threads_ar();
+            return None;
+        }
+    }
+    None
+}
+
+#[named]
+pub unsafe fn alloc_seg() -> Option<*mut c_char> {
+    thread_wait_sync(seg_mem_sem)?;
+    thread_wait_sync(seg_mem_lock)?;
+
     let cb = &mut *reliable_stream_cb;
-    if mp_free(
-        &mut cb.send_pool,
-        data_buf.sub((NWM_HDR_SIZE + IKCP_OVERHEAD_CONST) as usize) as *mut _,
-    ) < 0
-    {
+    let dst = mp_malloc(&mut cb.send_pool) as *mut u8;
+    if dst == ptr::null_mut() {
+        nsDbgPrint!(mpAllocFailed, c_str!("send_pool"));
+        crate::entries::work_thread::set_reset_threads_ar();
+        let _ = svcReleaseMutex(seg_mem_lock);
+        return None;
+    }
+
+    let _ = svcReleaseMutex(seg_mem_lock);
+    Some(dst)
+}
+
+#[named]
+unsafe fn free_seg(dst: *const ::libc::c_char) {
+    if thread_wait_sync(seg_mem_lock) == None {
+        return;
+    }
+
+    let cb = &mut *reliable_stream_cb;
+    if mp_free(&mut cb.send_pool, dst as *mut _) < 0 {
         nsDbgPrint!(mpFreeFailed, c_str!("send_pool"));
+        let _ = svcReleaseMutex(seg_mem_lock);
+        return;
     }
     let mut count = mem::MaybeUninit::uninit();
-    let _ = svcReleaseSemaphore(count.as_mut_ptr(), seg_mem_sync, 1);
+    let _ = svcReleaseSemaphore(count.as_mut_ptr(), seg_mem_sem, 1);
+
+    let _ = svcReleaseMutex(seg_mem_lock);
+}
+
+#[named]
+unsafe fn alloc_recv_seg() -> Option<*mut c_char> {
+    if !recv_seg_mem_inited.load(Ordering::Acquire) {
+        return None;
+    }
+
+    thread_wait_sync(recv_seg_mem_sem)?;
+    thread_wait_sync(recv_seg_mem_lock)?;
+
+    let cb = &mut *reliable_stream_cb;
+    let dst = mp_malloc(&mut cb.recv_pool) as *mut u8;
+    if dst == ptr::null_mut() {
+        nsDbgPrint!(mpAllocFailed, c_str!("recv_pool"));
+        crate::entries::work_thread::set_reset_threads_ar();
+        let _ = svcReleaseMutex(recv_seg_mem_lock);
+        return None;
+    }
+
+    let _ = svcReleaseMutex(recv_seg_mem_lock);
+    Some(dst)
+}
+
+#[named]
+unsafe fn free_recv_seg(dst: *const ::libc::c_char) {
+    if thread_wait_sync(recv_seg_mem_lock) == None {
+        return;
+    }
+
+    let cb = &mut *reliable_stream_cb;
+    if mp_free(&mut cb.recv_pool, dst as *mut _) < 0 {
+        nsDbgPrint!(mpFreeFailed, c_str!("recv_pool"));
+        let _ = svcReleaseMutex(recv_seg_mem_lock);
+        return;
+    }
+    let mut count = mem::MaybeUninit::uninit();
+    let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sem, 1);
+
+    let _ = svcReleaseMutex(recv_seg_mem_lock);
 }
 
 #[no_mangle]
-#[named]
+unsafe extern "C" fn free_seg_data_buf(data_buf: *const ::libc::c_char) {
+    free_seg(data_buf.sub((NWM_HDR_SIZE + IKCP_OVERHEAD_CONST) as usize) as *mut _)
+}
+
+#[no_mangle]
 unsafe extern "C" fn free_recv_seg_data_buf(data_buf: *const ::libc::c_char) {
-    let cb = &mut *reliable_stream_cb;
-    if mp_free(
-        &mut cb.recv_pool,
-        data_buf.sub((IKCP_OVERHEAD_CONST) as usize) as *mut _,
-    ) < 0
-    {
-        nsDbgPrint!(mpFreeFailed, c_str!("recv_pool"));
-    }
-    let mut count = mem::MaybeUninit::uninit();
-    let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sync, 1);
+    free_recv_seg(data_buf.sub(IKCP_OVERHEAD_CONST as usize) as *mut _)
 }
 
 #[named]
 unsafe fn kcp_thread_nwm_loop() -> bool {
     let cb = &mut *reliable_stream_cb;
-    let mut dst: *mut c_void = const_default();
+    let mut dst = mem::MaybeUninit::uninit();
     while !entries::work_thread::reset_threads() {
-        let res = rp_syn_acq(&mut cb.nwm_syn, THREAD_WAIT_NS, &mut dst);
+        let res = rp_syn_acq(&mut cb.nwm_syn, THREAD_WAIT_NS, dst.as_mut_ptr());
 
         if res == 0 {
             break;
@@ -616,6 +645,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
             return false;
         }
     }
+    let dst = dst.assume_init() as *mut u8;
 
     if let Some(_) = nwm_cb_lock() {
         let kcp = &mut cb.ikcp;
@@ -629,7 +659,6 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
             }
             let waitsnd = ikcp_waitsnd(kcp);
             if waitsnd < kcp.snd_wnd as i32 {
-                let dst = dst as *mut u8;
                 let mut size = 0;
                 ptr::copy_nonoverlapping(dst.sub(mem::size_of::<u32>()) as *const _, &mut size, 1);
 

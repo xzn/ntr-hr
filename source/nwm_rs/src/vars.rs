@@ -73,8 +73,10 @@ pub const fn J_MAX_HALF_FACTOR(v: u32_) -> u32_ {
 }
 
 pub static mut reliable_stream_cb: *mut rp_cb = const_default();
-pub static mut reliable_stream_cb_inited: bool = false;
 pub static mut reliable_stream_cb_lock: Handle = 0;
 pub static mut reliable_stream_cb_evt: Handle = 0;
-pub static mut seg_mem_sync: Handle = 0;
-pub static mut recv_seg_mem_sync: Handle = 0;
+pub static mut seg_mem_sem: Handle = 0;
+pub static mut seg_mem_lock: Handle = 0;
+pub static mut recv_seg_mem_sem: Handle = 0;
+pub static mut recv_seg_mem_lock: Handle = 0;
+pub static mut recv_seg_mem_inited: AtomicBool = const_default();

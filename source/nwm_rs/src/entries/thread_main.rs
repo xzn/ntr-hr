@@ -113,12 +113,29 @@ mod first_time_init {
             return None;
         }
 
-        let recv_bufs_len = (*reliable_stream_cb).recv_bufs.len() as i32;
-        let res = svcCreateSemaphore(&mut recv_seg_mem_sync, recv_bufs_len, recv_bufs_len);
-        if res != 0 {
-            nsDbgPrint!(createSemaphoreFailed, c_str!("recv_seg_mem_sync"), res);
+        let cb = &mut (*reliable_stream_cb);
+        if mp_init(
+            (*cb.recv_bufs.as_ptr()).len(),
+            cb.recv_bufs.len(),
+            cb.recv_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
+            &mut cb.recv_pool,
+        ) < 0
+        {
+            nsDbgPrint!(mpInitFailed, c_str!("recv_pool"));
             return None;
         }
+        let recv_bufs_len = cb.recv_bufs.len() as i32;
+        let res = svcCreateSemaphore(&mut recv_seg_mem_sem, recv_bufs_len, recv_bufs_len);
+        if res != 0 {
+            nsDbgPrint!(createSemaphoreFailed, c_str!("recv_seg_mem_sem"), res);
+            return None;
+        }
+        let res = svcCreateMutex(&mut recv_seg_mem_lock, false);
+        if res != 0 {
+            nsDbgPrint!(createMutexFailed, c_str!("recv_seg_mem_lock"), res);
+            return None;
+        }
+        recv_seg_mem_inited.store(true, Ordering::Release);
 
         let aux1Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
         let aux2Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
@@ -252,9 +269,14 @@ mod loop_main {
             }
 
             let send_bufs_len = (*reliable_stream_cb).send_bufs.len() as i32;
-            let res = svcCreateSemaphore(&mut seg_mem_sync, send_bufs_len, send_bufs_len);
+            let res = svcCreateSemaphore(&mut seg_mem_sem, send_bufs_len, send_bufs_len);
             if res != 0 {
-                nsDbgPrint!(createSemaphoreFailed, c_str!("seg_mem_sync"), res);
+                nsDbgPrint!(createSemaphoreFailed, c_str!("seg_mem_sem"), res);
+                return None;
+            }
+            let res = svcCreateMutex(&mut seg_mem_lock, false);
+            if res != 0 {
+                nsDbgPrint!(createMutexFailed, c_str!("seg_mem_lock"), res);
                 return None;
             }
 
@@ -265,7 +287,8 @@ mod loop_main {
     impl Drop for InitCleanup {
         fn drop(&mut self) {
             unsafe {
-                let _ = svcCloseHandle(seg_mem_sync);
+                let _ = svcCloseHandle(seg_mem_lock);
+                let _ = svcCloseHandle(seg_mem_sem);
 
                 for j in ThreadId::up_to(&self.0.core_count) {
                     let thread = (*syn_handles).threads.get_mut(&j);
@@ -322,7 +345,6 @@ mod loop_main {
         let jpeg = crate::entries::work_thread::get_jpeg();
         jpeg.reset(config.quality_ar(), vars.core_count);
 
-        let nwm_lock = crate::entries::thread_nwm::NwmCbLock::lock()?;
         let cb = &mut *reliable_stream_cb;
         if mp_init(
             (*cb.send_bufs.as_ptr()).len(),
@@ -331,15 +353,7 @@ mod loop_main {
             &mut cb.send_pool,
         ) < 0
         {
-            return None;
-        }
-        if mp_init(
-            (*cb.recv_bufs.as_ptr()).len(),
-            cb.recv_bufs.len(),
-            cb.recv_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
-            &mut cb.recv_pool,
-        ) < 0
-        {
+            nsDbgPrint!(mpInitFailed, c_str!("send_pool"));
             return None;
         }
         if rp_syn_init1(
@@ -351,10 +365,9 @@ mod loop_main {
             cb.nwm_syn_data.as_mut_ptr(),
         ) != 0
         {
+            nsDbgPrint!(rpSynInitFailed);
             return None;
         }
-        reliable_stream_cb_inited = true;
-        drop(nwm_lock);
 
         crate::entries::work_thread::reset_vars();
         crate::entries::thread_nwm::reset_vars(dst_flags, qos)?;

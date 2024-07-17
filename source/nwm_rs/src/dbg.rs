@@ -72,6 +72,8 @@ impl nsDbgPrint_t {
 
     nsDbgPrint_fn!(setThreadPriorityFailed, "Set thread priority failed: %08x\n", res: s32);
 
+    nsDbgPrint_fn!(createMutexFailed, "Create %s mutex failed %08x\n", name: *const c_char, ret: s32);
+
     nsDbgPrint_fn!(createSemaphoreFailed, "Create %s semaphore failed: %08x\n", name: *const c_char, res: s32);
 
     nsDbgPrint_fn!(releaseSemaphoreFailed, "Release %s semaphore failed (%x): %08x\n", name: *const c_char, w: u32_, res: s32);
@@ -97,6 +99,10 @@ impl nsDbgPrint_t {
     nsDbgPrint_fn!(kcpInputFailed, "KCP input failed: %08x\n", ret: s32);
 
     nsDbgPrint_fn!(kcpSendFailed, "KCP send failed: %08x\n", ret: s32);
+
+    nsDbgPrint_fn!(mpInitFailed, "Mem pool %s init failed\n", name: *const c_char);
+
+    nsDbgPrint_fn!(rpSynInitFailed, "Nwm syn init failed\n");
 
     nsDbgPrint_fn!(mpAllocFailed, "Mem pool %s alloc failed\n", name: *const c_char);
 

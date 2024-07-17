@@ -117,7 +117,7 @@ pub struct JpegEncode<'a, 'c> {
 #[derive(ConstDefault)]
 pub struct Jpeg {
     shared: JpegShared,
-    bufs: [[WorkerBufs; RP_CORE_COUNT_MAX as usize]; WORK_COUNT as usize],
+    bufs: [WorkerBufs; RP_CORE_COUNT_MAX as usize],
     info: [CInfo; WORK_COUNT as usize],
 }
 
@@ -135,7 +135,7 @@ impl Jpeg {
     pub unsafe fn getWorker(&mut self, workIndex: WorkIndex, threadId: ThreadId) -> JpegWorker {
         JpegWorker::init(
             &self.shared,
-            threadId.index_into_mut(workIndex.index_into_mut(&mut self.bufs)),
+            threadId.index_into_mut(&mut self.bufs),
             workIndex.index_into(&self.info),
             threadId,
         )
