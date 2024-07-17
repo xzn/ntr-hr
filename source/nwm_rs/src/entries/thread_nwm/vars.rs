@@ -70,8 +70,6 @@ pub unsafe fn get_reliable_stream_method() -> ReliableStreamMethod {
 static mut kcp_conv_count: u8 = 0;
 
 unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
-    let _ = NwmCbLock::lock()?;
-
     reliable_stream = flags & (1 << 30) > 0;
     reliable_stream_method = ((flags >> 31) & 1) as u8;
 
