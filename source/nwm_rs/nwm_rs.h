@@ -6,6 +6,7 @@ void __system_initSyscalls(void);
 #include "3ds/result.h"
 #include "../nwm_misc/ikcp.h"
 #include "../nwm_misc/rp_syn.h"
+#include "../nwm_misc/rp_res.h"
 
 struct rp_cb {
 	struct IKCPCB ikcp;

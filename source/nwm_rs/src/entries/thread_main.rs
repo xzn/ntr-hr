@@ -36,6 +36,8 @@ mod first_time_init {
             return None;
         }
 
+        rp_svc_increase_limits();
+
         let mut nwm_bufs: [*mut u8; WORK_COUNT as usize] = const_default();
 
         if let Some(m) = request_mem_from_pool::<{ mem::size_of::<rp_cb>() }>() {
@@ -392,6 +394,8 @@ mod loop_main {
     pub unsafe fn entry(_t: ThreadVars, s: &mut ThreadsStacks) -> Option<()> {
         loop {
             let init = reset_init(&s.nwm_bufs)?;
+
+            rp_svc_print_limits();
 
             let vars = &init.0;
 

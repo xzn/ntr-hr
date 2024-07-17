@@ -88,7 +88,7 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
                 return None;
             }
             kcp.output = Some(rp_udp_output);
-            ikcp_nodelay(kcp, 2, 250, 2, 0);
+            ikcp_nodelay(kcp, 2, 250, 2, 1);
             ikcp_wndsize(kcp, (SEND_BUFS_COUNT * qos / RP_QOS_MAX) as i32);
             kcp_conv_count += 1;
         }
@@ -387,9 +387,11 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, _kcp: *mut ikcpcb) ->
     } else {
         0
     };
-    rp_output_last_tick = curr_tick;
     if duration > 0 {
         svcSleepThread(duration as s64);
+        rp_output_last_tick = svcGetSystemTick();
+    } else {
+        rp_output_last_tick = curr_tick;
     }
 
     nwm_output(buf.sub(NWM_HDR_SIZE as usize), len as usize);
