@@ -27,7 +27,7 @@ static mut nwm_thread_id: ThreadId = ThreadId::init();
 
 static mut nwm_need_syn: RangedArray<bool, WORK_COUNT> = const_default();
 
-static mut last_send_tick: u32_ = 0;
+static mut next_send_tick: u32_ = 0;
 pub type NwmHdr = [u8_; NWM_HDR_SIZE as usize];
 static mut current_nwm_hdr: NwmHdr = const_default();
 
@@ -128,7 +128,7 @@ pub unsafe fn reset_vars(dst_flags: u32, qos: u32) -> Option<()> {
     }
     nwm_work_index = WorkIndex::init();
     nwm_thread_id = ThreadId::init();
-    last_send_tick = svcGetSystemTick() as u32_;
+    next_send_tick = svcGetSystemTick() as u32_ + min_send_interval_tick;
     Some(())
 }
 
@@ -173,8 +173,8 @@ impl ThreadVars {
         self.nwm_infos().get_mut(&self.thread_id())
     }
 
-    pub fn last_send_tick(&self) -> &mut u32_ {
-        unsafe { &mut last_send_tick }
+    pub fn next_send_tick(&self) -> &mut u32_ {
+        unsafe { &mut next_send_tick }
     }
 
     pub fn min_send_interval_tick(&self) -> u32_ {
@@ -371,7 +371,7 @@ unsafe fn ip_checksum(data: *mut u8_, mut length: usize) -> u16_ {
     htons(!acc as u16_)
 }
 
-static mut rp_output_last_tick: u64 = 0;
+static mut rp_output_next_tick: s64 = 0;
 
 #[named]
 unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, _kcp: *mut ikcpcb) -> s32 {
@@ -380,18 +380,19 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, _kcp: *mut ikcpcb) ->
         return 0;
     }
 
-    let curr_tick = svcGetSystemTick();
-    let tick_diff = curr_tick - rp_output_last_tick;
-    let duration = if tick_diff < min_send_interval_tick as u64 {
-        (min_send_interval_tick as u64 - tick_diff) * 1_000_000_000 / SYSCLOCK_ARM11 as u64
+    let curr_tick = svcGetSystemTick() as s64;
+    let tick_diff = rp_output_next_tick - curr_tick;
+    let duration = if tick_diff > 0 {
+        tick_diff as s64 * 1_000_000_000 / SYSCLOCK_ARM11 as s64
     } else {
         0
     };
+    let next_interval = min_send_interval_tick as s64 * len as s64 / PACKET_SIZE as s64;
     if duration > 0 {
-        svcSleepThread(duration as s64);
-        rp_output_last_tick = svcGetSystemTick();
+        svcSleepThread(duration);
+        rp_output_next_tick = svcGetSystemTick() as s64 + next_interval;
     } else {
-        rp_output_last_tick = curr_tick;
+        rp_output_next_tick = curr_tick + next_interval;
     }
 
     nwm_output(buf.sub(NWM_HDR_SIZE as usize), len as usize);

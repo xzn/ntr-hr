@@ -44,21 +44,19 @@ fn try_send_next_buffer_may_skip(v: ThreadVars, work_flush: bool, mut may_skip: 
 
 fn send_next_buffer_delay(v: &ThreadVars, work_flush: bool, pos: *mut u8, flag: u32) -> bool {
     unsafe {
-        let next_tick = svcGetSystemTick() as u32_;
-        let tick_diff = next_tick as s32 - *v.last_send_tick() as s32;
+        let curr_tick = svcGetSystemTick() as u32_;
+        let tick_diff = *v.next_send_tick() as s32 - curr_tick as s32;
 
-        if tick_diff < v.min_send_interval_tick() as s32 {
+        if tick_diff > 0 {
             if work_flush {
-                let sleep_value = (v.min_send_interval_tick() as s32 - tick_diff) as u64_
-                    * 1000_000_000
-                    / SYSCLOCK_ARM11 as u64_;
+                let sleep_value = tick_diff as u64_ * 1000_000_000 / SYSCLOCK_ARM11 as u64_;
                 svcSleepThread(sleep_value as s64);
                 if !send_next_buffer(&v, svcGetSystemTick() as u32_, pos, flag) {
                     return false;
                 }
             }
         } else {
-            if !send_next_buffer(&v, next_tick, pos, flag) {
+            if !send_next_buffer(&v, curr_tick, pos, flag) {
                 return false;
             }
         }
@@ -154,10 +152,11 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     }
     *data_buf_hdr.get_unchecked_mut(3) += 1;
 
-    if rp_output(packet_buf, (total_size + DATA_HDR_SIZE) as usize) == None {
+    let packet_size = total_size + DATA_HDR_SIZE;
+    if rp_output(packet_buf, packet_size as usize) == None {
         return false;
     }
-    *v.last_send_tick() = tick;
+    *v.next_send_tick() = tick + v.min_send_interval_tick() * packet_size / PACKET_SIZE;
 
     if !thread_end_done {
         let send_pos = &mut winfo.get_mut(&thread_end_id).info.send_pos;
