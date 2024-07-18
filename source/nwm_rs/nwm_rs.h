@@ -17,7 +17,3 @@ struct rp_cb {
 	struct rp_syn_comp_func_t nwm_syn;
 	void *nwm_syn_data[SEND_BUFS_MP_COUNT];
 };
-
-#define RP_HDR_RELIABLE_STREAM_FLAG (1 << 14)
-#define RP_HDR_KCP_CONV_MASK (3)
-#define RP_HDR_KCP_CONV_SHIFT (10)

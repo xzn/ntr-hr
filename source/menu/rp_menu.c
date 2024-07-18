@@ -19,6 +19,7 @@ enum {
 	REMOTE_PLAY_MENU_QOS,
 	REMOTE_PLAY_MENU_VIEWER_IP,
 	REMOTE_PLAY_MENU_VIEWER_PORT,
+	REMOTE_PLAY_MENU_RELIABLE_STREAM,
 
 	REMOTE_PLAY_MENU_APPLY,
 
@@ -188,6 +189,22 @@ socket_exit:
 	closesocket(fd);
 }
 
+static const char *getReliableStreamNameFromFlag(int flag) {
+	if (flag & RP_CONFIG_RELIABLE_STREAM_FLAG) {
+		return "On";
+	} else {
+		return "Off";
+	}
+}
+
+static const char *getReliableStreamDescFromFlag(int flag) {
+	if (flag & RP_CONFIG_RELIABLE_STREAM_FLAG) {
+		return "Require NTRViewer-HR.\nhttps://github.com/xzn/ntrviewer-hr/";
+	} else {
+		return 0;
+	}
+}
+
 int remotePlayMenu(u32 localaddr) {
 	if (!ntrConfig->isNew3DS) {
 		showDbg("Remote Play is available on New 3DS only.");
@@ -251,6 +268,9 @@ int remotePlayMenu(u32 localaddr) {
 		char dstPortCaption[LOCAL_OPT_TEXT_BUF_SIZE];
 		xsnprintf(dstPortCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Port: %"PRId32, config.dstPort & 0xffff);
 
+		char reliableStreamCaption[LOCAL_OPT_TEXT_BUF_SIZE];
+		xsnprintf(reliableStreamCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Reliable Stream: %s", getReliableStreamNameFromFlag(config.dstPort & 0xffff0000));
+
 		const char *captions[REMOTE_PLAY_MENU_COUNT];
 		captions[REMOTE_PLAY_MENU_CORE_COUNT] = coreCountCaption,
 		captions[REMOTE_PLAY_MENU_THREAD_PRIORITY] = encoderPriorityCaption;
@@ -260,10 +280,12 @@ int remotePlayMenu(u32 localaddr) {
 		captions[REMOTE_PLAY_MENU_QOS] = qosCaption;
 		captions[REMOTE_PLAY_MENU_VIEWER_IP] = dstAddrCaption;
 		captions[REMOTE_PLAY_MENU_VIEWER_PORT] = dstPortCaption;
+		captions[REMOTE_PLAY_MENU_RELIABLE_STREAM] = reliableStreamCaption;
 		captions[REMOTE_PLAY_MENU_APPLY] = "Apply";
 
 		const char *descs[REMOTE_PLAY_MENU_COUNT] = { 0 };
 		descs[REMOTE_PLAY_MENU_THREAD_PRIORITY] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
+		descs[REMOTE_PLAY_MENU_RELIABLE_STREAM] = getReliableStreamDescFromFlag(config.dstPort & 0xffff0000);
 
 		u32 keys;
 		select = showMenuEx2(titleCurrent, REMOTE_PLAY_MENU_COUNT, captions, descs, select, &keys);
@@ -407,6 +429,30 @@ int remotePlayMenu(u32 localaddr) {
 				}
 
 				dstPort = CLAMP(dstPort, RP_PORT_MIN, RP_PORT_MAX) | dstFlag;
+
+				if (dstPort != (int)config.dstPort) {
+					config.dstPort = dstPort;
+				}
+				break;
+			}
+
+			case REMOTE_PLAY_MENU_RELIABLE_STREAM: { /* reliable stream */
+				int dstPort = config.dstPort;
+				int dstFlag = dstPort & 0xffff0000;
+				dstPort &= 0xffff;
+				if (keys == KEY_X) {
+					dstPort = rpConfig->dstPort;
+					dstFlag = dstPort & 0xffff0000;
+					dstPort &= 0xffff;
+				} else {
+					int dummy = 0;
+					dummy = menu_adjust_value_with_key(&dummy, keys, 1, 1);
+					if (dummy) {
+						dstFlag = ~dstFlag & RP_CONFIG_RELIABLE_STREAM_FLAG;
+					}
+				}
+
+				dstPort |= dstFlag;
 
 				if (dstPort != (int)config.dstPort) {
 					config.dstPort = dstPort;
