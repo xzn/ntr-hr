@@ -11,7 +11,6 @@
         "/opt/devkitpro/devkitARM/lib/gcc/arm-none-eabi/14.1.0/include",
         "-I${workspaceFolder}/include",
         "-I${workspaceFolder}/libctru/libctru/include",
-        "-I${workspaceFolder}/include/jpeg",
         "-DARM11",
         "-D__3DS__",
         "-Wno-reserved-user-defined-literal",
