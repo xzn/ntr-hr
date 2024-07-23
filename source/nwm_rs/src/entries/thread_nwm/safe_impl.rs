@@ -176,6 +176,6 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
 
 fn data_buf_filled(dinfo: &DataBufInfo) -> (bool, *mut u8_, u32_) {
     let flag = dinfo.flag.load(Ordering::Acquire);
-    let pos = dinfo.pos.load(Ordering::Relaxed);
+    let pos = dinfo.pos.load(Ordering::Acquire);
     (dinfo.send_pos < pos || flag > 0, pos, flag)
 }

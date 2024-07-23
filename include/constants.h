@@ -73,8 +73,10 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define NS_HOOK_LISTEN_PORT (5000)
 // Manual RP init from NTR menu
 // SRC is 3DS, DST is PC
+// Intentionally different from the RP default to avoid sending
+// garbage to unsuspecting viewer
 #define NWM_INIT_SRC_PORT (8001)
-#define NWM_INIT_DST_PORT (8001)
+#define NWM_INIT_DST_PORT (8000)
 // RP data ports
 #define RP_SRC_PORT (8000)
 #define RP_DST_PORT_DEFAULT (8001)
@@ -131,7 +133,7 @@ enum {
 };
 
 #define NWM_HEAP_SIZE (0x4000)
-#define NWM_WORK_COUNT (3)
+#define NWM_WORK_COUNT (2)
 #define NWM_THREAD_WAIT_NS (100000000)
 
 #define RP_COMPRESSED_SIZE_MAX (0x30000)
@@ -140,7 +142,7 @@ enum {
 #define ROUND_UP(n, d) (DIV_ROUND_UP(n, d) * (d))
 
 #define IKCP_WND_SND_MAX (DIV_ROUND_UP(RP_COMPRESSED_SIZE_MAX, PACKET_SIZE - IKCP_OVERHEAD_CONST - DATA_HDR_SIZE) * NWM_WORK_COUNT)
-#define IKCP_WND_RCV_CONST 128
+#define IKCP_WND_RCV_CONST 2
 #define IKCP_OVERHEAD_CONST 24
 #define IKCP_SEG_MEM_SIZE_CONST (sizeof(struct IKCPSEG))
 

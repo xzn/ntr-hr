@@ -265,7 +265,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
 
             let mut pos_next = (*dinfo.pos.as_ptr()).add(size);
 
-            dinfo.pos.store(pos_next, Ordering::Relaxed);
+            dinfo.pos.store(pos_next, Ordering::Release);
             if term {
                 dinfo.flag.store(term_flag as u32, Ordering::Release);
             }

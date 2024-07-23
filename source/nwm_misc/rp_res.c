@@ -1,5 +1,6 @@
 #include "rp_res.h"
 
+#include "3ds/svc.h"
 #include "global.h"
 
 void rp_svc_increase_limits(void) {
@@ -26,9 +27,9 @@ void rp_svc_print_limits(void) {
 		nsDbgPrint("svcGetResourceLimit failed\n");
 		return;
 	}
-	ResourceLimitType types[] = {RESLIMIT_MUTEX, RESLIMIT_SEMAPHORE};
+	ResourceLimitType types[] = {RESLIMIT_MUTEX, RESLIMIT_SEMAPHORE, RESLIMIT_EVENT, RESLIMIT_THREAD};
 	int count = sizeof(types) / sizeof(types[0]);
-	const char *names[] = {"mutex", "sem"};
+	const char *names[] = {"mutex", "sem", "event", "thread"};
 	s64 values[count];
 
 	if ((res = svcGetResourceLimitCurrentValues(values, resLim, types, count))) {

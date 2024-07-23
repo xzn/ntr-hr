@@ -395,8 +395,6 @@ mod loop_main {
         loop {
             let init = reset_init(&s.nwm_bufs)?;
 
-            rp_svc_print_limits();
-
             let vars = &init.0;
 
             let core_count = vars.core_count.get();
@@ -447,6 +445,8 @@ mod loop_main {
                 0xc,
                 2,
             )?);
+
+            rp_svc_print_limits();
 
             let t = crate::ThreadId::init();
             crate::entries::work_thread::work_thread_loop(t);
