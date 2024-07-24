@@ -45,11 +45,11 @@ bool AppDataWindow::SetParameters(unsigned input_count, uint64_t total_bytes)
     InputCount = input_count;
     TotalBytes = total_bytes;
 
-    FinalBytes = static_cast<unsigned>(total_bytes % ARP_DATA_SIZE);
+    FinalBytes = static_cast<unsigned>(total_bytes % ARQ_DATA_SIZE);
     if (FinalBytes <= 0)
-        FinalBytes = ARP_DATA_SIZE;
+        FinalBytes = ARQ_DATA_SIZE;
 
-    FECAL_DEBUG_ASSERT(ARP_DATA_SIZE >= FinalBytes && FinalBytes != 0);
+    FECAL_DEBUG_ASSERT(ARQ_DATA_SIZE >= FinalBytes && FinalBytes != 0);
 
     return true;
 }

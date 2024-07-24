@@ -279,19 +279,19 @@ static char *ikcp_encode_seg(char *ptr, const IKCPSEG *seg)
 //---------------------------------------------------------------------
 int ikcp_flush(ikcpcb *kcp)
 {
-	void *data_ptr[ARP_PACKET_COUNT] = { kcp };
+	void *data_ptr[ARQ_PACKET_COUNT] = { kcp };
 
 	char encoder_mem[fecal_encoder_size()];
 	FecalEncoder encoder = (FecalEncoder)encoder_mem;
 
-	if (fecal_encoder_init(encoder, ARP_PACKET_COUNT, data_ptr, sizeof(ikcpcb)) != Fecal_Success) {
+	if (fecal_encoder_init(encoder, ARQ_PACKET_COUNT, data_ptr, sizeof(ikcpcb)) != Fecal_Success) {
 		return -1;
 	}
 
-	char recovery_data[ARP_DATA_SIZE] = { 0 };
+	char recovery_data[ARQ_DATA_SIZE] = { 0 };
 	FecalSymbol recovery = {
 		.Data = recovery_data,
-		.Bytes = ARP_DATA_SIZE,
+		.Bytes = ARQ_DATA_SIZE,
 		.Index = 0,
 	};
 	if (fecal_encode(encoder, &recovery) != Fecal_Success) {

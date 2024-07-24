@@ -54,7 +54,7 @@ FecalResult Encoder::Initialize(unsigned input_count, void* const * const input_
     }
     Window.OriginalData = input_data;
 
-    const unsigned symbolBytes = ARP_DATA_SIZE;
+    const unsigned symbolBytes = ARQ_DATA_SIZE;
 
     // Allocate lane sums
     for (unsigned laneIndex = 0; laneIndex < kColumnLaneCount; ++laneIndex)
@@ -126,7 +126,7 @@ FecalResult Encoder::Encode(FecalSymbol& symbol)
 {
     // If encoder is not initialized:
 
-    const unsigned symbolBytes = ARP_DATA_SIZE;
+    const unsigned symbolBytes = ARQ_DATA_SIZE;
     if (symbol.Bytes != symbolBytes)
         return Fecal_InvalidInput;
 

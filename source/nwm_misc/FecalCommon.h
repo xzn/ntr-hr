@@ -185,7 +185,7 @@ GF256_FORCE_INLINE unsigned GetRowOpcode(unsigned lane, unsigned row)
 
 struct AlignedDataBuffer
 {
-    uint8_t Data[ARP_DATA_SIZE] ALIGNED(sizeof(GF256_M128));
+    uint8_t Data[ARQ_DATA_SIZE] ALIGNED(sizeof(GF256_M128));
 };
 
 
@@ -508,7 +508,7 @@ struct AppDataWindow
     // Helper function
     GF256_FORCE_INLINE unsigned GetColumnBytes(unsigned column)
     {
-        return IsFinalColumn(column) ? FinalBytes : ARP_DATA_SIZE;
+        return IsFinalColumn(column) ? FinalBytes : ARQ_DATA_SIZE;
     }
 };
 
