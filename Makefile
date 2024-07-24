@@ -2,15 +2,15 @@ DEV_BIN_DIR := $(DEVKITARM)/bin
 
 CC_NAME = @echo $(notdir $@);
 CC = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-gcc
-CXX := $(DEV_BIN_DIR)/arm-none-eabi-g++
-OBJCOPY := $(DEV_BIN_DIR)/arm-none-eabi-objcopy
-LD := $(DEV_BIN_DIR)/arm-none-eabi-ld
-CP := cp
+CXX = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-g++
+OBJCOPY = $(DEV_BIN_DIR)/arm-none-eabi-objcopy
+LD = $(DEV_BIN_DIR)/arm-none-eabi-ld
+CP = cp
 
 CTRU_DIR := libctru/libctru
 
 CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing -ffunction-sections -fdata-sections
-CPPFLAGS := -Iinclude -Ilibctru/libctru/include
+CPPFLAGS := -Iinclude -Ilibctru/libctru/include -D__3DS__
 LDFLAGS = -pie -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,-z,noexecstack
 LDLIBS = -nostartfiles -L. -lctru_ntr -L$(LIB_RS_DIR)
 
@@ -31,7 +31,9 @@ OBJ_GAME := $(addprefix obj/,$(notdir $(SRC_GAME_C:.c=.o)))
 
 SRC_NWM_C := $(wildcard source/nwm/*.c)
 SRC_NWM_C += $(wildcard source/nwm_misc/*.c)
+SRC_NWM_X := $(wildcard source/nwm_misc/*.cpp)
 OBJ_NWM := $(addprefix obj/,$(notdir $(SRC_NWM_C:.c=.o)))
+OBJ_NWM += $(addprefix obj/,$(notdir $(SRC_NWM_X:.cpp=.o)))
 
 OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_S:.s=.o)))
 DEP := $(OBJ:.o=.d) $(OBJ_BOOT:.o=.d) $(OBJ_MENU:.o=.d) $(OBJ_PM:.o=.d) $(OBJ_GAME:.o=.d) $(OBJ_NWM:.o=.d)
@@ -102,6 +104,7 @@ CC_WARNS = -Wall -Wextra
 
 CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
 NWM_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
+NWM_CXX_CMD = $(CXX) -flto $(CFLAGS) $(CPPFLAGS) -fno-exceptions -MMD -c -o $@ $< $(CC_WARNS) -Wno-implicit-fallthrough
 
 obj/%.o: source/%.s | obj
 	$(CC_CMD)
@@ -126,6 +129,9 @@ obj/%.o: source/nwm/%.c | obj
 
 obj/%.o: source/nwm_misc/%.c | obj
 	$(NWM_CC_CMD)
+
+obj/%.o: source/nwm_misc/%.cpp | obj
+	$(NWM_CXX_CMD)
 
 obj/nwm_lto.o: $(OBJ_NWM) | obj
 	$(CC) -flto $(CFLAGS) -r -o $@ $^

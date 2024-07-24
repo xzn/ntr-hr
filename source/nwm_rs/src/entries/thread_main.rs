@@ -36,6 +36,13 @@ mod first_time_init {
             return None;
         }
 
+        let GF256Ctx_mem = request_mem_from_pool::<{ mem::size_of::<gf256_ctx>() }>()?;
+        GF256Ctx = GF256Ctx_mem.to_ptr() as *mut gf256_ctx;
+        if fecal_init_(FECAL_VERSION as i32) != 0 {
+            nsDbgPrint!(fecalInitFailed);
+            return None;
+        }
+
         rp_svc_increase_limits();
 
         let mut nwm_bufs: [*mut u8; WORK_COUNT as usize] = const_default();

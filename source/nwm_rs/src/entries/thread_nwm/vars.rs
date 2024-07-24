@@ -79,16 +79,9 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
         ReliableStreamMethod::None => {}
         ReliableStreamMethod::KCP => {
             let kcp = &mut (*reliable_stream_cb).ikcp;
-            if ikcp_create(
-                kcp,
-                RP_HDR_RELIABLE_STREAM_FLAG
-                    | ((kcp_conv_count as u32 & RP_HDR_KCP_CONV_MASK) << RP_HDR_KCP_CONV_SHIFT),
-            ) < 0
-            {
+            if ikcp_create(kcp, kcp_conv_count as u16) < 0 {
                 return None;
             }
-            kcp.output = Some(rp_udp_output);
-            ikcp_nodelay(kcp, 2, 250, 2, 1);
             ikcp_wndsize(kcp, (SEND_BUFS_COUNT * qos / RP_QOS_MAX) as i32);
             kcp_conv_count += 1;
         }
@@ -373,6 +366,7 @@ unsafe fn ip_checksum(data: *mut u8_, mut length: usize) -> u16_ {
 
 static mut rp_output_next_tick: s64 = 0;
 
+#[no_mangle]
 #[named]
 unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, _kcp: *mut ikcpcb) -> s32 {
     if len > PACKET_SIZE as s32 {
@@ -416,15 +410,6 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
     Some(())
 }
 
-unsafe fn iclock64() -> IUINT64 {
-    let v = svcGetSystemTick();
-    v * 1_000_000 / SYSCLOCK_ARM11 as u64
-}
-
-unsafe fn iclock() -> IUINT32 {
-    iclock64() as IUINT32
-}
-
 #[no_mangle]
 #[named]
 unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
@@ -462,8 +447,8 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
             };
             let ret = ikcp_input(kcp, recv_buf, ret as i32);
             if ret < 0 {
-                if ret != -5 {
-                    // Not wrong conv value
+                #[allow(unreachable_code)]
+                if todo!() {
                     nsDbgPrint!(kcpInputFailed, ret);
                     free_recv_seg(recv_buf);
                     return -1;
@@ -471,18 +456,8 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
                     free_recv_seg(recv_buf);
                     return 0;
                 }
-            } else if ret == 0 {
-                // recv_buf not taken
-                free_recv_seg(recv_buf);
             }
-            loop {
-                let mut data_buf: *mut u8 = ptr::null_mut();
-                let mut data_len: i32 = 0;
-                let ret = ikcp_recv(kcp, &mut data_buf, &mut data_len);
-                if ret < 0 {
-                    break;
-                }
-            }
+            free_recv_seg(recv_buf);
             drop(nwm_lock);
             let _ = svcSignalEvent(reliable_stream_cb_evt);
         }
@@ -651,15 +626,8 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
     if let Some(_) = nwm_cb_lock() {
         let kcp = &mut cb.ikcp;
         while !entries::work_thread::reset_threads() {
-            if (kcp.state as i32) < 0 {
-                // Reset KCP
-                nsDbgPrint!(kcpStateReset);
-                crate::entries::work_thread::set_reset_threads_ar();
-                nwm_cb_unlock();
-                return false;
-            }
             let waitsnd = ikcp_waitsnd(kcp);
-            if waitsnd < kcp.snd_wnd as i32 {
+            if waitsnd < kcp.n_snd_max as i32 {
                 let mut size = 0;
                 ptr::copy_nonoverlapping(dst.sub(mem::size_of::<u32>()) as *const _, &mut size, 1);
 
@@ -672,16 +640,20 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     return false;
                 }
 
-                ikcp_update(kcp, iclock());
+                let ret = ikcp_flush(kcp);
+                if ret < 0 {
+                    // Reset KCP
+                    nsDbgPrint!(kcpFlushFailed, ret);
+                    crate::entries::work_thread::set_reset_threads_ar();
+                    nwm_cb_unlock();
+                    return false;
+                }
                 break;
             } else {
                 // Wait
-                let current = iclock();
-                let next = ikcp_check(kcp, current);
                 nwm_cb_unlock();
-                let diff = (next - current) as u64 * SYSCLOCK_ARM11 as u64 / 1000;
 
-                let res = svcWaitSynchronization(reliable_stream_cb_evt, diff as s64);
+                let res = svcWaitSynchronization(reliable_stream_cb_evt, THREAD_WAIT_NS);
                 if res != 0 && res != RES_TIMEOUT as s32 {
                     nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
                     crate::entries::work_thread::set_reset_threads_ar();
@@ -691,7 +663,14 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     crate::entries::work_thread::set_reset_threads_ar();
                     return false;
                 }
-                ikcp_update(kcp, iclock());
+                let ret = ikcp_flush(kcp);
+                if ret < 0 {
+                    // Reset KCP
+                    nsDbgPrint!(kcpFlushFailed, ret);
+                    crate::entries::work_thread::set_reset_threads_ar();
+                    nwm_cb_unlock();
+                    return false;
+                }
             }
         }
 

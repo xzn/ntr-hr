@@ -58,6 +58,8 @@ impl nsDbgPrint_t {
 
     nsDbgPrint_fn!(gspInitFailed, "GSP init failed: %08x\n", ret: s32);
 
+    nsDbgPrint_fn!(fecalInitFailed, "FEC-AL init failed\n");
+
     nsDbgPrint_fn!(initJpegFailed, "JPEG init failed\n");
 
     nsDbgPrint_fn!(createPortEventFailed, "Create port event failed %08x\n", ret: s32);
@@ -94,11 +96,11 @@ impl nsDbgPrint_t {
 
     nsDbgPrint_fn!(nwmInputFailed, "Nwm input failed: %08x, errno = %08x\n", ret: s32, errno: s32);
 
-    nsDbgPrint_fn!(kcpStateReset, "KCP state reset\n");
-
     nsDbgPrint_fn!(kcpInputFailed, "KCP input failed: %08x\n", ret: s32);
 
     nsDbgPrint_fn!(kcpSendFailed, "KCP send failed: %08x\n", ret: s32);
+
+    nsDbgPrint_fn!(kcpFlushFailed, "KCP flush failed: %08x\n", ret: s32);
 
     nsDbgPrint_fn!(mpInitFailed, "Mem pool %s init failed\n", name: *const c_char);
 

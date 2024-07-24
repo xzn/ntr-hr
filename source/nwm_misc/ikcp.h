@@ -213,6 +213,19 @@ typedef struct IQUEUEHEAD iqueue_head;
 	iqueue_splice(list, head);	iqueue_init(list); } while (0)
 
 
+#define __iqueue_splice_tail(list, head) do {	\
+		iqueue_head *first = (list)->next, *last = (list)->prev; \
+		iqueue_head *at = (head)->prev; \
+		(first)->prev = (at), (at)->next = (first);		\
+		(last)->next = (head), (head)->prev = (last); }	while (0)
+
+#define iqueue_splice_tail(list, head) do { \
+	if (!iqueue_is_empty(list)) __iqueue_splice_tail(list, head); } while (0)
+
+#define iqueue_splice_tail_init(list, head) do {	\
+	iqueue_splice_tail(list, head);	iqueue_init(list); } while (0)
+
+
 #ifdef _MSC_VER
 #pragma warning(disable:4311)
 #pragma warning(disable:4312)
@@ -265,18 +278,8 @@ typedef struct IQUEUEHEAD iqueue_head;
 struct IKCPSEG
 {
 	struct IQUEUEHEAD node;
-	IUINT32 conv;
-	IUINT32 cmd;
-	IUINT32 frg;
-	IUINT32 wnd;
-	IUINT32 ts;
-	IUINT32 sn;
-	IUINT32 una;
-	IUINT32 len;
-	IUINT32 resendts;
-	IUINT32 rto;
-	IUINT32 fastack;
-	IUINT32 xmit;
+	IUINT16 cid;
+	IUINT16 pid;
 	char *data_buf;
 };
 
@@ -294,48 +297,22 @@ const unsigned SEND_BUFS_SIZE = SEND_BUFS_MP_COUNT * NWM_PACKET_SIZE;
 //---------------------------------------------------------------------
 struct IKCPCB
 {
-	IUINT32 conv, mtu, mss, state;
-	IUINT32 snd_una, snd_nxt, rcv_nxt;
-	IUINT32 ts_recent, ts_lastack, ssthresh;
-	IINT32 rx_rttval, rx_srtt, rx_rto, rx_minrto;
-	IUINT32 snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe;
-	IUINT32 current, interval, ts_flush, xmit;
-	IUINT32 nrcv_buf, nsnd_buf;
-	IUINT32 nrcv_que, nsnd_que;
-	IUINT32 nodelay, updated;
-	IUINT32 ts_probe, probe_wait;
-	IUINT32 dead_link, incr;
-	struct IQUEUEHEAD snd_queue;
-	struct IQUEUEHEAD rcv_queue;
-	struct IQUEUEHEAD snd_buf;
-	struct IQUEUEHEAD rcv_buf;
-	IUINT32 acklist[IKCP_WND_RCV_CONST * 2];
-	IUINT32 ackcount;
-	IUINT32 ackblock;
-	int fastresend;
-	int fastlimit;
-	int nocwnd;
-	int (*output)(char *buf, int len, struct IKCPCB *kcp);
+	IUINT16 cid;
+	IUINT16 pid;
 
-	char seg_mem[IKCP_WND_SND_MAX + IKCP_WND_RCV_CONST][IKCP_SEG_MEM_SIZE_CONST];
+	struct IQUEUEHEAD snd_lst;
+	struct IQUEUEHEAD wak_lst;
+
+	IUINT16 n_snd;
+	IUINT16 n_wak;
+	IUINT16 n_snd_max;
+
+	char seg_mem[IKCP_WND_SND_MAX + IKCP_WND_RCV_CONST][IKCP_SEG_MEM_SIZE_CONST] ALIGNED(sizeof(void *));
 	mp_pool_t seg_pool;
 };
 
 
 typedef struct IKCPCB ikcpcb;
-
-#define IKCP_LOG_OUTPUT			1
-#define IKCP_LOG_INPUT			2
-#define IKCP_LOG_SEND			4
-#define IKCP_LOG_RECV			8
-#define IKCP_LOG_IN_DATA		16
-#define IKCP_LOG_IN_ACK			32
-#define IKCP_LOG_IN_PROBE		64
-#define IKCP_LOG_IN_WINS		128
-#define IKCP_LOG_OUT_DATA		256
-#define IKCP_LOG_OUT_ACK		512
-#define IKCP_LOG_OUT_PROBE		1024
-#define IKCP_LOG_OUT_WINS		2048
 
 #ifdef __cplusplus
 extern "C" {
@@ -344,6 +321,8 @@ extern "C" {
 void free_seg_data_buf(const char *data_buf);
 void free_recv_seg_data_buf(const char *data_buf);
 
+extern int rp_udp_output(char *buf, int len, ikcpcb *kcp);
+
 //---------------------------------------------------------------------
 // interface
 //---------------------------------------------------------------------
@@ -351,68 +330,22 @@ void free_recv_seg_data_buf(const char *data_buf);
 // create a new kcp control object, 'conv' must equal in two endpoint
 // from the same connection. 'user' will be passed to the output callback
 // output callback can be setup like this: 'kcp->output = my_udp_output'
-int ikcp_create(ikcpcb* kcp, IUINT32 conv);
+int ikcp_create(ikcpcb* kcp, IUINT16 cid);
 
-// release kcp control object
-void ikcp_release(ikcpcb *kcp);
-
-// set output callback, which will be invoked by kcp
-void ikcp_setoutput(ikcpcb *kcp, int (*output)(char *buf, int len,
-	ikcpcb *kcp));
-
-// user/upper level recv: returns size, returns below zero for EAGAIN
-int ikcp_recv(ikcpcb *kcp, char **data_buf, int *data_len);
-
-// user/upper level send, returns below zero for error
+// user/upper level send, returns at/below zero for error
 int ikcp_send(ikcpcb *kcp, char *buffer, int len);
-
-// update state (call it repeatedly, every 10ms-100ms), or you can ask
-// ikcp_check when to call it again (without ikcp_input/_send calling).
-// 'current' - current timestamp in millisec.
-void ikcp_update(ikcpcb *kcp, IUINT32 current);
-
-// Determine when should you invoke ikcp_update:
-// returns when you should invoke ikcp_update in millisec, if there
-// is no ikcp_input/_send calling. you can call ikcp_update in that
-// time, instead of call update repeatly.
-// Important to reduce unnacessary ikcp_update invoking. use it to
-// schedule ikcp_update (eg. implementing an epoll-like mechanism,
-// or optimize ikcp_update when handling massive kcp connections)
-IUINT32 ikcp_check(const ikcpcb *kcp, IUINT32 current);
 
 // when you received a low level packet (eg. UDP packet), call it
 int ikcp_input(ikcpcb *kcp, char *data, long size);
 
 // flush pending data
-void ikcp_flush(ikcpcb *kcp);
+int ikcp_flush(ikcpcb *kcp);
 
-// check the size of next message in the recv queue
-int ikcp_peeksize(const ikcpcb *kcp);
-
-// change MTU size, default is 1400
-int ikcp_setmtu(ikcpcb *kcp, int mtu);
-
-// set maximum window size: sndwnd=32, rcvwnd=32 by default
+// set maximum window size
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd);
 
 // get how many packet is waiting to be sent
 int ikcp_waitsnd(const ikcpcb *kcp);
-
-// fastest: ikcp_nodelay(kcp, 1, 20, 2, 1)
-// nodelay: 0:disable(default), 1:enable
-// interval: internal update timer interval in millisec, default is 100ms
-// resend: 0:disable fast resend(default), 1:enable fast resend
-// nc: 0:normal congestion control(default), 1:disable congestion control
-int ikcp_nodelay(ikcpcb *kcp, int nodelay, int interval, int resend, int nc);
-
-
-void ikcp_log(ikcpcb *kcp, int mask, const char *fmt, ...);
-
-// setup allocator
-void ikcp_allocator(void* (*new_malloc)(size_t), void (*new_free)(void*));
-
-// read conv
-IUINT32 ikcp_getconv(void *ptr);
 
 
 #ifdef __cplusplus
