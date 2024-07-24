@@ -156,7 +156,12 @@ unsafe fn send_next_buffer(v: &ThreadVars, tick: u32_, pos: *mut u8_, flag: u32_
     if rp_output(packet_buf, packet_size as usize) == None {
         return false;
     }
-    *v.next_send_tick() = tick + v.min_send_interval_tick() * packet_size / PACKET_SIZE;
+    *v.next_send_tick() = tick
+        + if NWM_PROPORTIONAL_MIN_INTERVAL > 0 {
+            v.min_send_interval_tick() * packet_size / PACKET_SIZE
+        } else {
+            v.min_send_interval_tick()
+        };
 
     if !thread_end_done {
         let send_pos = &mut winfo.get_mut(&thread_end_id).info.send_pos;

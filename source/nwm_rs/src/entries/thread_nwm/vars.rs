@@ -70,8 +70,8 @@ pub unsafe fn get_reliable_stream_method() -> ReliableStreamMethod {
 static mut kcp_conv_count: u8 = 0;
 
 unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
-    reliable_stream = flags & (1 << 30) > 0;
-    reliable_stream_method = ((flags >> 31) & 1) as u8;
+    reliable_stream = flags & RP_CONFIG_RELIABLE_STREAM_FLAG > 0;
+    reliable_stream_method = reliable_stream_kcp;
 
     set_packet_data_size();
 
@@ -381,7 +381,11 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, _kcp: *mut ikcpcb) ->
     } else {
         0
     };
-    let next_interval = min_send_interval_tick as s64 * len as s64 / PACKET_SIZE as s64;
+    let next_interval = if NWM_PROPORTIONAL_MIN_INTERVAL > 0 {
+        min_send_interval_tick as s64 * len as s64 / PACKET_SIZE as s64
+    } else {
+        min_send_interval_tick as s64
+    };
     if duration > 0 {
         svcSleepThread(duration);
         rp_output_next_tick = svcGetSystemTick() as s64 + next_interval;

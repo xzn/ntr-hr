@@ -189,20 +189,60 @@ socket_exit:
 	closesocket(fd);
 }
 
-static const char *getReliableStreamNameFromFlag(int flag) {
+enum ReliableStream {
+	ReliableStreamNone,
+	ReliableStreamOn,
+	ReliableStreamDelta,
+	ReliableStreamMin = ReliableStreamNone,
+	ReliableStreamMax = ReliableStreamDelta,
+};
+
+static enum ReliableStream getReliableStreamFromFlag(int flag) {
 	if (flag & RP_CONFIG_RELIABLE_STREAM_FLAG) {
-		return "On";
+		if (flag & RP_CONFIG_RELIABLE_STREAM_DELTA_PROG) {
+			return ReliableStreamDelta;
+		} else {
+			return ReliableStreamOn;
+		}
 	} else {
-		return "Off";
+		return ReliableStreamNone;
 	}
 }
 
-static const char *getReliableStreamDescFromFlag(int flag) {
-	if (flag & RP_CONFIG_RELIABLE_STREAM_FLAG) {
-		return "Require NTRViewer-HR.\nhttps://github.com/xzn/ntrviewer-hr/";
-	} else {
-		return 0;
-	}
+static int getFlagFromReliableStream(enum ReliableStream reliableStream) {
+	switch (reliableStream) {
+		default:
+        case ReliableStreamNone:
+			return 0;
+        case ReliableStreamOn:
+			return RP_CONFIG_RELIABLE_STREAM_FLAG;
+        case ReliableStreamDelta:
+			return RP_CONFIG_RELIABLE_STREAM_FLAG | RP_CONFIG_RELIABLE_STREAM_DELTA_PROG;
+    }
+}
+
+static const char *getReliableStreamName(enum ReliableStream reliableStream) {
+	switch (reliableStream) {
+		default:
+        case ReliableStreamNone:
+			return "Off";
+        case ReliableStreamOn:
+			return "On";
+        case ReliableStreamDelta:
+			return "On + Delta";
+    }
+}
+
+static const char *getReliableStreamDesc(enum ReliableStream reliableStream) {
+	switch (reliableStream) {
+		default:
+        case ReliableStreamNone:
+			return "Off: Better compatibility and\nless latency; may drop frames.";
+        case ReliableStreamOn:
+			return "On: Avoid dropping frames.\nNeed NTR Viewer HR.";
+        case ReliableStreamDelta:
+			return "Delta: Progressive delta encoding.";
+    }
 }
 
 int remotePlayMenu(u32 localaddr) {
@@ -268,8 +308,9 @@ int remotePlayMenu(u32 localaddr) {
 		char dstPortCaption[LOCAL_OPT_TEXT_BUF_SIZE];
 		xsnprintf(dstPortCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Port: %"PRId32, config.dstPort & 0xffff);
 
+		enum ReliableStream reliableStream = getReliableStreamFromFlag(config.dstPort & 0xffff0000);
 		char reliableStreamCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		xsnprintf(reliableStreamCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Reliable Stream: %s", getReliableStreamNameFromFlag(config.dstPort & 0xffff0000));
+		xsnprintf(reliableStreamCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Reliable Stream: %s", getReliableStreamName(reliableStream));
 
 		const char *captions[REMOTE_PLAY_MENU_COUNT];
 		captions[REMOTE_PLAY_MENU_CORE_COUNT] = coreCountCaption,
@@ -285,7 +326,7 @@ int remotePlayMenu(u32 localaddr) {
 
 		const char *descs[REMOTE_PLAY_MENU_COUNT] = { 0 };
 		descs[REMOTE_PLAY_MENU_THREAD_PRIORITY] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
-		descs[REMOTE_PLAY_MENU_RELIABLE_STREAM] = getReliableStreamDescFromFlag(config.dstPort & 0xffff0000);
+		descs[REMOTE_PLAY_MENU_RELIABLE_STREAM] = getReliableStreamDesc(reliableStream);
 
 		u32 keys;
 		select = showMenuEx2(titleCurrent, REMOTE_PLAY_MENU_COUNT, captions, descs, select, &keys);
@@ -445,11 +486,10 @@ int remotePlayMenu(u32 localaddr) {
 					dstFlag = dstPort & 0xffff0000;
 					dstPort &= 0xffff;
 				} else {
-					int dummy = 0;
-					dummy = menu_adjust_value_with_key(&dummy, keys, 1, 1);
-					if (dummy) {
-						dstFlag = ~dstFlag & RP_CONFIG_RELIABLE_STREAM_FLAG;
-					}
+					int options = getReliableStreamFromFlag(dstFlag);
+					menu_adjust_value_with_key(&options, keys, 1, 1);
+					options = CWRAP(options, ReliableStreamMin, ReliableStreamMax);
+					dstFlag = getFlagFromReliableStream(options);
 				}
 
 				dstPort |= dstFlag;

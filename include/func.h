@@ -10,6 +10,7 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define CLAMP(v, a, b) MAX(MIN((v), (b)), (a))
+#define CWRAP(v, a, b) ((v) < (a) ? (b) : (v) > (b) ? (a) : (v))
 
 #define ALIGN_TO_PAGE_SIZE(size) ((size) == 0 ? 0 : ((((size) - 1) / 0x1000) + 1) * 0x1000)
 #define PAGE_OF_ADDR(addr) ((addr) / 0x1000 * 0x1000)

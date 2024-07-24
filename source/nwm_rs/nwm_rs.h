@@ -19,3 +19,5 @@ struct rp_cb {
 	struct rp_syn_comp_func_t nwm_syn;
 	void *nwm_syn_data[SEND_BUFS_MP_COUNT];
 };
+
+#define NWM_PROPORTIONAL_MIN_INTERVAL 0
