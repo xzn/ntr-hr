@@ -180,13 +180,16 @@ typedef struct IQUEUEHEAD iqueue_head;
 
 #define IQUEUE_IS_EMPTY(entry) ((entry) == (entry)->next)
 
-#define iqueue_init		IQUEUE_INIT
-#define iqueue_entry	IQUEUE_ENTRY
-#define iqueue_add		IQUEUE_ADD
-#define iqueue_add_tail	IQUEUE_ADD_TAIL
-#define iqueue_del		IQUEUE_DEL
-#define iqueue_del_init	IQUEUE_DEL_INIT
+#define iqueue_init     IQUEUE_INIT
+#define iqueue_entry    IQUEUE_ENTRY
+#define iqueue_add      IQUEUE_ADD
+#define iqueue_add_tail IQUEUE_ADD_TAIL
+#define iqueue_del      IQUEUE_DEL
+#define iqueue_del_init IQUEUE_DEL_INIT
 #define iqueue_is_empty IQUEUE_IS_EMPTY
+
+#define iqueue_ins_before iqueue_add_tail
+#define iqueue_ins_after  iqueue_add
 
 #define IQUEUE_FOREACH(iterator, head, TYPE, MEMBER) \
 	for ((iterator) = iqueue_entry((head)->next, TYPE, MEMBER); \
