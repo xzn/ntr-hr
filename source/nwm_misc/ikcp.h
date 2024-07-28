@@ -286,6 +286,12 @@ struct IKCPSEG
 	char *data_buf;
 };
 
+struct ISNDLST
+{
+	struct IQUEUEHEAD lst;
+	struct IQUEUEHEAD *pos;
+};
+
 #include "constants.h"
 #include "mempool.h"
 
@@ -295,6 +301,9 @@ const unsigned RP_RECV_PACKET_SIZE = ROUND_UP(PACKET_SIZE, sizeof(void *));
 const unsigned SEND_BUFS_COUNT = SEND_BUFS_DATA_COUNT;
 const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
 
+#define RSND_COUNT_MAX 3
+#define ISNDLST_INIT(l) (iqueue_init(&(l).lst), (l).pos = &(l).lst)
+
 //---------------------------------------------------------------------
 // IKCPCB
 //---------------------------------------------------------------------
@@ -303,7 +312,8 @@ struct IKCPCB
 	IUINT16 cid;
 	IUINT16 pid;
 
-	struct IQUEUEHEAD snd_lst;
+	struct ISNDLST snd_lst;
+	struct ISNDLST rsnd_lsts[RSND_COUNT_MAX];
 
 	IUINT16 n_snd;
 	IUINT16 n_snd_max;

@@ -153,7 +153,10 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	kcp->cid = cid;
 	kcp->pid = 0;
 
-	iqueue_init(&kcp->snd_lst);
+	ISNDLST_INIT(kcp->snd_lst);
+	for (int i = 0; i < RSND_COUNT_MAX; ++i) {
+		ISNDLST_INIT(kcp->rsnd_lsts[i]);
+	}
 	kcp->n_snd = 0;
 	kcp->n_snd_max = SEND_BUFS_COUNT;
 	kcp->rp_output_retry = false;
@@ -200,7 +203,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	++kcp->pid;
 
 	iqueue_init(&seg->node);
-	iqueue_add_tail(&seg->node, &kcp->snd_lst);
+	iqueue_add_tail(&seg->node, &kcp->snd_lst.lst);
 	++kcp->n_snd;
 
 	return 0;
@@ -275,14 +278,15 @@ int ikcp_send_next(ikcpcb *kcp)
 	}
 
 	IKCPSEG *seg;
-	while (!iqueue_is_empty(&kcp->snd_lst)) {
-		seg = iqueue_entry(kcp->snd_lst.next, IKCPSEG, node);
+	if (!iqueue_is_empty(&kcp->snd_lst.lst)) {
+		seg = iqueue_entry(kcp->snd_lst.lst.next, IKCPSEG, node);
 		iqueue_del(&seg->node);
 		ikcp_segment_delete(kcp, seg);
 		--kcp->n_snd;
+		return 0;
 	}
 
-	return 0;
+	return -3;
 }
 
 
