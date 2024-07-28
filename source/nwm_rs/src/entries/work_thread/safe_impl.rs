@@ -269,17 +269,12 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
             }
             entries::thread_nwm::ReliableStreamMethod::KCP => {
                 let dst = if let Some(dst) = entries::thread_nwm::alloc_seg() {
-                    dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + DATA_HDR_SIZE) as usize)
+                    dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize)
                 } else {
                     return false;
                 };
 
-                let mut hdr = *vars.data_buf_hdr();
-
-                *hdr.get_unchecked_mut(0) = ctx.frame_id;
-                *hdr.get_unchecked_mut(1) = ctx.is_top as u8_;
-                *hdr.get_unchecked_mut(2) = (t.get() | get_core_count_in_use().get() << 4) as u8;
-                *hdr.get_unchecked_mut(3) = 0;
+                let hdr = ();
 
                 (jpeg::WorkderDstUser { hdr }, dst)
             }

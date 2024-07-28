@@ -281,7 +281,6 @@ typedef struct IQUEUEHEAD iqueue_head;
 struct IKCPSEG
 {
 	struct IQUEUEHEAD node;
-	IUINT16 cid;
 	IUINT16 pid;
 	char *data_buf;
 };
@@ -289,7 +288,7 @@ struct IKCPSEG
 struct ISNDLST
 {
 	struct IQUEUEHEAD lst;
-	struct IQUEUEHEAD *pos;
+	struct IQUEUEHEAD wak;
 };
 
 #include "constants.h"
@@ -302,7 +301,7 @@ const unsigned SEND_BUFS_COUNT = SEND_BUFS_DATA_COUNT;
 const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
 
 #define RSND_COUNT_MAX 3
-#define ISNDLST_INIT(l) (iqueue_init(&(l).lst), (l).pos = &(l).lst)
+#define ISNDLST_INIT(l) (iqueue_init(&(l).lst), iqueue_init(&(l).wak))
 
 //---------------------------------------------------------------------
 // IKCPCB
@@ -314,6 +313,7 @@ struct IKCPCB
 
 	struct ISNDLST snd_lst;
 	struct ISNDLST rsnd_lsts[RSND_COUNT_MAX];
+	struct IQUEUEHEAD snd_cur;
 
 	IUINT16 n_snd;
 	IUINT16 n_snd_max;

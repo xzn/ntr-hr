@@ -58,6 +58,11 @@ FECAL_EXPORT int fecal_encoder_size(void)
     return sizeof(fecal::Encoder);
 }
 
+FECAL_EXPORT int fecal_encoder_align(void)
+{
+    return alignof(fecal::Encoder);
+}
+
 FECAL_EXPORT int fecal_encoder_init(FecalEncoder encoder, unsigned input_count, void* const * const input_data, uint64_t total_bytes)
 {
     if (input_count <= 0 || !input_data || total_bytes < input_count)

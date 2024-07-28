@@ -16,8 +16,6 @@
 #include <stddef.h>
 #include <string.h>
 
-#define IKCP_FASTACK_CONSERVE
-
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -157,6 +155,7 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	for (int i = 0; i < RSND_COUNT_MAX; ++i) {
 		ISNDLST_INIT(kcp->rsnd_lsts[i]);
 	}
+	iqueue_init(&kcp->snd_cur);
 	kcp->n_snd = 0;
 	kcp->n_snd_max = SEND_BUFS_COUNT;
 	kcp->rp_output_retry = false;
@@ -198,7 +197,6 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	}
 
 	seg->data_buf = buffer;
-	seg->cid = kcp->cid;
 	seg->pid = kcp->pid;
 	++kcp->pid;
 
@@ -213,15 +211,6 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 //---------------------------------------------------------------------
 // parse ack
 //---------------------------------------------------------------------
-static void ikcp_parse_ack(ikcpcb *kcp, IUINT32 pid)
-{
-	struct IQUEUEHEAD *p, *next;
-}
-
-static void ikcp_parse_una(ikcpcb *kcp, IUINT32 pid)
-{
-	struct IQUEUEHEAD *p, *next;
-}
 
 
 //---------------------------------------------------------------------
@@ -257,26 +246,6 @@ static char *ikcp_encode_seg(char *ptr, const IKCPSEG *seg)
 //---------------------------------------------------------------------
 int ikcp_send_next(ikcpcb *kcp)
 {
-#define ARQ_PACKET_COUNT 1
-	void *data_ptr[ARQ_PACKET_COUNT] = { kcp };
-
-	char encoder_mem[fecal_encoder_size()];
-	FecalEncoder encoder = (FecalEncoder)encoder_mem;
-
-	if (fecal_encoder_init(encoder, ARQ_PACKET_COUNT, data_ptr, sizeof(ikcpcb)) != Fecal_Success) {
-		return -1;
-	}
-
-	char recovery_data[ARQ_DATA_SIZE] = { 0 };
-	FecalSymbol recovery = {
-		.Data = recovery_data,
-		.Bytes = ARQ_DATA_SIZE,
-		.Index = 0,
-	};
-	if (fecal_encode(encoder, &recovery) != Fecal_Success) {
-		return -2;
-	}
-
 	IKCPSEG *seg;
 	if (!iqueue_is_empty(&kcp->snd_lst.lst)) {
 		seg = iqueue_entry(kcp->snd_lst.lst.next, IKCPSEG, node);

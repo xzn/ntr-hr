@@ -123,6 +123,7 @@ typedef struct RecoveredSymbolsT
 // Encoder API
 
 FECAL_EXPORT int fecal_encoder_size(void);
+FECAL_EXPORT int fecal_encoder_align(void);
 
 /*
     fecal_encoder_create()

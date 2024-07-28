@@ -97,7 +97,7 @@ pub unsafe fn get_packet_data_size() -> usize {
 unsafe fn set_packet_data_size() {
     packet_data_size = match get_reliable_stream_method() {
         ReliableStreamMethod::None => (PACKET_SIZE - DATA_HDR_SIZE) as usize,
-        ReliableStreamMethod::KCP => (PACKET_SIZE - ARQ_OVERHEAD_SIZE - DATA_HDR_SIZE) as usize,
+        ReliableStreamMethod::KCP => (PACKET_SIZE - ARQ_OVERHEAD_SIZE) as usize,
     }
 }
 
@@ -277,17 +277,11 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
         }
         ReliableStreamMethod::KCP => {
             let cb = &mut *reliable_stream_cb;
-            let hdr = &mut dst.user.hdr;
             let dst = dst
                 .dst
-                .sub((rp_packet_data_size - dst.free_in_bytes as usize) + DATA_HDR_SIZE as usize);
-            if term {
-                *hdr.get_unchecked_mut(1) |= term_flag;
-            }
-            ptr::copy_nonoverlapping(hdr.as_mut_ptr(), dst, DATA_HDR_SIZE as usize);
-            *hdr.get_unchecked_mut(3) += 1;
+                .sub(rp_packet_data_size - dst.free_in_bytes as usize);
 
-            let size = size as u32 + DATA_HDR_SIZE;
+            let size = size as u32;
             ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
 
             while !entries::work_thread::reset_threads() {
@@ -306,7 +300,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
                 return true;
             } else {
                 if let Some(dst) = alloc_seg() {
-                    dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + DATA_HDR_SIZE) as usize)
+                    dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize)
                 } else {
                     return false;
                 }

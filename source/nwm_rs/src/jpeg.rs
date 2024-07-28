@@ -12,7 +12,7 @@ pub struct JpegShared {
 #[derive(Copy, Clone, ConstDefault)]
 pub union WorkderDstUser {
     pub info: *const crate::entries::NwmInfo,
-    pub hdr: [u8; DATA_HDR_SIZE as usize],
+    pub hdr: (),
 }
 
 #[derive(Clone, ConstDefault)]
