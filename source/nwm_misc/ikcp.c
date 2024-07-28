@@ -25,27 +25,6 @@
 //=====================================================================
 // KCP BASIC
 //=====================================================================
-const IUINT32 IKCP_RTO_NDL = 25000;		// no delay min rto
-const IUINT32 IKCP_RTO_MIN = 50000;		// normal min rto
-const IUINT32 IKCP_RTO_DEF = 100000;
-const IUINT32 IKCP_RTO_MAX = 2000000;
-const IUINT32 IKCP_CMD_PUSH = 81;		// cmd: push data
-const IUINT32 IKCP_CMD_ACK  = 82;		// cmd: ack
-const IUINT32 IKCP_CMD_WASK = 83;		// cmd: window probe (ask)
-const IUINT32 IKCP_CMD_WINS = 84;		// cmd: window size (tell)
-const IUINT32 IKCP_ASK_SEND = 1;		// need to send IKCP_CMD_WASK
-const IUINT32 IKCP_ASK_TELL = 2;		// need to send IKCP_CMD_WINS
-const IUINT32 IKCP_WND_SND = IKCP_WND_SND_MAX;
-const IUINT32 IKCP_WND_RCV = IKCP_WND_RCV_CONST;       // must >= max fragment size
-const IUINT32 IKCP_ACK_FAST	= 3;
-const IUINT32 IKCP_INTERVAL	= 100000;
-const IUINT32 IKCP_OVERHEAD = IKCP_OVERHEAD_CONST;
-const IUINT32 IKCP_DEADLINK = 20;
-const IUINT32 IKCP_THRESH_INIT = 2;
-const IUINT32 IKCP_THRESH_MIN = 2;
-const IUINT32 IKCP_PROBE_INIT = 1000000;		// secs to probe window size
-const IUINT32 IKCP_PROBE_LIMIT = 2000000;	// max secs to probe window
-const IUINT32 IKCP_FASTACK_LIMIT = 5;		// max times to trigger fastack
 
 
 //---------------------------------------------------------------------
@@ -158,13 +137,6 @@ static void ikcp_segment_delete(ikcpcb *kcp, IKCPSEG *seg)
 	mp_free(&kcp->seg_pool, seg);
 }
 
-// delete a segment
-static void ikcp_recv_segment_delete(ikcpcb *kcp, IKCPSEG *seg)
-{
-	free_recv_seg_data_buf(seg->data_buf);
-	mp_free(&kcp->seg_pool, seg);
-}
-
 // output segment
 static int ikcp_output(ikcpcb *kcp, void *data, int size)
 {
@@ -185,13 +157,13 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	iqueue_init(&kcp->wak_lst);
 	kcp->n_snd = 0;
 	kcp->n_wak = 0;
-	kcp->n_snd_max = IKCP_WND_SND_MAX;
+	kcp->n_snd_max = SEND_BUFS_COUNT;
 
 	int ret;
 
 	ret = mp_init(
-		IKCP_SEG_MEM_SIZE_CONST,
-		IKCP_WND_SND_MAX,
+		ARQ_SEG_SIZE,
+		SEND_BUFS_COUNT,
 		kcp->seg_mem,
 		&kcp->seg_pool);
 	if (ret != 0)
@@ -210,7 +182,7 @@ int ikcp_send(ikcpcb *kcp, char *buffer, int len)
 
 	if (len <= 0) return -1;
 
-	if (len > PACKET_SIZE - IKCP_OVERHEAD_CONST) {
+	if (len > ARQ_DATA_SIZE) {
 		return -2;
 	}
 
@@ -270,7 +242,7 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 //---------------------------------------------------------------------
 static char *ikcp_encode_seg(char *ptr, const IKCPSEG *seg)
 {
-	return ptr + IKCP_OVERHEAD_CONST;
+	return ptr + ARQ_OVERHEAD_SIZE;
 }
 
 
@@ -279,6 +251,7 @@ static char *ikcp_encode_seg(char *ptr, const IKCPSEG *seg)
 //---------------------------------------------------------------------
 int ikcp_flush(ikcpcb *kcp)
 {
+#define ARQ_PACKET_COUNT 1
 	void *data_ptr[ARQ_PACKET_COUNT] = { kcp };
 
 	char encoder_mem[fecal_encoder_size()];
@@ -314,7 +287,7 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd)
 {
 	if (kcp) {
 		if (sndwnd > 0) {
-			kcp->n_snd_max = _imin_(sndwnd, IKCP_WND_SND_MAX);
+			kcp->n_snd_max = _imin_(sndwnd, SEND_BUFS_COUNT);
 		}
 	}
 	return 0;

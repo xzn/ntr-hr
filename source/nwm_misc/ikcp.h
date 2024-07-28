@@ -292,8 +292,8 @@ struct IKCPSEG
 const unsigned NWM_PACKET_SIZE = ROUND_UP(PACKET_SIZE + NWM_HDR_SIZE, sizeof(void *));
 const unsigned RP_RECV_PACKET_SIZE = ROUND_UP(PACKET_SIZE, sizeof(void *));
 
-const unsigned SEND_BUFS_COUNT = IKCP_WND_SND_MAX;
-const unsigned SEND_BUFS_SIZE = SEND_BUFS_MP_COUNT * NWM_PACKET_SIZE;
+const unsigned SEND_BUFS_COUNT = SEND_BUFS_DATA_COUNT;
+const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
 
 //---------------------------------------------------------------------
 // IKCPCB
@@ -310,7 +310,7 @@ struct IKCPCB
 	IUINT16 n_wak;
 	IUINT16 n_snd_max;
 
-	char seg_mem[IKCP_WND_SND_MAX + IKCP_WND_RCV_CONST][IKCP_SEG_MEM_SIZE_CONST] ALIGNED(sizeof(void *));
+	char seg_mem[SEND_BUFS_DATA_COUNT][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
 	mp_pool_t seg_pool;
 };
 
@@ -322,7 +322,6 @@ extern "C" {
 #endif
 
 void free_seg_data_buf(const char *data_buf);
-void free_recv_seg_data_buf(const char *data_buf);
 
 extern int rp_udp_output(char *buf, int len, ikcpcb *kcp);
 

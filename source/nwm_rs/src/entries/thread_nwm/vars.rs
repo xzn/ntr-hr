@@ -97,7 +97,7 @@ pub unsafe fn get_packet_data_size() -> usize {
 unsafe fn set_packet_data_size() {
     packet_data_size = match get_reliable_stream_method() {
         ReliableStreamMethod::None => (PACKET_SIZE - DATA_HDR_SIZE) as usize,
-        ReliableStreamMethod::KCP => (PACKET_SIZE - IKCP_OVERHEAD_CONST - DATA_HDR_SIZE) as usize,
+        ReliableStreamMethod::KCP => (PACKET_SIZE - ARQ_OVERHEAD_SIZE - DATA_HDR_SIZE) as usize,
     }
 }
 
@@ -306,7 +306,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
                 return true;
             } else {
                 if let Some(dst) = alloc_seg() {
-                    dst.add((NWM_HDR_SIZE + IKCP_OVERHEAD_CONST + DATA_HDR_SIZE) as usize)
+                    dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + DATA_HDR_SIZE) as usize)
                 } else {
                     return false;
                 }
@@ -417,7 +417,7 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
 #[no_mangle]
 #[named]
 unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
-    let recv_buf = if let Some(dst) = alloc_recv_seg() {
+    let recv_buf = if let Some(dst) = get_recv_seg() {
         dst
     } else {
         return -1;
@@ -427,17 +427,14 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
 
     if ret == 0 {
         nsDbgPrint!(nwmInputNothing);
-        free_recv_seg(recv_buf);
         return 0;
     } else if ret < 0 {
         nsDbgPrint!(nwmInputFailed, ret as i32, *__errno());
-        free_recv_seg(recv_buf);
         return 0;
     }
 
     match get_reliable_stream_method() {
         ReliableStreamMethod::None => {
-            free_recv_seg(recv_buf);
             return 0;
         }
         ReliableStreamMethod::KCP => {
@@ -454,14 +451,11 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
                 #[allow(unreachable_code)]
                 if todo!() {
                     nsDbgPrint!(kcpInputFailed, ret);
-                    free_recv_seg(recv_buf);
                     return -1;
                 } else {
-                    free_recv_seg(recv_buf);
                     return 0;
                 }
             }
-            free_recv_seg(recv_buf);
             drop(nwm_lock);
             let _ = svcSignalEvent(reliable_stream_cb_evt);
         }
@@ -559,54 +553,18 @@ unsafe fn free_seg(dst: *const ::libc::c_char) {
     let _ = svcReleaseMutex(seg_mem_lock);
 }
 
-#[named]
-unsafe fn alloc_recv_seg() -> Option<*mut c_char> {
+unsafe fn get_recv_seg() -> Option<*mut c_char> {
     if !recv_seg_mem_inited.load(Ordering::Acquire) {
         return None;
     }
 
-    thread_wait_sync(recv_seg_mem_sem)?;
-    thread_wait_sync(recv_seg_mem_lock)?;
-
     let cb = &mut *reliable_stream_cb;
-    let dst = mp_malloc(&mut cb.recv_pool) as *mut u8;
-    if dst == ptr::null_mut() {
-        nsDbgPrint!(mpAllocFailed, c_str!("recv_pool"));
-        crate::entries::work_thread::set_reset_threads_ar();
-        let _ = svcReleaseMutex(recv_seg_mem_lock);
-        return None;
-    }
-
-    let _ = svcReleaseMutex(recv_seg_mem_lock);
-    Some(dst)
-}
-
-#[named]
-unsafe fn free_recv_seg(dst: *const ::libc::c_char) {
-    if thread_wait_sync(recv_seg_mem_lock) == None {
-        return;
-    }
-
-    let cb = &mut *reliable_stream_cb;
-    if mp_free(&mut cb.recv_pool, dst as *mut _) < 0 {
-        nsDbgPrint!(mpFreeFailed, c_str!("recv_pool"));
-        let _ = svcReleaseMutex(recv_seg_mem_lock);
-        return;
-    }
-    let mut count = mem::MaybeUninit::uninit();
-    let _ = svcReleaseSemaphore(count.as_mut_ptr(), recv_seg_mem_sem, 1);
-
-    let _ = svcReleaseMutex(recv_seg_mem_lock);
+    Some(cb.recv_buf.as_mut_ptr())
 }
 
 #[no_mangle]
 unsafe extern "C" fn free_seg_data_buf(data_buf: *const ::libc::c_char) {
-    free_seg(data_buf.sub((NWM_HDR_SIZE + IKCP_OVERHEAD_CONST) as usize) as *mut _)
-}
-
-#[no_mangle]
-unsafe extern "C" fn free_recv_seg_data_buf(data_buf: *const ::libc::c_char) {
-    free_recv_seg(data_buf.sub(IKCP_OVERHEAD_CONST as usize) as *mut _)
+    free_seg(data_buf.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize) as *mut _)
 }
 
 #[named]

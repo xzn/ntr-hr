@@ -12,12 +12,11 @@ void __system_initSyscalls(void);
 
 struct rp_cb {
 	struct IKCPCB ikcp;
-	char send_bufs[SEND_BUFS_MP_COUNT][NWM_PACKET_SIZE] ALIGNED(sizeof(void *));
-	char recv_bufs[IKCP_WND_RCV_CONST][RP_RECV_PACKET_SIZE] ALIGNED(sizeof(void *));
+	char send_bufs[SEND_BUFS_COUNT][NWM_PACKET_SIZE] ALIGNED(sizeof(void *));
+	char recv_buf[RP_RECV_PACKET_SIZE] ALIGNED(sizeof(void *));
 	mp_pool_t send_pool;
-	mp_pool_t recv_pool;
 	struct rp_syn_comp_func_t nwm_syn;
-	void *nwm_syn_data[SEND_BUFS_MP_COUNT];
+	void *nwm_syn_data[SEND_BUFS_COUNT];
 };
 
-#define NWM_PROPORTIONAL_MIN_INTERVAL 0
+#define NWM_PROPORTIONAL_MIN_INTERVAL 1

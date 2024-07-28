@@ -77,6 +77,4 @@ pub static mut reliable_stream_cb_lock: Handle = 0;
 pub static mut reliable_stream_cb_evt: Handle = 0;
 pub static mut seg_mem_sem: Handle = 0;
 pub static mut seg_mem_lock: Handle = 0;
-pub static mut recv_seg_mem_sem: Handle = 0;
-pub static mut recv_seg_mem_lock: Handle = 0;
 pub static mut recv_seg_mem_inited: AtomicBool = const_default();

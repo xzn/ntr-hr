@@ -57,6 +57,7 @@ mod first_time_init {
 
             cb.nwm_syn.sem = 0;
             cb.nwm_syn.mutex = 0;
+            recv_seg_mem_inited.store(true, Ordering::Release);
         } else {
             return None;
         }
@@ -121,30 +122,6 @@ mod first_time_init {
             nsDbgPrint!(createNwmRecvEventFailed, res);
             return None;
         }
-
-        let cb = &mut (*reliable_stream_cb);
-        if mp_init(
-            (*cb.recv_bufs.as_ptr()).len(),
-            cb.recv_bufs.len(),
-            cb.recv_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
-            &mut cb.recv_pool,
-        ) < 0
-        {
-            nsDbgPrint!(mpInitFailed, c_str!("recv_pool"));
-            return None;
-        }
-        let recv_bufs_len = cb.recv_bufs.len() as i32;
-        let res = svcCreateSemaphore(&mut recv_seg_mem_sem, recv_bufs_len, recv_bufs_len);
-        if res != 0 {
-            nsDbgPrint!(createSemaphoreFailed, c_str!("recv_seg_mem_sem"), res);
-            return None;
-        }
-        let res = svcCreateMutex(&mut recv_seg_mem_lock, false);
-        if res != 0 {
-            nsDbgPrint!(createMutexFailed, c_str!("recv_seg_mem_lock"), res);
-            return None;
-        }
-        recv_seg_mem_inited.store(true, Ordering::Release);
 
         let aux1Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
         let aux2Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
