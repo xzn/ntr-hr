@@ -97,7 +97,7 @@ pub unsafe fn get_packet_data_size() -> usize {
 unsafe fn set_packet_data_size() {
     packet_data_size = match get_reliable_stream_method() {
         ReliableStreamMethod::None => (PACKET_SIZE - DATA_HDR_SIZE) as usize,
-        ReliableStreamMethod::KCP => (PACKET_SIZE - ARQ_OVERHEAD_SIZE) as usize,
+        ReliableStreamMethod::KCP => (PACKET_SIZE - ARQ_OVERHEAD_SIZE - ARQ_DATA_HDR_SIZE) as usize,
     }
 }
 
@@ -300,7 +300,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
                 return true;
             } else {
                 if let Some(dst) = alloc_seg() {
-                    dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize)
+                    dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize)
                 } else {
                     return false;
                 }
@@ -571,7 +571,7 @@ unsafe fn get_recv_seg() -> Option<*mut c_char> {
 
 #[no_mangle]
 unsafe extern "C" fn free_seg_data_buf(data_buf: *const ::libc::c_char) {
-    free_seg(data_buf.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize) as *mut _)
+    free_seg(data_buf.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize) as *mut _)
 }
 
 #[named]
