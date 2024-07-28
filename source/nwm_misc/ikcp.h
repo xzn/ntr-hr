@@ -304,11 +304,10 @@ struct IKCPCB
 	IUINT16 pid;
 
 	struct IQUEUEHEAD snd_lst;
-	struct IQUEUEHEAD wak_lst;
 
 	IUINT16 n_snd;
-	IUINT16 n_wak;
 	IUINT16 n_snd_max;
+	bool rp_output_retry;
 
 	char seg_mem[SEND_BUFS_DATA_COUNT][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
 	mp_pool_t seg_pool;
@@ -335,13 +334,13 @@ extern int rp_udp_output(char *buf, int len, ikcpcb *kcp);
 int ikcp_create(ikcpcb* kcp, IUINT16 cid);
 
 // user/upper level send, returns at/below zero for error
-int ikcp_send(ikcpcb *kcp, char *buffer, int len);
+int ikcp_queue(ikcpcb *kcp, char *buffer, int len);
 
 // when you received a low level packet (eg. UDP packet), call it
 int ikcp_input(ikcpcb *kcp, char *data, long size);
 
 // flush pending data
-int ikcp_flush(ikcpcb *kcp);
+int ikcp_send_next(ikcpcb *kcp);
 
 // set maximum window size
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd);

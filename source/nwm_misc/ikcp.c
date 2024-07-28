@@ -154,10 +154,9 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	kcp->pid = 0;
 
 	iqueue_init(&kcp->snd_lst);
-	iqueue_init(&kcp->wak_lst);
 	kcp->n_snd = 0;
-	kcp->n_wak = 0;
 	kcp->n_snd_max = SEND_BUFS_COUNT;
+	kcp->rp_output_retry = false;
 
 	int ret;
 
@@ -176,7 +175,7 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 //---------------------------------------------------------------------
 // user/upper level send, returns at/below zero for error
 //---------------------------------------------------------------------
-int ikcp_send(ikcpcb *kcp, char *buffer, int len)
+int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 {
 	IKCPSEG *seg;
 
@@ -184,6 +183,10 @@ int ikcp_send(ikcpcb *kcp, char *buffer, int len)
 
 	if (len > ARQ_DATA_SIZE) {
 		return -2;
+	}
+
+	if (ikcp_waitsnd(kcp) >= kcp->n_snd_max) {
+		return -4;
 	}
 
 	seg = ikcp_segment_new(kcp);
@@ -249,7 +252,7 @@ static char *ikcp_encode_seg(char *ptr, const IKCPSEG *seg)
 //---------------------------------------------------------------------
 // ikcp_flush
 //---------------------------------------------------------------------
-int ikcp_flush(ikcpcb *kcp)
+int ikcp_send_next(ikcpcb *kcp)
 {
 #define ARQ_PACKET_COUNT 1
 	void *data_ptr[ARQ_PACKET_COUNT] = { kcp };
@@ -295,6 +298,6 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd)
 
 int ikcp_waitsnd(const ikcpcb *kcp)
 {
-	return kcp->n_snd + kcp->n_wak;
+	return kcp->n_snd;
 }
 

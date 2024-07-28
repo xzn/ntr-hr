@@ -368,7 +368,7 @@ static mut rp_output_next_tick: s64 = 0;
 
 #[no_mangle]
 #[named]
-unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, _kcp: *mut ikcpcb) -> s32 {
+unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> s32 {
     if len > PACKET_SIZE as s32 {
         nsDbgPrint!(nwmOutputOverflow, len);
         return 0;
@@ -387,7 +387,20 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, _kcp: *mut ikcpcb) ->
         min_send_interval_tick as s64
     };
     if duration > 0 {
-        svcSleepThread(duration);
+        nwm_cb_unlock();
+        let res = svcWaitSynchronization(reliable_stream_cb_evt, duration);
+        if res != 0 && res != RES_TIMEOUT as s32 {
+            nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
+            crate::entries::work_thread::set_reset_threads_ar();
+            return -2;
+        }
+        if nwm_cb_lock() == None {
+            crate::entries::work_thread::set_reset_threads_ar();
+            return -1;
+        }
+        if res == 0 || (*kcp).rp_output_retry {
+            return -3;
+        }
         rp_output_next_tick = svcGetSystemTick() as s64 + next_interval;
     } else {
         rp_output_next_tick = curr_tick + next_interval;
@@ -593,7 +606,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                 let mut size = 0;
                 ptr::copy_nonoverlapping(dst.sub(mem::size_of::<u32>()) as *const _, &mut size, 1);
 
-                let ret = ikcp_send(kcp, dst, size as i32);
+                let ret = ikcp_queue(kcp, dst, size as i32);
                 if ret < 0 {
                     // Reset KCP
                     nsDbgPrint!(kcpSendFailed, ret);
@@ -602,7 +615,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     return false;
                 }
 
-                let ret = ikcp_flush(kcp);
+                let ret = ikcp_send_next(kcp);
                 if ret < 0 {
                     // Reset KCP
                     nsDbgPrint!(kcpFlushFailed, ret);
@@ -613,19 +626,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                 break;
             } else {
                 // Wait
-                nwm_cb_unlock();
-
-                let res = svcWaitSynchronization(reliable_stream_cb_evt, THREAD_WAIT_NS);
-                if res != 0 && res != RES_TIMEOUT as s32 {
-                    nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
-                    crate::entries::work_thread::set_reset_threads_ar();
-                    return false;
-                }
-                if nwm_cb_lock() == None {
-                    crate::entries::work_thread::set_reset_threads_ar();
-                    return false;
-                }
-                let ret = ikcp_flush(kcp);
+                let ret = ikcp_send_next(kcp);
                 if ret < 0 {
                     // Reset KCP
                     nsDbgPrint!(kcpFlushFailed, ret);
