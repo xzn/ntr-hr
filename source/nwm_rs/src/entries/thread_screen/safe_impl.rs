@@ -150,6 +150,7 @@ unsafe fn capture_screen(is_top: bool, cap_info: &CapInfo, dst: u32, w: WorkInde
 
     let format = cap_info.format & 0xf;
 
+    // Skip if handling of format unimplemented
     if format > 3 {
         svcSleepThread(THREAD_WAIT_NS);
         return false;

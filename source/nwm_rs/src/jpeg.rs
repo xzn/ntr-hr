@@ -10,9 +10,19 @@ pub struct JpegShared {
 }
 
 #[derive(Copy, Clone, ConstDefault)]
+pub struct ArqRpHdr();
+
+impl ArqRpHdr {
+    pub unsafe fn write_hdr(&self, dst: *mut u8) {
+        let hdr: [u8; ARQ_DATA_HDR_SIZE as usize] = const_default();
+        ptr::copy_nonoverlapping(hdr.as_ptr(), dst, ARQ_DATA_HDR_SIZE as usize);
+    }
+}
+
+#[derive(Copy, Clone, ConstDefault)]
 pub union WorkderDstUser {
     pub info: *const crate::entries::NwmInfo,
-    pub hdr: (),
+    pub hdr: ArqRpHdr,
 }
 
 #[derive(Clone, ConstDefault)]

@@ -10,7 +10,7 @@
 //
 //=====================================================================
 #include "ikcp.h"
-#include "fecal.h"
+// #include "fecal.h"
 #include "constants.h"
 
 #include <stddef.h>
@@ -150,6 +150,7 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 {
 	kcp->cid = cid;
 	kcp->pid = 0;
+	kcp->qid = 0;
 
 	ISNDLST_INIT(kcp->snd_lst);
 	for (int i = 0; i < RSND_COUNT_MAX; ++i) {
@@ -198,6 +199,12 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 
 	seg->data_buf = buffer;
 	seg->pid = kcp->pid;
+	seg->qid = 0;
+	seg->fid = 0;
+	seg->fty = 0;
+	seg->gid = 0;
+	seg->wsn = 0;
+	seg->wrn = 0;
 	++kcp->pid;
 
 	iqueue_init(&seg->node);
@@ -246,16 +253,7 @@ static char *ikcp_encode_seg(char *ptr, const IKCPSEG *seg)
 //---------------------------------------------------------------------
 int ikcp_send_next(ikcpcb *kcp)
 {
-	IKCPSEG *seg;
-	if (!iqueue_is_empty(&kcp->snd_lst.lst)) {
-		seg = iqueue_entry(kcp->snd_lst.lst.next, IKCPSEG, node);
-		iqueue_del(&seg->node);
-		ikcp_segment_delete(kcp, seg);
-		--kcp->n_snd;
-		return 0;
-	}
-
-	return -3;
+	return 0;
 }
 
 

@@ -274,7 +274,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
                     return false;
                 };
 
-                let hdr = ();
+                let hdr = const_default();
 
                 (jpeg::WorkderDstUser { hdr }, dst)
             }

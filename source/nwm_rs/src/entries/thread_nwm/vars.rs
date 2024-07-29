@@ -277,9 +277,12 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
         }
         ReliableStreamMethod::KCP => {
             let cb = &mut *reliable_stream_cb;
+            let hdr = &dst.user.hdr;
             let dst = dst
                 .dst
-                .sub(rp_packet_data_size - dst.free_in_bytes as usize);
+                .sub(rp_packet_data_size - dst.free_in_bytes as usize)
+                .sub(ARQ_DATA_HDR_SIZE as usize);
+            hdr.write_hdr(dst);
 
             let size = size as u32;
             ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
@@ -571,7 +574,7 @@ unsafe fn get_recv_seg() -> Option<*mut c_char> {
 
 #[no_mangle]
 unsafe extern "C" fn free_seg_data_buf(data_buf: *const ::libc::c_char) {
-    free_seg(data_buf.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize) as *mut _)
+    free_seg(data_buf.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize) as *mut _)
 }
 
 #[named]

@@ -281,7 +281,13 @@ typedef struct IQUEUEHEAD iqueue_head;
 struct IKCPSEG
 {
 	struct IQUEUEHEAD node;
-	IUINT16 pid;
+	IUINT16 pid; // packet id
+	IUINT16 qid; // query id
+	IUINT16 fid; // fec packet (group) id
+	IUINT8 fty; // fec type
+	IUINT8 gid; // fec id within packet group
+	IUINT8 wsn; // wait send count
+	IUINT8 wrn; // wait resend count
 	char *data_buf;
 };
 
@@ -308,8 +314,9 @@ const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
 //---------------------------------------------------------------------
 struct IKCPCB
 {
-	IUINT16 cid;
-	IUINT16 pid;
+	IUINT16 cid; // conversation id
+	IUINT16 pid; // next packet id
+	IUINT16 qid; // next query id (internal send index)
 
 	struct ISNDLST snd_lst;
 	struct ISNDLST rsnd_lsts[RSND_COUNT_MAX];
