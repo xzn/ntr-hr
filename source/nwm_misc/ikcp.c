@@ -235,15 +235,6 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 //---------------------------------------------------------------------
 int ikcp_input(ikcpcb *kcp, char *data, long size)
 {
-	IKCPSEG *seg;
-	if (!iqueue_is_empty(&kcp->snd_lst.lst)) {
-		seg = iqueue_entry(kcp->snd_lst.lst.next, IKCPSEG, node);
-		iqueue_del(&seg->node);
-		ikcp_segment_delete(kcp, seg);
-		--kcp->n_snd;
-		return 0;
-	}
-
 	return -3;
 }
 
@@ -262,7 +253,21 @@ static char *ikcp_encode_seg(char *ptr, const IKCPSEG *seg)
 //---------------------------------------------------------------------
 int ikcp_send_next(ikcpcb *kcp)
 {
-	return 0;
+	IKCPSEG *seg;
+	if (!iqueue_is_empty(&kcp->snd_lst.lst)) {
+		seg = iqueue_entry(kcp->snd_lst.lst.next, IKCPSEG, node);
+
+		int res = rp_udp_output(seg->data_buf - ARQ_OVERHEAD_SIZE, 0, kcp);
+		if (res)
+			return res;
+
+		iqueue_del(&seg->node);
+		ikcp_segment_delete(kcp, seg);
+		--kcp->n_snd;
+		return 0;
+	}
+
+	return -1;
 }
 
 
