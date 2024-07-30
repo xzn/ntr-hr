@@ -343,6 +343,8 @@ int __attribute__((weak)) nsControlRecv(int) {
 }
 
 static void nsMainLoop(u32 listenPort) {
+	const int is_nwm = getCurrentProcessId() == 0x1a; // nwm process
+
 	while (1) {
 		s32 nwm_recv_sock = -1;
 		s32 listen_sock, ret, tmp, sockfd;
@@ -366,7 +368,7 @@ static void nsMainLoop(u32 listenPort) {
 			goto end_listen;
 		}
 
-		if (listenPort == NS_MENU_LISTEN_PORT) {
+		if (listenPort == NS_MENU_LISTEN_PORT || is_nwm) {
 			tmp = fcntl(listen_sock, F_GETFL);
 			fcntl(listen_sock, F_SETFL, tmp | O_NONBLOCK);
 		}
@@ -376,8 +378,6 @@ static void nsMainLoop(u32 listenPort) {
 			showDbg("listen failed: %08"PRIx32, (u32)errno);
 			goto end_listen;
 		}
-
-		int is_nwm = getCurrentProcessId() == 0x1a; // nwm process
 
 		if (is_nwm) {
 			nwm_recv_sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -432,8 +432,10 @@ static void nsMainLoop(u32 listenPort) {
 				}
 				nsContext->hSocket = sockfd;
 
-				tmp = fcntl(sockfd, F_GETFL, 0);
-				fcntl(sockfd, F_SETFL, tmp & ~O_NONBLOCK);
+				if (listenPort == NS_MENU_LISTEN_PORT) {
+					tmp = fcntl(sockfd, F_GETFL, 0);
+					fcntl(sockfd, F_SETFL, tmp & ~O_NONBLOCK);
+				}
 
 				while (1) {
 					POLL2(sockfd) {

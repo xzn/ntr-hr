@@ -68,20 +68,7 @@ pub unsafe fn get_jpeg() -> &'static mut crate::jpeg::Jpeg {
 }
 
 pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
-pub type RowProgresses = RangedArray<AtomicU32, RP_CORE_COUNT_MAX>;
-
-#[derive(ConstDefault)]
-pub struct LoadAndProgress {
-    pub n: Fix32,
-    pub n_last: Fix32,
-    pub n_adjusted: Fix32,
-    pub n_last_adjusted: Fix32,
-    pub v_adjusted: u32_,
-    pub v_last_adjusted: u32_,
-    pub p: RowProgresses,
-    pub p_snapshot: RowIndexes,
-}
-
+pub type LoadAndProgress = RangedArray<u32_, RP_CORE_COUNT_MAX>;
 pub type LoadAndProgresses = RangedArray<LoadAndProgress, WORK_COUNT>;
 static mut load_and_progresses: LoadAndProgresses = const_default();
 
@@ -125,16 +112,8 @@ pub unsafe fn reset_vars() {
             *info.pos.as_ptr() = buf;
             *info.flag.as_ptr() = 0;
 
-            *(*load.p.get_mut(&j)).as_ptr() = 0;
-            *load.p_snapshot.get_mut(&j) = 0;
+            *load.get_mut(&j) = 1;
         }
-
-        load.n.0 = 0;
-        load.n_last.0 = 0;
-        load.n_adjusted.0 = 0;
-        load.n_last_adjusted.0 = 0;
-        load.v_adjusted = 0;
-        load.v_last_adjusted = 0;
     }
 }
 
@@ -178,12 +157,6 @@ impl ThreadDoVars {
 
             let f = syn.work_done_count.fetch_add(1, Ordering::Relaxed);
             let core_count = get_core_count_in_use();
-            if f == 0 {
-                let p = load_and_progresses.get_mut(&w);
-                for j in ThreadId::up_to(&core_count) {
-                    *p.p_snapshot.get_mut(&j) = p.p.get_mut(&j).load(Ordering::Relaxed);
-                }
-            }
             if f == core_count.get() - 1 {
                 syn.work_done_count.store(0, Ordering::Relaxed);
                 syn.work_begin_flag.store(false, Ordering::Relaxed);

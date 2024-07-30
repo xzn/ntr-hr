@@ -235,7 +235,16 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 //---------------------------------------------------------------------
 int ikcp_input(ikcpcb *kcp, char *data, long size)
 {
-	return 0;
+	IKCPSEG *seg;
+	if (!iqueue_is_empty(&kcp->snd_lst.lst)) {
+		seg = iqueue_entry(kcp->snd_lst.lst.next, IKCPSEG, node);
+		iqueue_del(&seg->node);
+		ikcp_segment_delete(kcp, seg);
+		--kcp->n_snd;
+		return 0;
+	}
+
+	return -3;
 }
 
 

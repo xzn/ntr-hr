@@ -27,7 +27,7 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
                 }
 
                 v.ready_next();
-                if !ready_work(&v) {
+                if !ready_work(&v, &t) {
                     return None;
                 }
 
@@ -87,22 +87,16 @@ fn ready_nwm(v: &ThreadBeginVars) -> bool {
     }
 }
 
-fn ready_work(v: &ThreadBeginVars) -> bool {
+fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
     unsafe {
         let ctx = v.ctx();
         let w = v.v().work_index();
-
-        let mut work_index = w;
-        work_index.prev_wrapped();
 
         let core_count = get_core_count_in_use();
         let core_count_rest = core_count.get() - 1;
         let thread_id_last = ThreadId::init_unchecked(core_count_rest);
 
         let l = v.load_and_progresses().get_mut(&w);
-        for j in ThreadId::up_to(&core_count) {
-            l.p.get_mut(&j).store(0, Ordering::Relaxed);
-        }
 
         let mcu_size = crate::jpeg::vars::DCTSIZE as u32_ * JPEG_SAMP_FACTOR as u32_;
         let mcus_per_row = ctx.width() / mcu_size;
@@ -110,71 +104,50 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
         let mcu_rows_per_thread =
             core::intrinsics::unchecked_div(mcu_rows + core_count.get() - 1, core_count.get());
 
-        l.n = Fix::fix32(mcu_rows_per_thread);
-        l.n_last = Fix::fix32(mcu_rows - mcu_rows_per_thread * core_count_rest);
+        let n = mcu_rows_per_thread;
+        let n_last = mcu_rows - mcu_rows_per_thread * core_count_rest;
 
-        let p = v.load_and_progresses().get(&work_index);
+        let (v_adjusted, v_last_adjusted) = if core_count.get() > 1 {
+            let mut rows;
+            let mut rows_last;
 
-        if core_count.get() > 1 && p.n.0 > 0 {
-            let mut rows = Fix::load_from_u32(l.n);
-            let mut rows_last = Fix::load_from_u32(l.n_last);
-
-            let s = p.p_snapshot;
-            let progress_last = *s.get(&thread_id_last);
-
-            let mut progress_all = Fix::fix(0);
-            for j in ThreadId::up_to(&core_count) {
-                progress_all = progress_all + Fix::fix(*s.get(&j));
+            let mut load_max = 0;
+            for j in ThreadId::up_to(&thread_id_last) {
+                load_max = core::cmp::max(load_max, *l.get(&j));
             }
-            progress_all = progress_all / Fix::fix(core_count.get());
+            let load_last = *l.get(&thread_id_last);
 
-            progress_all = cmp::max(progress_all, Fix::fix(1));
+            let f = load_max as u64 * core_count_rest as u64 + load_last as u64;
+            if t.get() < thread_id_last.get() {
+                rows_last = ((mcu_rows as u64 * load_last as u64 + f - 1) / f) as u32;
 
-            if progress_last < progress_all.unfix() {
-                rows_last = rows_last * Fix::fix(progress_last) / progress_all
-                    * Fix::load_from_u32(l.n_last)
-                    / Fix::load_from_u32(p.n_last);
-
-                if rows_last < Fix::fix(1) {
-                    rows_last = Fix::fix(1)
-                } else if rows_last > Fix::load_from_u32(l.n_last) {
-                    rows_last = Fix::load_from_u32(l.n_last)
+                if rows_last < 1 {
+                    rows_last = 1
+                } else if rows_last > n_last {
+                    rows_last = n_last
                 }
 
-                rows = (Fix::fix(mcu_rows) - rows_last) / Fix::fix(core_count_rest);
+                rows = mcu_rows - rows_last / core_count_rest;
             } else {
-                let mut progress_rest = 0;
-                for j in ThreadId::up_to(&thread_id_last) {
-                    progress_rest += s.get(&j);
-                }
-                rows = rows * Fix::fix(progress_rest) / Fix::fix(core_count_rest) / progress_all
-                    * Fix::load_from_u32(l.n)
-                    / Fix::load_from_u32(p.n);
+                rows = ((mcu_rows as u64 * load_max as u64 + f - 1) / f) as u32;
             }
 
-            if rows < Fix::fix(mcu_rows_per_thread) {
-                rows = Fix::fix(mcu_rows_per_thread)
+            if rows < mcu_rows_per_thread {
+                rows = mcu_rows_per_thread
             } else {
                 let rows_max = core::intrinsics::unchecked_div(mcu_rows - 1, core_count_rest);
-                if rows > Fix::fix(rows_max) {
-                    rows = Fix::fix(rows_max);
+                if rows > rows_max {
+                    rows = rows_max;
                 }
             }
 
-            l.n_adjusted = rows.store_to_u32();
-            l.n_last_adjusted =
-                (Fix::fix(mcu_rows) - rows * Fix::fix(core_count_rest)).store_to_u32();
-            l.v_adjusted = Fix::load_from_u32(l.n_adjusted).unfix();
-            l.v_last_adjusted = mcu_rows - l.v_adjusted * core_count_rest;
+            (rows, mcu_rows - rows * core_count_rest)
         } else {
-            l.n_adjusted = l.n;
-            l.v_adjusted = Fix::load_from_u32(l.n).unfix();
-            l.n_last_adjusted = l.n_last;
-            l.v_last_adjusted = Fix::load_from_u32(l.n_last).unfix();
-        }
+            (n, n_last)
+        };
 
         for j in ThreadId::up_to(&core_count) {
-            let restart_in_rows = l.v_adjusted as s32;
+            let restart_in_rows = v_adjusted as s32;
             let restart_interval = restart_in_rows as u32 * mcus_per_row;
 
             let cinfo = crate::jpeg::CInfo {
@@ -194,9 +167,9 @@ fn ready_work(v: &ThreadBeginVars) -> bool {
 
             *ctx.i_start.get_mut(&j) = restart_in_rows as u32 * j.get();
             *ctx.i_count.get_mut(&j) = if j == thread_id_last {
-                l.v_last_adjusted
+                v_last_adjusted
             } else {
-                l.v_adjusted
+                v_adjusted
             };
         }
 
@@ -229,7 +202,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
     unsafe {
         let ctx = vars.blit_ctx();
         let w = vars.v().work_index();
-        let p = vars.load_and_progresses().get_mut(&w).p.get_mut(&t);
+        let p = vars.load_and_progresses().get_mut(&w).get_mut(&t);
         let mut worker = get_jpeg().getWorker(w, *t);
 
         let src = ctx.src;
@@ -251,11 +224,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
             pre_progress_count += 1;
         };
 
-        let mut progress_count = 0;
-        let progress = || {
-            progress_count += 1;
-            p.store(progress_count, Ordering::Relaxed);
-        };
+        let progress = || {};
 
         let (user, dst) = match entries::thread_nwm::get_reliable_stream_method() {
             entries::thread_nwm::ReliableStreamMethod::None => {
@@ -285,7 +254,13 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
             user,
         };
 
+        let tick_before = svcGetSystemTick();
         worker.encode(dst, src, pre_progress, progress);
+        let tick_after = svcGetSystemTick();
+
+        let tick_diff = tick_after - tick_before;
+        *p = core::cmp::max((tick_diff / i_count as u64) as u32, 1);
+
         true
     }
 }
