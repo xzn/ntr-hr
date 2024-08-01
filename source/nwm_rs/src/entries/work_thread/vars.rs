@@ -68,7 +68,7 @@ pub unsafe fn get_jpeg() -> &'static mut crate::jpeg::Jpeg {
 }
 
 pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
-pub type LoadAndProgress = RangedArray<u32_, RP_CORE_COUNT_MAX>;
+pub type LoadAndProgress = RangedArray<f64, RP_CORE_COUNT_MAX>;
 pub type LoadAndProgresses = RangedArray<LoadAndProgress, WORK_COUNT>;
 static mut load_and_progresses: LoadAndProgresses = const_default();
 
@@ -112,7 +112,7 @@ pub unsafe fn reset_vars() {
             *info.pos.as_ptr() = buf;
             *info.flag.as_ptr() = 0;
 
-            *load.get_mut(&j) = 1;
+            *load.get_mut(&j) = 1.0;
         }
     }
 }

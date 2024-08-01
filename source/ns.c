@@ -3,7 +3,6 @@
 #include "3ds/services/soc.h"
 #include "3ds/services/hid.h"
 #include "3ds/ipc.h"
-#include "poll.h"
 
 #include <memory.h>
 #include <arpa/inet.h>
@@ -342,11 +341,16 @@ int __attribute__((weak)) nsControlRecv(int) {
 	return 0;
 }
 
-static void nsMainLoop(u32 listenPort) {
-	const int is_nwm = getCurrentProcessId() == 0x1a; // nwm process
+u8 __attribute__((weak)) nsHasPoll2 = 0;
 
+int __attribute__((weak)) nsPoll2(int) {
+	return 1;
+}
+
+void __attribute__((weak)) nsPoll2End() {}
+
+static void nsMainLoop(u32 listenPort) {
 	while (1) {
-		s32 nwm_recv_sock = -1;
 		s32 listen_sock, ret, tmp, sockfd;
 		struct sockaddr_in addr;
 
@@ -368,7 +372,7 @@ static void nsMainLoop(u32 listenPort) {
 			goto end_listen;
 		}
 
-		if (listenPort == NS_MENU_LISTEN_PORT || is_nwm) {
+		if (listenPort == NS_MENU_LISTEN_PORT || nsHasPoll2) {
 			tmp = fcntl(listen_sock, F_GETFL);
 			fcntl(listen_sock, F_SETFL, tmp | O_NONBLOCK);
 		}
@@ -379,91 +383,55 @@ static void nsMainLoop(u32 listenPort) {
 			goto end_listen;
 		}
 
-		if (is_nwm) {
-			nwm_recv_sock = socket(AF_INET, SOCK_DGRAM, 0);
-			if (nwm_recv_sock < 0) {
-				showDbg("nwm socket failed: %08"PRIx32, (u32)errno);
-				goto end_listen;
+#define WHILE_POLL2(s) \
+	while (1) { \
+		int poll2 = nsPoll2(s); \
+		if (poll2 > 0)
+
+#define WHILE_POLL2_END \
+		else if (poll2 < 0) break; \
+	}
+
+		WHILE_POLL2(listen_sock) {
+			sockfd = accept(listen_sock, NULL, NULL);
+			if (sockfd < 0) {
+				int serr = errno;
+				if (serr == EWOULDBLOCK || serr == EAGAIN) {
+					svcSleepThread(100000000);
+					continue;
+				}
+				break;
+			}
+			nsContext->hSocket = sockfd;
+
+			if (listenPort == NS_MENU_LISTEN_PORT) {
+				tmp = fcntl(sockfd, F_GETFL, 0);
+				fcntl(sockfd, F_SETFL, tmp & ~O_NONBLOCK);
 			}
 
-			struct sockaddr_in sai = {0};
-			sai.sin_family = AF_INET;
-			sai.sin_port = htons(RP_SRC_PORT);
-			sai.sin_addr.s_addr = htonl(INADDR_ANY);
-
-			int ret = bind(nwm_recv_sock, (struct sockaddr *)&sai, sizeof(sai));
-			if (ret < 0) {
-				showDbg("nwm_recv_sock bind failed: %08"PRIx32, (u32)errno);
-				goto end_listen;
-			}
-		}
-
-		struct pollfd pi[2];
-		int nready;
-
-#define POLL2(s) \
-	if (is_nwm) { \
-		pi[0].fd = s; \
-		pi[1].fd = nwm_recv_sock; \
-		pi[1].events = pi[0].events = POLLIN; \
-		pi[1].revents = pi[0].revents = 0; \
-		nready = poll2(pi, 2, -1); \
-		if (nready <= 0) \
-			continue; \
-	} \
-	if (is_nwm && pi[1].revents & (POLLIN | POLLHUP)) { \
-		if (nsControlRecv(nwm_recv_sock) < 0) { \
-			nsDbgPrint("nsControlRecv failed\n"); \
-			break; \
-		} \
-	} \
-	if (!is_nwm || pi[0].revents & (POLLIN | POLLHUP))
-
-		while (1) {
-			POLL2(listen_sock) {
-				sockfd = accept(listen_sock, NULL, NULL);
-				if (sockfd < 0) {
-					int serr = errno;
-					if (serr == EWOULDBLOCK || serr == EAGAIN) {
-						svcSleepThread(100000000);
-						continue;
-					}
+			WHILE_POLL2(sockfd) {
+				ret = rtRecvSocket(sockfd, (u8 *)&nsContext->packetBuf, sizeof(NS_PACKET));
+				if (ret != sizeof(NS_PACKET)) {
+					nsDbgPrint("rtRecvSocket failed: %08"PRIx32"\n", ret);
 					break;
 				}
-				nsContext->hSocket = sockfd;
-
-				if (listenPort == NS_MENU_LISTEN_PORT) {
-					tmp = fcntl(sockfd, F_GETFL, 0);
-					fcntl(sockfd, F_SETFL, tmp & ~O_NONBLOCK);
+				NS_PACKET *pac = &nsContext->packetBuf;
+				if (pac->magic != 0x12345678) {
+					nsDbgPrint("broken protocol: %08"PRIx32", %08"PRIx32"\n", pac->magic, pac->seq);
+					break;
 				}
+				nsHandlePacket();
+				pac->magic = 0;
+			} WHILE_POLL2_END
 
-				while (1) {
-					POLL2(sockfd) {
-						ret = rtRecvSocket(sockfd, (u8 *)&nsContext->packetBuf, sizeof(NS_PACKET));
-						if (ret != sizeof(NS_PACKET)) {
-							nsDbgPrint("rtRecvSocket failed: %08"PRIx32"\n", ret);
-							break;
-						}
-						NS_PACKET *pac = &nsContext->packetBuf;
-						if (pac->magic != 0x12345678) {
-							nsDbgPrint("broken protocol: %08"PRIx32", %08"PRIx32"\n", pac->magic, pac->seq);
-							break;
-						}
-						nsHandlePacket();
-						pac->magic = 0;
-					}
-				}
-
-				closesocket(sockfd);
-			}
-		}
+			closesocket(sockfd);
+		} WHILE_POLL2_END
 
 end_listen:
 		closesocket(listen_sock);
-		if (nwm_recv_sock >= 0) {
-			closesocket(nwm_recv_sock);
-		}
 	}
+
+	nsPoll2End();
 }
 
 void __attribute__((weak)) nsThreadInit() {}

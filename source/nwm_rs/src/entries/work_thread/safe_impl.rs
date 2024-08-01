@@ -111,15 +111,15 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
             let mut rows;
             let mut rows_last;
 
-            let mut load_max = 0;
+            let mut load_max = 0.0;
             for j in ThreadId::up_to(&thread_id_last) {
-                load_max = core::cmp::max(load_max, *l.get(&j));
+                load_max = (*l.get(&j)).max(load_max);
             }
             let load_last = *l.get(&thread_id_last);
 
-            let f = load_max as u64 * core_count_rest as u64 + load_last as u64;
-            if t.get() < thread_id_last.get() {
-                rows_last = ((mcu_rows as u64 * load_last as u64 + f - 1) / f) as u32;
+            let f = load_max * core_count_rest as f64 + load_last;
+            if t.get() == thread_id_last.get() {
+                rows_last = core::intrinsics::ceilf64((mcu_rows as f64 * load_last) / f) as u32;
 
                 if rows_last < 1 {
                     rows_last = 1
@@ -129,7 +129,7 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
 
                 rows = mcu_rows - rows_last / core_count_rest;
             } else {
-                rows = ((mcu_rows as u64 * load_max as u64 + f - 1) / f) as u32;
+                rows = core::intrinsics::ceilf64((mcu_rows as f64 * load_max) / f) as u32;
             }
 
             if rows < mcu_rows_per_thread {
@@ -258,8 +258,8 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
         worker.encode(dst, src, pre_progress, progress);
         let tick_after = svcGetSystemTick();
 
-        let tick_diff = tick_after - tick_before;
-        *p = core::cmp::max((tick_diff / i_count as u64) as u32, 1);
+        let tick_diff = cmp::max(tick_after - tick_before, 1);
+        *p = i_count as f64 / tick_diff as f64;
 
         true
     }

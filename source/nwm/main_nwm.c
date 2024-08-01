@@ -4,6 +4,10 @@
 #include "3ds/allocator/mappable.h"
 #include "3ds/os.h"
 
+#include "poll.h"
+#include <arpa/inet.h>
+#include <errno.h>
+
 sendPacketTypedef nwmSendPacket;
 static RT_HOOK nwmValParamHook;
 
@@ -96,3 +100,56 @@ int setUpReturn(void) {
 
 u32 __apt_appid;
 u32 __system_runflags;
+
+u8 nsHasPoll2 = 1;
+static s32 nwm_recv_sock = -1;
+
+void nsPoll2End() {
+	if (nwm_recv_sock >= 0) {
+		closesocket(nwm_recv_sock);
+		nwm_recv_sock = -1;
+	}
+}
+
+int nsPoll2(int s) {
+	if (nwm_recv_sock < 0) {
+		nwm_recv_sock = socket(AF_INET, SOCK_DGRAM, 0);
+		if (nwm_recv_sock < 0) {
+			showDbg("nwm socket failed: %08"PRIx32, (u32)errno);
+			return -1;
+		}
+
+		struct sockaddr_in sai = {0};
+		sai.sin_family = AF_INET;
+		sai.sin_port = htons(RP_SRC_PORT);
+		sai.sin_addr.s_addr = htonl(INADDR_ANY);
+
+		int ret = bind(nwm_recv_sock, (struct sockaddr *)&sai, sizeof(sai));
+		if (ret < 0) {
+			showDbg("nwm_recv_sock bind failed: %08"PRIx32, (u32)errno);
+			nsPoll2End();
+			return -1;
+		}
+	}
+
+	struct pollfd pi[2];
+	int nready;
+
+	pi[0].fd = s;
+	pi[1].fd = nwm_recv_sock;
+	pi[1].events = pi[0].events = POLLIN;
+	pi[1].revents = pi[0].revents = 0;
+	nready = poll2(pi, 2, -1);
+	if (nready <= 0)
+		return 0;
+	if (pi[1].revents & (POLLIN | POLLHUP)) {
+		if (nsControlRecv(nwm_recv_sock) < 0) {
+			nsDbgPrint("nsControlRecv failed\n");
+			nsPoll2End();
+		}
+	}
+	if (pi[0].revents & (POLLIN | POLLHUP))
+		return 1;
+
+	return 0;
+}
