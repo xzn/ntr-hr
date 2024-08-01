@@ -140,8 +140,12 @@ int nsPoll2(int s) {
 	pi[1].events = pi[0].events = POLLIN;
 	pi[1].revents = pi[0].revents = 0;
 	nready = poll2(pi, 2, -1);
-	if (nready <= 0)
+	if (nready == 0)
 		return 0;
+	else if (nready < 0) {
+		showDbg("socket poll failed: %08"PRIx32, (u32)errno);
+		return -1;
+	}
 	if (pi[1].revents & (POLLIN | POLLHUP)) {
 		if (nsControlRecv(nwm_recv_sock) < 0) {
 			nsDbgPrint("nsControlRecv failed\n");
