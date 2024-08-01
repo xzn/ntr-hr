@@ -164,10 +164,11 @@ int rtRecvSocket(u32 sockfd, u8 *buf, int size)
 		{
 			if (ret < 0) {
 				ret = errno;
-				if (ret == -EWOULDBLOCK || ret == -EAGAIN) {
+				if (ret == EWOULDBLOCK || ret == EAGAIN) {
 					svcSleepThread(50000000);
 					continue;
 				}
+				return -1;
 			}
 			return ret;
 		}
@@ -188,11 +189,11 @@ int rtSendSocket(u32 sockfd, u8 *buf, int size)
 		if((ret = send(sockfd, &buf[pos], tmpsize, 0)) < 0)
 		{
 			ret = errno;
-			if (ret == -EWOULDBLOCK || ret == -EAGAIN) {
+			if (ret == EWOULDBLOCK || ret == EAGAIN) {
 				svcSleepThread(50000000);
 				continue;
 			}
-			return ret;
+			return -1;
 		}
 		pos += ret;
 		tmpsize -= ret;
