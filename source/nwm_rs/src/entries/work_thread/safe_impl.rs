@@ -96,7 +96,7 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
         let core_count_rest = core_count.get() - 1;
         let thread_id_last = ThreadId::init_unchecked(core_count_rest);
 
-        let l = v.load_and_progresses().get_mut(&w);
+        let l = v.last_row_last_n().get_mut(&ctx.screen());
 
         let mcu_size = crate::jpeg::vars::DCTSIZE as u32_ * JPEG_SAMP_FACTOR as u32_;
         let mcus_per_row = ctx.width() / mcu_size;
@@ -107,30 +107,23 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
         let n = mcu_rows_per_thread;
         let n_last = mcu_rows - mcu_rows_per_thread * core_count_rest;
 
-        let (v_adjusted, v_last_adjusted) = if core_count.get() > 1 {
+        let (v_adjusted, v_last_adjusted) = if *l > 0 && core_count.get() > 1 {
             let mut rows;
             let mut rows_last;
 
-            let mut load_max = 0.0;
-            for j in ThreadId::up_to(&thread_id_last) {
-                load_max = (*l.get(&j)).max(load_max);
-            }
-            let load_last = *l.get(&thread_id_last);
-
-            let f = load_max * core_count_rest as f64 + load_last;
             if t.get() == thread_id_last.get() {
-                rows_last = core::intrinsics::ceilf64((mcu_rows as f64 * load_last) / f) as u32;
+                rows_last = *l + 1;
 
-                if rows_last < 1 {
-                    rows_last = 1
-                } else if rows_last > n_last {
+                if rows_last > n_last {
                     rows_last = n_last
                 }
-
-                rows = mcu_rows - rows_last / core_count_rest;
             } else {
-                rows = core::intrinsics::ceilf64((mcu_rows as f64 * load_max) / f) as u32;
+                rows_last = *l - 1;
+                if rows_last < 1 {
+                    rows_last = 1
+                }
             }
+            rows = mcu_rows - rows_last / core_count_rest;
 
             if rows < mcu_rows_per_thread {
                 rows = mcu_rows_per_thread
@@ -173,6 +166,8 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
             };
         }
 
+        *l = v_last_adjusted;
+
         true
     }
 }
@@ -202,7 +197,6 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
     unsafe {
         let ctx = vars.blit_ctx();
         let w = vars.v().work_index();
-        let p = vars.load_and_progresses().get_mut(&w).get_mut(&t);
         let mut worker = get_jpeg().getWorker(w, *t);
 
         let src = ctx.src;
@@ -254,12 +248,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
             user,
         };
 
-        let tick_before = svcGetSystemTick();
         worker.encode(dst, src, pre_progress, progress);
-        let tick_after = svcGetSystemTick();
-
-        let tick_diff = cmp::max(tick_after - tick_before, 1);
-        *p = i_count as f64 / tick_diff as f64;
 
         true
     }

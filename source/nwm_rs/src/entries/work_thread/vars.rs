@@ -15,6 +15,16 @@ pub struct BlitCtx {
 }
 
 impl BlitCtx {
+    pub fn screen(&self) -> ScreenIndex {
+        unsafe {
+            if self.is_top {
+                ScreenIndex::init_unchecked(0)
+            } else {
+                ScreenIndex::init_unchecked(1)
+            }
+        }
+    }
+
     pub fn pitch(&self) -> u32_ {
         self.bpp() * self.width()
     }
@@ -68,9 +78,8 @@ pub unsafe fn get_jpeg() -> &'static mut crate::jpeg::Jpeg {
 }
 
 pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
-pub type LoadAndProgress = RangedArray<f64, RP_CORE_COUNT_MAX>;
-pub type LoadAndProgresses = RangedArray<LoadAndProgress, WORK_COUNT>;
-static mut load_and_progresses: LoadAndProgresses = const_default();
+pub type LastRowIndexes = RangedArray<u32_, SCREEN_COUNT>;
+static mut last_row_last_n: LastRowIndexes = const_default();
 
 static mut reset_threads_flag: AtomicBool = const_default();
 static mut core_count_in_use: CoreCount = CoreCount::init();
@@ -99,9 +108,11 @@ pub unsafe fn set_core_count_in_use(v: u32_) {
 }
 
 pub unsafe fn reset_vars() {
-    for i in WorkIndex::all() {
-        let load = load_and_progresses.get_mut(&i);
+    for i in ScreenIndex::all() {
+        *last_row_last_n.get_mut(&i) = 0;
+    }
 
+    for i in WorkIndex::all() {
         for j in ThreadId::up_to(&get_core_count_in_use()) {
             let info = crate::entries::thread_nwm::get_nwm_infos()
                 .get_mut(&i)
@@ -111,8 +122,6 @@ pub unsafe fn reset_vars() {
             info.send_pos = buf;
             *info.pos.as_ptr() = buf;
             *info.flag.as_ptr() = 0;
-
-            *load.get_mut(&j) = 1.0;
         }
     }
 }
@@ -134,10 +143,6 @@ impl ThreadDoVars {
 
     pub fn blit_ctx(&self) -> &mut BlitCtx {
         unsafe { blit_ctxes.get_mut(&self.0.work_index()) }
-    }
-
-    pub fn load_and_progresses(&self) -> &mut LoadAndProgresses {
-        unsafe { &mut load_and_progresses }
     }
 
     pub fn capture_screen(&self) {
@@ -334,8 +339,8 @@ impl ThreadBeginVars {
         }
     }
 
-    pub fn load_and_progresses(&self) -> &mut LoadAndProgresses {
-        unsafe { &mut load_and_progresses }
+    pub fn last_row_last_n(&self) -> &mut LastRowIndexes {
+        unsafe { &mut last_row_last_n }
     }
 }
 
