@@ -87,6 +87,8 @@ fn ready_nwm(v: &ThreadBeginVars) -> bool {
     }
 }
 
+const last_row_last_n_range: u32_ = 10;
+
 fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
     unsafe {
         let ctx = v.ctx();
@@ -96,7 +98,7 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
         let core_count_rest = core_count.get() - 1;
         let thread_id_last = ThreadId::init_unchecked(core_count_rest);
 
-        let l = v.last_row_last_n().get_mut(&ctx.screen());
+        let l = v.last_row_last_n();
 
         let mcu_size = crate::jpeg::vars::DCTSIZE as u32_ * JPEG_SAMP_FACTOR as u32_;
         let mcus_per_row = ctx.width() / mcu_size;
@@ -108,34 +110,25 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
         let n_last = mcu_rows - mcu_rows_per_thread * core_count_rest;
 
         let (v_adjusted, v_last_adjusted) = if *l > 0 && core_count.get() > 1 {
-            let mut rows;
-            let mut rows_last;
-
             if t.get() == thread_id_last.get() {
-                rows_last = *l + 1;
-
-                if rows_last > n_last {
-                    rows_last = n_last
+                if *l < last_row_last_n_range {
+                    *l = *l + 1;
                 }
             } else {
-                rows_last = *l - 1;
-                if rows_last < 1 {
-                    rows_last = 1
-                }
-            }
-            rows = mcu_rows - rows_last / core_count_rest;
-
-            if rows < mcu_rows_per_thread {
-                rows = mcu_rows_per_thread
-            } else {
-                let rows_max = core::intrinsics::unchecked_div(mcu_rows - 1, core_count_rest);
-                if rows > rows_max {
-                    rows = rows_max;
+                if *l > 1 {
+                    *l = *l - 1;
                 }
             }
 
-            (rows, mcu_rows - rows * core_count_rest)
+            let rows_last = cmp::max(
+                (n_last * *l + last_row_last_n_range / 2) / last_row_last_n_range,
+                1,
+            );
+            let rows = (mcu_rows - rows_last + core_count_rest - 1) / core_count_rest;
+            let rows_last = mcu_rows - rows * core_count_rest;
+            (rows, rows_last)
         } else {
+            *l = last_row_last_n_range;
             (n, n_last)
         };
 
@@ -165,8 +158,6 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
                 v_adjusted
             };
         }
-
-        *l = v_last_adjusted;
 
         true
     }

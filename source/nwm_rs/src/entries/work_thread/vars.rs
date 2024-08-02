@@ -78,8 +78,7 @@ pub unsafe fn get_jpeg() -> &'static mut crate::jpeg::Jpeg {
 }
 
 pub type RowIndexes = RangedArray<u32_, RP_CORE_COUNT_MAX>;
-pub type LastRowIndexes = RangedArray<u32_, SCREEN_COUNT>;
-static mut last_row_last_n: LastRowIndexes = const_default();
+static mut last_row_last_n: u32_ = const_default();
 
 static mut reset_threads_flag: AtomicBool = const_default();
 static mut core_count_in_use: CoreCount = CoreCount::init();
@@ -108,9 +107,7 @@ pub unsafe fn set_core_count_in_use(v: u32_) {
 }
 
 pub unsafe fn reset_vars() {
-    for i in ScreenIndex::all() {
-        *last_row_last_n.get_mut(&i) = 0;
-    }
+    last_row_last_n = 0;
 
     for i in WorkIndex::all() {
         for j in ThreadId::up_to(&get_core_count_in_use()) {
@@ -339,7 +336,7 @@ impl ThreadBeginVars {
         }
     }
 
-    pub fn last_row_last_n(&self) -> &mut LastRowIndexes {
+    pub fn last_row_last_n(&self) -> &mut u32_ {
         unsafe { &mut last_row_last_n }
     }
 }
