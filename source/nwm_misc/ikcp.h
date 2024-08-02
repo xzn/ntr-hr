@@ -364,6 +364,7 @@ int ikcp_send_next(ikcpcb *kcp);
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd);
 
 // get how many packet is waiting to be sent
+// !ikcp_can_queue implies ikcp_can_send
 int ikcp_can_queue(const ikcpcb *kcp);
 int ikcp_can_send(const ikcpcb *kcp);
 

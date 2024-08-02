@@ -270,6 +270,7 @@ int ikcp_send_next(ikcpcb *kcp)
 	return -1;
 }
 
+
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd)
 {
 	if (kcp) {
@@ -280,6 +281,7 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd)
 	return 0;
 }
 
+
 int ikcp_can_queue(const ikcpcb *kcp)
 {
 	return kcp->n_snd < kcp->n_snd_max;
@@ -289,3 +291,4 @@ int ikcp_can_send(const ikcpcb *kcp)
 {
 	return !iqueue_is_empty(&kcp->snd_lst.lst);
 }
+
