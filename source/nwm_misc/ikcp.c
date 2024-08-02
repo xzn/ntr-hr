@@ -188,7 +188,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -2;
 	}
 
-	if (ikcp_waitsnd(kcp) >= kcp->n_snd_max) {
+	if (!ikcp_can_queue(kcp)) {
 		return -4;
 	}
 
@@ -270,7 +270,6 @@ int ikcp_send_next(ikcpcb *kcp)
 	return -1;
 }
 
-
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd)
 {
 	if (kcp) {
@@ -281,8 +280,12 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd)
 	return 0;
 }
 
-int ikcp_waitsnd(const ikcpcb *kcp)
+int ikcp_can_queue(const ikcpcb *kcp)
 {
-	return kcp->n_snd;
+	return kcp->n_snd < kcp->n_snd_max;
 }
 
+int ikcp_can_send(const ikcpcb *kcp)
+{
+	return !iqueue_is_empty(&kcp->snd_lst.lst);
+}

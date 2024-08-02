@@ -303,6 +303,7 @@ struct ISNDLST
 const unsigned NWM_PACKET_SIZE = ROUND_UP(PACKET_SIZE + NWM_HDR_SIZE, sizeof(void *));
 const unsigned RP_RECV_PACKET_SIZE = ROUND_UP(PACKET_SIZE, sizeof(void *));
 
+const unsigned ARQ_BUFS_COUNT = ARQ_PREFERRED_COUNT_MAX;
 const unsigned SEND_BUFS_COUNT = SEND_BUFS_DATA_COUNT;
 const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
 
@@ -363,7 +364,8 @@ int ikcp_send_next(ikcpcb *kcp);
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd);
 
 // get how many packet is waiting to be sent
-int ikcp_waitsnd(const ikcpcb *kcp);
+int ikcp_can_queue(const ikcpcb *kcp);
+int ikcp_can_send(const ikcpcb *kcp);
 
 
 #ifdef __cplusplus

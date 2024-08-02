@@ -82,7 +82,7 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
             if ikcp_create(kcp, kcp_conv_count as u16) < 0 {
                 return None;
             }
-            ikcp_wndsize(kcp, (SEND_BUFS_COUNT * qos / RP_QOS_MAX) as i32);
+            ikcp_wndsize(kcp, (ARQ_BUFS_COUNT * qos / RP_QOS_MAX) as i32);
             kcp_conv_count += 1;
         }
     }
@@ -580,36 +580,65 @@ unsafe extern "C" fn free_seg_data_buf(data_buf: *const ::libc::c_char) {
 #[named]
 unsafe fn kcp_thread_nwm_loop() -> bool {
     let cb = &mut *reliable_stream_cb;
-    let mut dst = mem::MaybeUninit::uninit();
-    while !entries::work_thread::reset_threads() {
-        let res = rp_syn_acq(&mut cb.nwm_syn, THREAD_WAIT_NS, dst.as_mut_ptr());
-
-        if res == 0 {
-            break;
-        }
-        if res != RES_TIMEOUT as s32 {
-            nsDbgPrint!(waitForSyncFailed, c_str!("nwm_syn.rp_syn_acq"), res);
-            entries::work_thread::set_reset_threads_ar();
-            return false;
-        }
-    }
-    let dst = dst.assume_init() as *mut u8;
 
     if let Some(_) = nwm_cb_lock() {
         let kcp = &mut cb.ikcp;
         while !entries::work_thread::reset_threads() {
-            let waitsnd = ikcp_waitsnd(kcp);
-            if waitsnd < kcp.n_snd_max as i32 {
-                let mut size = 0;
-                ptr::copy_nonoverlapping(dst.sub(mem::size_of::<u32>()) as *const _, &mut size, 1);
+            let can_queue = ikcp_can_queue(kcp) != 0;
+            if can_queue {
+                let mut dst = mem::MaybeUninit::uninit();
+                let mut has_dst = false;
 
-                let ret = ikcp_queue(kcp, dst, size as i32);
-                if ret < 0 {
-                    // Reset KCP
-                    nsDbgPrint!(kcpSendFailed, ret);
-                    crate::entries::work_thread::set_reset_threads_ar();
+                let can_send = ikcp_can_send(kcp) != 0;
+
+                let timeout = if can_send { 0 } else { THREAD_WAIT_NS };
+                if !can_send {
                     nwm_cb_unlock();
-                    return false;
+                }
+
+                while !entries::work_thread::reset_threads() {
+                    let res = rp_syn_acq(&mut cb.nwm_syn, timeout, dst.as_mut_ptr());
+
+                    if res == 0 {
+                        has_dst = true;
+                        break;
+                    }
+                    if res != RES_TIMEOUT as s32 {
+                        nsDbgPrint!(waitForSyncFailed, c_str!("nwm_syn.rp_syn_acq"), res);
+                        entries::work_thread::set_reset_threads_ar();
+                        return false;
+                    } else {
+                        if can_send {
+                            break;
+                        }
+                    }
+                }
+
+                if !can_send {
+                    if nwm_cb_lock() == None {
+                        crate::entries::work_thread::set_reset_threads_ar();
+                        return false;
+                    }
+                }
+
+                if has_dst {
+                    let dst = dst.assume_init() as *mut u8;
+
+                    let mut size = 0;
+                    ptr::copy_nonoverlapping(
+                        dst.sub(mem::size_of::<u32>()) as *const _,
+                        &mut size,
+                        1,
+                    );
+
+                    let ret = ikcp_queue(kcp, dst, size as i32);
+                    if ret < 0 {
+                        // Reset KCP
+                        nsDbgPrint!(kcpSendFailed, ret);
+                        crate::entries::work_thread::set_reset_threads_ar();
+                        nwm_cb_unlock();
+                        return false;
+                    }
                 }
 
                 let ret = ikcp_send_next(kcp);
