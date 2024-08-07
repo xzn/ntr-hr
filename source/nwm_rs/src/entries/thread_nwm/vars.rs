@@ -82,7 +82,9 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
             if ikcp_create(kcp, kcp_conv_count as u16) < 0 {
                 return None;
             }
-            ikcp_wndsize(kcp, (ARQ_BUFS_COUNT * qos / RP_QOS_MAX) as i32);
+            let sndwnd = ((ARQ_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32;
+            let curwnd = ((ARQ_CUR_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32;
+            ikcp_wndsize(kcp, sndwnd, curwnd);
             kcp_conv_count += 1;
         }
     }
@@ -94,9 +96,15 @@ pub unsafe fn get_packet_data_size() -> usize {
     packet_data_size
 }
 
+const packet_data_size_method_none: usize = {
+    let size = (PACKET_SIZE - DATA_HDR_SIZE) as usize;
+    assert!(size % mem::size_of::<usize>() == 0);
+    size
+};
+
 unsafe fn set_packet_data_size() {
     packet_data_size = match get_reliable_stream_method() {
-        ReliableStreamMethod::None => (PACKET_SIZE - DATA_HDR_SIZE) as usize,
+        ReliableStreamMethod::None => packet_data_size_method_none,
         ReliableStreamMethod::KCP => (PACKET_SIZE - ARQ_OVERHEAD_SIZE - ARQ_DATA_HDR_SIZE) as usize,
     }
 }
@@ -543,6 +551,20 @@ pub unsafe fn alloc_seg() -> Option<*mut c_char> {
 
     let _ = svcReleaseMutex(seg_mem_lock);
     Some(dst)
+}
+
+#[no_mangle]
+unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
+    if let Some(dst) = alloc_seg() {
+        return dst;
+    } else {
+        return ptr::null_mut();
+    }
+}
+
+#[no_mangle]
+unsafe extern "C" fn free_seg_buf(dst: *const ::libc::c_char) {
+    free_seg(dst)
 }
 
 #[named]

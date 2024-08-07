@@ -12,7 +12,7 @@ void __system_initSyscalls(void);
 
 struct rp_cb {
 	struct IKCPCB ikcp;
-	char send_bufs[SEND_BUFS_COUNT][NWM_PACKET_SIZE] ALIGNED(sizeof(void *));
+	char send_bufs[SEND_BUFS_COUNT + ARQ_CUR_COUNT_MAX_2][NWM_PACKET_SIZE] ALIGNED(sizeof(void *));
 	char recv_buf[RP_RECV_PACKET_SIZE] ALIGNED(sizeof(void *));
 	mp_pool_t send_pool;
 	struct rp_syn_comp_func_t nwm_syn;

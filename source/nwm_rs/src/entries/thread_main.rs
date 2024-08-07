@@ -360,14 +360,21 @@ mod loop_main {
 
         for i in WorkIndex::all() {
             for j in ThreadId::up_to(&core_count) {
+                let hdr_size =
+                    (NWM_HDR_SIZE as usize + DATA_HDR_SIZE as usize + mem::size_of::<usize>() - 1)
+                        / mem::size_of::<usize>()
+                        * mem::size_of::<usize>();
+                let packet_data_size = crate::entries::thread_nwm::get_packet_data_size();
                 let info = crate::entries::thread_nwm::get_nwm_infos()
                     .get_mut(&i)
                     .get_mut(&j);
-                let buf_size = NWM_BUFFER_SIZE as u32 / core_count.get();
-                let buf = nwm_bufs[i.get() as usize].add((j.get() * buf_size) as usize);
-                info.buf = buf.add(NWM_HDR_SIZE as usize + DATA_HDR_SIZE as usize);
-                info.buf_packet_last =
-                    buf.add(buf_size as usize - crate::entries::thread_nwm::get_packet_data_size());
+                let buf_size = (NWM_BUFFER_SIZE / core_count.get() as usize - hdr_size)
+                    / packet_data_size
+                    * packet_data_size
+                    + hdr_size;
+                let buf = nwm_bufs[i.get() as usize].add(j.get() as usize * buf_size);
+                info.buf = buf.add(hdr_size);
+                info.buf_packet_last = buf.add(buf_size as usize - packet_data_size);
             }
         }
 

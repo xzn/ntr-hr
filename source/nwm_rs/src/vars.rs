@@ -29,7 +29,8 @@ pub type ThreadId = Ranged<RP_CORE_COUNT_MAX>;
 pub type ScreenIndex = Ranged<SCREEN_COUNT>;
 
 pub const IMG_BUFFER_SIZE: usize = 0x60000;
-pub const NWM_BUFFER_SIZE: usize = (SEND_BUFS_SIZE / WORK_COUNT) as usize;
+pub const NWM_BUFFER_SIZE: usize =
+    (SEND_BUFS_SIZE / WORK_COUNT) as usize / mem::size_of::<usize>() * mem::size_of::<usize>();
 
 pub const RP_THREAD_PRIO_DEFAULT: u32 = RP_THREAD_PRIO_MAX;
 

@@ -283,18 +283,12 @@ struct IKCPSEG
 	struct IQUEUEHEAD node;
 	IUINT16 pid; // packet id
 	IUINT16 qid; // query id
-	IUINT16 fid; // fec packet (group) id
+	IUINT16 fid; // fec packet group id
 	IUINT8 fty; // fec type
-	IUINT8 gid; // fec id within packet group
+	IUINT8 gid; // id within fec packet group
 	IUINT8 wsn; // wait send count
 	IUINT8 wrn; // wait resend count
 	char *data_buf;
-};
-
-struct ISNDLST
-{
-	struct IQUEUEHEAD lst;
-	struct IQUEUEHEAD wak;
 };
 
 #include "constants.h"
@@ -304,11 +298,11 @@ const unsigned NWM_PACKET_SIZE = ROUND_UP(PACKET_SIZE + NWM_HDR_SIZE, sizeof(voi
 const unsigned RP_RECV_PACKET_SIZE = ROUND_UP(PACKET_SIZE, sizeof(void *));
 
 const unsigned ARQ_BUFS_COUNT = ARQ_PREFERRED_COUNT_MAX;
+const unsigned ARQ_CUR_BUFS_COUNT = ARQ_CUR_COUNT_MAX;
 const unsigned SEND_BUFS_COUNT = SEND_BUFS_DATA_COUNT;
 const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
 
 #define RSND_COUNT_MAX 3
-#define ISNDLST_INIT(l) (iqueue_init(&(l).lst), iqueue_init(&(l).wak))
 
 //---------------------------------------------------------------------
 // IKCPCB
@@ -319,15 +313,17 @@ struct IKCPCB
 	IUINT16 pid; // next packet id
 	IUINT16 qid; // next query id (internal send index)
 
-	struct ISNDLST snd_lst;
-	struct ISNDLST rsnd_lsts[RSND_COUNT_MAX];
+	struct IQUEUEHEAD snd_lst;
+	struct IQUEUEHEAD rsnd_lsts[RSND_COUNT_MAX];
 	struct IQUEUEHEAD snd_cur;
+	struct IQUEUEHEAD snd_wak;
 
 	IUINT16 n_snd;
 	IUINT16 n_snd_max;
+	IUINT16 n_cur_max;
 	bool rp_output_retry;
 
-	char seg_mem[SEND_BUFS_DATA_COUNT][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
+	char seg_mem[ARQ_PREFERRED_COUNT_MAX + ARQ_CUR_COUNT_MAX_2][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
 	mp_pool_t seg_pool;
 };
 
@@ -338,8 +334,10 @@ typedef struct IKCPCB ikcpcb;
 extern "C" {
 #endif
 
-void free_seg_data_buf(const char *data_buf);
+extern char *alloc_seg_buf(void);
+extern void free_seg_buf(const char *data_buf);
 
+extern void free_seg_data_buf(const char *data_buf);
 extern int rp_udp_output(char *buf, int len, ikcpcb *kcp);
 
 //---------------------------------------------------------------------
@@ -361,7 +359,7 @@ int ikcp_input(ikcpcb *kcp, char *data, long size);
 int ikcp_send_next(ikcpcb *kcp);
 
 // set maximum window size
-int ikcp_wndsize(ikcpcb *kcp, int sndwnd);
+int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int curwnd);
 
 // get how many packet is waiting to be sent
 // !ikcp_can_queue implies ikcp_can_send

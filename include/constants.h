@@ -146,15 +146,24 @@ enum {
 #define ARQ_DATA_SIZE (PACKET_SIZE - ARQ_OVERHEAD_SIZE)
 #define ARQ_DATA_HDR_SIZE 1
 #define ARQ_RP_DATA_SIZE (ARQ_DATA_SIZE - ARQ_DATA_HDR_SIZE)
-#define RP_COMPRESSED_COUNT_MAX (DIV_ROUND_UP(RP_COMPRESSED_SIZE_MAX, ARQ_RP_DATA_SIZE) * NWM_WORK_COUNT)
+#define RP_DATA_SIZE (PACKET_SIZE - DATA_HDR_SIZE)
+#define RP_COMPRESSED_COUNT_MAX (DIV_ROUND_UP(RP_COMPRESSED_SIZE_MAX, RP_DATA_SIZE) * NWM_WORK_COUNT)
+#define RP_QOS_PACKET_RATE_MAX (DIV_ROUND_UP(RP_QOS_MAX, PACKET_SIZE))
 // 250 ms or 1/4 of a second of buffered packets
-#define ARQ_PREFERRED_COUNT_MAX DIV_ROUND_UP(DIV_ROUND_UP(RP_QOS_MAX, ARQ_RP_DATA_SIZE), 4)
+#define ARQ_PREFERRED_COUNT_MAX DIV_ROUND_UP(RP_QOS_PACKET_RATE_MAX, 4)
+// 25 ms or 1/40 of a second of queued packets for send
+#define ARQ_CUR_COUNT_MAX DIV_ROUND_UP(RP_QOS_PACKET_RATE_MAX, 40)
+// Count is doubled for margin, should be enough hopefully
+#define ARQ_CUR_COUNT_MAX_2 (ARQ_CUR_COUNT_MAX * 2)
 // Includes FEC_OVERHEAD_SIZE
 #define ARQ_OVERHEAD_SIZE 4
 #define ARQ_SEG_SIZE (sizeof(struct IKCPSEG))
 
 #define FEC_OVERHEAD_SIZE 2
 #define FEC_DATA_SIZE (PACKET_SIZE - FEC_OVERHEAD_SIZE)
+
+_Static_assert((NWM_HDR_SIZE + (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE)) % sizeof(void *) == 0, "Need adjusting overhead for alignment.");
+_Static_assert(RP_DATA_SIZE % sizeof(void *) == 0, "Need adjusting packet size for alignment.");
 
 #define SEND_BUFS_DATA_COUNT MAX(RP_COMPRESSED_COUNT_MAX, ARQ_PREFERRED_COUNT_MAX)
 
