@@ -195,7 +195,7 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	kcp->cid = cid;
 
 	iqueue_init(&kcp->snd_lst);
-	for (int i = 0; i < RSND_COUNT_MAX; ++i) {
+	for (int i = 0; i < RSND_COUNT; ++i) {
 		iqueue_init(&kcp->rsnd_lsts[i]);
 	}
 	iqueue_init(&kcp->snd_cur);
@@ -329,10 +329,11 @@ enum ARQ_QUEUE {
 	ARQ_QUEUE_COUNT,
 };
 
-_Static_assert(ARQ_QUEUE_COUNT == RSND_COUNT_MAX + 1); // rsnd count + snd
+_Static_assert(ARQ_QUEUE_COUNT == RSND_COUNT + 1); // rsnd count + snd
+_Static_assert(ARQ_QUEUE_RSND0 == RSND_COUNT - 1);
 
 static const enum FEC_TYPE FEC_TYPES[] = {
-	FEC_TYPE_1_3, // rsnd_lst[RSND_COUNT_MAX - 1]
+	FEC_TYPE_1_3, // rsnd_lst[RSND_COUNT - 1]
 	FEC_TYPE_1_2, // ...
 	FEC_TYPE_2_5, // rsnd_lst[0]
 	FEC_TYPE_1_1, // snd_lst
@@ -354,6 +355,14 @@ static struct IQUEUEHEAD *arq_queue_get(ikcpcb *kcp, enum ARQ_QUEUE queue) {
 	} else {
 		return 0;
 	}
+}
+
+static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
+	if (wrn > 0) {
+		wrn = _imin_(wrn, RSND_COUNT) - 1;
+		return &kcp->rsnd_lsts[wrn];
+	}
+	return &kcp->snd_lst;
 }
 
 struct arq_seg_iter_t {
@@ -419,13 +428,34 @@ static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 	return -1;
 }
 
+static int ikcp_insert_send_cur_from_iter(ikcpcb *kcp, struct arq_seg_iter_t *iter)
+{
+	if (ikcp_insert_send_cur(kcp, iter->seg) != 0)
+		return -1;
+
+	iqueue_del(&iter->seg->node);
+	return 0;
+}
+
+static void ikcp_reset_send_wak(ikcpcb *kcp)
+{
+	IKCPSEG *seg;
+	while (!iqueue_is_empty(&kcp->snd_wak)) {
+		seg = iqueue_entry(kcp->snd_wak.next, IKCPSEG, node);
+		iqueue_del(&seg->node);
+		struct IQUEUEHEAD *queue = arq_queue_get_from_wrn(kcp, seg->wrn);
+		iqueue_add_tail(&seg->node, queue);
+	}
+}
+
 static int ikcp_queue_send_cur(ikcpcb *kcp)
 {
 	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
 	if (!iters[0].seg) {
-		// TODO
-		// take from wak
-		return -3;
+		ikcp_reset_send_wak(kcp);
+		iters[0] = arq_seg_iter_init(kcp);
+		if (!iters[0].seg)
+			return -3;
 	}
 
 	enum FEC_TYPE fec_type = fec_type_from_queue(iters[0].queue);
@@ -456,7 +486,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			if (ikcp_encode_arq_hdr(kcp, iters[0].seg) != 0) {
 				return -11;
 			}
-			if (ikcp_insert_send_cur(kcp, iters[0].seg) != 0) {
+			if (ikcp_insert_send_cur_from_iter(kcp, &iters[0]) != 0) {
 				return -12;
 			}
 
@@ -475,7 +505,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				if (ikcp_encode_arq_hdr(kcp, iters[count].seg) != 0) {
 					return -13;
 				}
-				if (ikcp_insert_send_cur(kcp, iters[count].seg) != 0) {
+				if (ikcp_insert_send_cur_from_iter(kcp, &iters[count]) != 0) {
 					return -14;
 				}
 
@@ -550,7 +580,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	iters[0].seg->need_arq_hdr = true;
 	iters[0].seg->delete_instead_of_resend = true;
 	iters[0].seg->keep_data_buf = true;
-	if (ikcp_insert_send_cur(kcp, iters[0].seg) != 0) {
+	if (ikcp_insert_send_cur_from_iter(kcp, &iters[0]) != 0) {
 		return -6;
 	}
 

@@ -308,7 +308,7 @@ const unsigned ARQ_CUR_BUFS_COUNT = ARQ_CUR_COUNT_MAX;
 const unsigned SEND_BUFS_COUNT = SEND_BUFS_DATA_COUNT;
 const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
 
-#define RSND_COUNT_MAX 3
+#define RSND_COUNT 3
 
 //---------------------------------------------------------------------
 // IKCPCB
@@ -320,7 +320,7 @@ struct IKCPCB
 	IUINT16 fid; // next fec packet group id
 
 	struct IQUEUEHEAD snd_lst;
-	struct IQUEUEHEAD rsnd_lsts[RSND_COUNT_MAX];
+	struct IQUEUEHEAD rsnd_lsts[RSND_COUNT];
 	struct IQUEUEHEAD snd_cur;
 	struct IQUEUEHEAD snd_wak;
 
