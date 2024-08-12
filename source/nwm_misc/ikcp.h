@@ -294,7 +294,8 @@ struct IKCPSEG
 	// use flags instead of doing conditions later
 	bool need_arq_hdr;
 	bool delete_instead_of_resend;
-	IUINT8 gid_count;
+	bool keep_data_buf;
+	bool gid_end;
 
 	char *data_buf;
 };
