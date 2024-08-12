@@ -597,9 +597,9 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	iters[0].seg->fty = fec_type;
 	iters[0].seg->gid = 0;
 	iters[0].seg->wsn = 0;
-	iters[0].seg->need_arq_hdr = true;
 	iters[0].seg->delete_instead_of_resend = true;
 	iters[0].seg->keep_data_buf = true;
+	ikcp_encode_arq_hdr(kcp, iters[0].seg);
 	if (ikcp_insert_send_cur_from_iter(kcp, &iters[0]) != 0) {
 		return -6;
 	}
@@ -642,11 +642,6 @@ static int ikcp_send_cur(ikcpcb *kcp)
 
 	IKCPSEG *seg;
 	seg = iqueue_entry(kcp->snd_cur.next, IKCPSEG, node);
-	if (seg->need_arq_hdr) {
-		ikcp_encode_arq_hdr(kcp, seg);
-		seg->need_arq_hdr = false;
-	}
-
 	ikcp_encode_fec_hdr(seg);
 
 	const int len = PACKET_SIZE;
@@ -693,7 +688,7 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int curwnd)
 			for (int i = 0; i < FEC_TYPE_COUNT; ++i) {
 				struct fec_counts_t counts = FEC_COUNTS[i];
 				int count = counts.original_count + counts.recovery_count;
-				fec_send_intervals[i] = kcp->n_cur_max / count;
+				fec_send_intervals[i] = (kcp->n_cur_max + count / 2) / count;
 			}
 		}
 	}

@@ -292,7 +292,6 @@ struct IKCPSEG
 	IUINT8 wrn; // wait resend count
 
 	// use flags instead of doing conditions later
-	bool need_arq_hdr;
 	bool delete_instead_of_resend;
 	bool keep_data_buf;
 	bool gid_end;
