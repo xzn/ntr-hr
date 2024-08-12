@@ -434,17 +434,30 @@ static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 			return 0;
 		}
 		struct IKCPSEG *cur = iqueue_entry(p, IKCPSEG, node);
-		int n = 1 + cur->wsn;
-		if (n <= seg->wsn) {
-			seg->wsn -= n;
+		if (cur->wsn < seg->wsn) {
+			seg->wsn -= cur->wsn;
+			--seg->wsn;
 			p = p->next;
 			continue;
-		} else {
-			if (seg->wsn > cur->wsn) {
-				// logic error
-				return -2;
+		} else if (cur->wsn == seg->wsn) {
+			seg->wsn = 0;
+			while (1) {
+				p = p->next;
+				if (p == &kcp->snd_cur) {
+					iqueue_ins_before(&seg->node, p);
+					return 0;
+				}
+				cur = iqueue_entry(p, IKCPSEG, node);
+				if (cur->wsn) {
+					--cur->wsn;
+					iqueue_ins_before(&seg->node, p);
+					return 0;
+				}
 			}
+			return -2;
+		} else { // cur->wsn > seg->wsn
 			cur->wsn -= seg->wsn;
+			--cur->wsn;
 			iqueue_ins_before(&seg->node, p);
 			return 0;
 		}
