@@ -288,15 +288,13 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 // instead of right before doing fec recovery encode due to shared data_buf
 
 // Outer header for fec
-static int ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
+static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
 	// TODO
-	return -1;
 }
 
 // Inner header for arq
-static int ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
+static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
 	// TODO
-	return -1;
 }
 
 static char *ikcp_get_fec_data_buf(struct IKCPSEG *seg) {
@@ -483,9 +481,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			iters[0].seg->fty = fec_type;
 			iters[0].seg->gid = 0;
 			iters[0].seg->wsn = 0;
-			if (ikcp_encode_arq_hdr(kcp, iters[0].seg) != 0) {
-				return -11;
-			}
+			ikcp_encode_arq_hdr(kcp, iters[0].seg);
 			if (ikcp_insert_send_cur_from_iter(kcp, &iters[0]) != 0) {
 				return -12;
 			}
@@ -501,10 +497,11 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				iters[count].seg->fty = fec_type;
 				iters[count].seg->gid = count;
 				iters[count].seg->wsn = count * fec_send_intervals[fec_type];
-
-				if (ikcp_encode_arq_hdr(kcp, iters[count].seg) != 0) {
-					return -13;
+				if (counts.original_count == 1) {
+					iters[count].seg->gid_end = true;
 				}
+
+				ikcp_encode_arq_hdr(kcp, iters[count].seg);
 				if (ikcp_insert_send_cur_from_iter(kcp, &iters[count]) != 0) {
 					return -14;
 				}
@@ -539,9 +536,6 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				seg->gid = count;
 				seg->wsn = count * fec_send_intervals[fec_type];
 				seg->delete_instead_of_resend = true;
-				if (counts.recovery_count == 1) {
-					seg->gid_end = true;
-				}
 				seg->data_buf = alloc_seg_buf();
 				if (!seg->data_buf) {
 					return -16;
@@ -623,15 +617,11 @@ static int ikcp_send_cur(ikcpcb *kcp)
 	IKCPSEG *seg;
 	seg = iqueue_entry(kcp->snd_cur.next, IKCPSEG, node);
 	if (seg->need_arq_hdr) {
-		if (ikcp_encode_arq_hdr(kcp, seg) != 0) {
-			return -3;
-		}
+		ikcp_encode_arq_hdr(kcp, seg);
 		seg->need_arq_hdr = false;
 	}
 
-	if (ikcp_encode_fec_hdr(seg) != 0) {
-		return -4;
-	}
+	ikcp_encode_fec_hdr(seg);
 
 	const int len = PACKET_SIZE;
 	if (ikcp_output(kcp, ikcp_get_packet_data_buf(seg), len) != len) {

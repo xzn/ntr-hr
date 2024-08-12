@@ -319,14 +319,15 @@ struct IKCPCB
 	IUINT16 pid; // next packet id
 	IUINT16 fid; // next fec packet group id
 
+	IUINT16 n_snd;
+	IUINT16 n_snd_max;
+	IUINT16 n_cur_max;
+
 	struct IQUEUEHEAD snd_lst;
 	struct IQUEUEHEAD rsnd_lsts[RSND_COUNT];
 	struct IQUEUEHEAD snd_cur;
 	struct IQUEUEHEAD snd_wak;
 
-	IUINT16 n_snd;
-	IUINT16 n_snd_max;
-	IUINT16 n_cur_max;
 	bool rp_output_retry;
 
 	char seg_mem[ARQ_PREFERRED_COUNT_MAX + ARQ_CUR_COUNT_MAX_2][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
