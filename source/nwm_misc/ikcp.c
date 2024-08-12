@@ -441,17 +441,19 @@ static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 			continue;
 		} else if (cur->wsn == seg->wsn) {
 			seg->wsn = 0;
+			int ret = 0;
 			while (1) {
 				p = p->next;
+				++ret;
 				if (p == &kcp->snd_cur) {
 					iqueue_ins_before(&seg->node, p);
-					return 0;
+					return ret;
 				}
 				cur = iqueue_entry(p, IKCPSEG, node);
 				if (cur->wsn) {
 					--cur->wsn;
 					iqueue_ins_before(&seg->node, p);
-					return 0;
+					return ret;
 				}
 			}
 			return -2;
@@ -467,11 +469,12 @@ static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 
 static int ikcp_insert_send_cur_from_iter(ikcpcb *kcp, struct arq_seg_iter_t *iter)
 {
-	if (ikcp_insert_send_cur(kcp, iter->seg) != 0)
-		return -1;
+	int ret = ikcp_insert_send_cur(kcp, iter->seg);
+	if (ret < 0)
+		return ret;
 
 	iqueue_del(&iter->seg->node);
-	return 0;
+	return ret;
 }
 
 static void ikcp_reset_send_wak(ikcpcb *kcp)
@@ -521,9 +524,13 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			iters[0].seg->gid = 0;
 			iters[0].seg->wsn = 0;
 			ikcp_encode_arq_hdr(kcp, iters[0].seg);
-			if (ikcp_insert_send_cur_from_iter(kcp, &iters[0]) != 0) {
+			int wsn = 0;
+			int ret;
+			ret = ikcp_insert_send_cur_from_iter(kcp, &iters[0]);
+			if (ret < 0) {
 				return -12;
 			}
+			wsn += ret;
 
 			int count = 1;
 			--counts.original_count;
@@ -535,15 +542,17 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				iters[count].seg->fid = iters[0].seg->fid;
 				iters[count].seg->fty = fec_type;
 				iters[count].seg->gid = count;
-				iters[count].seg->wsn = count * fec_send_intervals[fec_type];
+				iters[count].seg->wsn = count * fec_send_intervals[fec_type] + wsn;
 				if (counts.original_count == 1) {
 					iters[count].seg->gid_end = true;
 				}
 
 				ikcp_encode_arq_hdr(kcp, iters[count].seg);
-				if (ikcp_insert_send_cur_from_iter(kcp, &iters[count]) != 0) {
+				ret = ikcp_insert_send_cur_from_iter(kcp, &iters[count]);
+				if (ret < 0) {
 					return -14;
 				}
+				wsn += ret;
 
 				++count;
 				--counts.original_count;
@@ -573,7 +582,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				seg->fid = iters[0].seg->fid;
 				seg->fty = fec_type;
 				seg->gid = count;
-				seg->wsn = count * fec_send_intervals[fec_type];
+				seg->wsn = count * fec_send_intervals[fec_type] + wsn;
 				seg->delete_instead_of_resend = true;
 				seg->data_buf = alloc_seg_buf();
 				if (!seg->data_buf) {
@@ -588,9 +597,11 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				if (fecal_encode(fecal_encoder, &fecal_symbol) != 0) {
 					return -18;
 				}
-				if (ikcp_insert_send_cur(kcp, seg) != 0) {
+				ret = ikcp_insert_send_cur(kcp, seg);
+				if (ret < 0) {
 					return -19;
 				}
+				wsn += ret;
 
 				++count;
 				++recovery_index;
@@ -613,9 +624,13 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	iters[0].seg->delete_instead_of_resend = true;
 	iters[0].seg->keep_data_buf = true;
 	ikcp_encode_arq_hdr(kcp, iters[0].seg);
-	if (ikcp_insert_send_cur_from_iter(kcp, &iters[0]) != 0) {
+	int wsn = 0;
+	int ret;
+	ret = ikcp_insert_send_cur_from_iter(kcp, &iters[0]);
+	if (ret < 0) {
 		return -6;
 	}
+	wsn += ret;
 
 	int count = 1;
 	counts.original_count = 0;
@@ -629,13 +644,14 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		}
 		*seg = *iters[0].seg;
 		seg->gid = count;
-		seg->wsn = count * fec_send_intervals[fec_type];
+		seg->wsn = count * fec_send_intervals[fec_type] + wsn;
 		if (counts.recovery_count == 1) {
 			seg->delete_instead_of_resend = false;
 			seg->keep_data_buf = false;
 			seg->gid_end = true;
 		}
-		if (ikcp_insert_send_cur(kcp, seg) != 0) {
+		ret = ikcp_insert_send_cur(kcp, seg);
+		if (ret < 0) {
 			return -8;
 		}
 
