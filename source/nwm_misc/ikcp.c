@@ -173,8 +173,13 @@ static IKCPSEG* ikcp_segment_new(ikcpcb *kcp)
 // delete a segment
 static void ikcp_segment_delete(ikcpcb *kcp, IKCPSEG *seg)
 {
-	free_seg_data_buf(seg->data_buf);
 	mp_free(&kcp->seg_pool, seg);
+}
+
+static void ikcp_segment_delete_and_free_data_buf(ikcpcb *kcp, IKCPSEG *seg)
+{
+	free_seg_data_buf(seg->data_buf);
+	ikcp_segment_delete(kcp, seg);
 }
 
 // output segment
@@ -448,6 +453,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			iters[0].seg->fty = fec_type;
 			iters[0].seg->gid = 0;
 			iters[0].seg->wsn = 0;
+			iters[0].seg->gid_count = counts.original_count + counts.recovery_count;
 			if (ikcp_encode_arq_hdr(kcp, iters[0].seg) != 0) {
 				return -11;
 			}
@@ -466,6 +472,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				iters[count].seg->fty = fec_type;
 				iters[count].seg->gid = count;
 				iters[count].seg->wsn = count * fec_send_intervals[fec_type];
+				iters[count].seg->gid_count = iters[0].seg->gid_count;
 
 				if (ikcp_encode_arq_hdr(kcp, iters[count].seg) != 0) {
 					return -13;
@@ -499,15 +506,17 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 					return -17;
 				}
 				*seg = (struct IKCPSEG){ 0 };
-				iters[count].seg->fid = iters[0].seg->fid;
-				iters[count].seg->fty = fec_type;
-				iters[count].seg->gid = count;
-				iters[count].seg->wsn = count * fec_send_intervals[fec_type];
-				iters[count].seg->data_buf = alloc_seg_buf();
-				if (!iters[count].seg->data_buf) {
+				seg->fid = iters[0].seg->fid;
+				seg->fty = fec_type;
+				seg->gid = count;
+				seg->wsn = count * fec_send_intervals[fec_type];
+				seg->delete_instead_of_resend = true;
+				seg->gid_count = iters[0].seg->gid_count;
+				seg->data_buf = alloc_seg_buf();
+				if (!seg->data_buf) {
 					return -16;
 				}
-				void *data_ptr = ikcp_get_fec_data_buf(iters[count].seg);
+				void *data_ptr = ikcp_get_fec_data_buf(seg);
 				FecalSymbol fecal_symbol = {
 					.Data = data_ptr,
 					.Bytes = FEC_DATA_SIZE,
@@ -516,7 +525,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				if (fecal_encode(fecal_encoder, &fecal_symbol) != 0) {
 					return -18;
 				}
-				if (ikcp_insert_send_cur(kcp, iters[count].seg) != 0) {
+				if (ikcp_insert_send_cur(kcp, seg) != 0) {
 					return -19;
 				}
 
@@ -538,6 +547,8 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	iters[0].seg->fty = fec_type;
 	iters[0].seg->gid = 0;
 	iters[0].seg->wsn = 0;
+	iters[0].seg->need_arq_hdr = true;
+	iters[0].seg->gid_count = 1 + counts.recovery_count;
 	if (ikcp_insert_send_cur(kcp, iters[0].seg) != 0) {
 		return -6;
 	}
@@ -555,6 +566,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		*seg = *iters[0].seg;
 		seg->gid = count;
 		seg->wsn = count * fec_send_intervals[fec_type];
+		seg->delete_instead_of_resend = true;
 		if (ikcp_insert_send_cur(kcp, seg) != 0) {
 			return -8;
 		}

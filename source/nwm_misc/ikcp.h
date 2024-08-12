@@ -278,6 +278,9 @@ typedef struct IQUEUEHEAD iqueue_head;
 //=====================================================================
 // SEGMENT
 //=====================================================================
+#include "constants.h"
+#include "mempool.h"
+
 struct IKCPSEG
 {
 	struct IQUEUEHEAD node;
@@ -287,11 +290,14 @@ struct IKCPSEG
 	IUINT8 gid; // id within fec packet group
 	IUINT8 wsn; // wait send count
 	IUINT8 wrn; // wait resend count
+
+	// use flags instead of doing conditions later
+	bool need_arq_hdr;
+	bool delete_instead_of_resend;
+	IUINT8 gid_count;
+
 	char *data_buf;
 };
-
-#include "constants.h"
-#include "mempool.h"
 
 const unsigned NWM_PACKET_SIZE = ROUND_UP(PACKET_SIZE + NWM_HDR_SIZE, sizeof(void *));
 const unsigned RP_RECV_PACKET_SIZE = ROUND_UP(PACKET_SIZE, sizeof(void *));
