@@ -282,7 +282,6 @@ struct IKCPSEG
 {
 	struct IQUEUEHEAD node;
 	IUINT16 pid; // packet id
-	IUINT16 qid; // query id
 	IUINT16 fid; // fec packet group id
 	IUINT8 fty; // fec type
 	IUINT8 gid; // id within fec packet group
@@ -311,7 +310,7 @@ struct IKCPCB
 {
 	IUINT16 cid; // conversation id
 	IUINT16 pid; // next packet id
-	IUINT16 qid; // next query id (internal send index)
+	IUINT16 fid; // next fec packet group id
 
 	struct IQUEUEHEAD snd_lst;
 	struct IQUEUEHEAD rsnd_lsts[RSND_COUNT_MAX];

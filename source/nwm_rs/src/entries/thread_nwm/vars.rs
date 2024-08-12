@@ -466,13 +466,8 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
             };
             let ret = ikcp_input(kcp, recv_buf, ret as i32);
             if ret < 0 {
-                #[allow(unreachable_code)]
-                if todo!() {
-                    nsDbgPrint!(kcpInputFailed, ret);
-                    return -1;
-                } else {
-                    return 0;
-                }
+                nsDbgPrint!(kcpInputFailed, ret);
+                return -1;
             }
             drop(nwm_lock);
             let _ = svcSignalEvent(reliable_stream_cb_evt);
@@ -556,7 +551,7 @@ pub unsafe fn alloc_seg() -> Option<*mut c_char> {
 #[no_mangle]
 unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
     if let Some(dst) = alloc_seg() {
-        return dst;
+        return dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize);
     } else {
         return ptr::null_mut();
     }
@@ -564,7 +559,7 @@ unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
 
 #[no_mangle]
 unsafe extern "C" fn free_seg_buf(dst: *const ::libc::c_char) {
-    free_seg(dst)
+    free_seg_data_buf(dst)
 }
 
 #[named]

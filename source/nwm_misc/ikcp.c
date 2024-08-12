@@ -10,7 +10,7 @@
 //
 //=====================================================================
 #include "ikcp.h"
-// #include "fecal.h"
+#include "fecal.h"
 #include "constants.h"
 
 #include <stddef.h>
@@ -43,30 +43,24 @@ struct fec_counts_t {
 	IUINT8 original_count, recovery_count;
 };
 
-struct fec_counts_t fec_counts[] = {
-	{1, 1},
-	{4, 5},
-	{3, 4},
+static const struct fec_counts_t FEC_COUNTS[] = {
+	{1, 0},
+	{4, 1},
+	{3, 1},
+	{2, 1},
+	{3, 2},
+	{2, 2},
 	{2, 3},
-	{3, 5},
-	{2, 4},
-	{2, 5},
-	{1, 3},
 	{1, 2},
+	{1, 1},
 };
 
-_Static_assert(sizeof(fec_counts) / sizeof(*fec_counts) == FEC_TYPE_COUNT);
+_Static_assert(sizeof(FEC_COUNTS) / sizeof(*FEC_COUNTS) == FEC_TYPE_COUNT);
 
-enum FEC_TYPE fec_types[] = {
-	FEC_TYPE_1_1, // snd_lst
-	FEC_TYPE_2_5, // rsnd_lst[0]
-	FEC_TYPE_1_2, // ...
-	FEC_TYPE_1_3, // rsnd_lst[RSND_COUNT_MAX - 1]
-};
+static int fec_send_intervals[FEC_TYPE_COUNT];
 
-_Static_assert(sizeof(fec_types) / sizeof(*fec_types) == RSND_COUNT_MAX + 1); // rsnd count + snd
-
-enum FEC_TYPE fec_fallback_type = FEC_TYPE_1_2; // must have original count 1 for now
+// max of original_count + recovery_count
+#define FEC_COUNT_MAX (5)
 
 //=====================================================================
 // KCP BASIC
@@ -196,9 +190,8 @@ static int ikcp_output(ikcpcb *kcp, void *data, int size)
 //---------------------------------------------------------------------
 int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 {
+	*kcp = (struct IKCPCB){ 0 };
 	kcp->cid = cid;
-	kcp->pid = 0;
-	kcp->qid = 0;
 
 	iqueue_init(&kcp->snd_lst);
 	for (int i = 0; i < RSND_COUNT_MAX; ++i) {
@@ -206,7 +199,6 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	}
 	iqueue_init(&kcp->snd_cur);
 	iqueue_init(&kcp->snd_wak);
-	kcp->n_snd = 0;
 	kcp->n_snd_max = ARQ_BUFS_COUNT;
 	kcp->n_cur_max = ARQ_CUR_BUFS_COUNT;
 	kcp->rp_output_retry = false;
@@ -234,6 +226,8 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 
 	if (len <= 0) return -1;
 
+	// TODO
+	// only support (len == ARQ_DATA_SIZE) actually
 	if (len > ARQ_DATA_SIZE) {
 		return -2;
 	}
@@ -247,14 +241,9 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -3;
 	}
 
+	*seg = (struct IKCPSEG){ 0 };
 	seg->data_buf = buffer;
 	seg->pid = kcp->pid;
-	seg->qid = 0;
-	seg->fid = 0;
-	seg->fty = 0;
-	seg->gid = 0;
-	seg->wsn = 0;
-	seg->wrn = 0;
 	++kcp->pid;
 
 	iqueue_init(&seg->node);
@@ -285,6 +274,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 //---------------------------------------------------------------------
 int ikcp_input(ikcpcb *kcp, char *data, long size)
 {
+	// TODO
 	return -3;
 }
 
@@ -292,6 +282,25 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 //---------------------------------------------------------------------
 // ikcp_encode_seg
 //---------------------------------------------------------------------
+
+// For (original_count == 1) we need to do ikcp_encode_arq_hdr right before ikcp_encode_fec_hdr
+// instead of right before doing fec recovery encode due to shared data_buf
+
+// Outer header for fec
+static int ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
+	// TODO
+	return -1;
+}
+
+// Inner header for arq
+static int ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
+	// TODO
+	return -1;
+}
+
+static char *ikcp_get_fec_data_buf(struct IKCPSEG *seg) {
+	return seg->data_buf - (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE);
+}
 
 
 //---------------------------------------------------------------------
@@ -317,7 +326,22 @@ enum ARQ_QUEUE {
 
 _Static_assert(ARQ_QUEUE_COUNT == RSND_COUNT_MAX + 1); // rsnd count + snd
 
-struct IQUEUEHEAD *arq_queue_get(ikcpcb *kcp, enum ARQ_QUEUE queue) {
+static const enum FEC_TYPE FEC_TYPES[] = {
+	FEC_TYPE_1_3, // rsnd_lst[RSND_COUNT_MAX - 1]
+	FEC_TYPE_1_2, // ...
+	FEC_TYPE_2_5, // rsnd_lst[0]
+	FEC_TYPE_1_1, // snd_lst
+};
+
+_Static_assert(sizeof(FEC_TYPES) / sizeof(*FEC_TYPES) == ARQ_QUEUE_COUNT);
+
+static const enum FEC_TYPE FEC_FALLBACK_TYPE = FEC_TYPE_1_2; // must have (original_count == 1) for now
+
+static enum FEC_TYPE fec_type_from_queue(enum ARQ_QUEUE queue) {
+	return FEC_TYPES[queue];
+}
+
+static struct IQUEUEHEAD *arq_queue_get(ikcpcb *kcp, enum ARQ_QUEUE queue) {
 	if (queue <= ARQ_QUEUE_RSND0) {
 		return &kcp->rsnd_lsts[ARQ_QUEUE_RSND0 - queue];
 	} else if (queue == ARQ_QUEUE_SND) {
@@ -332,7 +356,7 @@ struct arq_seg_iter_t {
 	struct IKCPSEG *seg;
 };
 
-struct arq_seg_iter_t arq_seg_iter_init(ikcpcb *kcp) {
+static struct arq_seg_iter_t arq_seg_iter_init(ikcpcb *kcp) {
 	struct arq_seg_iter_t iter = {0, 0};
 
 	while (true) {
@@ -354,7 +378,7 @@ struct arq_seg_iter_t arq_seg_iter_init(ikcpcb *kcp) {
 	return iter;
 }
 
-struct arq_seg_iter_t arq_seg_iter_next(ikcpcb *kcp, struct arq_seg_iter_t iter) {
+static struct arq_seg_iter_t arq_seg_iter_next(ikcpcb *kcp, struct arq_seg_iter_t iter) {
 	if (!iter.seg) {
 		return iter;
 	}
@@ -384,13 +408,169 @@ struct arq_seg_iter_t arq_seg_iter_next(ikcpcb *kcp, struct arq_seg_iter_t iter)
 	return iter;
 }
 
+static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
+{
+	// TODO
+	return -1;
+}
+
 static int ikcp_queue_send_cur(ikcpcb *kcp)
 {
-	return -1;
+	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
+	if (!iters[0].seg) {
+		// TODO
+		// take from wak
+		return -3;
+	}
+
+	enum FEC_TYPE fec_type = fec_type_from_queue(iters[0].queue);
+	struct fec_counts_t counts = FEC_COUNTS[fec_type];
+
+	if (counts.original_count != 1) {
+		int use_fallback = 0;
+		for (int i = 1; i < counts.original_count; ++i) {
+			iters[i] = arq_seg_iter_next(kcp, iters[i - 1]);
+			if (!iters[i].seg) {
+				use_fallback = 1;
+				break;
+			}
+		}
+
+		if (use_fallback) {
+			fec_type = FEC_FALLBACK_TYPE;
+			counts = FEC_COUNTS[fec_type];
+			if (counts.original_count != 1) {
+				return -2;
+			}
+		} else  {
+			iters[0].seg->fid = kcp->fid;
+			++kcp->fid;
+			iters[0].seg->fty = fec_type;
+			iters[0].seg->gid = 0;
+			iters[0].seg->wsn = 0;
+			if (ikcp_encode_arq_hdr(kcp, iters[0].seg) != 0) {
+				return -11;
+			}
+			if (ikcp_insert_send_cur(kcp, iters[0].seg) != 0) {
+				return -12;
+			}
+
+			int count = 1;
+			--counts.original_count;
+
+			while (1) {
+				if (!counts.original_count)
+					break;
+
+				iters[count].seg->fid = iters[0].seg->fid;
+				iters[count].seg->fty = fec_type;
+				iters[count].seg->gid = count;
+				iters[count].seg->wsn = count * fec_send_intervals[fec_type];
+
+				if (ikcp_encode_arq_hdr(kcp, iters[count].seg) != 0) {
+					return -13;
+				}
+				if (ikcp_insert_send_cur(kcp, iters[count].seg) != 0) {
+					return -14;
+				}
+
+				++count;
+				--counts.original_count;
+			}
+
+			const int fecal_size = fecal_encoder_size();
+			char fecal_encoder_ws[fecal_size] ALIGNED(sizeof(void *));
+			FecalEncoder fecal_encoder = (FecalEncoder)fecal_encoder_ws;
+			void *data_ptrs[count];
+			for (int i = 0; i < count; ++i) {
+				data_ptrs[i] = ikcp_get_fec_data_buf(iters[i].seg);
+			}
+			if (fecal_encoder_init(fecal_encoder, count, data_ptrs, count * FEC_DATA_SIZE) != 0) {
+				return -15;
+			}
+
+			int recovery_index = 0;
+			while (1) {
+				if (!counts.recovery_count)
+					break;
+
+				struct IKCPSEG *seg = ikcp_segment_new(kcp);
+				if (!seg) {
+					return -17;
+				}
+				*seg = (struct IKCPSEG){ 0 };
+				iters[count].seg->fid = iters[0].seg->fid;
+				iters[count].seg->fty = fec_type;
+				iters[count].seg->gid = count;
+				iters[count].seg->wsn = count * fec_send_intervals[fec_type];
+				iters[count].seg->data_buf = alloc_seg_buf();
+				if (!iters[count].seg->data_buf) {
+					return -16;
+				}
+				void *data_ptr = ikcp_get_fec_data_buf(iters[count].seg);
+				FecalSymbol fecal_symbol = {
+					.Data = data_ptr,
+					.Bytes = FEC_DATA_SIZE,
+					.Index = recovery_index,
+				};
+				if (fecal_encode(fecal_encoder, &fecal_symbol) != 0) {
+					return -18;
+				}
+				if (ikcp_insert_send_cur(kcp, iters[count].seg) != 0) {
+					return -19;
+				}
+
+				++count;
+				++recovery_index;
+				--counts.recovery_count;
+			}
+
+			if (!counts.original_count && !counts.recovery_count) {
+				return 0;
+			}
+
+			return -5;
+		}
+	}
+
+	iters[0].seg->fid = kcp->fid;
+	++kcp->fid;
+	iters[0].seg->fty = fec_type;
+	iters[0].seg->gid = 0;
+	iters[0].seg->wsn = 0;
+	if (ikcp_insert_send_cur(kcp, iters[0].seg) != 0) {
+		return -6;
+	}
+
+	int count = 1;
+	counts.original_count = 0;
+	while (1) {
+		if (!counts.recovery_count)
+			break;
+
+		struct IKCPSEG *seg = ikcp_segment_new(kcp);
+		if (!seg) {
+			return -7;
+		}
+		*seg = *iters[0].seg;
+		seg->gid = count;
+		seg->wsn = count * fec_send_intervals[fec_type];
+		if (ikcp_insert_send_cur(kcp, seg) != 0) {
+			return -8;
+		}
+
+		++count;
+		--counts.recovery_count;
+	}
+	if (!counts.recovery_count)
+		return 0;
+
+	return -4;
 }
 
 static int ikcp_send_cur(ikcpcb *kcp)
 {
+	// TODO
 	return -1;
 }
 
@@ -420,6 +600,12 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int curwnd)
 		}
 		if (curwnd > 0) {
 			kcp->n_cur_max = _imin_(curwnd, ARQ_CUR_BUFS_COUNT);
+
+			for (int i = 0; i < FEC_TYPE_COUNT; ++i) {
+				struct fec_counts_t counts = FEC_COUNTS[i];
+				int count = counts.original_count + counts.recovery_count;
+				fec_send_intervals[i] = kcp->n_cur_max / count;
+			}
 		}
 	}
 	return 0;
