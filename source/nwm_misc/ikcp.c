@@ -284,25 +284,29 @@ int ikcp_input(ikcpcb *kcp, char *data, long size)
 // ikcp_encode_seg
 //---------------------------------------------------------------------
 
-// For (original_count == 1) we need to do ikcp_encode_arq_hdr right before ikcp_encode_fec_hdr
-// instead of right before doing fec recovery encode due to shared data_buf
-
-// Outer header for fec
-static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
-	// TODO
-}
-
-// Inner header for arq
-static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
-	// TODO
-}
-
 static char *ikcp_get_fec_data_buf(struct IKCPSEG *seg) {
 	return seg->data_buf - (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE);
 }
 
 static char *ikcp_get_packet_data_buf(struct IKCPSEG *seg) {
 	return seg->data_buf - ARQ_OVERHEAD_SIZE;
+}
+
+// For (original_count == 1) we need to do ikcp_encode_arq_hdr right before ikcp_encode_fec_hdr
+// instead of right before doing fec recovery encode due to shared data_buf
+
+// Outer header for fec
+static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
+	char *p = ikcp_get_packet_data_buf(seg);
+	IUINT16 hdr = (seg->fty & ((1 << 3) - 1)) | ((seg->gid & ((1 << 3) - 1)) << 3) | ((seg->fid & ((1 << 10) - 1)) << 6);
+	ikcp_encode16u(p, hdr);
+}
+
+// Inner header for arq
+static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
+	char *p = ikcp_get_fec_data_buf(seg);
+	IUINT16 hdr = (seg->pid & ((1 << 10) - 1)) | ((kcp->cid & ((1 << 2) - 1)) << 10);
+	ikcp_encode16u(p, hdr);
 }
 
 
@@ -422,7 +426,29 @@ static struct arq_seg_iter_t arq_seg_iter_next(ikcpcb *kcp, struct arq_seg_iter_
 
 static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 {
-	// TODO
+	struct IQUEUEHEAD *p;
+	p = kcp->snd_cur.next;
+	while (1) {
+		if (p == &kcp->snd_cur) {
+			iqueue_ins_before(&seg->node, p);
+			return 0;
+		}
+		struct IKCPSEG *cur = iqueue_entry(p, IKCPSEG, node);
+		int n = 1 + cur->wsn;
+		if (n <= seg->wsn) {
+			seg->wsn -= n;
+			p = p->next;
+			continue;
+		} else {
+			if (seg->wsn > cur->wsn) {
+				// logic error
+				return -2;
+			}
+			cur->wsn -= seg->wsn;
+			iqueue_ins_before(&seg->node, p);
+			return 0;
+		}
+	}
 	return -1;
 }
 
@@ -631,7 +657,6 @@ static int ikcp_send_cur(ikcpcb *kcp)
 	iqueue_del(&seg->node);
 	if (seg->delete_instead_of_resend) {
 		ikcp_segment_delete(kcp, seg);
-		--kcp->n_snd;
 	} else {
 		iqueue_add_tail(&seg->node, &kcp->snd_wak);
 	}
