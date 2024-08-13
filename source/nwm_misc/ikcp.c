@@ -297,22 +297,19 @@ static char *ikcp_get_packet_data_buf(struct IKCPSEG *seg) {
 
 // Outer header for fec
 static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
-	char *p = ikcp_get_packet_data_buf(seg);
-	IUINT16 hdr;
+	IUINT16 *p = (IUINT16 *)ikcp_get_packet_data_buf(seg);
 	if (seg->fty == FEC_TYPE_1_2) {
-		hdr = (((seg->gid & ((1 << 2) - 1)) | (1 << 2)) << 3);
+		*p = (((seg->gid & ((1 << 2) - 1)) | (1 << 2)) << 3);
 	} else {
-		hdr = (seg->fty & ((1 << 3) - 1)) | ((seg->gid & ((1 << 3) - 1)) << 3);
+		*p = (seg->fty & ((1 << 3) - 1)) | ((seg->gid & ((1 << 3) - 1)) << 3);
 	}
-	hdr |=  ((seg->fid & ((1 << 10) - 1)) << 6);
-	ikcp_encode16u(p, hdr);
+	*p |=  ((seg->fid & ((1 << 10) - 1)) << 6);
 }
 
 // Inner header for arq
 static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
-	char *p = ikcp_get_fec_data_buf(seg);
-	IUINT16 hdr = (seg->pid & ((1 << 10) - 1)) | ((kcp->cid & ((1 << 2) - 1)) << 10);
-	ikcp_encode16u(p, hdr);
+	IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg);
+	*p |= (seg->pid & ((1 << 10) - 1)) | ((kcp->cid & ((1 << 2) - 1)) << 10);
 }
 
 

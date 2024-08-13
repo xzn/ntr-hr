@@ -144,7 +144,7 @@ enum {
 #define ROUND_UP(n, d) (DIV_ROUND_UP(n, d) * (d))
 
 #define ARQ_DATA_SIZE (PACKET_SIZE - ARQ_OVERHEAD_SIZE)
-#define ARQ_DATA_HDR_SIZE 1
+#define ARQ_DATA_HDR_SIZE 2
 #define ARQ_RP_DATA_SIZE (ARQ_DATA_SIZE - ARQ_DATA_HDR_SIZE)
 #define RP_DATA_SIZE (PACKET_SIZE - DATA_HDR_SIZE)
 #define RP_COMPRESSED_COUNT_MAX (DIV_ROUND_UP(RP_COMPRESSED_SIZE_MAX, RP_DATA_SIZE) * NWM_WORK_COUNT)
@@ -156,13 +156,13 @@ enum {
 // Count is doubled for margin, should be enough hopefully
 #define ARQ_CUR_COUNT_MAX_2 (ARQ_CUR_COUNT_MAX * 2)
 // Includes FEC_OVERHEAD_SIZE
-#define ARQ_OVERHEAD_SIZE 4
+#define ARQ_OVERHEAD_SIZE 2
 #define ARQ_SEG_SIZE (sizeof(struct IKCPSEG))
 
 #define FEC_OVERHEAD_SIZE 2
 #define FEC_DATA_SIZE (PACKET_SIZE - FEC_OVERHEAD_SIZE)
 
-_Static_assert((NWM_HDR_SIZE + (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE)) % sizeof(void *) == 0, "Need adjusting overhead for alignment.");
+_Static_assert((NWM_HDR_SIZE + FEC_OVERHEAD_SIZE) % sizeof(void *) == 0, "Need adjusting overhead for alignment.");
 _Static_assert(RP_DATA_SIZE % sizeof(void *) == 0, "Need adjusting packet size for alignment.");
 
 #define SEND_BUFS_DATA_COUNT MAX(RP_COMPRESSED_COUNT_MAX, ARQ_PREFERRED_COUNT_MAX)
