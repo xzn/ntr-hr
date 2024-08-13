@@ -719,7 +719,8 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int curwnd)
 
 			for (int i = 0; i < FEC_TYPE_COUNT; ++i) {
 				struct fec_counts_t counts = FEC_COUNTS[i];
-				int count = counts.original_count + counts.recovery_count;
+				// Minimum factor for send interval
+				int count = _imax_(counts.original_count + counts.recovery_count, 3);
 				fec_send_intervals[i] = (kcp->n_cur_max + count / 2) / count;
 			}
 		}
