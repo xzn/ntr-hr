@@ -3,5 +3,5 @@ members = ["source/nwm_rs"]
 resolver = "2"
 
 [profile.release]
-lto = "thin"
+lto = true
 opt-level = 3

@@ -38,18 +38,21 @@ SECTIONS
 
 	. = ALIGN(4);
 	.rel.dyn : {
-		*(.__rel_dyn_start)
+		__rel_dyn_start = .;
 		*(.rel*)
 		*(.rel.*)
-		*(.__rel_dyn_end)
+		. = ALIGN(4);
+		__rel_dyn_end = .;
 	} : rodata
 
+/*
 	.ARM.exidx   :
 	{
 		PROVIDE_HIDDEN (__exidx_start = .);
 		*(.ARM.exidx*)
 		PROVIDE_HIDDEN (__exidx_end = .);
 	}
+*/
 
 	. = ALIGN(4);
 	.data : {

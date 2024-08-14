@@ -1,18 +1,26 @@
 DEV_BIN_DIR := $(DEVKITARM)/bin
 
 CC_NAME = @echo $(notdir $@);
-CC = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-gcc
-CXX = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-g++
+# CC = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-gcc
+# CXX = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-g++
+AS = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-as
+CLANG_FLAGS = -target arm-none-eabi
+CLANG_FLAGS += --sysroot $(DEVKITARM)/arm-none-eabi
+CLANG_FLAGS += -Wno-c2x-extensions -Wno-reserved-user-defined-literal
+CC = $(CC_NAME) clang $(CLANG_FLAGS)
+CXX = $(CC_NAME) clang++ $(CLANG_FLAGS)
 OBJCOPY = $(DEV_BIN_DIR)/arm-none-eabi-objcopy
 LD = $(DEV_BIN_DIR)/arm-none-eabi-ld
 CP = cp
 
 CTRU_DIR := libctru/libctru
 
-CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing -ffunction-sections -fdata-sections
+CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing
+# CFLAGS += -ffunction-sections -fdata-sections
 CPPFLAGS := -Iinclude -Ilibctru/libctru/include -D__3DS__
 LDFLAGS = -pie -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,-z,noexecstack
-LDLIBS = -nostartfiles -L. -lctru_ntr -L$(LIB_RS_DIR)
+LDLIBS = -nostartfiles -L. -lctru_ntr -L$(LIB_RS_DIR) -lsysbase
+LDLIBS += -Wl,-allow-multiple-definition -Wno-unused-command-line-argument
 
 SRC_C := $(wildcard source/*.c)
 SRC_S := $(wildcard source/*.s)
@@ -74,19 +82,19 @@ release:
 	mkdir $@
 
 bin/$(NTR_BIN_BOOT:.bin=.elf): $(OBJ) $(OBJ_BOOT) libctru_ntr.a 3ds.ld | bin
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_BOOT)) $(LDLIBS)
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(OBJ) $(OBJ_BOOT) $(LDLIBS)
 
 bin/$(NTR_BIN_MENU:.bin=.elf): $(OBJ) $(OBJ_MENU) libctru_ntr.a 3ds.ld | bin
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_MENU)) $(LDLIBS)
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(OBJ) $(OBJ_MENU) $(LDLIBS)
 
 bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) libctru_ntr.a 3ds.ld | bin
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_PM)) $(LDLIBS)
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(OBJ) $(OBJ_PM) $(LDLIBS)
 
 bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) libctru_ntr.a 3ds.ld | bin
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) $(OBJ_GAME)) $(LDLIBS)
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(OBJ) $(OBJ_GAME) $(LDLIBS)
 
 bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/nwm_lto.o libctru_ntr.a 3dst.ld $(LIB_NWM_RS) | bin
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(filter-out obj/bootloader.o,$(OBJ) obj/nwm_lto.o) $(LDLIBS) -lnwm_rs
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(OBJ) obj/nwm_lto.o $(LDLIBS) -lnwm_rs
 
 bin:
 	mkdir $@
@@ -102,12 +110,12 @@ $(CTRU_DIR)/lib/libctru.a:
 
 CC_WARNS = -Wall -Wextra
 
-CC_CMD = $(CC) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
+CC_CMD = $(CC) $(CFLAGS) -flto $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
 NWM_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
 NWM_CXX_CMD = $(CXX) -flto $(CFLAGS) $(CPPFLAGS) -fno-exceptions -MMD -c -o $@ $< $(CC_WARNS) -Wno-implicit-fallthrough
 
 obj/%.o: source/%.s | obj
-	$(CC_CMD)
+	$(AS) -march=armv6k -mfloat-abi=hard -o $@ $<
 
 obj/%.o: source/%.c | obj
 	$(CC_CMD)
@@ -134,7 +142,7 @@ obj/%.o: source/nwm_misc/%.cpp | obj
 	$(NWM_CXX_CMD)
 
 obj/nwm_lto.o: $(OBJ_NWM) | obj
-	$(CC) -flto $(CFLAGS) -r -o $@ $^
+	$(CC) -flto $(CFLAGS) -L. -r -o $@ $^
 
 obj:
 	mkdir $@
@@ -144,6 +152,6 @@ obj:
 .PHONY: clean all install
 
 clean:
-	-rm *.map bin/* release/* obj/* lib*.a
+	-rm *.map bin/* release/* obj/* libctru_ntr.a
 	-rm target/ -rf
 	$(MAKE) -C $(CTRU_DIR) clean

@@ -5,7 +5,7 @@
 #include <memory.h>
 #include <string.h>
 
-extern int _BootArgs[];
+extern volatile int _BootArgs[];
 static NTR_CONFIG *ntrCfg;
 static Handle fsUserHandle;
 
