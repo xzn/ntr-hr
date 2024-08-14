@@ -18,10 +18,10 @@ CTRU_DIR := libctru/libctru
 CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing
 # CFLAGS += -ffunction-sections -fdata-sections
 CPPFLAGS := -Iinclude -Ilibctru/libctru/include -D__3DS__
-LDFLAGS = -pie -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,-z,noexecstack
-LDLIBS = -nostartfiles -L. -lctru_ntr -L$(LIB_RS_DIR) -lsysbase
-LDLIBS += -Wl,-allow-multiple-definition -Wno-unused-command-line-argument
-
+LDFLAGS = -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,-z,noexecstack
+LDLIBS = -L. -lctru_ntr -L$(LIB_RS_DIR) -lsysbase
+# LDLIBS += -pie -nostartfiles
+# LDLIBS += -Wl,-allow-multiple-definition
 SRC_C := $(wildcard source/*.c)
 SRC_S := $(wildcard source/*.s)
 
@@ -93,8 +93,8 @@ bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) libctru_ntr.a 3ds.ld | bin
 bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) libctru_ntr.a 3ds.ld | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(OBJ) $(OBJ_GAME) $(LDLIBS)
 
-bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) obj/nwm_lto.o libctru_ntr.a 3dst.ld $(LIB_NWM_RS) | bin
-	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(OBJ) obj/nwm_lto.o $(LDLIBS) -lnwm_rs
+bin/$(NTR_BIN_NWM:.bin=.elf): $(OBJ) $(OBJ_NWM) libctru_ntr.a 3dst.ld $(LIB_NWM_RS) | bin
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3dst.ld $(LDFLAGS) $(OBJ) $(OBJ_NWM) $(LDLIBS) -lnwm_rs
 
 bin:
 	mkdir $@
