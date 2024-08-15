@@ -63,10 +63,10 @@ msr cpsr, r0
 ldr     PC, =c_entry
 */
 
-.section .__rel_dyn_start
+.global __rel_dyn_start
 __rel_dyn_start:
 
-.section .__rel_dyn_end
+.global __rel_dyn_end
 __rel_dyn_end:
 
 .section .__bss_start
