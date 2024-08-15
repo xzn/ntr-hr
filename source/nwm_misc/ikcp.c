@@ -292,9 +292,6 @@ static char *ikcp_get_packet_data_buf(struct IKCPSEG *seg) {
 	return seg->data_buf - ARQ_OVERHEAD_SIZE;
 }
 
-// For (original_count == 1) we need to do ikcp_encode_arq_hdr right before ikcp_encode_fec_hdr
-// instead of right before doing fec recovery encode due to shared data_buf
-
 // Outer header for fec
 static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
 	IUINT16 *p = (IUINT16 *)ikcp_get_packet_data_buf(seg);
