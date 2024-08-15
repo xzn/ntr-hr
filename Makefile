@@ -18,9 +18,10 @@ CTRU_DIR := libctru/libctru
 CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing
 # CFLAGS += -ffunction-sections -fdata-sections
 CPPFLAGS := -Iinclude -Ilibctru/libctru/include -D__3DS__
-LDFLAGS = -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,-z,noexecstack
+LDFLAGS = -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,-z,notext,-z,noexecstack
 LDLIBS = -L. -lctru_ntr -L$(LIB_RS_DIR) -lsysbase
-# LDLIBS += -pie -nostartfiles
+LDLIBS += -Wl,-pie
+# LDLIBS += -nostartfiles
 # LDLIBS += -Wl,-allow-multiple-definition
 SRC_C := $(wildcard source/*.c)
 SRC_S := $(wildcard source/*.s)

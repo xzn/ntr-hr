@@ -41,7 +41,6 @@ SECTIONS
 		__rel_dyn_start = .;
 		*(.rel*)
 		*(.rel.*)
-		. = ALIGN(4);
 		__rel_dyn_end = .;
 	} : rodata
 
