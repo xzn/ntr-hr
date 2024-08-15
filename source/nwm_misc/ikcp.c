@@ -657,6 +657,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		if (ret < 0) {
 			return -8;
 		}
+		wsn += ret;
 
 		++count;
 		--counts.recovery_count;
