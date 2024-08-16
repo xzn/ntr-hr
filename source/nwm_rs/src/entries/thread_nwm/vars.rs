@@ -376,7 +376,7 @@ static mut rp_output_next_tick: s64 = 0;
 unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> s32 {
     if len > PACKET_SIZE as s32 {
         nsDbgPrint!(nwmOutputOverflow, len);
-        return 0;
+        return -3;
     }
 
     let curr_tick = svcGetSystemTick() as s64;
@@ -403,8 +403,8 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> 
             crate::entries::work_thread::set_reset_threads_ar();
             return -1;
         }
-        if res == 0 || (*kcp).rp_output_retry {
-            return -3;
+        if (*kcp).rp_output_retry {
+            return 0;
         }
         rp_output_next_tick = svcGetSystemTick() as s64 + next_interval;
     } else {

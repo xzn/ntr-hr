@@ -181,7 +181,7 @@ static void ikcp_segment_delete(ikcpcb *kcp, IKCPSEG *seg)
 // output segment
 static int ikcp_output(ikcpcb *kcp, void *data, int size)
 {
-	if (size == 0) return 0;
+	if (size == 0) return -1;
 	return rp_udp_output(data, size, kcp);
 }
 
@@ -675,7 +675,11 @@ static int ikcp_send_cur(ikcpcb *kcp)
 	ikcp_encode_fec_hdr(seg);
 
 	const int len = PACKET_SIZE;
-	if (ikcp_output(kcp, ikcp_get_packet_data_buf(seg), len) != len) {
+	int ret = ikcp_output(kcp, ikcp_get_packet_data_buf(seg), len);
+	if (ret == 0) {
+		return 1;
+	}
+	if (ret != len) {
 		return -5;
 	}
 
@@ -698,7 +702,11 @@ int ikcp_send_next(ikcpcb *kcp)
 			return -2;
 		}
 	}
-	if (ikcp_send_cur(kcp) != 0) {
+	int ret;
+	do {
+		kcp->rp_output_retry = false;
+	} while ((ret = ikcp_send_cur(kcp)) > 0);
+	if (ret < 0) {
 		return -3;
 	}
 
