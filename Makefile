@@ -1,3 +1,8 @@
+# Remove "-Clinker-plugin-lto" from .cargo/config.toml
+# if you intend to compile with gcc.
+# When compiling with clang libclang_rt.builtins-arm.a will need to be obtained elsewhere.
+# See https://llvm.org/docs/HowToCrossCompileBuiltinsOnArm.html
+
 DEV_BIN_DIR := $(DEVKITARM)/bin
 
 CC_NAME = @echo $(notdir $@);

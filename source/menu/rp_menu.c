@@ -326,6 +326,7 @@ int remotePlayMenu(u32 localaddr) {
 
 		const char *descs[REMOTE_PLAY_MENU_COUNT] = { 0 };
 		descs[REMOTE_PLAY_MENU_THREAD_PRIORITY] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
+		descs[REMOTE_PLAY_MENU_PRIORITY_FACTOR] = "0: Priority screen only.";
 		descs[REMOTE_PLAY_MENU_RELIABLE_STREAM] = getReliableStreamDesc(reliableStream);
 
 		u32 keys;

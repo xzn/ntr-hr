@@ -98,5 +98,6 @@ SECTIONS
 		*(.__bss_end)
 	} : data
 
+	. = ALIGN(4);
 	__end__ = .;
 }
