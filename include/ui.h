@@ -1,7 +1,7 @@
 #ifndef UI_H
 #define UI_H
 
-#include "3ds/types.h"
+#include "ns.h"
 
 void showMsgRaw2(const char *title, const char *msg);
 int showMsgVAPre(void);

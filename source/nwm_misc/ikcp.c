@@ -469,12 +469,8 @@ static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 
 static int ikcp_insert_send_cur_from_iter(ikcpcb *kcp, struct arq_seg_iter_t *iter)
 {
-	int ret = ikcp_insert_send_cur(kcp, iter->seg);
-	if (ret < 0)
-		return ret;
-
 	iqueue_del(&iter->seg->node);
-	return ret;
+	return ikcp_insert_send_cur(kcp, iter->seg);
 }
 
 static void ikcp_reset_send_wak(ikcpcb *kcp)
@@ -621,8 +617,12 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	iters[0].seg->fty = fec_type;
 	iters[0].seg->gid = 0;
 	iters[0].seg->wsn = 0;
-	iters[0].seg->delete_instead_of_resend = true;
-	iters[0].seg->keep_data_buf = true;
+	if (counts.recovery_count) {
+		iters[0].seg->delete_instead_of_resend = true;
+		iters[0].seg->keep_data_buf = true;
+	} else {
+		iters[0].seg->gid_end = true;
+	}
 	ikcp_encode_arq_hdr(kcp, iters[0].seg);
 	int wsn = 0;
 	int ret;
@@ -667,8 +667,9 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 
 static int ikcp_send_cur(ikcpcb *kcp)
 {
-	if (!ikcp_can_send_cur(kcp))
+	if (!ikcp_can_send_cur(kcp)) {
 		return -2;
+	}
 
 	IKCPSEG *seg;
 	seg = iqueue_entry(kcp->snd_cur.next, IKCPSEG, node);
@@ -707,7 +708,7 @@ int ikcp_send_next(ikcpcb *kcp)
 		kcp->rp_output_retry = false;
 	} while ((ret = ikcp_send_cur(kcp)) > 0);
 	if (ret < 0) {
-		return -3;
+		return ret - 10;
 	}
 
 	return 0;

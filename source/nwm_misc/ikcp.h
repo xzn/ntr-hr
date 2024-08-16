@@ -278,7 +278,7 @@ typedef struct IQUEUEHEAD iqueue_head;
 //=====================================================================
 // SEGMENT
 //=====================================================================
-#include "constants.h"
+#include "ui.h"
 #include "mempool.h"
 
 struct IKCPSEG
