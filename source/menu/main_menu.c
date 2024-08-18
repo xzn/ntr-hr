@@ -101,6 +101,84 @@ static int injectToPM(void) {
 	return 0;
 }
 
+static int qtmPatched = 0;
+static void disableQtmHeadTrackingForCurrentBoot(void) {
+	if (qtmPatched) {
+		showMsg("Already patched QTM");
+		return;
+	}
+
+#define RP_QTM_HDR_SIZE (20)
+	u8 desiredHeader[RP_QTM_HDR_SIZE] = {
+		0x08, 0x00, 0x84, 0xe2,
+		0x0e, 0x00, 0x90, 0xe8,
+		0x14, 0x00, 0x94, 0xe5,
+		0x0c, 0x00, 0x85, 0xe5,
+		0x0e, 0x00, 0x85, 0xe8
+	};
+	u8 buf[RP_QTM_HDR_SIZE] = { 0 };
+
+	Handle hProcess;
+	s32 ret;
+	u32 pid = 0x15; // QTM process
+
+	ret = svcOpenProcess(&hProcess, pid);
+	if (ret != 0) {
+		showDbg("Open QTM process failed: %08"PRIx32, ret);
+		hProcess = 0;
+		goto final;
+	}
+
+	u32 remotePC = 0x00119a54;
+	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, buf, hProcess, (void *)remotePC, RP_QTM_HDR_SIZE);
+	if (ret != 0) {
+		showDbg("Read QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
+		goto final;
+	}
+	if (memcmp(buf, desiredHeader, RP_QTM_HDR_SIZE) != 0) {
+		showDbg("Unexpected QTM memory content");
+		goto final;
+	}
+	ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
+	if (ret != 0) {
+		showDbg("Locking QTM failed: %08"PRIx32"\n", ret);
+		goto final;
+	}
+
+	u8 replacementMem[RP_QTM_HDR_SIZE] = {
+		0x01, 0x00, 0xA0, 0xE3,
+		0x00, 0x10, 0xA0, 0xE3,
+		0x00, 0x20, 0xA0, 0xE3,
+		0x00, 0x30, 0xA0, 0xE3,
+		0x0F, 0x00, 0x85, 0xE8,
+	};
+
+	ret = protectRemoteMemory(hProcess, (void *)PAGE_OF_ADDR(remotePC), 0x1000, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	if (ret != 0) {
+		showDbg("QTM protectRemoteMemory failed: %08"PRIx32, ret);
+		goto final_unlock;
+	}
+
+	ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, replacementMem, RP_QTM_HDR_SIZE);
+	if (ret != 0) {
+		showDbg("Write QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
+		goto final_unlock;
+	}
+
+	showMsg("Patch QTM successful");
+	qtmPatched = 1;
+
+final_unlock:
+	ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
+	if (ret != 0) {
+		showDbg("Unlocking QTM process failed: %08"PRIx32"\n", ret);
+	}
+
+final:
+	if (hProcess)
+		svcCloseHandle(hProcess);
+}
+
 static GAME_PLUGIN_MENU gamePluginMenu;
 static u32 gamePid;
 static u32 gamePluginMenuAddr;
@@ -264,7 +342,13 @@ static int pluginLoaderMenu(void) {
 	return 0;
 }
 
+static int nfcPatched = 0;
 static void rpDoNFCPatch(void) {
+	if (nfcPatched) {
+		showMsg("Already patched NFC");
+		return;
+	}
+
 	int pid = 0x1a; // nwm process
 	Handle hProcess;
 	int ret;
@@ -304,6 +388,7 @@ static void rpDoNFCPatch(void) {
 	}
 
 	showMsg("NFC patch success");
+	nfcPatched = 1;
 
 final:
 	svcCloseHandle(hProcess);
@@ -347,6 +432,7 @@ enum {
 	MENU_ENTRY_PLUGIN_LOADER,
 	MENU_ENTRY_HOTKEY,
 	MENU_ENTRY_NFC_PATCH,
+	MENU_ENTRY_QTM_PATCH,
 
 	MENU_ENTRIES_COUNT,
 	MENU_ENTRY_GAME_PLUGIN = MENU_ENTRIES_COUNT,
@@ -361,6 +447,7 @@ static void showMainMenu(void) {
 	entries[MENU_ENTRY_PLUGIN_LOADER] = plgTranslate("Plugin Loader");
 	entries[MENU_ENTRY_HOTKEY] = plgTranslate("Set Menu Hotkey");
 	entries[MENU_ENTRY_NFC_PATCH] = plgTranslate("NFC Patch");
+	entries[MENU_ENTRY_QTM_PATCH] = plgTranslate("QTM Disable");
 	u32 count = MENU_ENTRIES_COUNT;
 
 	if (loadGamePluginMenu() == 0) {
@@ -371,6 +458,7 @@ static void showMainMenu(void) {
 	const char *descs[MENU_ENTRIES_COUNT_MAX] = { 0 };
 	descs[MENU_ENTRY_PLUGIN_LOADER] = "Changes in here need game restart to\ntake effect.";
 	descs[MENU_ENTRY_NFC_PATCH] = "Allow remote play to continue in games\nsuch as USUM.";
+	descs[MENU_ENTRY_QTM_PATCH] = "Disable head tracking for current boot\nto speed up remote play.";
 
 	u32 localAddr = gethostid();
 
@@ -413,6 +501,12 @@ static void showMainMenu(void) {
 			case MENU_ENTRY_NFC_PATCH:
 				releaseVideo();
 				rpDoNFCPatch();
+				acquireVideo();
+				break;
+
+			case MENU_ENTRY_QTM_PATCH:
+				releaseVideo();
+				disableQtmHeadTrackingForCurrentBoot();
 				acquireVideo();
 				break;
 
