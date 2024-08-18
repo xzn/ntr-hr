@@ -153,7 +153,7 @@ static void disableQtmHeadTrackingForCurrentBoot(void) {
 		0x0F, 0x00, 0x85, 0xE8,
 	};
 
-	ret = protectRemoteMemory(hProcess, (void *)PAGE_OF_ADDR(remotePC), 0x1000, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+	ret = rtCheckRemoteMemory(hProcess, remotePC, RP_QTM_HDR_SIZE, MEMPERM_READWRITE | MEMPERM_EXECUTE);
 	if (ret != 0) {
 		showDbg("QTM protectRemoteMemory failed: %08"PRIx32, ret);
 		goto final_unlock;
@@ -165,7 +165,7 @@ static void disableQtmHeadTrackingForCurrentBoot(void) {
 		goto final_unlock;
 	}
 
-	showMsg("Patch QTM successful");
+	showMsg("Patch QTM success");
 	qtmPatched = 1;
 
 final_unlock:
