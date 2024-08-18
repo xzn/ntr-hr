@@ -488,6 +488,9 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 {
 	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
 	if (!iters[0].seg) {
+		// TODO
+		// Do not reset after protocol has received from the other end.
+		// Will need to implement timeout and send timing delay info.
 		ikcp_reset_send_wak(kcp);
 		iters[0] = arq_seg_iter_init(kcp);
 		if (!iters[0].seg)
