@@ -458,7 +458,7 @@ static void showMainMenu(void) {
 	const char *descs[MENU_ENTRIES_COUNT_MAX] = { 0 };
 	descs[MENU_ENTRY_PLUGIN_LOADER] = "Changes in here need game restart to\ntake effect.";
 	descs[MENU_ENTRY_NFC_PATCH] = "Allow remote play to continue in games\nsuch as USUM.";
-	descs[MENU_ENTRY_QTM_PATCH] = "Disable head tracking for current boot\nto speed up remote play.";
+	descs[MENU_ENTRY_QTM_PATCH] = "Disable head tracking for current boot\nto speed up remote play.\nNew 3DS only; no effect on New 2DS.";
 
 	u32 localAddr = gethostid();
 
