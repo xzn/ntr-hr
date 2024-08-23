@@ -335,11 +335,14 @@ Handle rpGetPortHandle(void) {
 
 void __attribute__((weak)) handlePortThreadPre(void) {}
 
-#define portSessionsMax 4
+#define clientCountMax 8
+// Plus server port
+#define sessionCountMax (clientCountMax + 1)
 void handlePortThread(void *arg) {
 	s32 ret;
 	Handle hServer = 0, hClient = 0;
-	ret = svcCreatePort(&hServer, &hClient, (const char *)arg, portSessionsMax);
+	const char *portName = (const char *)arg;
+	ret = svcCreatePort(&hServer, &hClient, portName, clientCountMax);
 	if (ret != 0) {
 		showDbg("Create port failed: %08"PRIx32"\n", ret);
 		svcExitThread();
@@ -348,71 +351,70 @@ void handlePortThread(void *arg) {
 	u32 *cmdbuf = getThreadCommandBuffer();
 	handlePortThreadPre();
 
-	Handle hSessions[portSessionsMax] = {0};
-	Handle handleReply = 0;
+	Handle sessionHandles[sessionCountMax] = { hServer };
+	int sessionCount = 1;
+	int replyHandleIndex = 0;
 	cmdbuf[0] = 0xFFFF0000;
+
 	while (1) {
-		Handle hHandles[portSessionsMax + 1];
-		u32 hHandlesMap[portSessionsMax + 1];
-
-		int i, hCount = 0;
-		for (i = 0; i < portSessionsMax; ++i) {
-			if (hSessions[i] != 0) {
-				hHandles[hCount] = hSessions[i];
-				hHandlesMap[hCount] = i;
-				++hCount;
-			}
-		}
-		hHandles[hCount] = hServer;
-		hHandlesMap[hCount] = portSessionsMax;
-		++hCount;
-
-		s32 handleIndex = -1;
-		ret = svcReplyAndReceive(&handleIndex, hHandles, hCount, handleReply);
+		s32 receivedHandleIndex = -1;
+		ret = svcReplyAndReceive(
+			&receivedHandleIndex, sessionHandles, sessionCount,
+			replyHandleIndex ? sessionHandles[replyHandleIndex] : 0);
 		if (ret != 0) {
 			if (ret == (s32)RES_HANDLE_CLOSED) {
-				handleReply = 0;
-				cmdbuf[0] = 0xFFFF0000;
-				svcCloseHandle(hHandles[handleIndex]);
-				hSessions[hHandlesMap[handleIndex]] = 0;
-				continue;
+				int closedHandleIndex = receivedHandleIndex;
+				if (closedHandleIndex == 0) {
+					for (int i = 0; i < sessionCount; ++i) {
+						svcCloseHandle(sessionHandles[i]);
+						showDbg("Port server handle unexpectedly closed for (%s)\n", portName);
+						goto final;
+					}
+				}
+				if (closedHandleIndex < 0) {
+					closedHandleIndex = replyHandleIndex;
+				}
+				svcCloseHandle(sessionHandles[closedHandleIndex]);
+				--sessionCount;
+				sessionHandles[closedHandleIndex] = sessionHandles[sessionCount];
+				sessionHandles[sessionCount] = 0;
 			}
 
-			handleReply = 0;
+			replyHandleIndex = 0;
 			cmdbuf[0] = 0xFFFF0000;
 			continue;
 		}
 
-		if (hHandlesMap[handleIndex] == portSessionsMax) {
-			handleReply = 0;
+		if (receivedHandleIndex == 0) {
+			replyHandleIndex = 0;
 			cmdbuf[0] = 0xFFFF0000;
+
 			Handle hSession;
 			ret = svcAcceptSession(&hSession, hServer);
 			if (ret != 0) {
 				continue;
 			}
 
-			for (i = 0; i < portSessionsMax; ++i) {
-				if (hSessions[i] == 0) {
-					hSessions[i] = hSession;
-					break;
-				}
-			}
-			if (i >= portSessionsMax) {
+			if (sessionCount >= sessionCountMax) {
+				showDbg("Client count exceeded for (%s)\n", portName);
 				svcCloseHandle(hSession);
+				continue;
 			}
+			sessionHandles[sessionCount] = hSession;
+			++sessionCount;
 			continue;
 		}
 
-		handleReply = hHandles[handleIndex];
 		u32 cmd_id = cmdbuf[0] >> 16;
 		u32 norm_param_count = (cmdbuf[0] >> 6) & 0x3F;
 		u32 trans_param_size = cmdbuf[0] & 0x3F;
 
 		handlePortCmd(cmd_id, norm_param_count, trans_param_size, cmdbuf + 1);
 
+		replyHandleIndex = receivedHandleIndex;
 		cmdbuf[0] = IPC_MakeHeader(cmd_id, 0, 0);
 	}
+final:
 
 	if (hServer)
 		svcCloseHandle(hServer);
