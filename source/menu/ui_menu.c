@@ -118,8 +118,8 @@ static void restoreVRAMBuffer(void) {
 
 void acquireVideo(void) {
 	if (AFAR(&videoRef, 1) == 0) {
-		svcKernelSetState(0x10000, 4 | 2, 0, 0);
 		lockGameProcess();
+		svcKernelSetState(0x10000, 4 | 2, 0, 0);
 
 		while ((REG32(GPU_PSC0_CNT) | REG32(GPU_PSC1_CNT) | REG32(GPU_TRANSFER_CNT) | REG32(GPU_CMDLIST_CNT)) & 1) {}
 
@@ -140,14 +140,15 @@ void releaseVideo(void) {
 		restoreVRAMBuffer();
 		restoreGpuRegs();
 
-		unlockGameProcess();
 		svcKernelSetState(0x10000, 4 | 2, 0, 0);
+		unlockGameProcess();
 	}
 }
 
 // From libctru
 static u32 const kDelay = 16, kInterval = 4;
 static u32 kOld, kHeld, kDown, kUp, kRepeat, kCount = kDelay;
+#define UI_THREAD_DELAY (25 * 1000 * 1000)
 
 static void uiScanInput(void) {
 	kOld = kHeld;
@@ -194,7 +195,9 @@ void waitKeysDelay(void);
 u32 waitKeys(void) {
 	u32 keys;
 	do {
-		if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
+		if (1) {
+			svcSleepThread(UI_THREAD_DELAY);
+		} else if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
 			waitKeysDelay3();
 		} else {
 			waitKeysDelay();
@@ -210,7 +213,9 @@ void debounceKeys(void) {
 	const u32 count_total = 2;
 	u32 count = count_total;
 	do {
-		if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
+		if (1) {
+			svcSleepThread(UI_THREAD_DELAY);
+		}  else if (ntrConfig->isNew3DS && (REG(PDN_LGR_SOCMODE) & 5) == 5) {
 			waitKeysDelay3();
 		} else {
 			waitKeysDelay();
