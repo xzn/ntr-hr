@@ -367,9 +367,9 @@ void handlePortThread(void *arg) {
 				if (closedHandleIndex == 0) {
 					for (int i = 0; i < sessionCount; ++i) {
 						svcCloseHandle(sessionHandles[i]);
-						showDbg("Port server handle unexpectedly closed for (%s)\n", portName);
-						goto final;
 					}
+					showDbg("Port server handle unexpectedly closed for (%s)\n", portName);
+					goto final;
 				}
 				if (closedHandleIndex < 0) {
 					closedHandleIndex = replyHandleIndex;
