@@ -103,27 +103,19 @@ static int injectToPM(void) {
 
 static int qtmPatched = 0;
 static void disableQtmHeadTrackingForCurrentBoot(void) {
-	if (qtmPatched) {
-		showMsg("Already patched QTM");
-		return;
-	}
-
-#define RP_QTM_HDR_SIZE (32)
+#define RP_QTM_HDR_SIZE (12)
 	u8 desiredHeader[RP_QTM_HDR_SIZE] = {
-		0x32, 0x00, 0x00, 0xef,
-		0x02, 0x11, 0x10, 0xe2,
-		0x05, 0x00, 0x00, 0x4a,
-		0x08, 0x00, 0x84, 0xe2,
-		0x0e, 0x00, 0x90, 0xe8,
-		0x14, 0x00, 0x94, 0xe5,
-		0x0c, 0x00, 0x85, 0xe5,
-		0x0e, 0x00, 0x85, 0xe8
+		0x23, 0x01, 0x00, 0xeb,
+		0xa0, 0x0f, 0xb0, 0xe1,
+		0x01, 0x00, 0x00, 0x0a,
 	};
-	u8 buf[RP_QTM_HDR_SIZE] = { 0 };
 
+	u32 remotePC = 0x00119598;
 	Handle hProcess;
 	s32 ret;
 	u32 pid = 0x15; // QTM process
+
+	u8 buf[RP_QTM_HDR_SIZE] = { 0 };
 
 	ret = svcOpenProcess(&hProcess, pid);
 	if (ret != 0) {
@@ -132,47 +124,57 @@ static void disableQtmHeadTrackingForCurrentBoot(void) {
 		goto final;
 	}
 
-	u32 remotePC = 0x00119a48;
-	ret = copyRemoteMemory(CUR_PROCESS_HANDLE, buf, hProcess, (void *)remotePC, RP_QTM_HDR_SIZE);
-	if (ret != 0) {
-		showDbg("Read QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
-		goto final;
+	if (!qtmPatched) {
+		ret = copyRemoteMemory(CUR_PROCESS_HANDLE, buf, hProcess, (void *)remotePC, RP_QTM_HDR_SIZE);
+		if (ret != 0) {
+			showDbg("Read QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
+			goto final;
+		}
+
+		if (memcmp(buf, desiredHeader, RP_QTM_HDR_SIZE) != 0) {
+			showDbg("Unexpected QTM memory content");
+			goto final;
+		}
 	}
-	if (memcmp(buf, desiredHeader, RP_QTM_HDR_SIZE) != 0) {
-		showDbg("Unexpected QTM memory content");
-		goto final;
-	}
+
 	ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
 	if (ret != 0) {
 		showDbg("Locking QTM failed: %08"PRIx32"\n", ret);
 		goto final;
 	}
 
-	u8 replacementMem[RP_QTM_HDR_SIZE] = {
-		0x01, 0x01, 0xA0, 0xE3,
-		0x00, 0x10, 0xA0, 0xE3,
-		0x0A, 0x00, 0x00, 0xEF,
-		0x01, 0x00, 0xA0, 0xE3,
-		0x00, 0x10, 0xA0, 0xE3,
-		0x00, 0x20, 0xA0, 0xE3,
-		0x00, 0x30, 0xA0, 0xE3,
-		0x0F, 0x00, 0x85, 0xE8,
-	};
+	if (!qtmPatched) {
+		u8 replacementMem[RP_QTM_HDR_SIZE] = {
+			0x01, 0x01, 0xA0, 0xE3, 
+			0x0A, 0x00, 0x00, 0xEF, 
+			0xFA, 0xFF, 0xFF, 0xEA, 
+		};
 
-	ret = rtCheckRemoteMemory(hProcess, remotePC, RP_QTM_HDR_SIZE, MEMPERM_READWRITE | MEMPERM_EXECUTE);
-	if (ret != 0) {
-		showDbg("QTM protectRemoteMemory failed: %08"PRIx32, ret);
+		ret = rtCheckRemoteMemory(hProcess, remotePC, RP_QTM_HDR_SIZE, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+		if (ret != 0) {
+			showDbg("QTM protectRemoteMemory failed: %08"PRIx32, ret);
+			goto final_unlock;
+		}
+
+		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, replacementMem, RP_QTM_HDR_SIZE);
+		if (ret != 0) {
+			showDbg("Write QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
+			goto final_unlock;
+		}
+
+		qtmPatched = 1;
+		showMsg("Patch QTM success");
+	} else {
+		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, desiredHeader, RP_QTM_HDR_SIZE);
+		if (ret != 0) {
+			showDbg("Restore QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
+			goto final_unlock;
+		}
+
+		qtmPatched = 0;
+		showMsg("Restore QTM success");
 		goto final_unlock;
 	}
-
-	ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, replacementMem, RP_QTM_HDR_SIZE);
-	if (ret != 0) {
-		showDbg("Write QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
-		goto final_unlock;
-	}
-
-	showMsg("Patch QTM success");
-	qtmPatched = 1;
 
 final_unlock:
 	ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
@@ -393,8 +395,8 @@ static void rpDoNFCPatch(void) {
 		goto final;
 	}
 
-	showMsg("NFC patch success");
 	nfcPatched = 1;
+	showMsg("NFC patch success");
 
 final:
 	svcCloseHandle(hProcess);
@@ -448,26 +450,6 @@ enum {
 };
 
 static void showMainMenu(void) {
-	const char *entries[MENU_ENTRIES_COUNT_MAX];
-	entries[MENU_ENTRY_REMOTETPLAY] = plgTranslate("Remote Play (New 3DS)");
-	entries[MENU_ENTRY_PLUGIN_LOADER] = plgTranslate("Plugin Loader");
-	entries[MENU_ENTRY_HOTKEY] = plgTranslate("Set Menu Hotkey");
-	entries[MENU_ENTRY_NFC_PATCH] = plgTranslate("NFC Patch");
-	entries[MENU_ENTRY_QTM_PATCH] = plgTranslate("QTM Disable");
-	u32 count = MENU_ENTRIES_COUNT;
-
-	if (loadGamePluginMenu() == 0) {
-		entries[MENU_ENTRY_GAME_PLUGIN] = plgTranslate("Game Plugin");
-		count = MENU_ENTRIES_COUNT_GAME;
-	}
-
-	const char *descs[MENU_ENTRIES_COUNT_MAX] = { 0 };
-	descs[MENU_ENTRY_PLUGIN_LOADER] = "Changes in here need game restart to\ntake effect.";
-	descs[MENU_ENTRY_NFC_PATCH] = "Allow remote play to continue in games\nsuch as USUM.";
-	descs[MENU_ENTRY_QTM_PATCH] = "Disable head tracking for current boot\nto speed up remote play.\nNew 3DS only; no effect on New 2DS.";
-
-	u32 localAddr = gethostid();
-
 	char title[LOCAL_TITLE_BUF_SIZE];
 	if (openGameProcess() == 0) {
 		closeGameProcess();
@@ -479,13 +461,35 @@ static void showMainMenu(void) {
 	acquireVideo();
 	s32 r = 0;
 	while (1) {
+		const char *entries[MENU_ENTRIES_COUNT_MAX];
+		entries[MENU_ENTRY_REMOTETPLAY] = plgTranslate("Remote Play (New 3DS)");
+		entries[MENU_ENTRY_PLUGIN_LOADER] = plgTranslate("Plugin Loader");
+		entries[MENU_ENTRY_HOTKEY] = plgTranslate("Set Menu Hotkey");
+		entries[MENU_ENTRY_NFC_PATCH] = plgTranslate("NFC Patch");
+		entries[MENU_ENTRY_QTM_PATCH] = qtmPatched ? plgTranslate("QTM Enable") : plgTranslate("QTM Disable");
+		u32 count = MENU_ENTRIES_COUNT;
+
+		if (loadGamePluginMenu() == 0) {
+			entries[MENU_ENTRY_GAME_PLUGIN] = plgTranslate("Game Plugin");
+			count = MENU_ENTRIES_COUNT_GAME;
+		}
+
+		const char *descs[MENU_ENTRIES_COUNT_MAX] = { 0 };
+		descs[MENU_ENTRY_PLUGIN_LOADER] = "Changes in here need game restart to\ntake effect.";
+		descs[MENU_ENTRY_NFC_PATCH] = "Allow remote play to continue in games\nsuch as USUM.";
+		descs[MENU_ENTRY_QTM_PATCH] = qtmPatched ?
+			"Restore head tracking." :
+			"Disable head tracking for current boot\nto speed up remote play.\nNew 3DS only; no effect on New 2DS.";
+
 		r = showMenuEx(title, count, entries, descs, r);
 
 		switch (r) {
-			case MENU_ENTRY_REMOTETPLAY:
+			case MENU_ENTRY_REMOTETPLAY: {
+				u32 localAddr = gethostid();
 				if (remotePlayMenu(localAddr) != 0) {
 					goto done;
 				}
+			}
 				break;
 
 			case MENU_ENTRY_PLUGIN_LOADER:
