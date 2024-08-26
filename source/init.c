@@ -353,6 +353,7 @@ void handlePortThread(void *arg) {
 
 	Handle sessionHandles[sessionCountMax] = { hServer };
 	int sessionCount = 1;
+	hServer = 0;
 	int replyHandleIndex = 0;
 	cmdbuf[0] = 0xFFFF0000;
 
@@ -365,11 +366,7 @@ void handlePortThread(void *arg) {
 			if (ret == (s32)RES_HANDLE_CLOSED) {
 				int closedHandleIndex = receivedHandleIndex;
 				if (closedHandleIndex == 0) {
-					for (int i = 0; i < sessionCount; ++i) {
-						svcCloseHandle(sessionHandles[i]);
-					}
-					showDbg("Port server handle unexpectedly closed for (%s)\n", portName);
-					goto final;
+					goto final_server;
 				}
 				if (closedHandleIndex < 0) {
 					closedHandleIndex = replyHandleIndex;
@@ -378,6 +375,13 @@ void handlePortThread(void *arg) {
 				--sessionCount;
 				sessionHandles[closedHandleIndex] = sessionHandles[sessionCount];
 				sessionHandles[sessionCount] = 0;
+			} else {
+final_server:
+				for (int i = 0; i < sessionCount; ++i) {
+					svcCloseHandle(sessionHandles[i]);
+				}
+				showDbg("Port server handle unexpectedly closed for (%s)\n", portName);
+				goto final;
 			}
 
 			replyHandleIndex = 0;
@@ -390,7 +394,7 @@ void handlePortThread(void *arg) {
 			cmdbuf[0] = 0xFFFF0000;
 
 			Handle hSession;
-			ret = svcAcceptSession(&hSession, hServer);
+			ret = svcAcceptSession(&hSession, sessionHandles[0]);
 			if (ret != 0) {
 				continue;
 			}
