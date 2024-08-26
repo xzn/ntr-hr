@@ -102,15 +102,15 @@ static int injectToPM(void) {
 }
 
 static int qtmPatched = 0;
-static void disableQtmHeadTrackingForCurrentBoot(void) {
-#define RP_QTM_HDR_SIZE (12)
+static int qtmPayloadAddr = 0;
+static int qtmDisabled = 0;
+static void rpDoQTMPatchAndToggle(void) {
+#define RP_QTM_HDR_SIZE (4)
 	u8 desiredHeader[RP_QTM_HDR_SIZE] = {
-		0x23, 0x01, 0x00, 0xeb,
-		0xa0, 0x0f, 0xb0, 0xe1,
-		0x01, 0x00, 0x00, 0x0a,
+		0x32, 0x00, 0x00, 0xef,
 	};
 
-	u32 remotePC = 0x00119598;
+	u32 remotePC = 0x00119a48;
 	Handle hProcess;
 	s32 ret;
 	u32 pid = 0x15; // QTM process
@@ -143,26 +143,95 @@ static void disableQtmHeadTrackingForCurrentBoot(void) {
 		goto final;
 	}
 
-	if (!qtmPatched) {
-		u8 replacementMem[RP_QTM_HDR_SIZE] = {
-			0x01, 0x01, 0xA0, 0xE3, 
-			0x0A, 0x00, 0x00, 0xEF, 
-			0xFA, 0xFF, 0xFF, 0xEA, 
-		};
+#define RP_QTM_PAYLOAD_SIZE (32)
+	u8 payload[RP_QTM_PAYLOAD_SIZE] = {
+		0x00, 0x60, 0xa0, 0xe1, // mov r6, r0
+		0x01, 0x01, 0xa0, 0xe3, // loop: mov r0, #0x40000000
+		0x00, 0x10, 0xa0, 0xe3, // mov r1, #0
+		0x0a, 0x00, 0x00, 0xef, // swi 0x0a
+		0xfb, 0xff, 0xff, 0xea, // b loop
+		0x06, 0x00, 0xa0, 0xe1, // mov r0, r6
+		0x32, 0x00, 0x00, 0xef, // swi 0x32
+		0x1e, 0xff, 0x2f, 0xe1, // bx lr
+	};
 
+	if (!qtmPatched) {
 		ret = rtCheckRemoteMemory(hProcess, remotePC, RP_QTM_HDR_SIZE, MEMPERM_READWRITE | MEMPERM_EXECUTE);
 		if (ret != 0) {
 			showDbg("QTM protectRemoteMemory failed: %08"PRIx32, ret);
 			goto final_unlock;
 		}
 
-		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, replacementMem, RP_QTM_HDR_SIZE);
+		u32 qtmBinEnd = 0x001ac000;
+
+		u32 qtmPayloadAddrMin = qtmBinEnd - 0x800;
+		u32 qtmPayloadAddrTry = qtmBinEnd - RP_QTM_PAYLOAD_SIZE;
+
+		while (1) {
+retry:
+			if (qtmPayloadAddrTry < qtmPayloadAddrMin) {
+				showDbg("Unable to find free space to install QTM payload\n");
+				goto final_unlock;
+			}
+
+			u8 tmp[RP_QTM_PAYLOAD_SIZE] = { 0 };
+
+			ret = copyRemoteMemory(CUR_PROCESS_HANDLE, tmp, hProcess, (void *)qtmPayloadAddrTry, RP_QTM_PAYLOAD_SIZE);
+			if (ret != 0) {
+				showDbg("Read QTM memory at %08"PRIx32" failed: %08"PRIx32, qtmPayloadAddrTry, ret);
+				goto final_unlock;
+			}
+
+			for (unsigned i = 0; i < RP_QTM_PAYLOAD_SIZE / sizeof(u32); ++i) {
+				if (((u32 *)tmp)[i]) {
+					qtmPayloadAddrTry -= RP_QTM_PAYLOAD_SIZE;
+					goto retry;
+				}
+			}
+
+			break;
+		}
+
+		ret = rtCheckRemoteMemory(hProcess, qtmPayloadAddrTry, RP_QTM_PAYLOAD_SIZE, MEMPERM_READWRITE | MEMPERM_EXECUTE);
+		if (ret != 0) {
+			showDbg("QTM protectRemoteMemory for payload failed: %08"PRIx32, ret);
+			goto final_unlock;
+		}
+
+		ret = copyRemoteMemory(hProcess, (void *)qtmPayloadAddrTry, CUR_PROCESS_HANDLE, payload, RP_QTM_PAYLOAD_SIZE);
+		if (ret != 0) {
+			showDbg("Write QTM memory for payload at %08"PRIx32" failed: %08"PRIx32, qtmPayloadAddrTry, ret);
+			goto final_unlock;
+		}
+
+		qtmPayloadAddr = qtmPayloadAddrTry;
+		qtmPatched = 1;
+	}
+
+#define RP_QTM_PAYLOAD_SWITCH_OFFSET (16)
+#define RP_QTM_PAYLOAD_SWITCH_SIZE (4)
+	u32 qtmPayloadSwitchAddr = qtmPayloadAddr + RP_QTM_PAYLOAD_SWITCH_OFFSET;
+
+	if (!qtmDisabled) {
+		u32 branchDistance = qtmPayloadAddr - remotePC;
+
+		u32 replacementInst = (branchDistance / 4 - 2) | 0xeb000000;
+
+		u8 *qtmPayloadSwitchOn = payload + RP_QTM_PAYLOAD_SWITCH_OFFSET;
+
+		ret = copyRemoteMemory(hProcess, (void *)qtmPayloadSwitchAddr, CUR_PROCESS_HANDLE, qtmPayloadSwitchOn, RP_QTM_PAYLOAD_SWITCH_SIZE);
+		if (ret != 0) {
+			showDbg("Switch on QTM memory for payload at %08"PRIx32" failed: %08"PRIx32, qtmPayloadSwitchAddr, ret);
+			goto final_unlock;
+		}
+
+		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &replacementInst, RP_QTM_HDR_SIZE);
 		if (ret != 0) {
 			showDbg("Write QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
 			goto final_unlock;
 		}
 
-		qtmPatched = 1;
+		qtmDisabled = 1;
 		showMsg("Patch QTM success");
 	} else {
 		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, desiredHeader, RP_QTM_HDR_SIZE);
@@ -171,9 +240,18 @@ static void disableQtmHeadTrackingForCurrentBoot(void) {
 			goto final_unlock;
 		}
 
-		qtmPatched = 0;
+		u8 qtmPayloadSwitchOff[RP_QTM_PAYLOAD_SWITCH_SIZE] = {
+			0x00, 0xf0, 0x20, 0xe3,
+		};
+
+		ret = copyRemoteMemory(hProcess, (void *)qtmPayloadSwitchAddr, CUR_PROCESS_HANDLE, qtmPayloadSwitchOff, RP_QTM_PAYLOAD_SWITCH_SIZE);
+		if (ret != 0) {
+			showDbg("Switch off QTM memory for payload at %08"PRIx32" failed: %08"PRIx32, qtmPayloadSwitchAddr, ret);
+			goto final_unlock;
+		}
+
+		qtmDisabled = 0;
 		showMsg("Restore QTM success");
-		goto final_unlock;
 	}
 
 final_unlock:
@@ -466,7 +544,7 @@ static void showMainMenu(void) {
 		entries[MENU_ENTRY_PLUGIN_LOADER] = plgTranslate("Plugin Loader");
 		entries[MENU_ENTRY_HOTKEY] = plgTranslate("Set Menu Hotkey");
 		entries[MENU_ENTRY_NFC_PATCH] = plgTranslate("NFC Patch");
-		entries[MENU_ENTRY_QTM_PATCH] = qtmPatched ? plgTranslate("QTM Enable") : plgTranslate("QTM Disable");
+		entries[MENU_ENTRY_QTM_PATCH] = qtmDisabled ? plgTranslate("QTM Enable") : plgTranslate("QTM Disable");
 		u32 count = MENU_ENTRIES_COUNT;
 
 		if (loadGamePluginMenu() == 0) {
@@ -477,7 +555,7 @@ static void showMainMenu(void) {
 		const char *descs[MENU_ENTRIES_COUNT_MAX] = { 0 };
 		descs[MENU_ENTRY_PLUGIN_LOADER] = "Changes in here need game restart to\ntake effect.";
 		descs[MENU_ENTRY_NFC_PATCH] = "Allow remote play to continue in games\nsuch as USUM.";
-		descs[MENU_ENTRY_QTM_PATCH] = qtmPatched ?
+		descs[MENU_ENTRY_QTM_PATCH] = qtmDisabled ?
 			"Restore head tracking." :
 			"Disable head tracking for current boot\nto speed up remote play.\nNew 3DS only; no effect on New 2DS.";
 
@@ -516,7 +594,7 @@ static void showMainMenu(void) {
 
 			case MENU_ENTRY_QTM_PATCH:
 				releaseVideo();
-				disableQtmHeadTrackingForCurrentBoot();
+				rpDoQTMPatchAndToggle();
 				acquireVideo();
 				break;
 
