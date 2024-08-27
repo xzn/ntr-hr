@@ -686,23 +686,27 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
 
             // Ready send again
             let ret = ikcp_send_ready_and_get_delay(kcp);
-            if has_dst && ret < 0 {
-                // Reset KCP
-                nsDbgPrint!(kcpSendFailed, ret);
-                crate::entries::work_thread::set_reset_threads_ar();
-                nwm_cb_unlock();
-                return false;
-            }
-
-            // Send next
-            // TODO: handle session timeout here
-            let ret = ikcp_send_next(kcp);
-            if has_dst && ret < 0 {
-                // Reset KCP
-                nsDbgPrint!(kcpFlushFailed, ret);
-                crate::entries::work_thread::set_reset_threads_ar();
-                nwm_cb_unlock();
-                return false;
+            if ret < 0 {
+                if has_dst || {
+                    (svcGetSystemTick() as s64 - rp_output_next_tick) / SYSCLOCK_ARM11 as s64
+                        >= RP_KCP_TIMEOUT_SEC
+                } {
+                    // Reset KCP
+                    nsDbgPrint!(kcpSendFailed, ret);
+                    crate::entries::work_thread::set_reset_threads_ar();
+                    nwm_cb_unlock();
+                    return false;
+                }
+            } else {
+                // Send next
+                let ret = ikcp_send_next(kcp);
+                if ret < 0 {
+                    // Reset KCP
+                    nsDbgPrint!(kcpFlushFailed, ret);
+                    crate::entries::work_thread::set_reset_threads_ar();
+                    nwm_cb_unlock();
+                    return false;
+                }
             }
         }
 
