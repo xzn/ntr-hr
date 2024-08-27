@@ -329,6 +329,7 @@ struct IKCPCB
 	struct IQUEUEHEAD snd_wak;
 
 	bool session_established;
+	bool session_new_data_received;
 	bool rp_output_retry;
 
 	char seg_mem[ARQ_SEG_MEM_COUNT][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
@@ -361,7 +362,7 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid);
 int ikcp_queue(ikcpcb *kcp, char *buffer, int len);
 
 // when you received a low level packet (eg. UDP packet), call it
-int ikcp_input(ikcpcb *kcp, char *data, long size);
+int ikcp_input(ikcpcb *kcp, char *data, int size);
 
 // flush pending data
 int ikcp_send_next(ikcpcb *kcp);

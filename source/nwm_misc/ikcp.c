@@ -154,7 +154,7 @@ static inline IUINT32 _ibound_(IUINT32 lower, IUINT32 middle, IUINT32 upper)
 	return _imin_(_imax_(lower, middle), upper);
 }
 
-static inline long _itimediff(IUINT32 later, IUINT32 earlier)
+static inline IINT32 _itimediff(IUINT32 later, IUINT32 earlier)
 {
 	return ((IINT32)(later - earlier));
 }
@@ -273,10 +273,183 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 //---------------------------------------------------------------------
 // input data
 //---------------------------------------------------------------------
-int ikcp_input(ikcpcb *kcp, char *data, long size)
+
+enum ARQ_QUEUE {
+	ARQ_QUEUE_RSND2,
+	ARQ_QUEUE_RSND1,
+	ARQ_QUEUE_RSND0,
+	ARQ_QUEUE_SND,
+	ARQ_QUEUE_COUNT,
+};
+
+_Static_assert(ARQ_QUEUE_COUNT == RSND_COUNT + 1); // rsnd count + snd
+_Static_assert(ARQ_QUEUE_RSND0 == RSND_COUNT - 1);
+
+static struct IQUEUEHEAD *arq_queue_get(ikcpcb *kcp, enum ARQ_QUEUE queue) {
+	if (queue <= ARQ_QUEUE_RSND0) {
+		return &kcp->rsnd_lsts[ARQ_QUEUE_RSND0 - queue];
+	} else if (queue == ARQ_QUEUE_SND) {
+		return &kcp->snd_lst;
+	} else {
+		return 0;
+	}
+}
+
+static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
+	if (wrn > 0) {
+		wrn = _imin_(wrn, RSND_COUNT) - 1;
+		return &kcp->rsnd_lsts[wrn];
+	}
+	return &kcp->snd_lst;
+}
+
+// FIXME:
+// Currently works on little endian only
+
+static bool ikcp_input_check_nack(IUINT16 pid, char *data, int size) {
+	IUINT16 *ptr = (IUINT16 *)data;
+	size /= 2;
+
+	for (int i = 0; i < size; ++i) {
+		IUINT16 val = ptr[i];
+		IUINT16 nack_start = (val >> 6) & ((1 << 10) - 1);
+		IUINT16 nack_count_0 = val & ((1 << 6) - 1);
+		IUINT16 pid_diff = (pid - nack_start) & ((1 << 10) - 1);
+		if (pid_diff <= nack_count_0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static int ikcp_input_handle_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size) {
+	while (1) {
+		if (seg->pid == (IUINT16)-1 || !ikcp_input_check_nack(seg->pid, data, size)) {
+			iqueue_del(&seg->node);
+			ikcp_segment_delete(kcp, seg);
+		} else {
+			iqueue_del(&seg->node);
+			if (seg->free_instead_of_resend) {
+				ikcp_segment_delete(kcp, seg);
+			} else {
+				++seg->wrn;
+				if (seg->wrn > RSND_COUNT) {
+					seg->wrn = RSND_COUNT;
+				}
+				struct IQUEUEHEAD *queue = arq_queue_get_from_wrn(kcp, seg->wrn);
+				iqueue_add_tail(&seg->node, queue);
+			}
+		}
+
+		if (seg->gid == 0)
+			break;
+
+		struct IQUEUEHEAD *p = seg->node.prev;
+		while (1) {
+			if (p == &seg->node) {
+				return -1;
+			}
+
+			struct IKCPSEG *seg_prev = iqueue_entry(p, IKCPSEG, node);
+			if (seg_prev->fid == seg->fid) {
+				seg = seg_prev;
+				break;
+			}
+
+			p = p->prev;
+		}
+	}
+	return 0;
+}
+
+static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size) {
+	struct IKCPSEG *segs[FEC_COUNT_MAX] = { seg, 0 };
+	int count = 1;
+	while (!seg->gid_end) {
+		seg = iqueue_entry(seg->node.next, IKCPSEG, node);
+		if (seg->fid == segs[0]->fid) {
+			if (seg->pid != (IUINT16)-1) {
+				if (seg->wrn == 0 || ikcp_input_check_nack(seg->pid, data, size)) {
+					return 1;
+				}
+			}
+
+			if (seg->gid != count) {
+				return -1;
+			}
+
+			segs[count] = seg;
+			++count;
+		}
+	}
+	for (int i = 0; i > count; ++i) {
+		iqueue_del(&segs[i]->node);
+		ikcp_segment_delete(kcp, segs[i]);
+	}
+	return 0;
+}
+
+int ikcp_input(ikcpcb *kcp, char *data, int size)
 {
-	// TODO
-	return -3;
+	if (size < (int)sizeof(IUINT16))
+		return -1;
+
+	IUINT16 hdr = *(IUINT16 *)data;
+
+	data += sizeof(IUINT16);
+	size -= sizeof(IUINT16);
+
+	IUINT16 fid = (hdr >> 6) & ((1 << 10) - 1);
+	IUINT16 gid = (hdr >> 3) & ((1 << 3) - 1);
+	IUINT16 cid = (hdr >> 1) & ((1 << 2) - 1);
+	IUINT16 reset = hdr & ((1 << 1) - 1);
+
+	if (kcp->cid == cid && reset) {
+		return -2;
+	}
+
+	if (kcp->cid != cid) {
+		return 0;
+	}
+
+	for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
+		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
+		if (seg->fid == fid && seg->gid == gid)
+			break;
+		if (seg->gid_end) {
+			if (ikcp_input_handle_nack(kcp, seg, data, size) != 0) {
+				return -3;
+			}
+		}
+	}
+
+	for (int i = 0; i < RSND_COUNT; ++i) {
+		struct IQUEUEHEAD *queue = &kcp->rsnd_lsts[i];
+		for (struct IQUEUEHEAD *p = queue->next, *next = p->next; p != queue; p = next, next = p->next) {
+			struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
+			if (!ikcp_input_check_nack(seg->pid, data, size)) {
+				iqueue_del(&seg->node);
+				ikcp_segment_delete(kcp, seg);
+			}
+		}
+	}
+
+	for (struct IQUEUEHEAD *p = kcp->snd_cur.next, *next = p->next; p != &kcp->snd_cur; p = next, next = p->next) {
+		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
+		if (seg->wrn && seg->gid == 0 && !ikcp_input_check_nack(seg->pid, data, size)) {
+			int ret = ikcp_input_handle_send_cur_nack(kcp, seg, data, size);
+			if (ret < 0) {
+				return -4;
+			} else if (ret == 0 && p == kcp->snd_cur.next) {
+				kcp->rp_output_retry = true;
+			}
+		}
+	}
+
+	kcp->session_established = true;
+	kcp->session_new_data_received = true;
+	return 0;
 }
 
 
@@ -291,6 +464,9 @@ static char *ikcp_get_fec_data_buf(struct IKCPSEG *seg) {
 static char *ikcp_get_packet_data_buf(struct IKCPSEG *seg) {
 	return seg->data_buf - ARQ_OVERHEAD_SIZE;
 }
+
+// FIXME:
+// Currently works on little endian only
 
 // Outer header for fec
 static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
@@ -323,17 +499,6 @@ static int ikcp_send_cur_get_delay(ikcpcb *kcp)
 	return seg->wsn;
 }
 
-enum ARQ_QUEUE {
-	ARQ_QUEUE_RSND2,
-	ARQ_QUEUE_RSND1,
-	ARQ_QUEUE_RSND0,
-	ARQ_QUEUE_SND,
-	ARQ_QUEUE_COUNT,
-};
-
-_Static_assert(ARQ_QUEUE_COUNT == RSND_COUNT + 1); // rsnd count + snd
-_Static_assert(ARQ_QUEUE_RSND0 == RSND_COUNT - 1);
-
 static const enum FEC_TYPE FEC_TYPES[] = {
 	FEC_TYPE_1_3, // rsnd_lst[RSND_COUNT - 1]
 	FEC_TYPE_1_2, // ...
@@ -347,24 +512,6 @@ static const enum FEC_TYPE FEC_FALLBACK_TYPE = FEC_TYPE_1_2; // must have (origi
 
 static enum FEC_TYPE fec_type_from_queue(enum ARQ_QUEUE queue) {
 	return FEC_TYPES[queue];
-}
-
-static struct IQUEUEHEAD *arq_queue_get(ikcpcb *kcp, enum ARQ_QUEUE queue) {
-	if (queue <= ARQ_QUEUE_RSND0) {
-		return &kcp->rsnd_lsts[ARQ_QUEUE_RSND0 - queue];
-	} else if (queue == ARQ_QUEUE_SND) {
-		return &kcp->snd_lst;
-	} else {
-		return 0;
-	}
-}
-
-static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
-	if (wrn > 0) {
-		wrn = _imin_(wrn, RSND_COUNT) - 1;
-		return &kcp->rsnd_lsts[wrn];
-	}
-	return &kcp->snd_lst;
 }
 
 struct arq_seg_iter_t {
@@ -576,6 +723,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 					return -17;
 				}
 				*seg = (struct IKCPSEG){ 0 };
+				seg->pid = (IUINT16)-1;
 				seg->fid = iters[0].seg->fid;
 				seg->fty = fec_type;
 				seg->gid = count;
@@ -692,9 +840,8 @@ static int ikcp_send_cur(ikcpcb *kcp)
 			seg->skip_free_data_buf = true;
 			seg->data_buf = NULL;
 		}
-	} else {
-		iqueue_add_tail(&seg->node, &kcp->snd_wak);
 	}
+	iqueue_add_tail(&seg->node, &kcp->snd_wak);
 	return 0;
 }
 
@@ -751,5 +898,6 @@ int ikcp_send_ready_and_get_delay(ikcpcb *kcp)
 		}
 	}
 
+	kcp->session_new_data_received = false;
 	return ikcp_send_cur_get_delay(kcp);
 }

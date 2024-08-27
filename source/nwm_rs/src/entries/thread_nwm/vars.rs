@@ -399,7 +399,7 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> 
             crate::entries::work_thread::set_reset_threads_ar();
             return -2;
         }
-        if nwm_cb_lock() == None {
+        if entries::work_thread::reset_threads() || nwm_cb_lock() == None {
             crate::entries::work_thread::set_reset_threads_ar();
             return -1;
         }
@@ -466,7 +466,9 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
             };
             let ret = ikcp_input(kcp, recv_buf, ret as i32);
             if ret < 0 {
+                // Reset KCP
                 nsDbgPrint!(kcpInputFailed, ret);
+                crate::entries::work_thread::set_reset_threads_ar();
                 return -1;
             }
             drop(nwm_lock);
@@ -648,7 +650,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                         nsDbgPrint!(waitForSyncFailed, c_str!("nwm_syn.rp_syn_acq"), res);
                         entries::work_thread::set_reset_threads_ar();
                         return false;
-                    } else if send_delay >= 0 || (*kcp).rp_output_retry {
+                    } else if send_delay >= 0 || (*kcp).session_new_data_received {
                         break;
                     }
                 }
