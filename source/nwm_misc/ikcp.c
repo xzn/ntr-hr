@@ -246,6 +246,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	seg->data_buf = buffer;
 	seg->pid = kcp->pid;
 	++kcp->pid;
+	kcp->pid &= ((1 << 10) - 1);
 
 	iqueue_init(&seg->node);
 	iqueue_add_tail(&seg->node, &kcp->snd_lst);
@@ -328,6 +329,10 @@ static int ikcp_input_handle_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, 
 	while (1) {
 		if (seg->pid == (IUINT16)-1 || !ikcp_input_check_nack(seg->pid, data, size)) {
 			iqueue_del(&seg->node);
+			struct fec_counts_t counts = FEC_COUNTS[seg->fty];
+			if (seg->gid < counts.original_count) {
+				--kcp->n_snd;
+			}
 			ikcp_segment_delete(kcp, seg);
 		} else {
 			iqueue_del(&seg->node);
@@ -370,6 +375,10 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 	while (!seg->gid_end) {
 		seg = iqueue_entry(seg->node.next, IKCPSEG, node);
 		if (seg->fid == segs[0]->fid) {
+			if (seg->fty == segs[0]->fty) {
+				return -2;
+			}
+
 			if (seg->pid != (IUINT16)-1) {
 				if (seg->wrn == 0 || ikcp_input_check_nack(seg->pid, data, size)) {
 					return 1;
@@ -384,9 +393,14 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 			++count;
 		}
 	}
-	for (int i = 0; i > count; ++i) {
+
+	struct fec_counts_t counts = FEC_COUNTS[segs[0]->fty];
+	for (int i = 0; i < count; ++i) {
 		iqueue_del(&segs[i]->node);
 		ikcp_segment_delete(kcp, segs[i]);
+		if (i < counts.original_count) {
+			--kcp->n_snd;
+		}
 	}
 	return 0;
 }
@@ -431,6 +445,10 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 			struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
 			if (!ikcp_input_check_nack(seg->pid, data, size)) {
 				iqueue_del(&seg->node);
+				struct fec_counts_t counts = FEC_COUNTS[seg->fty];
+				if (seg->gid < counts.original_count) {
+					--kcp->n_snd;
+				}
 				ikcp_segment_delete(kcp, seg);
 			}
 		}
@@ -668,6 +686,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		} else  {
 			iters[0].seg->fid = kcp->fid;
 			++kcp->fid;
+			kcp->fid &= ((1 << 10) - 1);
 			iters[0].seg->fty = fec_type;
 			iters[0].seg->gid = 0;
 			iters[0].seg->wsn = 0;
@@ -767,6 +786,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 
 	iters[0].seg->fid = kcp->fid;
 	++kcp->fid;
+	kcp->fid &= ((1 << 10) - 1);
 	iters[0].seg->fty = fec_type;
 	iters[0].seg->gid = 0;
 	iters[0].seg->wsn = 0;
