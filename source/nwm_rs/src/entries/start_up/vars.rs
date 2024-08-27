@@ -50,7 +50,7 @@ impl ThreadVars {
     }
 
     pub fn thread_main_handle(&self) -> *mut Handle {
-        unsafe { ptr::addr_of_mut!(thread_main_handle) }
+        ptr::addr_of_mut!(thread_main_handle)
     }
 
     #[named]

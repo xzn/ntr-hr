@@ -3,17 +3,32 @@
 # When compiling with clang libclang_rt.builtins-arm.a will need to be obtained elsewhere.
 # See https://llvm.org/docs/HowToCrossCompileBuiltinsOnArm.html
 
+# Need 2024-07-30 nightly rust for now
+
 DEV_BIN_DIR := $(DEVKITARM)/bin
 
+UNAME := $(shell uname)
+
+ifeq ($(UNAME),Linux)
+USE_CLANG = 1
+endif
+
 CC_NAME = @echo $(notdir $@);
-# CC = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-gcc
-# CXX = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-g++
 AS = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-as
 CLANG_FLAGS = -target arm-none-eabi
 CLANG_FLAGS += --sysroot $(DEVKITARM)/arm-none-eabi
 CLANG_FLAGS += -Wno-c2x-extensions -Wno-reserved-user-defined-literal
+
+ifeq ($(USE_CLANG),1)
 CC = $(CC_NAME) clang $(CLANG_FLAGS)
 CXX = $(CC_NAME) clang++ $(CLANG_FLAGS)
+RSFLAGS = RUSTFLAGS="-C panic=abort -Clinker-plugin-lto"
+else
+CC = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-gcc
+CXX = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-g++
+RSFLAGS = RUSTFLAGS="-C panic=abort"
+endif
+
 OBJCOPY = $(DEV_BIN_DIR)/arm-none-eabi-objcopy
 LD = $(DEV_BIN_DIR)/arm-none-eabi-ld
 CP = cp
@@ -106,7 +121,7 @@ bin:
 	mkdir $@
 
 $(LIB_NWM_RS): $(shell find source/nwm_rs -type f)
-	cargo -Z unstable-options -C source/nwm_rs build --release
+	$(RSFLAGS) cargo -Z unstable-options -C source/nwm_rs build --release
 
 libctru_ntr.a: $(CTRU_DIR)/lib/libctru.a
 	$(CP_CMD)

@@ -1,7 +1,7 @@
 [build]
 target = "armv6k-nintendo-3ds"
 target-dir = "target"
-rustflags = ["-C", "panic=abort", "-Clinker-plugin-lto"]
+rustflags = ["-C", "panic=abort"]
 
 [unstable]
 build-std = ["core"]
