@@ -192,7 +192,7 @@ static int ikcp_output(ikcpcb *kcp, void *data, int size)
 int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 {
 	*kcp = (struct IKCPCB){ 0 };
-	kcp->cid = cid;
+	kcp->cid = cid & ((1 << 2) - 1);
 
 	iqueue_init(&kcp->snd_lst);
 	for (int i = 0; i < RSND_COUNT; ++i) {
@@ -307,6 +307,7 @@ static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
 // Currently works on little endian only
 
 static bool ikcp_input_check_nack(IUINT16 pid, char *data, int size) {
+	// TODO maybe optimize
 	IUINT16 *ptr = (IUINT16 *)data;
 	size /= 2;
 
