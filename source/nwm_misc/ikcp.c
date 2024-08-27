@@ -219,7 +219,7 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 
 
 //---------------------------------------------------------------------
-// user/upper level send, returns at/below zero for error
+// user/upper level send
 //---------------------------------------------------------------------
 int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 {
@@ -233,7 +233,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -2;
 	}
 
-	if (!ikcp_can_queue(kcp)) {
+	if (ikcp_queue_get_free(kcp) <= 0 ) {
 		return -4;
 	}
 
@@ -313,14 +313,14 @@ static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
 //---------------------------------------------------------------------
 // ikcp_flush
 //---------------------------------------------------------------------
-static int ikcp_can_send_cur(ikcpcb *kcp)
+static int ikcp_send_cur_get_delay(ikcpcb *kcp)
 {
 	if (iqueue_is_empty(&kcp->snd_cur))
-		return 0;
+		return -1;
 
 	IKCPSEG *seg;
 	seg = iqueue_entry(kcp->snd_cur.next, IKCPSEG, node);
-	return seg->wsn == 0;
+	return seg->wsn;
 }
 
 enum ARQ_QUEUE {
@@ -476,10 +476,12 @@ static int ikcp_insert_send_cur_from_iter(ikcpcb *kcp, struct arq_seg_iter_t *it
 static void ikcp_reset_send_wak(ikcpcb *kcp)
 {
 	IKCPSEG *seg;
-	while (!iqueue_is_empty(&kcp->snd_wak)) {
-		seg = iqueue_entry(kcp->snd_wak.next, IKCPSEG, node);
-		iqueue_del(&seg->node);
+	for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
+		seg = iqueue_entry(p, IKCPSEG, node);
+		if (seg->wrn)
+			continue;
 		struct IQUEUEHEAD *queue = arq_queue_get_from_wrn(kcp, seg->wrn);
+		iqueue_del(&seg->node);
 		iqueue_add_tail(&seg->node, queue);
 	}
 }
@@ -488,13 +490,12 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 {
 	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
 	if (!iters[0].seg) {
-		// TODO
-		// Do not reset after protocol has received from the other end.
-		// Will need to implement timeout and send timing delay info.
-		ikcp_reset_send_wak(kcp);
-		iters[0] = arq_seg_iter_init(kcp);
+		if (!kcp->session_established) {
+			ikcp_reset_send_wak(kcp);
+			iters[0] = arq_seg_iter_init(kcp);
+		}
 		if (!iters[0].seg)
-			return -3;
+			return 1;
 	}
 
 	enum FEC_TYPE fec_type = fec_type_from_queue(iters[0].queue);
@@ -667,7 +668,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 
 static int ikcp_send_cur(ikcpcb *kcp)
 {
-	if (!ikcp_can_send_cur(kcp)) {
+	if (ikcp_send_cur_get_delay(kcp) < 0) {
 		return -2;
 	}
 
@@ -699,20 +700,12 @@ static int ikcp_send_cur(ikcpcb *kcp)
 
 int ikcp_send_next(ikcpcb *kcp)
 {
-	if (!ikcp_can_send(kcp))
-		return -1;
-
-	if (!ikcp_can_send_cur(kcp)) {
-		if (ikcp_queue_send_cur(kcp) != 0) {
-			return -2;
-		}
-	}
 	int ret;
 	do {
 		kcp->rp_output_retry = false;
 	} while ((ret = ikcp_send_cur(kcp)) > 0);
 	if (ret < 0) {
-		return ret - 10;
+		return ret * 0x10 - 1;
 	}
 
 	return 0;
@@ -740,13 +733,23 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int curwnd)
 }
 
 
-int ikcp_can_queue(const ikcpcb *kcp)
+int ikcp_queue_get_free(ikcpcb *kcp)
 {
-	return kcp->n_snd < kcp->n_snd_max;
+	return kcp->n_snd_max - kcp->n_snd;
 }
 
-int ikcp_can_send(const ikcpcb *kcp)
+int ikcp_send_ready_and_get_delay(ikcpcb *kcp)
 {
-	return kcp->n_snd > 0;
-}
+	if (kcp->n_snd <= 0) {
+		return -1;
+	}
 
+	int ret;
+	if (ikcp_send_cur_get_delay(kcp) != 0) {
+		if ((ret = ikcp_queue_send_cur(kcp)) < 0) {
+			return ret * 0x10 - 2;
+		}
+	}
+
+	return ikcp_send_cur_get_delay(kcp);
+}

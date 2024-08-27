@@ -328,6 +328,7 @@ struct IKCPCB
 	struct IQUEUEHEAD snd_cur;
 	struct IQUEUEHEAD snd_wak;
 
+	bool session_established;
 	bool rp_output_retry;
 
 	char seg_mem[ARQ_SEG_MEM_COUNT][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
@@ -356,7 +357,7 @@ extern int rp_udp_output(char *buf, int len, ikcpcb *kcp);
 // output callback can be setup like this: 'kcp->output = my_udp_output'
 int ikcp_create(ikcpcb* kcp, IUINT16 cid);
 
-// user/upper level send, returns at/below zero for error
+// user/upper level send
 int ikcp_queue(ikcpcb *kcp, char *buffer, int len);
 
 // when you received a low level packet (eg. UDP packet), call it
@@ -369,9 +370,8 @@ int ikcp_send_next(ikcpcb *kcp);
 int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int curwnd);
 
 // get how many packet is waiting to be sent
-// !ikcp_can_queue implies ikcp_can_send
-int ikcp_can_queue(const ikcpcb *kcp);
-int ikcp_can_send(const ikcpcb *kcp);
+int ikcp_queue_get_free(ikcpcb *kcp);
+int ikcp_send_ready_and_get_delay(ikcpcb *kcp);
 
 
 #ifdef __cplusplus
