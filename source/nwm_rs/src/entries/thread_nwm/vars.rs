@@ -399,7 +399,10 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> 
             crate::entries::work_thread::set_reset_threads_ar();
             return -2;
         }
-        if entries::work_thread::reset_threads() || nwm_cb_lock() == None {
+        if entries::work_thread::reset_threads() {
+            return -4;
+        }
+        if nwm_cb_lock() == None {
             crate::entries::work_thread::set_reset_threads_ar();
             return -1;
         }
