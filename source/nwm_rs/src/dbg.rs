@@ -102,6 +102,8 @@ impl nsDbgPrint_t {
 
     nsDbgPrint_fn!(kcpFlushFailed, "KCP flush failed: %08x\n", ret: s32);
 
+    nsDbgPrint_fn!(kcpTimeout, "KCP timeout\n");
+
     nsDbgPrint_fn!(mpInitFailed, "Mem pool %s init failed\n", name: *const c_char);
 
     nsDbgPrint_fn!(rpSynInitFailed, "Nwm syn init failed\n");

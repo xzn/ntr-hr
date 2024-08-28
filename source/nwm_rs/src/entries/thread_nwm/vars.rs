@@ -404,9 +404,9 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> 
         }
         if nwm_cb_lock() == None {
             crate::entries::work_thread::set_reset_threads_ar();
-            return -1;
+            return -5;
         }
-        if (*kcp).rp_output_retry {
+        if ptr::read_volatile(&(*kcp).rp_output_retry) {
             return 0;
         }
         rp_output_next_tick = svcGetSystemTick() as s64 + next_interval;
@@ -622,7 +622,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     }
                 }
             } else {
-                if send_delay <= -0x10 {
+                if send_delay < -0x10 {
                     // Reset KCP
                     nsDbgPrint!(kcpSendFailed, send_delay);
                     crate::entries::work_thread::set_reset_threads_ar();
@@ -691,17 +691,22 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
 
             // Ready send again
             let ret = ikcp_send_ready_and_get_delay(kcp);
-            if ret < 0 {
-                if has_dst || {
-                    (svcGetSystemTick() as s64 - rp_output_next_tick) / SYSCLOCK_ARM11 as s64
-                        >= RP_KCP_TIMEOUT_SEC
-                } {
-                    // Reset KCP
-                    nsDbgPrint!(kcpSendFailed, ret);
-                    crate::entries::work_thread::set_reset_threads_ar();
-                    nwm_cb_unlock();
-                    return false;
-                }
+            if ret < -0x10 && has_dst {
+                // Reset KCP
+                nsDbgPrint!(kcpSendFailed, ret);
+                crate::entries::work_thread::set_reset_threads_ar();
+                nwm_cb_unlock();
+                return false;
+            }
+            if ret < 0
+                && (svcGetSystemTick() as s64 - rp_output_next_tick) / SYSCLOCK_ARM11 as s64
+                    >= RP_KCP_TIMEOUT_SEC
+            {
+                // Reset KCP
+                nsDbgPrint!(kcpTimeout);
+                crate::entries::work_thread::set_reset_threads_ar();
+                nwm_cb_unlock();
+                return false;
             } else {
                 // Send next
                 let ret = ikcp_send_next(kcp);
