@@ -154,7 +154,7 @@ enum {
 #define ARQ_PREFERRED_COUNT_MAX DIV_ROUND_UP(RP_QOS_PACKET_RATE_MAX, 4)
 // 25 ms or 1/40 of a second of queued packets for send
 #define ARQ_CUR_COUNT_MAX DIV_ROUND_UP(RP_QOS_PACKET_RATE_MAX, 40)
-// Allocable count is doubled for margin, should be enough
+// Additional allocable count is doubled for margin, should be enough
 #define ARQ_CUR_COUNT_MAX_2 (ARQ_CUR_COUNT_MAX * 2)
 // Additional allocable count is multiplied by max recovery to original ratio
 #define ARQ_PREFERRED_COUNT_MAX_2 (ARQ_PREFERRED_COUNT_MAX * 2)
@@ -168,7 +168,7 @@ enum {
 _Static_assert((NWM_HDR_SIZE + FEC_OVERHEAD_SIZE) % sizeof(void *) == 0, "Need adjusting overhead for alignment.");
 _Static_assert(RP_DATA_SIZE % sizeof(void *) == 0, "Need adjusting packet size for alignment.");
 
-#define SEND_BUFS_DATA_COUNT MAX(RP_COMPRESSED_COUNT_MAX, ARQ_PREFERRED_COUNT_MAX + ARQ_CUR_COUNT_MAX_2)
+#define SEND_BUFS_DATA_COUNT MAX(RP_COMPRESSED_COUNT_MAX, ARQ_PREFERRED_COUNT_MAX + ARQ_CUR_COUNT_MAX + ARQ_CUR_COUNT_MAX_2)
 
 #define RP_CONFIG_RELIABLE_STREAM_FLAG (1 << 30)
 #define RP_CONFIG_RELIABLE_STREAM_DELTA_PROG (1 << 31)

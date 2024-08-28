@@ -10,7 +10,6 @@
 //
 //=====================================================================
 #include "ikcp.h"
-#include "fecal.h"
 #include "constants.h"
 
 #include <stddef.h>
@@ -19,6 +18,8 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wunused-variable"
+
+FecalEncoder rp_kcp_fecal_encoder;
 
 enum FEC_TYPE {
 	FEC_TYPE_1_1,
@@ -539,6 +540,8 @@ static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
 static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
 	IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg);
 	*p |= (seg->pid & ((1 << 10) - 1)) | ((kcp->cid & ((1 << 2) - 1)) << 10);
+
+	memset(&p[1], seg->gid, FEC_DATA_SIZE - sizeof(IUINT16));
 }
 
 
@@ -762,9 +765,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				--counts.original_count;
 			}
 
-			const int fecal_size = fecal_encoder_size();
-			char fecal_encoder_ws[fecal_size] ALIGNED(sizeof(void *));
-			FecalEncoder fecal_encoder = (FecalEncoder)fecal_encoder_ws;
+			FecalEncoder fecal_encoder = rp_kcp_fecal_encoder;
 			void *data_ptrs[count];
 			for (int i = 0; i < count; ++i) {
 				data_ptrs[i] = ikcp_get_fec_data_buf(iters[i].seg);

@@ -43,6 +43,9 @@ mod first_time_init {
             return None;
         }
 
+        let fecal_encoder_mem = request_mem_from_pool_vsize(fecal_encoder_size() as usize)?;
+        rp_kcp_fecal_encoder = fecal_encoder_mem.as_mut_ptr() as *mut _;
+
         rp_svc_increase_limits();
 
         let mut nwm_bufs: [*mut u8; WORK_COUNT as usize] = const_default();

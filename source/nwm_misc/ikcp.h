@@ -280,6 +280,9 @@ typedef struct IQUEUEHEAD iqueue_head;
 //=====================================================================
 #include "ui.h"
 #include "mempool.h"
+#include "fecal.h"
+
+extern FecalEncoder rp_kcp_fecal_encoder;
 
 struct IKCPSEG
 {
@@ -288,8 +291,8 @@ struct IKCPSEG
 	IUINT16 fid; // fec packet group id
 	IUINT8 fty; // fec type
 	IUINT8 gid; // id within fec packet group
-	IUINT8 wsn; // wait send count
 	IUINT8 wrn; // wait resend count
+	IUINT16 wsn; // wait send count
 
 	// use flags instead of doing conditions later
 	bool free_instead_of_resend;
