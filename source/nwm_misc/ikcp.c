@@ -381,17 +381,20 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size, struct IQUEUEHEAD **next) {
 	struct IKCPSEG *segs[FEC_COUNT_MAX] = { seg, 0 };
 	int count = 1;
-	while (!seg->gid_end) {
-		seg = iqueue_entry(seg->node.next, IKCPSEG, node);
+	while (1) {
+		struct IQUEUEHEAD *p = seg->node.next;
+		if (p == &kcp->snd_cur) {
+			return 2;
+		}
+
+		seg = iqueue_entry(p, IKCPSEG, node);
 		if (seg->fid == segs[0]->fid) {
-			if (seg->fty == segs[0]->fty) {
+			if (seg->fty != segs[0]->fty) {
 				return -2;
 			}
 
-			if (seg->pid != (IUINT16)-1) {
-				if (seg->wrn == 0 || ikcp_input_check_nack(seg->pid, data, size)) {
-					return 1;
-				}
+			if (seg->wrn == 0 || (seg->pid != (IUINT16)-1 && ikcp_input_check_nack(seg->pid, data, size))) {
+				return 1;
 			}
 
 			if (seg->gid != count) {
@@ -400,18 +403,38 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 
 			segs[count] = seg;
 			++count;
+
+			if (seg->gid_end) {
+				break;
+			}
 		}
 	}
 
-	*next = seg->node.next;
 	struct fec_counts_t counts = FEC_COUNTS[segs[0]->fty];
+	if (count != counts.original_count + counts.recovery_count) {
+		return -3;
+	}
+
+	struct IQUEUEHEAD *n = segs[0]->node.next;
+
 	for (int i = 0; i < count; ++i) {
+		struct IQUEUEHEAD *p = segs[i]->node.next;
+		struct IKCPSEG *next = iqueue_entry(p, IKCPSEG, node);
+		next->wsn += segs[i]->wsn + 1;
+
+		if (n == &segs[i]->node) {
+			n = n->next;
+		}
+
 		iqueue_del(&segs[i]->node);
 		ikcp_segment_delete(kcp, segs[i]);
 		if (i < counts.original_count) {
 			--kcp->n_snd;
 		}
 	}
+
+	*next = n;
+
 	return 0;
 }
 
