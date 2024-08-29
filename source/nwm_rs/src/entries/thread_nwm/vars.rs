@@ -379,46 +379,31 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> 
         return -3;
     }
 
-    loop {
-        let curr_tick = svcGetSystemTick() as s64;
-        let tick_diff = rp_output_next_tick - curr_tick;
-        let duration = if tick_diff > 0 {
-            tick_diff as s64 * 1_000_000_000 / SYSCLOCK_ARM11 as s64
-        } else {
-            0
-        };
-        let next_interval = if NWM_PROPORTIONAL_MIN_INTERVAL > 0 {
-            min_send_interval_tick as s64 * len as s64 / PACKET_SIZE as s64
-        } else {
-            min_send_interval_tick as s64
-        };
-        if duration > 0 {
-            nwm_cb_unlock();
-            let res = svcWaitSynchronization(reliable_stream_cb_evt, duration);
-            if res != 0 && res != RES_TIMEOUT as s32 {
-                nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
-                crate::entries::work_thread::set_reset_threads_ar();
-                return -2;
-            }
-            if entries::work_thread::reset_threads() {
-                return -4;
-            }
-            if nwm_cb_lock() == None {
-                crate::entries::work_thread::set_reset_threads_ar();
-                return -5;
-            }
-            if ptr::read_volatile(&(*kcp).rp_output_retry) {
-                return 0;
-            }
-            if res == 0 {
-                continue;
-            }
-            rp_output_next_tick = svcGetSystemTick() as s64 + next_interval;
-            break;
-        } else {
-            rp_output_next_tick = curr_tick + next_interval;
-            break;
+    let curr_tick = svcGetSystemTick() as s64;
+    let tick_diff = rp_output_next_tick - curr_tick;
+    let duration = if tick_diff > 0 {
+        tick_diff as s64 * 1_000_000_000 / SYSCLOCK_ARM11 as s64
+    } else {
+        0
+    };
+    let next_interval = if NWM_PROPORTIONAL_MIN_INTERVAL > 0 {
+        min_send_interval_tick as s64 * len as s64 / PACKET_SIZE as s64
+    } else {
+        min_send_interval_tick as s64
+    };
+    if duration > 0 {
+        nwm_cb_unlock();
+        svcSleepThread(duration);
+        if nwm_cb_lock() == None {
+            crate::entries::work_thread::set_reset_threads_ar();
+            return -5;
         }
+        if ptr::read_volatile(&(*kcp).rp_output_retry) {
+            return 0;
+        }
+        rp_output_next_tick = svcGetSystemTick() as s64 + next_interval;
+    } else {
+        rp_output_next_tick = curr_tick + next_interval;
     }
 
     nwm_output(buf.sub(NWM_HDR_SIZE as usize), len as usize);
