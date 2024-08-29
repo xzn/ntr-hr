@@ -9,9 +9,8 @@ DEV_BIN_DIR := $(DEVKITARM)/bin
 
 UNAME := $(shell uname)
 
-ifeq ($(UNAME),Linux)
-USE_CLANG = 1
-endif
+# USE_CLANG = 1
+# USE_LTO = 1
 
 CC_NAME = @echo $(notdir $@);
 AS = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-as
@@ -29,6 +28,12 @@ CXX = $(CC_NAME) $(DEV_BIN_DIR)/arm-none-eabi-g++
 RSFLAGS = RUSTFLAGS="-C panic=abort"
 endif
 
+ifeq ($(USE_LTO),1)
+LTO = -flto
+else
+LTO =
+endif
+
 OBJCOPY = $(DEV_BIN_DIR)/arm-none-eabi-objcopy
 LD = $(DEV_BIN_DIR)/arm-none-eabi-ld
 CP = cp
@@ -36,13 +41,11 @@ CP = cp
 CTRU_DIR := libctru/libctru
 
 CFLAGS := -Ofast -g -march=armv6k -mtune=mpcore -mfloat-abi=hard -fno-strict-aliasing
-# CFLAGS += -ffunction-sections -fdata-sections
+CFLAGS += -ffunction-sections -fdata-sections
 CPPFLAGS := -Iinclude -Ilibctru/libctru/include -D__3DS__
 LDFLAGS = -Wl,--gc-sections -Wl,-Map=$(basename $(notdir $@)).map,-z,notext,-z,noexecstack
 LDLIBS = -L. -lctru_ntr -L$(LIB_RS_DIR) -lsysbase
 LDLIBS += -Wl,-pie
-# LDLIBS += -nostartfiles
-# LDLIBS += -Wl,-allow-multiple-definition
 SRC_C := $(wildcard source/*.c)
 SRC_S := $(wildcard source/*.s)
 
@@ -131,9 +134,9 @@ $(CTRU_DIR)/lib/libctru.a:
 
 CC_WARNS = -Wall -Wextra
 
-CC_CMD = $(CC) $(CFLAGS) -flto $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
-NWM_CC_CMD = $(CC) -flto $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
-NWM_CXX_CMD = $(CXX) -flto $(CFLAGS) $(CPPFLAGS) -fno-exceptions -MMD -c -o $@ $< $(CC_WARNS) -Wno-implicit-fallthrough
+CC_CMD = $(CC) $(LTO) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
+NWM_CC_CMD = $(CC) $(LTO) $(CFLAGS) $(CPPFLAGS) -MMD -c -o $@ $< $(CC_WARNS)
+NWM_CXX_CMD = $(CXX) $(LTO) $(CFLAGS) $(CPPFLAGS) -fno-exceptions -MMD -c -o $@ $< $(CC_WARNS) -Wno-implicit-fallthrough
 
 obj/%.o: source/%.s | obj
 	$(AS) -march=armv6k -mfloat-abi=hard -o $@ $<
