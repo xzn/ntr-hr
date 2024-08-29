@@ -61,12 +61,16 @@ FecalResult Encoder::Initialize(unsigned input_count, void* const * const input_
     {
         for (unsigned sumIndex = 0; sumIndex < kColumnSumCount; ++sumIndex)
         {
+            if (!LaneSums[laneIndex][sumIndex].Allocate(symbolBytes))
+                return Fecal_OutOfMemory;
+
             // Clear memory in each lane sum
-            memset(LaneSums[laneIndex][sumIndex].Data, 0, symbolBytes);
         }
     }
 
     // Allocate workspace
+    if (!ProductWorkspace.Allocate(symbolBytes))
+        return Fecal_OutOfMemory;
 
     // TBD: Unroll first set of 8 lanes to avoid the extra memset above?
     // TBD: Use GetLaneSum() approach do to minimal work for small output?
@@ -125,6 +129,8 @@ FecalResult Encoder::Initialize(unsigned input_count, void* const * const input_
 FecalResult Encoder::Encode(FecalSymbol& symbol)
 {
     // If encoder is not initialized:
+    if (!ProductWorkspace.Data)
+        return Fecal_InvalidInput;
 
     const unsigned symbolBytes = SymbolSize;
     if (symbol.Bytes != symbolBytes)

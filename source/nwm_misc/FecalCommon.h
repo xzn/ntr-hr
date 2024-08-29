@@ -52,7 +52,7 @@
 namespace fecal {
 
 
-const size_t SymbolSize = FEC_DATA_SIZE;
+static const size_t SymbolSize = FEC_DATA_SIZE;
 
 //------------------------------------------------------------------------------
 // Debug
@@ -182,9 +182,14 @@ GF256_FORCE_INLINE unsigned GetRowOpcode(unsigned lane, unsigned row)
 //
 // Aligned to cache-line boundaries for SIMD
 
+static const unsigned kAlignmentBytes = GF256_ALIGN_BYTES;
+
 struct AlignedDataBuffer
 {
-    uint8_t Data[SymbolSize] ALIGNED(sizeof(GF256_M128));
+    uint8_t DataMem[kAlignmentBytes + SymbolSize] ALIGNED(sizeof(GF256_M128));
+    uint8_t *Data = nullptr;
+
+    bool Allocate(unsigned bytes);
 };
 
 

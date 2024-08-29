@@ -58,6 +58,19 @@ bool AppDataWindow::SetParameters(unsigned input_count, uint64_t total_bytes)
 //------------------------------------------------------------------------------
 // AlignedDataBuffer
 
+bool AlignedDataBuffer::Allocate(unsigned bytes)
+{
+    if (bytes == SymbolSize) {
+        memset(DataMem, 0, sizeof(DataMem));
+        uint8_t *data = DataMem;
+        unsigned offset = (unsigned)((uintptr_t)data % kAlignmentBytes);
+        data += kAlignmentBytes - offset;
+        Data = data;
+        return true;
+    }
+    return false;
+}
+
 
 //------------------------------------------------------------------------------
 // GrowingAlignedByteMatrix
