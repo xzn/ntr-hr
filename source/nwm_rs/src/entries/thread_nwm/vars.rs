@@ -624,14 +624,15 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                 THREAD_WAIT_NS
             };
 
+            let mut dst = mem::MaybeUninit::uninit();
+            let mut has_dst = false;
+            let mut retry = false;
+
             let relock_nwm = timeout != 0;
 
             if relock_nwm {
                 nwm_cb_unlock();
             }
-
-            let mut dst = mem::MaybeUninit::uninit();
-            let mut has_dst = false;
 
             if can_queue {
                 while !entries::work_thread::reset_threads() {
@@ -656,6 +657,9 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     entries::work_thread::set_reset_threads_ar();
                     return false;
                 }
+                if res == 0 {
+                    retry = true;
+                }
             }
 
             if relock_nwm {
@@ -663,6 +667,10 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     crate::entries::work_thread::set_reset_threads_ar();
                     return false;
                 }
+            }
+
+            if retry {
+                continue;
             }
 
             if has_dst {
