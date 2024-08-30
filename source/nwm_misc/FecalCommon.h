@@ -144,7 +144,7 @@ GF256_FORCE_INLINE uint8_t GetRowValue(unsigned row)
 
 // Number of parallel lanes to run
 // Lane#(Column) = Column % kColumnLaneCount
-static const unsigned kColumnLaneCount = 1;
+static const unsigned kColumnLaneCount = 8;
 
 // Number of running sums of original data
 // Note: This cannot be tuned without making code changes
