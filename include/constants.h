@@ -105,7 +105,7 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define DATA_HDR_SIZE (4)
 #define PACKET_SIZE (1448)
 
-#define DEBUG_BUF_SIZE (0x10000)
+#define DEBUG_BUF_SIZE (0x2000)
 
 #define SMALL_STACK_SIZE (0x1000)
 #define STACK_SIZE (0x4000)

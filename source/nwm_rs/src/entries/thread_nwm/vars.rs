@@ -558,7 +558,6 @@ unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
         if cur_seg_mem_count == SEND_CUR_BUFS_COUNT {
             return None;
         }
-        cur_seg_mem_count += 1;
 
         let cb = &mut *reliable_stream_cb;
         let dst = mp_malloc(&mut cb.cur_send_pool) as *mut u8;
@@ -569,6 +568,7 @@ unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
             return None;
         }
 
+        cur_seg_mem_count += 1;
         // let _ = svcReleaseMutex(cur_seg_mem_lock);
         Some(dst)
     })() {

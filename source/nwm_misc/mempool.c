@@ -65,16 +65,17 @@ void *mp_malloc(mp_pool_t *mp)
         void *b = mp->ul_b;
 
         if (b < mp->m || b >= (void *)m_end) {
-            showDbg("Out of range pointer for pool initial malloc %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
+            showDbg("Out of range pointer for pool ul malloc %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
             return NULL;
         }
         if (((char *)b - (char *)mp->m) % mp->bs) {
-            showDbg("Mis-aligned pointer for pool initial malloc %08"PRIx32" (begin %08"PRIx32" bs %08"PRIx32")", (u32)b, (u32)mp->m, (u32)mp->bs);
+            showDbg("Mis-aligned pointer for pool ul malloc %08"PRIx32" (begin %08"PRIx32" bs %08"PRIx32")", (u32)b, (u32)mp->m, (u32)mp->bs);
             return NULL;
         }
 
         mp->ul_b = (void *) (((unsigned char *) mp->ul_b) + mp->bs);
         memset(b, 0xc3, mp->bs);
+        // nsDbgPrint("mp_malloc ul %08"PRIx32, (u32)b);
         return b;
     } else if(mp->b) {
         void *b = mp->b;
@@ -88,7 +89,15 @@ void *mp_malloc(mp_pool_t *mp)
             return NULL;
         }
 
+        for (size_t i = sizeof(void *); i < mp->bs; ++i) {
+            if (((char *)b)[i] != 0x3c) {
+                showDbg("Use after free at %08"PRIx32" [%"PRIx32"]", (u32)b, (u32)i);
+                return NULL;
+            }
+        }
+
         mp->b = ((struct block *) mp->b)->next;
+        // nsDbgPrint("mp_malloc %08"PRIx32, (u32)b);
         memset(b, 0xc3, mp->bs);
         return b;
     }
@@ -101,6 +110,7 @@ int mp_free(mp_pool_t *mp, void *b)
     /*
      * We add b as the head of the list of free blocks
      */
+    // nsDbgPrint("mp_free %08"PRIx32, (u32)b);
 
     char *m_end = (char *)mp->m + mp->bs * mp->bc;
     if (b < mp->m || b >= (void *)m_end) {
@@ -112,6 +122,7 @@ int mp_free(mp_pool_t *mp, void *b)
         return -2;
     }
 
+    memset(b, 0x3c, mp->bs);
     ((struct block *) b)->next = mp->b;
     mp->b = b;
 
