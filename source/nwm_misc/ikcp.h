@@ -170,13 +170,13 @@ typedef struct IQUEUEHEAD iqueue_head;
 
 #define IQUEUE_DEL_BETWEEN(p, n) ((n)->prev = (p), (p)->next = (n))
 
-#define IQUEUE_DEL(entry) (\
+#define IQUEUE_DEL(entry, g) (\
 	(entry)->next->prev = (entry)->prev, \
 	(entry)->prev->next = (entry)->next, \
-	(entry)->next = 0, (entry)->prev = 0)
+	(entry)->next = (struct IQUEUEHEAD *)(g), (entry)->prev = (struct IQUEUEHEAD *)(g))
 
 #define IQUEUE_DEL_INIT(entry) do { \
-	IQUEUE_DEL(entry); IQUEUE_INIT(entry); } while (0)
+	IQUEUE_DEL(entry, entry); } while (0)
 
 #define IQUEUE_IS_EMPTY(entry) ((entry) == (entry)->next)
 
@@ -297,7 +297,7 @@ struct IKCPSEG
 	// use flags instead of doing conditions later
 	bool free_instead_of_resend;
 	bool skip_free_data_buf;
-	bool gid_end;
+	// bool gid_end;
 
 	char *data_buf;
 };
@@ -309,6 +309,7 @@ const unsigned ARQ_BUFS_COUNT = ARQ_PREFERRED_COUNT_MAX;
 const unsigned ARQ_CUR_BUFS_COUNT = ARQ_CUR_COUNT_MAX;
 const unsigned SEND_BUFS_COUNT = SEND_BUFS_DATA_COUNT;
 const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
+const unsigned SEND_CUR_BUFS_COUNT = ARQ_CUR_COUNT_MAX + ARQ_CUR_COUNT_MAX_2;
 #define ARQ_SEG_MEM_COUNT (ARQ_PREFERRED_COUNT_MAX + ARQ_PREFERRED_COUNT_MAX_2)
 
 #define RSND_COUNT 3
@@ -337,6 +338,8 @@ struct IKCPCB
 
 	char seg_mem[ARQ_SEG_MEM_COUNT][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
 	mp_pool_t seg_pool;
+
+	struct BitSet1024Mem fid_bs, pid_bs;
 };
 
 

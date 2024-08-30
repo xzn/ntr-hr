@@ -87,4 +87,54 @@ FECAL_EXPORT int fecal_encode(FecalEncoder encoder_v, FecalSymbol* symbol)
     return encoder->Encode(*symbol);
 }
 
+typedef fecal::CustomBitSet<1 << 10> BitSet1024Impl;
+static_assert(sizeof(BitSet1024Impl) == sizeof(BitSet1024Mem));
+
+FECAL_EXPORT void rp_arq_bitset_clear_all(BitSet1024 bs)
+{
+    ((BitSet1024Impl *)bs)->ClearAll();
+}
+
+FECAL_EXPORT void rp_arq_bitset_set(BitSet1024 bs, unsigned b)
+{
+    ((BitSet1024Impl *)bs)->Set(b);
+}
+
+FECAL_EXPORT void rp_arq_bitset_clear(BitSet1024 bs, unsigned b)
+{
+    ((BitSet1024Impl *)bs)->Clear(b);
+}
+
+FECAL_EXPORT bool rp_arq_bitset_check(BitSet1024 bs, unsigned b)
+{
+    return ((BitSet1024Impl *)bs)->Check(b);
+}
+
+FECAL_EXPORT bool rp_arq_bitset_check_n_wrapped(BitSet1024 bs, unsigned b, unsigned n)
+{
+    if (b + n > BitSet1024Impl::kValidBits) {
+        unsigned n_1 = n - (BitSet1024Impl::kValidBits - b);
+        return
+            ((BitSet1024Impl *)bs)->FindFirstSet(b, BitSet1024Impl::kValidBits) < BitSet1024Impl::kValidBits ||
+            ((BitSet1024Impl *)bs)->FindFirstSet(0, n_1) < n_1;
+    } else {
+        return ((BitSet1024Impl *)bs)->FindFirstSet(b, b + n) < b + n;
+    }
+}
+
+FECAL_EXPORT unsigned rp_arq_bitset_ffs_n_wrapped(BitSet1024 bs, unsigned b, unsigned n)
+{
+    if (b + n > BitSet1024Impl::kValidBits) {
+        unsigned n_1 = n - (BitSet1024Impl::kValidBits - b);
+        unsigned ret = ((BitSet1024Impl *)bs)->FindFirstSet(b, BitSet1024Impl::kValidBits);
+        if (ret < BitSet1024Impl::kValidBits) {
+            return ret;
+        }
+        return ((BitSet1024Impl *)bs)->FindFirstSet(0, n_1);
+    } else {
+        return ((BitSet1024Impl *)bs)->FindFirstSet(b, b + n);
+    }
+}
+
+
 } // extern "C"

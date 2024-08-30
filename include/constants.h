@@ -105,7 +105,7 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define DATA_HDR_SIZE (4)
 #define PACKET_SIZE (1448)
 
-#define DEBUG_BUF_SIZE (0x2000)
+#define DEBUG_BUF_SIZE (0x10000)
 
 #define SMALL_STACK_SIZE (0x1000)
 #define STACK_SIZE (0x4000)
@@ -168,7 +168,7 @@ enum {
 _Static_assert((NWM_HDR_SIZE + FEC_OVERHEAD_SIZE) % sizeof(void *) == 0, "Need adjusting overhead for alignment.");
 _Static_assert(RP_DATA_SIZE % sizeof(void *) == 0, "Need adjusting packet size for alignment.");
 
-#define SEND_BUFS_DATA_COUNT MAX(RP_COMPRESSED_COUNT_MAX, ARQ_PREFERRED_COUNT_MAX + ARQ_CUR_COUNT_MAX + ARQ_CUR_COUNT_MAX_2)
+#define SEND_BUFS_DATA_COUNT MAX(RP_COMPRESSED_COUNT_MAX, ARQ_PREFERRED_COUNT_MAX)
 
 #define RP_CONFIG_RELIABLE_STREAM_FLAG (1 << 30)
 #define RP_CONFIG_RELIABLE_STREAM_DELTA_PROG (1 << 31)

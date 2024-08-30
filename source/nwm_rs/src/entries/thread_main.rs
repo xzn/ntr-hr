@@ -257,8 +257,11 @@ mod loop_main {
                 }
             }
 
-            let send_bufs_len = (*reliable_stream_cb).send_bufs.len() as i32;
-            let res = svcCreateSemaphore(&mut seg_mem_sem, send_bufs_len, send_bufs_len);
+            let res = svcCreateSemaphore(
+                &mut seg_mem_sem,
+                ARQ_BUFS_COUNT as s32,
+                ARQ_BUFS_COUNT as s32,
+            );
             if res != 0 {
                 nsDbgPrint!(createSemaphoreFailed, c_str!("seg_mem_sem"), res);
                 return None;
@@ -266,6 +269,21 @@ mod loop_main {
             let res = svcCreateMutex(&mut seg_mem_lock, false);
             if res != 0 {
                 nsDbgPrint!(createMutexFailed, c_str!("seg_mem_lock"), res);
+                return None;
+            }
+
+            let res = svcCreateSemaphore(
+                &mut cur_seg_mem_sem,
+                SEND_CUR_BUFS_COUNT as s32,
+                SEND_CUR_BUFS_COUNT as s32,
+            );
+            if res != 0 {
+                nsDbgPrint!(createSemaphoreFailed, c_str!("cur_seg_mem_sem"), res);
+                return None;
+            }
+            let res = svcCreateMutex(&mut cur_seg_mem_lock, false);
+            if res != 0 {
+                nsDbgPrint!(createMutexFailed, c_str!("curseg_mem_lock"), res);
                 return None;
             }
 
@@ -355,6 +373,17 @@ mod loop_main {
         ) != 0
         {
             nsDbgPrint!(rpSynInitFailed);
+            return None;
+        }
+
+        if mp_init(
+            (*cb.cur_send_bufs.as_ptr()).len(),
+            cb.cur_send_bufs.len(),
+            cb.cur_send_bufs.as_mut_ptr().as_mut_ptr() as *mut _,
+            &mut cb.cur_send_pool,
+        ) < 0
+        {
+            nsDbgPrint!(mpInitFailed, c_str!("cur_send_pool"));
             return None;
         }
 

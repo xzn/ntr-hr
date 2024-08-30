@@ -190,6 +190,20 @@ FECAL_EXPORT int fecal_encode(FecalEncoder encoder, FecalSymbol* symbol);
     codec: Pointer returned by fecal_encoder_create() or fecal_decoder_create()
 */
 
+#define BitSet1024ValidBits (1 << 10)
+#define BitSetWordT uint64_t
+#define BitSetWordBits (sizeof(BitSetWordT) * 8)
+#define BitSet1024Words ((BitSet1024ValidBits + BitSetWordBits - 1) / BitSetWordBits)
+
+typedef struct BitSet1024Mem { BitSetWordT Words[BitSet1024Words]; }*BitSet1024;
+
+FECAL_EXPORT void rp_arq_bitset_clear_all(BitSet1024);
+FECAL_EXPORT void rp_arq_bitset_set(BitSet1024, unsigned);
+FECAL_EXPORT void rp_arq_bitset_clear(BitSet1024, unsigned);
+FECAL_EXPORT bool rp_arq_bitset_check(BitSet1024, unsigned);
+FECAL_EXPORT bool rp_arq_bitset_check_n_wrapped(BitSet1024, unsigned, unsigned);
+FECAL_EXPORT unsigned rp_arq_bitset_ffs_n_wrapped(BitSet1024, unsigned, unsigned);
+
 
 #ifdef __cplusplus
 }

@@ -214,6 +214,9 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	if (ret != 0)
 		return -1;
 
+	rp_arq_bitset_clear_all(&kcp->fid_bs);
+	rp_arq_bitset_clear_all(&kcp->pid_bs);
+
 	return 0;
 }
 
@@ -237,6 +240,11 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -4;
 	}
 
+	if (rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, kcp->pid, 1 << 9)) {
+		nsDbgPrint("rp_arq_bitset_check_n_wrapped for %d ffs %d", (int)kcp->pid, (int)rp_arq_bitset_ffs_n_wrapped(&kcp->pid_bs, kcp->pid, 1 << 9));
+		return 1;
+	}
+
 	seg = ikcp_segment_new(kcp);
 	if (seg == NULL) {
 		return -3;
@@ -245,6 +253,8 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	*seg = (struct IKCPSEG){ 0 };
 	seg->data_buf = buffer;
 	seg->pid = kcp->pid;
+	rp_arq_bitset_set(&kcp->pid_bs, kcp->pid);
+	nsDbgPrint("rp_arq_bitset_set for %d", (int)kcp->pid);
 	++kcp->pid;
 	kcp->pid &= ((1 << 10) - 1);
 
@@ -307,138 +317,191 @@ static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
 // FIXME:
 // Currently works on little endian only
 
-static bool ikcp_input_check_nack(IUINT16 pid, char *data, int size) {
+static int ikcp_input_check_nack(IUINT16 pid, char *data, int size) {
 	// TODO maybe optimize
 	IUINT16 *ptr = (IUINT16 *)data;
 	size /= 2;
 
 	for (int i = 0; i < size; ++i) {
+		if (i == size - 1) {
+			IUINT16 val = ptr[i];
+			IUINT16 nack_start = (val >> 6) & ((1 << 10) - 1);
+			IUINT16 nack_count_0 = (1 << 9) - 1;
+			IUINT16 pid_diff = (pid - nack_start) & ((1 << 10) - 1);
+			if (pid_diff <= nack_count_0) {
+				return 1;
+			}
+		}
+
 		IUINT16 val = ptr[i];
 		IUINT16 nack_start = (val >> 6) & ((1 << 10) - 1);
 		IUINT16 nack_count_0 = val & ((1 << 6) - 1);
 		IUINT16 pid_diff = (pid - nack_start) & ((1 << 10) - 1);
 		if (pid_diff <= nack_count_0) {
-			return true;
+			return -1;
 		}
 	}
 
-	return false;
+	return 0;
 }
 
-static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size) {
-	IUINT16 fid = seg->fid;
-	IUINT16 fty = seg->fty;
-	struct fec_counts_t counts = FEC_COUNTS[fty];
-	IUINT16 count = counts.original_count + counts.recovery_count - 1;
-	while (1) {
-		struct IQUEUEHEAD *p = seg->gid > 0 ? seg->node.prev : 0;
+// static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size) {
+// 	IUINT16 fid = seg->fid;
+// 	IUINT16 fty = seg->fty;
+// 	struct fec_counts_t counts = FEC_COUNTS[fty];
+// 	IUINT16 count = counts.original_count + counts.recovery_count - 1;
+// 	while (1) {
+// 		struct IQUEUEHEAD *p = seg->gid > 0 ? seg->node.prev : 0;
 
-		if (seg->gid != count || seg->fty != fty) {
-			return -2;
-		}
+// 		if (seg->gid != count || seg->fty != fty) {
+// 			return -2;
+// 		}
 
-		if (seg->pid == (IUINT16)-1 || !ikcp_input_check_nack(seg->pid, data, size)) {
-			iqueue_del(&seg->node);
-			if (seg->gid < counts.original_count) {
+// 		if (seg->pid == (IUINT16)-1 || !ikcp_input_check_nack(seg->pid, data, size)) {
+// 			iqueue_del(&seg->node, 1);
+// 			if (seg->gid < counts.original_count) {
+// 				if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid))
+// 					return -3;
+// 				nsDbgPrint("rp_arq_bitset_clear for %d", (int)seg->pid);
+// 				rp_arq_bitset_clear(&kcp->pid_bs, seg->pid);
+// 				--kcp->n_snd;
+// 			}
+// 			ikcp_segment_delete(kcp, seg);
+// 		} else {
+// 			iqueue_del(&seg->node, 2);
+// 			if (seg->free_instead_of_resend) {
+// 				ikcp_segment_delete(kcp, seg);
+// 			} else {
+// 				// seg->gid_end = false;
+// 				++seg->wrn;
+// 				if (seg->wrn > RSND_COUNT) {
+// 					seg->wrn = RSND_COUNT;
+// 				}
+// 				struct IQUEUEHEAD *queue = arq_queue_get_from_wrn(kcp, seg->wrn);
+// 				iqueue_add_tail(&seg->node, queue);
+// 			}
+// 		}
+
+// 		if (!p) {
+// 			break;
+// 		}
+
+// 		while (1) {
+// 			if (p == &kcp->snd_wak) {
+// 				return -1;
+// 			}
+
+// 			struct IKCPSEG *seg_prev = iqueue_entry(p, IKCPSEG, node);
+// 			if (seg_prev->fid == fid) {
+// 				seg = seg_prev;
+// 				--count;
+// 				break;
+// 			}
+
+// 			p = p->prev;
+// 		}
+// 	}
+// 	return 0;
+// }
+
+// static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size, struct IQUEUEHEAD **next) {
+// 	struct IKCPSEG *segs[FEC_COUNT_MAX] = { seg, 0 };
+// 	int count = 1;
+// 	IUINT16 fty = seg->fty;
+// 	IUINT16 fid = seg->fid;
+// 	while (1) {
+// 		struct IQUEUEHEAD *p = seg->node.next;
+// 		if (p == &kcp->snd_cur) {
+// 			return 2;
+// 		}
+
+// 		seg = iqueue_entry(p, IKCPSEG, node);
+// 		if (seg->fid == fid) {
+// 			if (seg->fty != fty) {
+// 				return -2;
+// 			}
+
+// 			if (seg->wrn == 0 || (seg->pid != (IUINT16)-1 && ikcp_input_check_nack(seg->pid, data, size))) {
+// 				return 1;
+// 			}
+
+// 			if (seg->gid != count) {
+// 				return -1;
+// 			}
+
+// 			segs[count] = seg;
+// 			++count;
+
+// 			if (seg->gid_end) {
+// 				break;
+// 			}
+// 		}
+// 	}
+
+// 	struct fec_counts_t counts = FEC_COUNTS[fty];
+// 	if (count != counts.original_count + counts.recovery_count) {
+// 		return -3;
+// 	}
+
+// 	struct IQUEUEHEAD *n = segs[0]->node.next;
+
+// 	for (int i = 0; i < count; ++i) {
+// 		struct IQUEUEHEAD *p = segs[i]->node.next;
+// 		struct IKCPSEG *next = iqueue_entry(p, IKCPSEG, node);
+// 		next->wsn += segs[i]->wsn + 1;
+
+// 		if (n == &segs[i]->node) {
+// 			n = n->next;
+// 		}
+
+// 		iqueue_del(&segs[i]->node, 3);
+// 		ikcp_segment_delete(kcp, segs[i]);
+// 		if (i < counts.original_count) {
+// 			if (!rp_arq_bitset_check(&kcp->pid_bs, segs[i]->pid))
+// 				return -4;
+// 			nsDbgPrint("rp_arq_bitset_clear for %d", (int)segs[i]->pid);
+// 			rp_arq_bitset_clear(&kcp->pid_bs, segs[i]->pid);
+// 			--kcp->n_snd;
+// 		}
+// 	}
+
+// 	*next = n;
+
+// 	return 0;
+// }
+
+int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, char *data, int size, int g, bool r)
+{
+	for (struct IQUEUEHEAD *p = queue->next, *next = p->next; p != queue; p = next, next = p->next) {
+		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
+		if (!ikcp_input_check_nack(seg->pid, data, size)) {
+			iqueue_del(&seg->node, g);
+			// struct fec_counts_t counts = FEC_COUNTS[seg->fty];
+			// if (seg->gid < counts.original_count) {
+				if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
+					nsDbgPrint("rp_arq_bitset_check failed for %d", (int)seg->pid);
+					return -5;
+				}
+				nsDbgPrint("rp_arq_bitset_clear for %d", (int)seg->pid);
+				rp_arq_bitset_clear(&kcp->pid_bs, seg->pid);
 				--kcp->n_snd;
-			}
+			// }
 			ikcp_segment_delete(kcp, seg);
-		} else {
-			iqueue_del(&seg->node);
-			if (seg->free_instead_of_resend) {
-				ikcp_segment_delete(kcp, seg);
-			} else {
-				seg->gid_end = false;
+		} else if (r) {
+			iqueue_del(&seg->node, 2);
+			// if (seg->free_instead_of_resend) {
+			// 	ikcp_segment_delete(kcp, seg);
+			// } else {
+				// seg->gid_end = false;
 				++seg->wrn;
 				if (seg->wrn > RSND_COUNT) {
 					seg->wrn = RSND_COUNT;
 				}
 				struct IQUEUEHEAD *queue = arq_queue_get_from_wrn(kcp, seg->wrn);
 				iqueue_add_tail(&seg->node, queue);
-			}
-		}
-
-		if (!p) {
-			break;
-		}
-
-		while (1) {
-			if (p == &kcp->snd_wak) {
-				return -1;
-			}
-
-			struct IKCPSEG *seg_prev = iqueue_entry(p, IKCPSEG, node);
-			if (seg_prev->fid == fid) {
-				seg = seg_prev;
-				--count;
-				break;
-			}
-
-			p = p->prev;
+			// }
 		}
 	}
-	return 0;
-}
-
-static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size, struct IQUEUEHEAD **next) {
-	struct IKCPSEG *segs[FEC_COUNT_MAX] = { seg, 0 };
-	int count = 1;
-	IUINT16 fty = seg->fty;
-	IUINT16 fid = seg->fid;
-	while (1) {
-		struct IQUEUEHEAD *p = seg->node.next;
-		if (p == &kcp->snd_cur) {
-			return 2;
-		}
-
-		seg = iqueue_entry(p, IKCPSEG, node);
-		if (seg->fid == fid) {
-			if (seg->fty != fty) {
-				return -2;
-			}
-
-			if (seg->wrn == 0 || (seg->pid != (IUINT16)-1 && ikcp_input_check_nack(seg->pid, data, size))) {
-				return 1;
-			}
-
-			if (seg->gid != count) {
-				return -1;
-			}
-
-			segs[count] = seg;
-			++count;
-
-			if (seg->gid_end) {
-				break;
-			}
-		}
-	}
-
-	struct fec_counts_t counts = FEC_COUNTS[fty];
-	if (count != counts.original_count + counts.recovery_count) {
-		return -3;
-	}
-
-	struct IQUEUEHEAD *n = segs[0]->node.next;
-
-	for (int i = 0; i < count; ++i) {
-		struct IQUEUEHEAD *p = segs[i]->node.next;
-		struct IKCPSEG *next = iqueue_entry(p, IKCPSEG, node);
-		next->wsn += segs[i]->wsn + 1;
-
-		if (n == &segs[i]->node) {
-			n = n->next;
-		}
-
-		iqueue_del(&segs[i]->node);
-		ikcp_segment_delete(kcp, segs[i]);
-		if (i < counts.original_count) {
-			--kcp->n_snd;
-		}
-	}
-
-	*next = n;
-
 	return 0;
 }
 
@@ -465,46 +528,53 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		return 0;
 	}
 
-	for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
-		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
-		bool should_break = seg->fid == fid && seg->gid == gid;
-		if (seg->gid_end) {
-			int ret;
-			if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, data, size)) != 0) {
-				return ret * 0x10 - 3;
-			}
-		}
-		if (should_break) {
-			break;
-		}
+	int ret;
+
+	// for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
+	// 	struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
+	// 	bool should_break = seg->fid == fid && seg->gid == gid;
+	// 	if (seg->gid_end) {
+	// 		int ret;
+	// 		if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, data, size)) != 0) {
+	// 			return ret * 0x10 - 3;
+	// 		}
+	// 	}
+	// 	if (should_break) {
+	// 		break;
+	// 	}
+	// }
+	ret = ikcp_input_handle_nack(kcp, &kcp->snd_wak, data, size, 1, true);
+	if (ret < 0) {
+		return ret * 0x10 - 3;
 	}
 
 	for (int i = 0; i < RSND_COUNT; ++i) {
 		struct IQUEUEHEAD *queue = &kcp->rsnd_lsts[i];
-		for (struct IQUEUEHEAD *p = queue->next, *next = p->next; p != queue; p = next, next = p->next) {
-			struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
-			if (!ikcp_input_check_nack(seg->pid, data, size)) {
-				iqueue_del(&seg->node);
-				struct fec_counts_t counts = FEC_COUNTS[seg->fty];
-				if (seg->gid < counts.original_count) {
-					--kcp->n_snd;
-				}
-				ikcp_segment_delete(kcp, seg);
-			}
+		ret = ikcp_input_handle_nack(kcp, queue, data, size, 4 + i, false);
+		if (ret < 0) {
+			return ret * 0x10 - 5 - i;
 		}
 	}
 
-	for (struct IQUEUEHEAD *p_0 = kcp->snd_cur.next, *p = p_0, *next = p->next; p != &kcp->snd_cur; p = next, next = p->next) {
-		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
-		if (seg->wrn && seg->gid == 0 && !ikcp_input_check_nack(seg->pid, data, size)) {
-			int ret = ikcp_input_handle_send_cur_nack(kcp, seg, data, size, &next);
-			if (ret < 0) {
-				return -4;
-			} else if (ret == 0 && p == p_0) {
-				kcp->rp_output_retry = true;
-			}
-		}
-	}
+	// for (struct IQUEUEHEAD *p_0 = kcp->snd_cur.next, *p = p_0, *next = p->next; p != &kcp->snd_cur; p = next, next = p->next) {
+	// 	struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
+	// 	if (seg->wrn && seg->gid == 0 && !ikcp_input_check_nack(seg->pid, data, size)) {
+	// 		int ret = ikcp_input_handle_send_cur_nack(kcp, seg, data, size, &next);
+	// 		if (ret < 0) {
+	// 			return -4;
+	// 		} else if (ret == 0 && p == p_0) {
+	// 			kcp->rp_output_retry = true;
+	// 		}
+	// 	}
+	// }
+	// struct IQUEUEHEAD *p = kcp->snd_cur.next;
+	// ret = ikcp_input_handle_nack(kcp, &kcp->snd_cur, data, size, 3, false);
+	// if (ret < 0) {
+	// 	return ret * 0x10 - 4;
+	// }
+	// if (p != kcp->snd_cur.next) {
+	// 	kcp->rp_output_retry = true;
+	// }
 
 	kcp->session_established = true;
 	kcp->session_new_data_received = true;
@@ -677,7 +747,7 @@ static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 
 static int ikcp_insert_send_cur_from_iter(ikcpcb *kcp, struct arq_seg_iter_t *iter)
 {
-	iqueue_del(&iter->seg->node);
+	iqueue_del(&iter->seg->node, 5);
 	return ikcp_insert_send_cur(kcp, iter->seg);
 }
 
@@ -686,11 +756,20 @@ static int ikcp_reset_send_wak(ikcpcb *kcp)
 	IKCPSEG *seg;
 	for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
 		seg = iqueue_entry(p, IKCPSEG, node);
-		if (seg->wrn > 0 || seg->fty != 0 || seg->gid != 0)
+		if (!kcp->session_established && (seg->wrn > 0 || seg->fty != 0 || seg->gid != 0))
 			return -1;
-		struct IQUEUEHEAD *queue = arq_queue_get_from_wrn(kcp, seg->wrn);
-		iqueue_del(&seg->node);
-		iqueue_add_tail(&seg->node, queue);
+		if (kcp->session_established && seg->wrn == 0) {
+			continue;
+		}
+		iqueue_del(&seg->node, 6);
+		// if (seg->free_instead_of_resend) {
+			// ikcp_segment_delete(kcp, seg);
+		// 	return -2;
+		// } else {
+			// seg->gid_end = false;
+			struct IQUEUEHEAD *queue = arq_queue_get_from_wrn(kcp, seg->wrn);
+			iqueue_add_tail(&seg->node, queue);
+		// }
 	}
 	return 0;
 }
@@ -699,9 +778,12 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 {
 	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
 	if (!iters[0].seg) {
-		if (!kcp->session_established && ikcp_queue_get_free(kcp) == 0) {
-			if (ikcp_reset_send_wak(kcp) < 0) {
-				return -1;
+		if ((!kcp->session_established && ikcp_queue_get_free(kcp) == 0)
+			|| rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, kcp->pid, 1 << 9)
+		) {
+			int ret;
+			if ((ret = ikcp_reset_send_wak(kcp)) < 0) {
+				return ret * 0x100 - 1;
 			}
 			iters[0] = arq_seg_iter_init(kcp);
 		}
@@ -709,6 +791,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			return 1;
 	}
 
+	nsDbgPrint("send cur pid %d", iters[0].seg->pid);
 	enum FEC_TYPE fec_type = fec_type_from_queue(iters[0].queue);
 	struct fec_counts_t counts = FEC_COUNTS[fec_type];
 
@@ -793,7 +876,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				seg->wsn = count * fec_send_intervals[fec_type] + wsn;
 				seg->free_instead_of_resend = true;
 				if (counts.recovery_count == 1) {
-					seg->gid_end = true;
+					// seg->gid_end = true;
 				}
 				seg->data_buf = alloc_seg_buf();
 				if (!seg->data_buf) {
@@ -834,7 +917,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	iters[0].seg->gid = 0;
 	iters[0].seg->wsn = 0;
 	if (!counts.recovery_count) {
-		iters[0].seg->gid_end = true;
+		// iters[0].seg->gid_end = true;
 	}
 	ikcp_encode_arq_hdr(kcp, iters[0].seg);
 	int wsn = 0;
@@ -862,7 +945,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		seg->free_instead_of_resend = true;
 		seg->skip_free_data_buf = true;
 		if (counts.recovery_count == 1) {
-			seg->gid_end = true;
+			// seg->gid_end = true;
 		}
 		ret = ikcp_insert_send_cur(kcp, seg);
 		if (ret < 0) {
@@ -894,15 +977,25 @@ static int ikcp_send_cur(ikcpcb *kcp)
 		return -5;
 	}
 
-	iqueue_del(&seg->node);
+	iqueue_del(&seg->node, 7);
 	if (seg->free_instead_of_resend) {
 		if (!seg->skip_free_data_buf) {
-			free_seg_data_buf(seg->data_buf);
+			free_seg_buf(seg->data_buf);
 			seg->skip_free_data_buf = true;
 			seg->data_buf = NULL;
 		}
+		ikcp_segment_delete(kcp, seg);
+	} else {
+		iqueue_add_tail(&seg->node, &kcp->snd_wak);
 	}
-	iqueue_add_tail(&seg->node, &kcp->snd_wak);
+	// if (seg->free_instead_of_resend) {
+	// 	if (!seg->skip_free_data_buf) {
+	// 		free_seg_data_buf(seg->data_buf);
+	// 		seg->skip_free_data_buf = true;
+	// 		seg->data_buf = NULL;
+	// 	}
+	// }
+	// iqueue_add_tail(&seg->node, &kcp->snd_wak);
 	return 0;
 }
 

@@ -23,6 +23,7 @@
  */
 
 #include <stddef.h>
+#include <string.h>
 
 #include "mempool.h"
 #include "global.h"
@@ -57,14 +58,38 @@ void *mp_malloc(mp_pool_t *mp)
      * 2. In case there are no more unlinked blocks left we try to return the head from the list of free blocks
      * 3. Otherwise we will have to abort since there are no free blocks left
      */
+    char *m_end = (char *)mp->m + mp->bs * mp->bc;
+
     if(mp->ul_bc > 0) {
         mp->ul_bc--;
         void *b = mp->ul_b;
+
+        if (b < mp->m || b >= (void *)m_end) {
+            showDbg("Out of range pointer for pool initial malloc %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
+            return NULL;
+        }
+        if (((char *)b - (char *)mp->m) % mp->bs) {
+            showDbg("Mis-aligned pointer for pool initial malloc %08"PRIx32" (begin %08"PRIx32" bs %08"PRIx32")", (u32)b, (u32)mp->m, (u32)mp->bs);
+            return NULL;
+        }
+
         mp->ul_b = (void *) (((unsigned char *) mp->ul_b) + mp->bs);
+        memset(b, 0xc3, mp->bs);
         return b;
     } else if(mp->b) {
         void *b = mp->b;
+
+        if (b < mp->m || b >= (void *)m_end) {
+            showDbg("Out of range pointer for pool malloc %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
+            return NULL;
+        }
+        if (((char *)b - (char *)mp->m) % mp->bs) {
+            showDbg("Mis-aligned pointer for pool malloc %08"PRIx32" (begin %08"PRIx32" bs %08"PRIx32")", (u32)b, (u32)mp->m, (u32)mp->bs);
+            return NULL;
+        }
+
         mp->b = ((struct block *) mp->b)->next;
+        memset(b, 0xc3, mp->bs);
         return b;
     }
 

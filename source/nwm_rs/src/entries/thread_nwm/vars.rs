@@ -129,7 +129,8 @@ pub unsafe fn reset_vars(dst_flags: u32, qos: u32) -> Option<()> {
     }
     nwm_work_index = WorkIndex::init();
     nwm_thread_id = ThreadId::init();
-    next_send_tick = svcGetSystemTick() as u32_ + min_send_interval_tick;
+    rp_output_next_tick = svcGetSystemTick() as s64 + min_send_interval_tick as s64;
+    next_send_tick = rp_output_next_tick as u32_;
     Some(())
 }
 
@@ -545,9 +546,32 @@ pub unsafe fn alloc_seg() -> Option<*mut c_char> {
     Some(dst)
 }
 
+static mut cur_seg_mem_count: u32 = 0;
+
 #[no_mangle]
+#[named]
 unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
-    if let Some(dst) = alloc_seg() {
+    if let Some(dst) = (|| {
+        // thread_wait_sync(cur_seg_mem_sem)?;
+        // thread_wait_sync(cur_seg_mem_lock)?;
+
+        if cur_seg_mem_count == SEND_CUR_BUFS_COUNT {
+            return None;
+        }
+        cur_seg_mem_count += 1;
+
+        let cb = &mut *reliable_stream_cb;
+        let dst = mp_malloc(&mut cb.cur_send_pool) as *mut u8;
+        if dst == ptr::null_mut() {
+            nsDbgPrint!(mpAllocFailed, c_str!("cur_send_pool"));
+            crate::entries::work_thread::set_reset_threads_ar();
+            // let _ = svcReleaseMutex(cur_seg_mem_lock);
+            return None;
+        }
+
+        // let _ = svcReleaseMutex(cur_seg_mem_lock);
+        Some(dst)
+    })() {
         return dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize);
     } else {
         return ptr::null_mut();
@@ -555,8 +579,27 @@ unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
 }
 
 #[no_mangle]
+#[named]
 unsafe extern "C" fn free_seg_buf(dst: *const ::libc::c_char) {
-    free_seg_data_buf(dst)
+    // if thread_wait_sync(cur_seg_mem_lock) == None {
+    //     return;
+    // }
+
+    let cb = &mut *reliable_stream_cb;
+    if mp_free(
+        &mut cb.cur_send_pool,
+        dst.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize) as *mut _,
+    ) < 0
+    {
+        nsDbgPrint!(mpFreeFailed, c_str!("cur_send_pool"));
+        // let _ = svcReleaseMutex(cur_seg_mem_lock);
+        return;
+    }
+    // let mut count = mem::MaybeUninit::uninit();
+    // let _ = svcReleaseSemaphore(count.as_mut_ptr(), cur_seg_mem_sem, 1);
+    cur_seg_mem_count -= 1;
+
+    // let _ = svcReleaseMutex(cur_seg_mem_lock);
 }
 
 #[named]
@@ -597,7 +640,21 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
 
     if let Some(_) = nwm_cb_lock() {
         let kcp = &mut cb.ikcp;
+
+        let mut dst = mem::MaybeUninit::uninit();
+        let mut has_dst = false;
+
         while !entries::work_thread::reset_threads() {
+            if (svcGetSystemTick() as s64 - rp_output_next_tick) / SYSCLOCK_ARM11 as s64
+                >= RP_KCP_TIMEOUT_SEC
+            {
+                // Reset KCP
+                nsDbgPrint!(kcpTimeout);
+                crate::entries::work_thread::set_reset_threads_ar();
+                nwm_cb_unlock();
+                return false;
+            }
+
             let can_queue = ikcp_queue_get_free(kcp) > 0;
             let send_delay = ikcp_send_ready_and_get_delay(kcp);
 
@@ -624,8 +681,6 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                 THREAD_WAIT_NS
             };
 
-            let mut dst = mem::MaybeUninit::uninit();
-            let mut has_dst = false;
             let mut retry = false;
 
             let relock_nwm = timeout != 0;
@@ -634,7 +689,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                 nwm_cb_unlock();
             }
 
-            if can_queue {
+            if can_queue && !has_dst {
                 while !entries::work_thread::reset_threads() {
                     let res = rp_syn_acq(&mut cb.nwm_syn, timeout, dst.as_mut_ptr());
 
@@ -657,7 +712,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     entries::work_thread::set_reset_threads_ar();
                     return false;
                 }
-                if res == 0 {
+                if res == 0 && !has_dst {
                     retry = true;
                 }
             }
@@ -686,6 +741,8 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     crate::entries::work_thread::set_reset_threads_ar();
                     nwm_cb_unlock();
                     return false;
+                } else if ret == 0 {
+                    has_dst = false;
                 }
             }
 
