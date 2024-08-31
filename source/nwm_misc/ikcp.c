@@ -530,7 +530,7 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 	}
 
 	if (reset) {
-		return 0x10 - 2;
+		return -2;
 	}
 
 	if (size == 0) {
@@ -552,7 +552,7 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		bool should_break = seg->fid == fid && seg->gid == gid;
 		if (seg->gid_end) {
 			int ret;
-			if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, data, size, true)) != 0) {
+			if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, data, size, true)) < 0) {
 				return ret * 0x10 - 3;
 			}
 		}
