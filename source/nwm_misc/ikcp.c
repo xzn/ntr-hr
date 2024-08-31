@@ -530,7 +530,7 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 	}
 
 	if (reset) {
-		return -2;
+		return 0x10 - 2;
 	}
 
 	if (size == 0) {
@@ -573,7 +573,7 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		if (seg->wrn && seg->gid == 0 && !ikcp_input_check_nack(seg->pid, data, size, kcp)) {
 			int ret = ikcp_input_handle_send_cur_nack(kcp, seg, data, size, &next);
 			if (ret < 0) {
-				return -4;
+				return ret * 0x10 - 4;
 			} else if (ret == 0 && p == p_0) {
 				*(volatile bool *)&kcp->rp_output_retry = true;
 			}

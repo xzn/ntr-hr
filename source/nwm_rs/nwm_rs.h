@@ -21,4 +21,4 @@ struct rp_cb {
 	void *nwm_syn_data[SEND_BUFS_COUNT];
 };
 
-#define NWM_PROPORTIONAL_MIN_INTERVAL 1
+#define NWM_PROPORTIONAL_MIN_INTERVAL 0

@@ -462,7 +462,7 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
                 return -1;
             };
             let ret = ikcp_input(kcp, recv_buf, ret as i32);
-            if ret < 0 {
+            if ret < -0x10 {
                 // Reset KCP
                 nsDbgPrint!(kcpInputFailed, ret);
                 drop(nwm_lock);
