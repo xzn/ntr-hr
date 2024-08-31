@@ -491,7 +491,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 	return 0;
 }
 
-int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, char *data, int size, int g, bool r)
+static int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, char *data, int size, int g, bool r)
 {
 	for (struct IQUEUEHEAD *p = queue->next, *next = p->next; p != queue; p = next, next = p->next) {
 		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
@@ -525,12 +525,23 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 	IUINT16 cid = (hdr >> 1) & ((1 << CID_NBITS) - 1);
 	IUINT16 reset = hdr & ((1 << 1) - 1);
 
-	if (kcp->cid == cid && reset) {
+	if (kcp->cid != cid) {
+		return 0;
+	}
+
+	if (reset) {
 		return -2;
 	}
 
-	if (kcp->cid != cid) {
-		return 0;
+	if (size == 0) {
+		if (gid == ((IUINT16)-1 & ((1 << GID_NBITS) - 1))) {
+			if (!kcp->session_established) {
+				kcp->session_established = true;
+				return 0;
+			}
+		} else {
+			return -5;
+		}
 	}
 
 	int ret;
@@ -569,7 +580,6 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		}
 	}
 
-	kcp->session_established = true;
 	kcp->session_new_data_received = true;
 	return 0;
 }
@@ -579,12 +589,12 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 // ikcp_encode_seg
 //---------------------------------------------------------------------
 
-static char *ikcp_get_fec_data_buf(struct IKCPSEG *seg) {
-	return seg->data_buf - (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE);
+static char *ikcp_get_fec_data_buf(char *data_buf) {
+	return data_buf - (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE);
 }
 
-static char *ikcp_get_packet_data_buf(struct IKCPSEG *seg) {
-	return seg->data_buf - ARQ_OVERHEAD_SIZE;
+static char *ikcp_get_packet_data_buf(char *data_buf) {
+	return data_buf - ARQ_OVERHEAD_SIZE;
 }
 
 // FIXME:
@@ -592,13 +602,13 @@ static char *ikcp_get_packet_data_buf(struct IKCPSEG *seg) {
 
 // Outer header for fec
 static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
-	IUINT16 *p = (IUINT16 *)ikcp_get_packet_data_buf(seg);
+	IUINT16 *p = (IUINT16 *)ikcp_get_packet_data_buf(seg->data_buf);
 	*p = (seg->fty & ((1 << FTY_NBITS) - 1)) | ((seg->gid & ((1 << GID_NBITS) - 1)) << FTY_NBITS) | ((seg->fid & ((1 << FID_NBITS) - 1)) << (FTY_NBITS + GID_NBITS));
 }
 
 // Inner header for arq
 static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
-	IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg);
+	IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg->data_buf);
 	*p |= (seg->pid & ((1 << PID_NBITS) - 1)) | ((kcp->cid & ((1 << CID_NBITS) - 1)) << PID_NBITS);
 
 	memset(&p[1], seg->gid, FEC_DATA_SIZE - sizeof(IUINT16));
@@ -744,9 +754,6 @@ static int ikcp_reset_send_wak(ikcpcb *kcp)
 	IKCPSEG *seg;
 	for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
 		seg = iqueue_entry(p, IKCPSEG, node);
-		if (!kcp->session_established && (seg->wrn > 0 || seg->fty != 0 || seg->gid != 0))
-			return -1;
-
 		if (seg->gid_end) {
 			int ret;
 			if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, 0, 0, false)) != 0) {
@@ -761,9 +768,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 {
 	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
 	if (!iters[0].seg) {
-		if ((!kcp->session_established && ikcp_queue_get_free(kcp) == 0)
-			|| rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, (kcp->pid + pid_bs_offset) & ((1 << PID_NBITS) - 1), pid_bs_n)
-		) {
+		if (rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, (kcp->pid + pid_bs_offset) & ((1 << PID_NBITS) - 1), pid_bs_n)) {
 			int ret;
 			if ((ret = ikcp_reset_send_wak(kcp)) < 0) {
 				return ret * 0x100 - 1;
@@ -836,7 +841,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			FecalEncoder fecal_encoder = rp_kcp_fecal_encoder;
 			void *data_ptrs[count];
 			for (int i = 0; i < count; ++i) {
-				data_ptrs[i] = ikcp_get_fec_data_buf(iters[i].seg);
+				data_ptrs[i] = ikcp_get_fec_data_buf(iters[i].seg->data_buf);
 			}
 			if (fecal_encoder_init(fecal_encoder, count, data_ptrs, count * FEC_DATA_SIZE) != 0) {
 				return -15;
@@ -866,7 +871,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 					return -16;
 				}
 				seg->own_seg_data_buf = true;
-				void *data_ptr = ikcp_get_fec_data_buf(seg);
+				void *data_ptr = ikcp_get_fec_data_buf(seg->data_buf);
 				FecalSymbol fecal_symbol = {
 					.Data = data_ptr,
 					.Bytes = FEC_DATA_SIZE,
@@ -955,7 +960,7 @@ static int ikcp_send_cur(ikcpcb *kcp)
 	ikcp_encode_fec_hdr(seg);
 
 	const int len = PACKET_SIZE;
-	int ret = ikcp_output(kcp, ikcp_get_packet_data_buf(seg), len);
+	int ret = ikcp_output(kcp, ikcp_get_packet_data_buf(seg->data_buf), len);
 	if (ret == 0) {
 		return 1;
 	}
@@ -978,6 +983,30 @@ static int ikcp_send_cur(ikcpcb *kcp)
 int ikcp_send_next(ikcpcb *kcp)
 {
 	int ret;
+
+	if (!kcp->session_established) {
+		struct IKCPSEG *seg = ikcp_segment_malloc(kcp);
+		if (!seg) {
+			return -3;
+		}
+		*seg = (struct IKCPSEG){};
+
+		seg->data_buf = ikcp_seg_data_buf_malloc();
+		if (!seg->data_buf) {
+			seg->skip_free_seg_data_buf = true;
+			ikcp_segment_free(kcp, seg);
+			return -2;
+		}
+
+		seg->gid = (IUINT16)-1 & ((1 << GID_NBITS) - 1);
+		seg->fid = kcp->cid;
+		ikcp_encode_arq_hdr(kcp, seg);
+		ikcp_encode_fec_hdr(seg);
+
+		ikcp_segment_free(kcp, seg);
+		return 0;
+	}
+
 	while (1) {
 		if (ikcp_send_cur_get_delay(kcp) < 0) {
 			return 1;
@@ -1024,6 +1053,10 @@ int ikcp_queue_get_free(ikcpcb *kcp)
 
 int ikcp_send_ready_and_get_delay(ikcpcb *kcp)
 {
+	if (!kcp->session_established) {
+		return 0;
+	}
+
 	if (kcp->n_snd <= 0) {
 		return -3;
 	}
