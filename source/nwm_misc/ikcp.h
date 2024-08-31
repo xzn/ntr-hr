@@ -295,9 +295,9 @@ struct IKCPSEG
 	IUINT16 wsn; // wait send count
 
 	// use flags instead of doing conditions later
-	bool free_instead_of_resend;
-	bool skip_free_seg_data_buf;
-	bool own_seg_data_buf;
+	bool recovery_data;
+	bool weak_data;
+	bool is_kcp_seg_data;
 	bool gid_end;
 
 	char *data_buf;

@@ -170,8 +170,8 @@ static IKCPSEG* ikcp_segment_malloc(ikcpcb *kcp)
 // delete a segment
 static void ikcp_segment_free(ikcpcb *kcp, IKCPSEG *seg)
 {
-	if (!seg->skip_free_seg_data_buf) {
-		if (seg->own_seg_data_buf) {
+	if (!seg->weak_data) {
+		if (seg->is_kcp_seg_data) {
 			ikcp_seg_data_buf_free(seg->data_buf);
 		} else {
 			rp_seg_data_buf_free(seg->data_buf);
@@ -372,7 +372,7 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 
 		if (seg->pid == (IUINT16)-1 || !ikcp_input_check_nack(seg->pid, data, size, kcp)) {
 			iqueue_del(&seg->node, 1);
-			if (!seg->free_instead_of_resend) {
+			if (!seg->recovery_data) {
 				if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
 					nsDbgPrint("rp_arq_bitset_check failed for %d", (int)seg->pid);
 					return -3;
@@ -384,7 +384,7 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 			ikcp_segment_free(kcp, seg);
 		} else {
 			iqueue_del(&seg->node, 2);
-			if (seg->free_instead_of_resend) {
+			if (seg->recovery_data) {
 				ikcp_segment_free(kcp, seg);
 			} else {
 				seg->gid_end = false;
@@ -474,7 +474,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 		}
 
 		iqueue_del(&segs[i]->node, 3);
-		if (!seg->free_instead_of_resend) {
+		if (!seg->recovery_data) {
 			if (!rp_arq_bitset_check(&kcp->pid_bs, segs[i]->pid)) {
 				nsDbgPrint("rp_arq_bitset_check failed for %d fty %d gid %d", (int)segs[i]->pid, (int)fty, (int)segs[i]->gid);
 				return -4;
@@ -866,7 +866,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				seg->fty = fec_type;
 				seg->gid = count;
 				seg->wsn = count * fec_send_intervals[fec_type] + wsn;
-				seg->free_instead_of_resend = true;
+				seg->recovery_data = true;
 				if (counts.recovery_count == 1) {
 					seg->gid_end = true;
 				}
@@ -874,7 +874,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				if (!seg->data_buf) {
 					return -16;
 				}
-				seg->own_seg_data_buf = true;
+				seg->is_kcp_seg_data = true;
 				void *data_ptr = ikcp_get_fec_data_buf(seg->data_buf);
 				FecalSymbol fecal_symbol = {
 					.Data = data_ptr,
@@ -912,8 +912,8 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	if (!counts.recovery_count) {
 		iters[0].seg->gid_end = true;
 	} else {
-		iters[0].seg->free_instead_of_resend = true;
-		iters[0].seg->skip_free_seg_data_buf = true;
+		iters[0].seg->recovery_data = true;
+		iters[0].seg->weak_data = true;
 	}
 	ikcp_encode_arq_hdr(kcp, iters[0].seg);
 	int wsn = 0;
@@ -939,8 +939,8 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		seg->wsn = count * fec_send_intervals[fec_type] + wsn;
 		if (counts.recovery_count == 1) {
 			seg->gid_end = true;
-			seg->free_instead_of_resend = false;
-			seg->skip_free_seg_data_buf = false;
+			seg->recovery_data = false;
+			seg->weak_data = false;
 		}
 		ret = ikcp_insert_send_cur(kcp, seg);
 		if (ret < 0) {
@@ -973,10 +973,10 @@ static int ikcp_send_cur(ikcpcb *kcp)
 	}
 
 	iqueue_del(&seg->node, 7);
-	if (seg->free_instead_of_resend) {
-		if (!seg->skip_free_seg_data_buf && seg->own_seg_data_buf) {
+	if (seg->recovery_data) {
+		if (!seg->weak_data && seg->is_kcp_seg_data) {
 			ikcp_seg_data_buf_free(seg->data_buf);
-			seg->skip_free_seg_data_buf = true;
+			seg->weak_data = true;
 			// seg->data_buf = NULL;
 		}
 	}
@@ -997,11 +997,11 @@ int ikcp_send_next(ikcpcb *kcp)
 
 		seg->data_buf = ikcp_seg_data_buf_malloc();
 		if (!seg->data_buf) {
-			seg->skip_free_seg_data_buf = true;
+			seg->weak_data = true;
 			ikcp_segment_free(kcp, seg);
 			return -2;
 		}
-		seg->own_seg_data_buf = true;
+		seg->is_kcp_seg_data = true;
 
 		seg->gid = (IUINT16)-1 & ((1 << GID_NBITS) - 1);
 		seg->fid = kcp->cid;
