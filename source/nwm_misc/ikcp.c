@@ -997,6 +997,7 @@ int ikcp_send_next(ikcpcb *kcp)
 			ikcp_segment_free(kcp, seg);
 			return -2;
 		}
+		seg->own_seg_data_buf = true;
 
 		seg->gid = (IUINT16)-1 & ((1 << GID_NBITS) - 1);
 		seg->fid = kcp->cid;
