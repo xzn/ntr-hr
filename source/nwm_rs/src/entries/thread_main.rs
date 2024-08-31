@@ -294,6 +294,9 @@ mod loop_main {
     impl Drop for InitCleanup {
         fn drop(&mut self) {
             unsafe {
+                // let _ = svcCloseHandle(cur_seg_mem_lock);
+                // let _ = svcCloseHandle(cur_seg_mem_sem);
+
                 let _ = svcCloseHandle(seg_mem_lock);
                 let _ = svcCloseHandle(seg_mem_sem);
 

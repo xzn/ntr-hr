@@ -215,7 +215,8 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	return 0;
 }
 
-#define pid_bs_n ((1 << PID_NBITS) - (1 << (PID_NBITS - 2)))
+#define pid_bs_offset (1 << (PID_NBITS - 1))
+#define pid_bs_n (1 << (PID_NBITS - 2))
 
 //---------------------------------------------------------------------
 // user/upper level send
@@ -236,10 +237,15 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -4;
 	}
 
-	// if (rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, kcp->pid, pid_bs_n)) {
-		// nsDbgPrint("rp_arq_bitset_check_n_wrapped for %d ffs %d", (int)kcp->pid, (int)rp_arq_bitset_ffs_n_wrapped(&kcp->pid_bs, kcp->pid, pid_bs_n));
-	// 	return 1;
-	// }
+	if (rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, (kcp->pid + pid_bs_offset) & ((1 << PID_NBITS) - 1), pid_bs_n)) {
+		// nsDbgPrint("rp_arq_bitset_check_n_wrapped for %d ffs %d", (int)kcp->pid, (int)rp_arq_bitset_ffs_n_wrapped(&kcp->pid_bs, (kcp->pid + pid_bs_offset) & ((1 << PID_NBITS) - 1), pid_bs_n));
+		return 1;
+	}
+
+	if (rp_arq_bitset_check(&kcp->pid_bs, kcp->pid)) {
+		nsDbgPrint("rp_arq_bitset_check failed for %d", (int)kcp->pid);
+		return -3;
+	}
 
 	seg = ikcp_segment_new(kcp);
 	if (seg == NULL) {
@@ -751,7 +757,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
 	if (!iters[0].seg) {
 		if ((!kcp->session_established && ikcp_queue_get_free(kcp) == 0)
-			// || rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, kcp->pid, pid_bs_n)
+			|| rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, (kcp->pid + pid_bs_offset) & ((1 << PID_NBITS) - 1), pid_bs_n)
 		) {
 			int ret;
 			if ((ret = ikcp_reset_send_wak(kcp)) < 0) {

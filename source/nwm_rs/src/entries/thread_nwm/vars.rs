@@ -509,8 +509,12 @@ unsafe fn nwm_cb_lock() -> Option<()> {
     None
 }
 
+#[named]
 unsafe fn nwm_cb_unlock() {
-    let _ = svcReleaseMutex(reliable_stream_cb_lock);
+    let res = svcReleaseMutex(reliable_stream_cb_lock);
+    if res != 0 {
+        nsDbgPrint!(releaseMutexFailed, c_str!("reliable_stream_cb_lock"), res);
+    }
 }
 
 #[named]
@@ -539,11 +543,17 @@ pub unsafe fn alloc_seg() -> Option<*mut c_char> {
     if dst == ptr::null_mut() {
         nsDbgPrint!(mpAllocFailed, c_str!("send_pool"));
         crate::entries::work_thread::set_reset_threads_ar();
-        let _ = svcReleaseMutex(seg_mem_lock);
+        let res = svcReleaseMutex(seg_mem_lock);
+        if res != 0 {
+            nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
+        }
         return None;
     }
 
-    let _ = svcReleaseMutex(seg_mem_lock);
+    let res = svcReleaseMutex(seg_mem_lock);
+    if res != 0 {
+        nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
+    }
     Some(dst)
 }
 
@@ -565,12 +575,18 @@ unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
         if dst == ptr::null_mut() {
             nsDbgPrint!(mpAllocFailed, c_str!("cur_send_pool"));
             crate::entries::work_thread::set_reset_threads_ar();
-            // let _ = svcReleaseMutex(cur_seg_mem_lock);
+            // let res = svcReleaseMutex(cur_seg_mem_lock);
+            // if res != 0 {
+            //     nsDbgPrint!(releaseMutexFailed, c_str!("cur_seg_mem_lock"), res);
+            // }
             return None;
         }
 
         cur_seg_mem_count += 1;
-        // let _ = svcReleaseMutex(cur_seg_mem_lock);
+        // let res = svcReleaseMutex(cur_seg_mem_lock);
+        // if res != 0 {
+        //     nsDbgPrint!(releaseMutexFailed, c_str!("cur_seg_mem_lock"), res);
+        // }
         Some(dst)
     })() {
         return dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize);
@@ -598,6 +614,9 @@ unsafe extern "C" fn free_seg_buf(dst: *const ::libc::c_char) {
     }
     // let mut count = mem::MaybeUninit::uninit();
     // let _ = svcReleaseSemaphore(count.as_mut_ptr(), cur_seg_mem_sem, 1);
+    // if res != 0 {
+    //     nsDbgPrint!(releaseSemaphoreFailed, c_str!("cur_seg_mem_sem"), 0, res);
+    // }
     cur_seg_mem_count -= 1;
 
     // let _ = svcReleaseMutex(cur_seg_mem_lock);
@@ -612,13 +631,22 @@ unsafe fn free_seg(dst: *const ::libc::c_char) {
     let cb = &mut *reliable_stream_cb;
     if mp_free(&mut cb.send_pool, dst as *mut _) < 0 {
         nsDbgPrint!(mpFreeFailed, c_str!("send_pool"));
-        let _ = svcReleaseMutex(seg_mem_lock);
+        let res = svcReleaseMutex(seg_mem_lock);
+        if res != 0 {
+            nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
+        }
         return;
     }
     let mut count = mem::MaybeUninit::uninit();
-    let _ = svcReleaseSemaphore(count.as_mut_ptr(), seg_mem_sem, 1);
+    let res = svcReleaseSemaphore(count.as_mut_ptr(), seg_mem_sem, 1);
+    if res != 0 {
+        nsDbgPrint!(releaseSemaphoreFailed, c_str!("seg_mem_sem"), 0, res);
+    }
 
-    let _ = svcReleaseMutex(seg_mem_lock);
+    let res = svcReleaseMutex(seg_mem_lock);
+    if res != 0 {
+        nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
+    }
 }
 
 unsafe fn get_recv_seg() -> Option<*mut c_char> {
