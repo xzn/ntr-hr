@@ -476,7 +476,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 		iqueue_del(&segs[i]->node, 3);
 		if (!seg->free_instead_of_resend) {
 			if (!rp_arq_bitset_check(&kcp->pid_bs, segs[i]->pid)) {
-				nsDbgPrint("rp_arq_bitset_check failed for %d fty %d", (int)segs[i]->pid, (int)fty);
+				nsDbgPrint("rp_arq_bitset_check failed for %d fty %d gid %d", (int)segs[i]->pid, (int)fty, (int)segs[i]->gid);
 				return -4;
 			}
 			// nsDbgPrint("rp_arq_bitset_clear for %d", (int)segs[i]->pid);
