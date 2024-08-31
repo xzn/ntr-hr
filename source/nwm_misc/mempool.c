@@ -28,6 +28,8 @@
 #include "mempool.h"
 #include "global.h"
 
+// #define CHECK
+
 struct block {
     void *next;
 };
@@ -58,12 +60,15 @@ void *mp_malloc(mp_pool_t *mp)
      * 2. In case there are no more unlinked blocks left we try to return the head from the list of free blocks
      * 3. Otherwise we will have to abort since there are no free blocks left
      */
+#ifdef CHECK
     char *m_end = (char *)mp->m + mp->bs * mp->bc;
+#endif
 
     if(mp->ul_bc > 0) {
         mp->ul_bc--;
         void *b = mp->ul_b;
 
+#ifdef CHECK
         if (b < mp->m || b >= (void *)m_end) {
             showDbg("Out of range pointer for pool ul malloc %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
             return NULL;
@@ -72,14 +77,18 @@ void *mp_malloc(mp_pool_t *mp)
             showDbg("Mis-aligned pointer for pool ul malloc %08"PRIx32" (begin %08"PRIx32" bs %08"PRIx32")", (u32)b, (u32)mp->m, (u32)mp->bs);
             return NULL;
         }
+#endif
 
         mp->ul_b = (void *) (((unsigned char *) mp->ul_b) + mp->bs);
+#ifdef CHECK
         memset(b, 0xc3, mp->bs);
+#endif
         // nsDbgPrint("mp_malloc ul %08"PRIx32, (u32)b);
         return b;
     } else if(mp->b) {
         void *b = mp->b;
 
+#ifdef CHECK
         if (b < mp->m || b >= (void *)m_end) {
             showDbg("Out of range pointer for pool malloc %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
             return NULL;
@@ -88,7 +97,6 @@ void *mp_malloc(mp_pool_t *mp)
             showDbg("Mis-aligned pointer for pool malloc %08"PRIx32" (begin %08"PRIx32" bs %08"PRIx32")", (u32)b, (u32)mp->m, (u32)mp->bs);
             return NULL;
         }
-
         for (size_t i = sizeof(void *); i < mp->bs; ++i) {
             if (((char *)b)[i] != 0x3c) {
                 showDbg("Use after free at %08"PRIx32" [%"PRIx32"]", (u32)b, (u32)i);
@@ -96,9 +104,14 @@ void *mp_malloc(mp_pool_t *mp)
             }
         }
 
+#endif
+
         mp->b = ((struct block *) mp->b)->next;
         // nsDbgPrint("mp_malloc %08"PRIx32, (u32)b);
+#ifdef CHECK
         memset(b, 0xc3, mp->bs);
+#endif
+
         return b;
     }
 
@@ -111,7 +124,7 @@ int mp_free(mp_pool_t *mp, void *b)
      * We add b as the head of the list of free blocks
      */
     // nsDbgPrint("mp_free %08"PRIx32, (u32)b);
-
+#ifdef CHECK
     char *m_end = (char *)mp->m + mp->bs * mp->bc;
     if (b < mp->m || b >= (void *)m_end) {
         showDbg("Out of range pointer for pool free %08"PRIx32" (begin %08"PRIx32" end %08"PRIx32")", (u32)b, (u32)mp->m, (u32)m_end);
@@ -123,6 +136,8 @@ int mp_free(mp_pool_t *mp, void *b)
     }
 
     memset(b, 0x3c, mp->bs);
+#endif
+
     ((struct block *) b)->next = mp->b;
     mp->b = b;
 
