@@ -534,7 +534,7 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 	}
 
 	if (size == 0) {
-		if (gid == ((IUINT16)-1 & ((1 << GID_NBITS) - 1))) {
+		if (fid == 0 && gid == ((IUINT16)-1 & ((1 << GID_NBITS) - 1))) {
 			if (!kcp->session_established) {
 				kcp->session_established = true;
 				return 0;
