@@ -476,7 +476,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 		iqueue_del(&segs[i]->node, 3);
 		if (!seg->free_instead_of_resend) {
 			if (!rp_arq_bitset_check(&kcp->pid_bs, segs[i]->pid)) {
-				nsDbgPrint("rp_arq_bitset_check failed for %d", (int)segs[i]->pid);
+				nsDbgPrint("rp_arq_bitset_check failed for %d fty %d", (int)segs[i]->pid, (int)fty);
 				return -4;
 			}
 			// nsDbgPrint("rp_arq_bitset_clear for %d", (int)segs[i]->pid);
@@ -537,8 +537,9 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		if (fid == 0 && gid == ((IUINT16)-1 & ((1 << GID_NBITS) - 1))) {
 			if (!kcp->session_established) {
 				kcp->session_established = true;
-				return 0;
+				nsDbgPrint("kcp session_established");
 			}
+			return 0;
 		} else {
 			return -5;
 		}
@@ -573,6 +574,7 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		if (seg->wrn && seg->gid == 0 && !ikcp_input_check_nack(seg->pid, data, size, kcp)) {
 			int ret = ikcp_input_handle_send_cur_nack(kcp, seg, data, size, &next);
 			if (ret < 0) {
+				*(volatile bool *)&kcp->rp_output_retry = true;
 				return ret * 0x10 - 4;
 			} else if (ret == 0 && p == p_0) {
 				*(volatile bool *)&kcp->rp_output_retry = true;
@@ -956,7 +958,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 static int ikcp_send_cur(ikcpcb *kcp)
 {
 	IKCPSEG *seg;
-	seg = iqueue_entry(kcp->snd_cur.next, IKCPSEG, node);
+	seg = iqueue_entry(((volatile struct IQUEUEHEAD *)&kcp->snd_cur)->next, IKCPSEG, node);
 	ikcp_encode_fec_hdr(seg);
 
 	const int len = PACKET_SIZE;
