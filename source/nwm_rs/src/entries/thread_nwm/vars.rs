@@ -465,6 +465,7 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
             if ret < 0 {
                 // Reset KCP
                 nsDbgPrint!(kcpInputFailed, ret);
+                drop(nwm_lock);
                 crate::entries::work_thread::set_reset_threads_ar();
                 return -1;
             }
@@ -729,6 +730,9 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     if res != RES_TIMEOUT as s32 {
                         nsDbgPrint!(waitForSyncFailed, c_str!("nwm_syn.rp_syn_acq"), res);
                         entries::work_thread::set_reset_threads_ar();
+                        if !relock_nwm {
+                            nwm_cb_unlock();
+                        }
                         return false;
                     } else if send_delay >= 0 || (*kcp).session_new_data_received {
                         break;
@@ -739,6 +743,9 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                 if res != 0 && res != RES_TIMEOUT as s32 {
                     nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
                     entries::work_thread::set_reset_threads_ar();
+                    if !relock_nwm {
+                        nwm_cb_unlock();
+                    }
                     return false;
                 }
                 if res == 0 && !has_dst {
@@ -798,7 +805,9 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                 let ret = ikcp_send_next(kcp);
                 if ret < 0 {
                     // Reset KCP
-                    nsDbgPrint!(kcpFlushFailed, ret);
+                    if !entries::work_thread::reset_threads() {
+                        nsDbgPrint!(kcpFlushFailed, ret);
+                    }
                     crate::entries::work_thread::set_reset_threads_ar();
                     nwm_cb_unlock();
                     return false;
