@@ -1004,6 +1004,19 @@ int ikcp_send_next(ikcpcb *kcp)
 		ikcp_encode_arq_hdr(kcp, seg);
 		ikcp_encode_fec_hdr(seg);
 
+		const int len = sizeof(IUINT16);
+		while (1) {
+			*(volatile bool *)&kcp->rp_output_retry = false;
+			int ret = ikcp_output(kcp, ikcp_get_packet_data_buf(seg->data_buf), len);
+			if (ret == 0) {
+				continue;
+			}
+			if (ret != len) {
+				return -5;
+			}
+			break;
+		}
+
 		ikcp_segment_free(kcp, seg);
 		return 0;
 	}
@@ -1054,12 +1067,12 @@ int ikcp_queue_get_free(ikcpcb *kcp)
 
 int ikcp_send_ready_and_get_delay(ikcpcb *kcp)
 {
-	if (!kcp->session_established) {
-		return 0;
-	}
-
 	if (kcp->n_snd <= 0) {
 		return -3;
+	}
+
+	if (!kcp->session_established) {
+		return 0;
 	}
 
 	int ret;
