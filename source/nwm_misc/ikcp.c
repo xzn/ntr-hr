@@ -254,7 +254,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	seg->data_buf = buffer;
 	seg->pid = kcp->pid;
 	rp_arq_bitset_set(&kcp->pid_bs, kcp->pid);
-	nsDbgPrint("rp_arq_bitset_set for %d", (int)kcp->pid);
+	// nsDbgPrint("rp_arq_bitset_set for %d", (int)kcp->pid);
 	++kcp->pid;
 	kcp->pid &= ((1 << 10) - 1);
 
@@ -482,7 +482,7 @@ int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, char *data, in
 					nsDbgPrint("rp_arq_bitset_check failed for %d", (int)seg->pid);
 					return -5;
 				}
-				nsDbgPrint("rp_arq_bitset_clear for %d", (int)seg->pid);
+				// nsDbgPrint("rp_arq_bitset_clear for %d", (int)seg->pid);
 				rp_arq_bitset_clear(&kcp->pid_bs, seg->pid);
 				--kcp->n_snd;
 			// }
@@ -791,7 +791,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			return 1;
 	}
 
-	nsDbgPrint("send cur pid %d", iters[0].seg->pid);
+	// nsDbgPrint("send cur pid %d", iters[0].seg->pid);
 	enum FEC_TYPE fec_type = fec_type_from_queue(iters[0].queue);
 	struct fec_counts_t counts = FEC_COUNTS[fec_type];
 
@@ -918,6 +918,9 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	iters[0].seg->wsn = 0;
 	if (!counts.recovery_count) {
 		// iters[0].seg->gid_end = true;
+	} else {
+		iters[0].seg->free_instead_of_resend = true;
+		iters[0].seg->skip_free_data_buf = true;
 	}
 	ikcp_encode_arq_hdr(kcp, iters[0].seg);
 	int wsn = 0;
@@ -939,13 +942,15 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			return -7;
 		}
 		*seg = *iters[0].seg;
-		seg->pid = (IUINT16)-1;
+		// seg->pid = (IUINT16)-1;
 		seg->gid = count;
 		seg->wsn = count * fec_send_intervals[fec_type] + wsn;
-		seg->free_instead_of_resend = true;
-		seg->skip_free_data_buf = true;
+		// seg->free_instead_of_resend = true;
+		// seg->skip_free_data_buf = true;
 		if (counts.recovery_count == 1) {
 			// seg->gid_end = true;
+			seg->free_instead_of_resend = false;
+			seg->skip_free_data_buf = false;
 		}
 		ret = ikcp_insert_send_cur(kcp, seg);
 		if (ret < 0) {

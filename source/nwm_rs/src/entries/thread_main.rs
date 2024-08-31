@@ -272,20 +272,20 @@ mod loop_main {
                 return None;
             }
 
-            let res = svcCreateSemaphore(
-                &mut cur_seg_mem_sem,
-                SEND_CUR_BUFS_COUNT as s32,
-                SEND_CUR_BUFS_COUNT as s32,
-            );
-            if res != 0 {
-                nsDbgPrint!(createSemaphoreFailed, c_str!("cur_seg_mem_sem"), res);
-                return None;
-            }
-            let res = svcCreateMutex(&mut cur_seg_mem_lock, false);
-            if res != 0 {
-                nsDbgPrint!(createMutexFailed, c_str!("curseg_mem_lock"), res);
-                return None;
-            }
+            // let res = svcCreateSemaphore(
+            //     &mut cur_seg_mem_sem,
+            //     SEND_CUR_BUFS_COUNT as s32,
+            //     SEND_CUR_BUFS_COUNT as s32,
+            // );
+            // if res != 0 {
+            //     nsDbgPrint!(createSemaphoreFailed, c_str!("cur_seg_mem_sem"), res);
+            //     return None;
+            // }
+            // let res = svcCreateMutex(&mut cur_seg_mem_lock, false);
+            // if res != 0 {
+            //     nsDbgPrint!(createMutexFailed, c_str!("curseg_mem_lock"), res);
+            //     return None;
+            // }
 
             Some(Self(v))
         }

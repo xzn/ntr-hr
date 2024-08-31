@@ -59,8 +59,8 @@ u32 mapRemoteMemory(Handle hProcess, u32 addr, u32 size, u32 op) {
 		return ret;
 	}
 	if (outAddr != addr) {
-		nsDbgPrint("outAddr: %08"PRIx32", addr: %08"PRIx32"\n", outAddr, addr);
-		return 0;
+		showDbg("outAddr: %08"PRIx32", addr: %08"PRIx32"\n", outAddr, addr);
+		return -1;
 	}
 	return 0;
 }
@@ -81,8 +81,8 @@ u32 mapRemoteMemoryInLoader(Handle hProcess, u32 addr, u32 size, u32 op) {
 		return ret;
 	}
 	if (outAddr != addr) {
-		nsDbgPrint("outAddr: %08"PRIx32", addr: %08"PRIx32"\n", outAddr, addr);
-		return 0;
+		showDbg("outAddr: %08"PRIx32", addr: %08"PRIx32"\n", outAddr, addr);
+		return -1;
 	}
 	return 0;
 }

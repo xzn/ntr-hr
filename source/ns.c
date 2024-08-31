@@ -449,10 +449,10 @@ int nsStartup(void) {
 	bufferSize = socuSharedBufferSize + offset;
 	u32 base = NS_SOC_ADDR;
 	s32 ret, res;
-	u32 outAddr;
+	u32 outAddr = 0;
 
 	ret = svcControlMemory(&outAddr, base, base, bufferSize, MEMOP_ALLOC, MEMPERM_READWRITE);
-	if (ret != 0) {
+	if (ret != 0 || outAddr != base) {
 		showDbg("svcControlMemory alloc failed: %08"PRIx32, ret);
 		goto fail;
 	}

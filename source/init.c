@@ -107,12 +107,12 @@ int plgEnsurePoolSize(u32 size) {
 		return 0;
 	}
 
-	u32 ret, outAddr, addr;
+	u32 ret, outAddr = 0, addr;
 	addr = plgPoolEnd;
 	size = end - plgPoolEnd;
 	ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
-	if (ret != 0) {
-		nsDbgPrint("Failed to extend memory from pool at addr %08"PRIx32": %08"PRIx32"\n", addr, ret);
+	if (ret != 0 || outAddr != addr) {
+		showDbg("Failed to extend memory from pool at addr %08"PRIx32": %08"PRIx32"\n", addr, ret);
 		return -1;
 	}
 
@@ -130,16 +130,19 @@ u32 plgRequestMemoryFromPool(u32 size, int pool) {
 			plgMemoryPoolEnd = PLG_MEM_ADDR;
 		}
 
-		u32 ret, outAddr, addr;
+		u32 ret, outAddr = 0, addr;
 		addr = plgMemoryPoolEnd;
 		size = rtAlignToPageSize(size);
 		ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
-		if (ret != 0) {
-			nsDbgPrint("Failed to allocate memory from pool for plugin at addr %08"PRIx32" for size %08"PRIx32": %08"PRIx32"\n", addr, size, ret);
+		if (ret != 0 || outAddr != addr) {
+			showDbg("Failed to allocate memory from pool for plugin at addr %08"PRIx32" for size %08"PRIx32": %08"PRIx32"\n", addr, size, ret);
 			return 0;
 		}
 
 		plgMemoryPoolEnd += size;
+		// if (getCurrentProcessId() == 0x1a) {
+		// 	showDbg("total size %"PRIx32" end addr %"PRIx32, plgMemoryPoolEnd - PLG_MEM_ADDR, plgMemoryPoolEnd);
+		// }
 
 		return addr;
 	} else {
@@ -147,12 +150,12 @@ u32 plgRequestMemoryFromPool(u32 size, int pool) {
 			plgMemoryPoolBegin = PLG_MEM_ADDR;
 		}
 
-		u32 ret, outAddr, addr;
+		u32 ret, outAddr = 0, addr;
 		size = rtAlignToPageSize(size);
 		addr = plgMemoryPoolBegin - size;
 		ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
-		if (ret != 0) {
-			nsDbgPrint("Failed to allocate memory from pool for payload at addr %08"PRIx32" for size %08"PRIx32": %08"PRIx32"\n", addr, size, ret);
+		if (ret != 0 || outAddr != addr) {
+			showDbg("Failed to allocate memory from pool for payload at addr %08"PRIx32" for size %08"PRIx32": %08"PRIx32"\n", addr, size, ret);
 			return 0;
 		}
 
