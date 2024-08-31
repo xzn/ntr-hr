@@ -16,8 +16,9 @@ void rp_svc_increase_limits(void) {
 
 	if ((res = svcSetResourceLimitValues(resLim, types, values, count))) {
 		nsDbgPrint("svcSetResourceLimitValues failed\n");
-		return;
 	}
+
+	svcCloseHandle(resLim);
 }
 
 void rp_svc_print_limits(void) {
@@ -34,7 +35,7 @@ void rp_svc_print_limits(void) {
 
 	if ((res = svcGetResourceLimitCurrentValues(values, resLim, types, count))) {
 		nsDbgPrint("svcGetResourceLimitCurrentValues failed\n");
-		return;
+		goto final;
 	}
 
 	for (int i = 0; i < count; ++i) {
@@ -43,10 +44,13 @@ void rp_svc_print_limits(void) {
 
 	if ((res = svcGetResourceLimitLimitValues(values, resLim, types, count))) {
 		nsDbgPrint("svcGetResourceLimitLimitValues failed\n");
-		return;
+		goto final;
 	}
 
 	for (int i = 0; i < count; ++i) {
 		nsDbgPrint("%s res limit %d\n", names[i], (int)values[i]);
 	}
+
+final:
+	svcCloseHandle(resLim);
 }

@@ -131,6 +131,7 @@ pub unsafe fn reset_vars(dst_flags: u32, qos: u32) -> Option<()> {
     nwm_thread_id = ThreadId::init();
     rp_output_next_tick = svcGetSystemTick() as s64 + min_send_interval_tick as s64;
     next_send_tick = rp_output_next_tick as u32_;
+    cur_seg_mem_count = 0;
     Some(())
 }
 
