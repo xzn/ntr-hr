@@ -60,7 +60,6 @@ mod first_time_init {
 
             cb.nwm_syn.sem = 0;
             cb.nwm_syn.mutex = 0;
-            recv_seg_mem_inited.store(true, Ordering::Release);
         } else {
             return None;
         }
@@ -125,6 +124,7 @@ mod first_time_init {
             nsDbgPrint!(createNwmRecvEventFailed, res);
             return None;
         }
+        recv_seg_mem_inited.store(true, Ordering::Release);
 
         let aux1Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;
         let aux2Stack = request_mem_from_pool::<{ RP_THREAD_STACK_SIZE as usize }>()?;

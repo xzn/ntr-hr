@@ -299,6 +299,9 @@ impl ThreadBeginVars {
     #[named]
     pub fn release_and_capture_screen(self, t: &ThreadId) -> ThreadDoVars {
         unsafe {
+            self.v().set_skip_frame(false);
+            self.v().clear_screen_synced();
+
             let mut count = mem::MaybeUninit::uninit();
             for j in ThreadId::up_to(&get_core_count_in_use()) {
                 if j != *t {
@@ -317,9 +320,6 @@ impl ThreadBeginVars {
                     }
                 }
             }
-
-            self.v().set_skip_frame(false);
-            self.v().clear_screen_synced();
 
             ThreadDoVars(self.0 .0)
         }
