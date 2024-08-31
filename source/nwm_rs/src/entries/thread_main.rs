@@ -472,7 +472,7 @@ mod loop_main {
                 2,
             )?);
 
-            rp_svc_print_limits();
+            // rp_svc_print_limits();
 
             let t = crate::ThreadId::init();
             crate::entries::work_thread::work_thread_loop(t);
