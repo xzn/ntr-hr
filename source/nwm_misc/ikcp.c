@@ -21,24 +21,23 @@
 
 FecalEncoder rp_kcp_fecal_encoder;
 
+#define FID_NBITS (12)
+#define FTY_NBITS (2)
+#define GID_NBITS (2)
+
+#define PID_NBITS (12)
+#define CID_NBITS (1)
+
 enum FEC_TYPE {
 	FEC_TYPE_1_1,
-	FEC_TYPE_4_5,
-	FEC_TYPE_3_4,
-	FEC_TYPE_2_3,
-	FEC_TYPE_3_5,
-	FEC_TYPE_2_4,
-	FEC_TYPE_2_5,
-	FEC_TYPE_1_3,
-	FEC_TYPE_MAX = FEC_TYPE_1_3,
-	// coded as FEC_TYPE_1_1 with top bit in group id set to differentiate
 	FEC_TYPE_1_2,
+	FEC_TYPE_1_3,
+	FEC_TYPE_2_3,
 	FEC_TYPE_COUNT,
 };
 
-#define FEC_TYPE_BITS_COUNT (3)
 
-_Static_assert(FEC_TYPE_MAX < (1 << FEC_TYPE_BITS_COUNT));
+_Static_assert(FEC_TYPE_COUNT <= (1 << FTY_NBITS));
 
 struct fec_counts_t {
 	IUINT8 original_count, recovery_count;
@@ -46,14 +45,9 @@ struct fec_counts_t {
 
 static const struct fec_counts_t FEC_COUNTS[] = {
 	{1, 0},
-	{4, 1},
-	{3, 1},
-	{2, 1},
-	{3, 2},
-	{2, 2},
-	{2, 3},
-	{1, 2},
 	{1, 1},
+	{1, 2},
+	{2, 1},
 };
 
 _Static_assert(sizeof(FEC_COUNTS) / sizeof(*FEC_COUNTS) == FEC_TYPE_COUNT);
@@ -61,7 +55,9 @@ _Static_assert(sizeof(FEC_COUNTS) / sizeof(*FEC_COUNTS) == FEC_TYPE_COUNT);
 static int fec_send_intervals[FEC_TYPE_COUNT];
 
 // max of original_count + recovery_count
-#define FEC_COUNT_MAX (5)
+#define FEC_COUNT_MAX (4)
+
+_Static_assert(FEC_COUNT_MAX <= (1 << GID_NBITS));
 
 //=====================================================================
 // KCP BASIC
@@ -193,7 +189,7 @@ static int ikcp_output(ikcpcb *kcp, void *data, int size)
 int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 {
 	*kcp = (struct IKCPCB){ 0 };
-	kcp->cid = cid & ((1 << 2) - 1);
+	kcp->cid = cid & ((1 << CID_NBITS) - 1);
 
 	iqueue_init(&kcp->snd_lst);
 	for (int i = 0; i < RSND_COUNT; ++i) {
@@ -214,12 +210,12 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	if (ret != 0)
 		return -1;
 
-	rp_arq_bitset_clear_all(&kcp->fid_bs);
 	rp_arq_bitset_clear_all(&kcp->pid_bs);
 
 	return 0;
 }
 
+#define pid_bs_n ((1 << PID_NBITS) - (1 << (PID_NBITS - 2)))
 
 //---------------------------------------------------------------------
 // user/upper level send
@@ -240,8 +236,8 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -4;
 	}
 
-	if (rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, kcp->pid, 1 << 9)) {
-		// nsDbgPrint("rp_arq_bitset_check_n_wrapped for %d ffs %d", (int)kcp->pid, (int)rp_arq_bitset_ffs_n_wrapped(&kcp->pid_bs, kcp->pid, 1 << 9));
+	if (rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, kcp->pid, pid_bs_n)) {
+		// nsDbgPrint("rp_arq_bitset_check_n_wrapped for %d ffs %d", (int)kcp->pid, (int)rp_arq_bitset_ffs_n_wrapped(&kcp->pid_bs, kcp->pid, pid_bs_n));
 		return 1;
 	}
 
@@ -256,7 +252,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	rp_arq_bitset_set(&kcp->pid_bs, kcp->pid);
 	// nsDbgPrint("rp_arq_bitset_set for %d", (int)kcp->pid);
 	++kcp->pid;
-	kcp->pid &= ((1 << 10) - 1);
+	kcp->pid &= ((1 << PID_NBITS) - 1);
 
 	iqueue_init(&seg->node);
 	iqueue_add_tail(&seg->node, &kcp->snd_lst);
@@ -326,21 +322,23 @@ static int ikcp_input_check_nack(IUINT16 pid, char *data, int size) {
 	IUINT16 *ptr = (IUINT16 *)data;
 	size /= 2;
 
+#define count_nbits (sizeof(IUINT16) * 8 - PID_NBITS)
+
 	for (int i = 0; i < size; ++i) {
 		if (i == size - 1) {
 			IUINT16 val = ptr[i];
-			IUINT16 nack_start = (val >> 6) & ((1 << 10) - 1);
-			IUINT16 nack_count_0 = (1 << 9) - 1;
-			IUINT16 pid_diff = (pid - nack_start) & ((1 << 10) - 1);
+			IUINT16 nack_start = (val >> count_nbits) & ((1 << PID_NBITS) - 1);
+			IUINT16 nack_count_0 = (1 << (PID_NBITS - 2)) - 1;
+			IUINT16 pid_diff = (pid - nack_start) & ((1 << PID_NBITS) - 1);
 			if (pid_diff <= nack_count_0) {
 				return 1;
 			}
 		}
 
 		IUINT16 val = ptr[i];
-		IUINT16 nack_start = (val >> 6) & ((1 << 10) - 1);
-		IUINT16 nack_count_0 = val & ((1 << 6) - 1);
-		IUINT16 pid_diff = (pid - nack_start) & ((1 << 10) - 1);
+		IUINT16 nack_start = (val >> count_nbits) & ((1 << PID_NBITS) - 1);
+		IUINT16 nack_count_0 = val & ((1 << count_nbits) - 1);
+		IUINT16 pid_diff = (pid - nack_start) & ((1 << PID_NBITS) - 1);
 		if (pid_diff <= nack_count_0) {
 			return -1;
 		}
@@ -525,9 +523,9 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 	data += sizeof(IUINT16);
 	size -= sizeof(IUINT16);
 
-	IUINT16 fid = (hdr >> 6) & ((1 << 10) - 1);
-	IUINT16 gid = (hdr >> 3) & ((1 << 3) - 1);
-	IUINT16 cid = (hdr >> 1) & ((1 << 2) - 1);
+	IUINT16 fid = (hdr >> 4) & ((1 << FID_NBITS) - 1);
+	IUINT16 gid = (hdr >> 2) & ((1 << GID_NBITS) - 1);
+	IUINT16 cid = (hdr >> 1) & ((1 << CID_NBITS) - 1);
 	IUINT16 reset = hdr & ((1 << 1) - 1);
 
 	if (kcp->cid == cid && reset) {
@@ -610,18 +608,13 @@ static char *ikcp_get_packet_data_buf(struct IKCPSEG *seg) {
 // Outer header for fec
 static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
 	IUINT16 *p = (IUINT16 *)ikcp_get_packet_data_buf(seg);
-	if (seg->fty == FEC_TYPE_1_2) {
-		*p = (((seg->gid & ((1 << 2) - 1)) | (1 << 2)) << 3);
-	} else {
-		*p = (seg->fty & ((1 << 3) - 1)) | ((seg->gid & ((1 << 3) - 1)) << 3);
-	}
-	*p |=  ((seg->fid & ((1 << 10) - 1)) << 6);
+	*p = (seg->fty & ((1 << FTY_NBITS) - 1)) | ((seg->gid & ((1 << GID_NBITS) - 1)) << 2) | ((seg->fid & ((1 << FID_NBITS) - 1)) << 4);
 }
 
 // Inner header for arq
 static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
 	IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg);
-	*p |= (seg->pid & ((1 << 10) - 1)) | ((kcp->cid & ((1 << 2) - 1)) << 10);
+	*p |= (seg->pid & ((1 << PID_NBITS) - 1)) | ((kcp->cid & ((1 << CID_NBITS) - 1)) << PID_NBITS);
 
 	memset(&p[1], seg->gid, FEC_DATA_SIZE - sizeof(IUINT16));
 }
@@ -643,7 +636,7 @@ static int ikcp_send_cur_get_delay(ikcpcb *kcp)
 static const enum FEC_TYPE FEC_TYPES[] = {
 	FEC_TYPE_1_3, // rsnd_lst[RSND_COUNT - 1]
 	FEC_TYPE_1_2, // ...
-	FEC_TYPE_2_5, // rsnd_lst[0]
+	FEC_TYPE_2_3, // rsnd_lst[0]
 	FEC_TYPE_1_1, // snd_lst
 };
 
@@ -795,7 +788,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
 	if (!iters[0].seg) {
 		if ((!kcp->session_established && ikcp_queue_get_free(kcp) == 0)
-			|| rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, kcp->pid, 1 << 9)
+			|| rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, kcp->pid, pid_bs_n)
 		) {
 			int ret;
 			if ((ret = ikcp_reset_send_wak(kcp)) < 0) {
@@ -830,7 +823,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		} else  {
 			iters[0].seg->fid = kcp->fid;
 			++kcp->fid;
-			kcp->fid &= ((1 << 10) - 1);
+			kcp->fid &= ((1 << FID_NBITS) - 1);
 			iters[0].seg->fty = fec_type;
 			iters[0].seg->gid = 0;
 			iters[0].seg->wsn = 0;
@@ -928,7 +921,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 
 	iters[0].seg->fid = kcp->fid;
 	++kcp->fid;
-	kcp->fid &= ((1 << 10) - 1);
+	kcp->fid &= ((1 << FID_NBITS) - 1);
 	iters[0].seg->fty = fec_type;
 	iters[0].seg->gid = 0;
 	iters[0].seg->wsn = 0;

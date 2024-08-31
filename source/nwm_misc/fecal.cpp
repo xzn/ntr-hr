@@ -87,52 +87,52 @@ FECAL_EXPORT int fecal_encode(FecalEncoder encoder_v, FecalSymbol* symbol)
     return encoder->Encode(*symbol);
 }
 
-typedef fecal::CustomBitSet<1 << 10> BitSet1024Impl;
-static_assert(sizeof(BitSet1024Impl) == sizeof(BitSet1024Mem));
+typedef fecal::CustomBitSet<1 << 12> BitSet4096Impl;
+static_assert(sizeof(BitSet4096Impl) == sizeof(BitSet4096Mem));
 
-FECAL_EXPORT void rp_arq_bitset_clear_all(BitSet1024 bs)
+FECAL_EXPORT void rp_arq_bitset_clear_all(BitSet4096 bs)
 {
-    ((BitSet1024Impl *)bs)->ClearAll();
+    ((BitSet4096Impl *)bs)->ClearAll();
 }
 
-FECAL_EXPORT void rp_arq_bitset_set(BitSet1024 bs, unsigned b)
+FECAL_EXPORT void rp_arq_bitset_set(BitSet4096 bs, unsigned b)
 {
-    ((BitSet1024Impl *)bs)->Set(b);
+    ((BitSet4096Impl *)bs)->Set(b);
 }
 
-FECAL_EXPORT void rp_arq_bitset_clear(BitSet1024 bs, unsigned b)
+FECAL_EXPORT void rp_arq_bitset_clear(BitSet4096 bs, unsigned b)
 {
-    ((BitSet1024Impl *)bs)->Clear(b);
+    ((BitSet4096Impl *)bs)->Clear(b);
 }
 
-FECAL_EXPORT bool rp_arq_bitset_check(BitSet1024 bs, unsigned b)
+FECAL_EXPORT bool rp_arq_bitset_check(BitSet4096 bs, unsigned b)
 {
-    return ((BitSet1024Impl *)bs)->Check(b);
+    return ((BitSet4096Impl *)bs)->Check(b);
 }
 
-FECAL_EXPORT bool rp_arq_bitset_check_n_wrapped(BitSet1024 bs, unsigned b, unsigned n)
+FECAL_EXPORT bool rp_arq_bitset_check_n_wrapped(BitSet4096 bs, unsigned b, unsigned n)
 {
-    if (b + n > BitSet1024Impl::kValidBits) {
-        unsigned n_1 = n - (BitSet1024Impl::kValidBits - b);
+    if (b + n > BitSet4096Impl::kValidBits) {
+        unsigned n_1 = n - (BitSet4096Impl::kValidBits - b);
         return
-            ((BitSet1024Impl *)bs)->FindFirstSet(b, BitSet1024Impl::kValidBits) < BitSet1024Impl::kValidBits ||
-            ((BitSet1024Impl *)bs)->FindFirstSet(0, n_1) < n_1;
+            ((BitSet4096Impl *)bs)->FindFirstSet(b, BitSet4096Impl::kValidBits) < BitSet4096Impl::kValidBits ||
+            ((BitSet4096Impl *)bs)->FindFirstSet(0, n_1) < n_1;
     } else {
-        return ((BitSet1024Impl *)bs)->FindFirstSet(b, b + n) < b + n;
+        return ((BitSet4096Impl *)bs)->FindFirstSet(b, b + n) < b + n;
     }
 }
 
-FECAL_EXPORT unsigned rp_arq_bitset_ffs_n_wrapped(BitSet1024 bs, unsigned b, unsigned n)
+FECAL_EXPORT unsigned rp_arq_bitset_ffs_n_wrapped(BitSet4096 bs, unsigned b, unsigned n)
 {
-    if (b + n > BitSet1024Impl::kValidBits) {
-        unsigned n_1 = n - (BitSet1024Impl::kValidBits - b);
-        unsigned ret = ((BitSet1024Impl *)bs)->FindFirstSet(b, BitSet1024Impl::kValidBits);
-        if (ret < BitSet1024Impl::kValidBits) {
+    if (b + n > BitSet4096Impl::kValidBits) {
+        unsigned n_1 = n - (BitSet4096Impl::kValidBits - b);
+        unsigned ret = ((BitSet4096Impl *)bs)->FindFirstSet(b, BitSet4096Impl::kValidBits);
+        if (ret < BitSet4096Impl::kValidBits) {
             return ret;
         }
-        return ((BitSet1024Impl *)bs)->FindFirstSet(0, n_1);
+        return ((BitSet4096Impl *)bs)->FindFirstSet(0, n_1);
     } else {
-        return ((BitSet1024Impl *)bs)->FindFirstSet(b, b + n);
+        return ((BitSet4096Impl *)bs)->FindFirstSet(b, b + n);
     }
 }
 

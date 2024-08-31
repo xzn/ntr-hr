@@ -339,7 +339,7 @@ struct IKCPCB
 	char seg_mem[ARQ_SEG_MEM_COUNT][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
 	mp_pool_t seg_pool;
 
-	struct BitSet1024Mem fid_bs, pid_bs;
+	struct BitSet4096Mem pid_bs;
 };
 
 
