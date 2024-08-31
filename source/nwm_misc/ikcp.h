@@ -296,7 +296,8 @@ struct IKCPSEG
 
 	// use flags instead of doing conditions later
 	bool free_instead_of_resend;
-	bool skip_free_data_buf;
+	bool skip_free_seg_data_buf;
+	bool own_seg_data_buf;
 	bool gid_end;
 
 	char *data_buf;
@@ -349,10 +350,10 @@ typedef struct IKCPCB ikcpcb;
 extern "C" {
 #endif
 
-extern char *alloc_seg_buf(void);
-extern void free_seg_buf(const char *data_buf);
+extern char *ikcp_seg_data_buf_malloc(void);
+extern void ikcp_seg_data_buf_free(const char *data_buf);
 
-extern void free_seg_data_buf(const char *data_buf);
+extern void rp_seg_data_buf_free(const char *data_buf);
 extern int rp_udp_output(char *buf, int len, ikcpcb *kcp);
 
 //---------------------------------------------------------------------

@@ -222,7 +222,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
                 )
             }
             entries::thread_nwm::ReliableStreamMethod::KCP => {
-                let dst = if let Some(dst) = entries::thread_nwm::alloc_seg() {
+                let dst = if let Some(dst) = entries::thread_nwm::rp_data_buf_malloc() {
                     dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize)
                 } else {
                     return false;

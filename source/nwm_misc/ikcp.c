@@ -162,16 +162,21 @@ static inline IINT32 _itimediff(IUINT32 later, IUINT32 earlier)
 typedef struct IKCPSEG IKCPSEG;
 
 // allocate a new kcp segment
-static IKCPSEG* ikcp_segment_new(ikcpcb *kcp)
+static IKCPSEG* ikcp_segment_malloc(ikcpcb *kcp)
 {
 	return (IKCPSEG*)mp_malloc(&kcp->seg_pool);
 }
 
 // delete a segment
-static void ikcp_segment_delete(ikcpcb *kcp, IKCPSEG *seg)
+static void ikcp_segment_free(ikcpcb *kcp, IKCPSEG *seg)
 {
-	if (!seg->skip_free_data_buf)
-		free_seg_data_buf(seg->data_buf);
+	if (!seg->skip_free_seg_data_buf) {
+		if (seg->own_seg_data_buf) {
+			ikcp_seg_data_buf_free(seg->data_buf);
+		} else {
+			rp_seg_data_buf_free(seg->data_buf);
+		}
+	}
 	mp_free(&kcp->seg_pool, seg);
 }
 
@@ -247,7 +252,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -3;
 	}
 
-	seg = ikcp_segment_new(kcp);
+	seg = ikcp_segment_malloc(kcp);
 	if (seg == NULL) {
 		return -3;
 	}
@@ -376,11 +381,11 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 				rp_arq_bitset_clear(&kcp->pid_bs, seg->pid);
 				--kcp->n_snd;
 			}
-			ikcp_segment_delete(kcp, seg);
+			ikcp_segment_free(kcp, seg);
 		} else {
 			iqueue_del(&seg->node, 2);
 			if (seg->free_instead_of_resend) {
-				ikcp_segment_delete(kcp, seg);
+				ikcp_segment_free(kcp, seg);
 			} else {
 				seg->gid_end = false;
 				if (r) {
@@ -478,7 +483,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 			rp_arq_bitset_clear(&kcp->pid_bs, segs[i]->pid);
 			--kcp->n_snd;
 		}
-		ikcp_segment_delete(kcp, segs[i]);
+		ikcp_segment_free(kcp, segs[i]);
 	}
 
 	*next = n;
@@ -499,7 +504,7 @@ int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, char *data, in
 			// nsDbgPrint("rp_arq_bitset_clear for %d", (int)seg->pid);
 			rp_arq_bitset_clear(&kcp->pid_bs, seg->pid);
 			--kcp->n_snd;
-			ikcp_segment_delete(kcp, seg);
+			ikcp_segment_free(kcp, seg);
 		}
 	}
 	return 0;
@@ -842,7 +847,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				if (!counts.recovery_count)
 					break;
 
-				struct IKCPSEG *seg = ikcp_segment_new(kcp);
+				struct IKCPSEG *seg = ikcp_segment_malloc(kcp);
 				if (!seg) {
 					return -17;
 				}
@@ -856,10 +861,11 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				if (counts.recovery_count == 1) {
 					seg->gid_end = true;
 				}
-				seg->data_buf = alloc_seg_buf();
+				seg->data_buf = ikcp_seg_data_buf_malloc();
 				if (!seg->data_buf) {
 					return -16;
 				}
+				seg->own_seg_data_buf = true;
 				void *data_ptr = ikcp_get_fec_data_buf(seg);
 				FecalSymbol fecal_symbol = {
 					.Data = data_ptr,
@@ -898,7 +904,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		iters[0].seg->gid_end = true;
 	} else {
 		iters[0].seg->free_instead_of_resend = true;
-		iters[0].seg->skip_free_data_buf = true;
+		iters[0].seg->skip_free_seg_data_buf = true;
 	}
 	ikcp_encode_arq_hdr(kcp, iters[0].seg);
 	int wsn = 0;
@@ -915,7 +921,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		if (!counts.recovery_count)
 			break;
 
-		struct IKCPSEG *seg = ikcp_segment_new(kcp);
+		struct IKCPSEG *seg = ikcp_segment_malloc(kcp);
 		if (!seg) {
 			return -7;
 		}
@@ -925,7 +931,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 		if (counts.recovery_count == 1) {
 			seg->gid_end = true;
 			seg->free_instead_of_resend = false;
-			seg->skip_free_data_buf = false;
+			seg->skip_free_seg_data_buf = false;
 		}
 		ret = ikcp_insert_send_cur(kcp, seg);
 		if (ret < 0) {
@@ -959,10 +965,10 @@ static int ikcp_send_cur(ikcpcb *kcp)
 
 	iqueue_del(&seg->node, 7);
 	if (seg->free_instead_of_resend) {
-		if (!seg->skip_free_data_buf) {
-			free_seg_buf(seg->data_buf);
-			seg->skip_free_data_buf = true;
-			seg->data_buf = NULL;
+		if (!seg->skip_free_seg_data_buf && seg->own_seg_data_buf) {
+			ikcp_seg_data_buf_free(seg->data_buf);
+			seg->skip_free_seg_data_buf = true;
+			// seg->data_buf = NULL;
 		}
 	}
 	iqueue_add_tail(&seg->node, &kcp->snd_wak);

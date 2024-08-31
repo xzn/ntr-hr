@@ -28,7 +28,7 @@
 #include "mempool.h"
 #include "global.h"
 
-// #define CHECK
+#define CHECK
 
 struct block {
     void *next;

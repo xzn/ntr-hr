@@ -312,7 +312,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
             if term {
                 return true;
             } else {
-                if let Some(dst) = alloc_seg() {
+                if let Some(dst) = rp_data_buf_malloc() {
                     dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize)
                 } else {
                     return false;
@@ -432,7 +432,7 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
 #[no_mangle]
 #[named]
 unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
-    let recv_buf = if let Some(dst) = get_recv_seg() {
+    let recv_buf = if let Some(dst) = rp_recv_data_buf() {
         dst
     } else {
         return -1;
@@ -534,7 +534,7 @@ unsafe fn thread_wait_sync(h: Handle) -> Option<()> {
 }
 
 #[named]
-pub unsafe fn alloc_seg() -> Option<*mut c_char> {
+pub unsafe fn rp_data_buf_malloc() -> Option<*mut c_char> {
     thread_wait_sync(seg_mem_sem)?;
     thread_wait_sync(seg_mem_lock)?;
 
@@ -561,7 +561,7 @@ static mut cur_seg_mem_count: u32 = 0;
 
 #[no_mangle]
 #[named]
-unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
+unsafe extern "C" fn ikcp_seg_data_buf_malloc() -> *mut c_char {
     if let Some(dst) = (|| {
         // thread_wait_sync(cur_seg_mem_sem)?;
         // thread_wait_sync(cur_seg_mem_lock)?;
@@ -597,7 +597,7 @@ unsafe extern "C" fn alloc_seg_buf() -> *mut c_char {
 
 #[no_mangle]
 #[named]
-unsafe extern "C" fn free_seg_buf(dst: *const ::libc::c_char) {
+unsafe extern "C" fn ikcp_seg_data_buf_free(dst: *const ::libc::c_char) {
     // if thread_wait_sync(cur_seg_mem_lock) == None {
     //     return;
     // }
@@ -623,7 +623,7 @@ unsafe extern "C" fn free_seg_buf(dst: *const ::libc::c_char) {
 }
 
 #[named]
-unsafe fn free_seg(dst: *const ::libc::c_char) {
+unsafe fn rp_data_buf_free(dst: *const ::libc::c_char) {
     if thread_wait_sync(seg_mem_lock) == None {
         return;
     }
@@ -649,7 +649,7 @@ unsafe fn free_seg(dst: *const ::libc::c_char) {
     }
 }
 
-unsafe fn get_recv_seg() -> Option<*mut c_char> {
+unsafe fn rp_recv_data_buf() -> Option<*mut c_char> {
     if !recv_seg_mem_inited.load(Ordering::Acquire) {
         return None;
     }
@@ -659,8 +659,8 @@ unsafe fn get_recv_seg() -> Option<*mut c_char> {
 }
 
 #[no_mangle]
-unsafe extern "C" fn free_seg_data_buf(data_buf: *const ::libc::c_char) {
-    free_seg(data_buf.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize) as *mut _)
+unsafe extern "C" fn rp_seg_data_buf_free(data_buf: *const ::libc::c_char) {
+    rp_data_buf_free(data_buf.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize) as *mut _)
 }
 
 #[named]
