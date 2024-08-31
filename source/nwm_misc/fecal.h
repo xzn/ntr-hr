@@ -203,6 +203,8 @@ FECAL_EXPORT void rp_arq_bitset_clear(BitSet4096, unsigned);
 FECAL_EXPORT bool rp_arq_bitset_check(BitSet4096, unsigned);
 FECAL_EXPORT bool rp_arq_bitset_check_n_wrapped(BitSet4096, unsigned, unsigned);
 FECAL_EXPORT unsigned rp_arq_bitset_ffs_n_wrapped(BitSet4096, unsigned, unsigned);
+FECAL_EXPORT bool rp_arq_bitset_check_all_set_n_wrapped(BitSet4096, unsigned, unsigned);
+FECAL_EXPORT unsigned rp_arq_bitset_ffc_n_wrapped(BitSet4096, unsigned, unsigned);
 
 
 #ifdef __cplusplus

@@ -136,5 +136,33 @@ FECAL_EXPORT unsigned rp_arq_bitset_ffs_n_wrapped(BitSet4096 bs, unsigned b, uns
     }
 }
 
+FECAL_EXPORT bool rp_arq_bitset_check_all_set_n_wrapped(BitSet4096 bs, unsigned b, unsigned n)
+{
+    if (b + n > BitSet4096Impl::kValidBits) {
+        unsigned n_0 = BitSet4096Impl::kValidBits - b;
+        unsigned n_1 = n - n_0;
+        return
+            ((BitSet4096Impl *)bs)->RangePopcount(b, BitSet4096Impl::kValidBits) == n_0 &&
+            ((BitSet4096Impl *)bs)->RangePopcount(0, n_1) == n_1;
+    } else {
+        return ((BitSet4096Impl *)bs)->RangePopcount(b, b + n) == n;
+    }
+}
+
+FECAL_EXPORT unsigned rp_arq_bitset_ffc_n_wrapped(BitSet4096 bs, unsigned b, unsigned n)
+{
+    if (b + n > BitSet4096Impl::kValidBits) {
+        unsigned n_1 = n - (BitSet4096Impl::kValidBits - b);
+        unsigned ret = ((BitSet4096Impl *)bs)->FindFirstClear(b);
+        if (ret < BitSet4096Impl::kValidBits) {
+            return ret;
+        }
+        return (ret = ((BitSet4096Impl *)bs)->FindFirstClear(0)), (ret < n_1 ? ret : n_1);
+    } else {
+        unsigned ret = ((BitSet4096Impl *)bs)->FindFirstClear(b);
+        return ret < b + n ? ret : b + n;
+    }
+}
+
 
 } // extern "C"
