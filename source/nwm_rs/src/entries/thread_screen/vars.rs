@@ -3,10 +3,10 @@ use super::*;
 static mut priority_is_top: bool = false;
 static mut priority_factor: u32_ = 0;
 static mut priority_factor_scaled: u32_ = 0;
-static mut screens_synced: RangedArray<bool, WORK_COUNT> = const_default();
+static mut screens_synced: RangedArray<AtomicBool, WORK_COUNT> = const_default();
 static mut frame_counts: RangedArray<u32_, SCREEN_COUNT> = const_default();
 static mut frame_queues: RangedArray<u32_, SCREEN_COUNT> = const_default();
-static mut screen_work_index: WorkIndex = WorkIndex::init();
+static mut screen_work_index: AtomicU32 = const_default();
 static mut screen_thread_id: ThreadId = ThreadId::init();
 static mut skip_frames: RangedArray<bool, WORK_COUNT> = const_default();
 static mut no_skip_frames: RangedArray<bool, SCREEN_COUNT> = const_default();
@@ -38,7 +38,7 @@ pub type ImgBufs = RangedArray<*mut u8_, IMG_WORK_COUNT>;
 #[derive(ConstDefault)]
 pub struct ImgInfo {
     pub bufs: ImgBufs,
-    pub index: ImgWorkIndex,
+    pub index: AtomicU32,
 }
 
 pub type ImgInfos = RangedArray<ImgInfo, SCREEN_COUNT>;
@@ -76,11 +76,11 @@ pub unsafe fn reset_thread_vars(mode: u32_) {
 
         *skip_frames.get_mut(&i) = false;
     }
-    screen_work_index = WorkIndex::init();
+    screen_work_index = AtomicU32::new(WorkIndex::init().get());
     screen_thread_id = ThreadId::init();
 
     for i in WorkIndex::all() {
-        *screens_synced.get_mut(&i) = false;
+        *screens_synced.get_mut(&i).as_ptr() = false;
     }
 }
 
@@ -127,12 +127,14 @@ impl ScreenThreadVars {
     pub fn img_dst(&self, is_top: bool) -> u32_ {
         unsafe {
             let iinfo = img_infos.get_b_mut(is_top);
-            *iinfo.bufs.get(&ptr::read_volatile(&iinfo.index)) as u32_
+            *iinfo.bufs.get(&ImgWorkIndex::init_unchecked(
+                iinfo.index.load(Ordering::Acquire),
+            )) as u32_
         }
     }
 
     pub fn screen_work_index(&self) -> WorkIndex {
-        unsafe { screen_work_index }
+        unsafe { WorkIndex::init_unchecked(screen_work_index.load(Ordering::Acquire)) }
     }
 
     #[named]
@@ -185,7 +187,9 @@ impl ScreenThreadVars {
                 ScreenEncodeVars::init(is_top, format, work_index);
 
             let mut count = mem::MaybeUninit::<s32>::uninit();
-            if *skip_frames.get(&screen_work_index) {
+            if *skip_frames.get(&WorkIndex::init_unchecked(
+                screen_work_index.load(Ordering::Acquire),
+            )) {
                 let res = svcReleaseSemaphore(
                     count.as_mut_ptr(),
                     (*syn_handles).threads.get(&screen_thread_id).work_ready,
@@ -220,9 +224,9 @@ impl ScreenThreadVars {
     }
 }
 
-#[derive(Copy, Clone, ConstDefault)]
+#[derive(ConstDefault)]
 pub struct ScreenEncodeVars {
-    is_top: bool,
+    is_top: AtomicBool,
     format: u32_,
     dma: Handle,
 }
@@ -238,7 +242,7 @@ impl ScreenEncodeVars {
         unsafe {
             let dma = *cap_params.dmas.get(&work_index);
             ScreenEncodeVars {
-                is_top,
+                is_top: AtomicBool::new(is_top),
                 format,
                 dma,
             }
@@ -250,7 +254,10 @@ impl ScreenWorkVars {
     pub fn init(work_index: WorkIndex) -> Self {
         unsafe {
             Self {
-                is_top: screen_encode_vars.get(&work_index).is_top,
+                is_top: screen_encode_vars
+                    .get(&work_index)
+                    .is_top
+                    .load(Ordering::Acquire),
                 work_index,
             }
         }
@@ -262,7 +269,10 @@ impl ScreenWorkVars {
 
     pub fn read_is_top(&mut self) -> bool {
         unsafe {
-            self.is_top = ptr::read_volatile(&screen_encode_vars.get(&self.work_index).is_top);
+            self.is_top = screen_encode_vars
+                .get(&self.work_index)
+                .is_top
+                .load(Ordering::Acquire);
             self.is_top
         }
     }
@@ -286,7 +296,7 @@ impl ScreenWorkVars {
     pub fn img_src_prev(&self) -> *const u8_ {
         unsafe {
             let iinfo = img_infos.get_b_mut(self.is_top());
-            let mut index = ptr::read_volatile(&iinfo.index);
+            let index = &mut ImgWorkIndex::init_unchecked(iinfo.index.load(Ordering::Acquire));
             index.prev_wrapped();
             *iinfo.bufs.get(&index)
         }
@@ -294,7 +304,9 @@ impl ScreenWorkVars {
 
     pub unsafe fn img_index_next(&self) {
         let iinfo = img_infos.get_b_mut(self.is_top());
-        iinfo.index.next_wrapped();
+        let index = &mut ImgWorkIndex::init_unchecked(iinfo.index.load(Ordering::Acquire));
+        index.next_wrapped();
+        iinfo.index.store(index.get(), Ordering::Release);
     }
 
     pub unsafe fn set_skip_frame(&self, skip_frame: bool) {
@@ -302,7 +314,7 @@ impl ScreenWorkVars {
     }
 
     pub unsafe fn clear_screen_synced(&self) {
-        *screens_synced.get_mut(&self.work_index) = false;
+        (*screens_synced.get_mut(&self.work_index)).store(false, Ordering::Release);
     }
 
     pub unsafe fn set_screen_thread_id(&self, t: &ThreadId) {
@@ -310,7 +322,7 @@ impl ScreenWorkVars {
     }
 
     pub unsafe fn set_screen_work_index(&self, w: &WorkIndex) {
-        screen_work_index = *w;
+        screen_work_index.store((*w).get(), Ordering::Release);
     }
 
     #[named]
@@ -402,10 +414,10 @@ impl ScreenThreadVarsSync {
                 if crate::entries::work_thread::reset_threads() {
                     return None;
                 }
-                let w = ptr::read_volatile(&screen_work_index);
+                let w = WorkIndex::init_unchecked(screen_work_index.load(Ordering::Acquire));
                 let synced = screens_synced.get_mut(&w);
 
-                if !ptr::read_volatile(synced) {
+                if !synced.load(Ordering::Acquire) {
                     let res = svcWaitSynchronization(
                         (*syn_handles).works.get_mut(&w).work_done,
                         if wait_sync { THREAD_WAIT_NS } else { 0 },
@@ -416,7 +428,7 @@ impl ScreenThreadVarsSync {
                         }
                         continue;
                     }
-                    *synced = true;
+                    synced.store(true, Ordering::Release);
                 }
                 return Some(ScreenThreadVars(()));
             }

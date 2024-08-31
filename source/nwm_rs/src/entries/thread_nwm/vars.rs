@@ -400,7 +400,7 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> 
             crate::entries::work_thread::set_reset_threads_ar();
             return -5;
         }
-        if ptr::read_volatile(&(*kcp).rp_output_retry) {
+        if AtomicBool::from_ptr(&mut (*kcp).rp_output_retry).load(Ordering::Acquire) {
             return 0;
         }
         rp_output_next_tick = svcGetSystemTick() as s64 + next_interval;

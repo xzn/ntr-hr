@@ -574,10 +574,10 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		if (seg->wrn && seg->gid == 0 && !ikcp_input_check_nack(seg->pid, data, size, kcp)) {
 			int ret = ikcp_input_handle_send_cur_nack(kcp, seg, data, size, &next);
 			if (ret < 0) {
-				*(volatile bool *)&kcp->rp_output_retry = true;
+				__atomic_store_n(&kcp->rp_output_retry, true, __ATOMIC_RELEASE);
 				return ret * 0x10 - 4;
 			} else if (ret == 0 && p == p_0) {
-				*(volatile bool *)&kcp->rp_output_retry = true;
+				__atomic_store_n(&kcp->rp_output_retry, true, __ATOMIC_RELEASE);
 			}
 		}
 	}
@@ -958,7 +958,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 static int ikcp_send_cur(ikcpcb *kcp)
 {
 	IKCPSEG *seg;
-	seg = iqueue_entry(((volatile struct IQUEUEHEAD *)&kcp->snd_cur)->next, IKCPSEG, node);
+	seg = iqueue_entry(kcp->snd_cur.next, IKCPSEG, node);
 	ikcp_encode_fec_hdr(seg);
 
 	const int len = PACKET_SIZE;
@@ -1008,7 +1008,7 @@ int ikcp_send_next(ikcpcb *kcp)
 
 		const int len = sizeof(IUINT16);
 		while (1) {
-			*(volatile bool *)&kcp->rp_output_retry = false;
+			__atomic_store_n(&kcp->rp_output_retry, false, __ATOMIC_RELEASE);
 			int ret = ikcp_output(kcp, ikcp_get_packet_data_buf(seg->data_buf), len);
 			if (ret == 0) {
 				continue;
@@ -1027,7 +1027,7 @@ int ikcp_send_next(ikcpcb *kcp)
 		if (ikcp_send_cur_get_delay(kcp) < 0) {
 			return 1;
 		}
-		*(volatile bool *)&kcp->rp_output_retry = false;
+		__atomic_store_n(&kcp->rp_output_retry, false, __ATOMIC_RELEASE);
 		ret = ikcp_send_cur(kcp);
 		if (ret < 0) {
 			return ret * 0x10 - 1;

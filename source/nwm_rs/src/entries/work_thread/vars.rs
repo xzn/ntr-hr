@@ -157,11 +157,11 @@ impl ThreadDoVars {
             let w = self.v().work_index();
             let syn = (*syn_handles).works.get(&w);
 
-            let f = syn.work_done_count.fetch_add(1, Ordering::Relaxed);
+            let f = syn.work_done_count.fetch_add(1, Ordering::AcqRel);
             let core_count = get_core_count_in_use();
             if f == core_count.get() - 1 {
-                syn.work_done_count.store(0, Ordering::Relaxed);
-                syn.work_begin_flag.store(false, Ordering::Relaxed);
+                syn.work_done_count.store(0, Ordering::Release);
+                syn.work_begin_flag.store(false, Ordering::Release);
 
                 self.v().release_work_done();
             }
@@ -178,7 +178,7 @@ impl ThreadVars {
                 .works
                 .get_mut(&self.0.work_index())
                 .work_begin_flag
-                .swap(true, Ordering::Relaxed)
+                .swap(true, Ordering::AcqRel)
                 == false
             {
                 Ok(ThreadBeginVars(self))
