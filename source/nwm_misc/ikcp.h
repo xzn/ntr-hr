@@ -297,7 +297,7 @@ struct IKCPSEG
 	// use flags instead of doing conditions later
 	bool free_instead_of_resend;
 	bool skip_free_data_buf;
-	// bool gid_end;
+	bool gid_end;
 
 	char *data_buf;
 };
