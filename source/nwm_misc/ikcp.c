@@ -453,8 +453,10 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 
 	for (int i = 0; i < count; ++i) {
 		struct IQUEUEHEAD *p = segs[i]->node.next;
-		struct IKCPSEG *next = iqueue_entry(p, IKCPSEG, node);
-		next->wsn += segs[i]->wsn + 1;
+		if (p != &kcp->snd_cur) {
+			struct IKCPSEG *next = iqueue_entry(p, IKCPSEG, node);
+			next->wsn += segs[i]->wsn + 1;
+		}
 
 		if (n == &segs[i]->node) {
 			n = n->next;
@@ -484,6 +486,9 @@ int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, char *data, in
 		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
 		if (!ikcp_input_check_nack(seg->pid, data, size)) {
 			iqueue_del(&seg->node, g);
+			if (seg->free_instead_of_resend) {
+				return -6;
+			}
 			// struct fec_counts_t counts = FEC_COUNTS[seg->fty];
 			// if (seg->gid < counts.original_count) {
 				if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
