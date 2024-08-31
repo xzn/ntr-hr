@@ -523,8 +523,8 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 	data += sizeof(IUINT16);
 	size -= sizeof(IUINT16);
 
-	IUINT16 fid = (hdr >> 4) & ((1 << FID_NBITS) - 1);
-	IUINT16 gid = (hdr >> 2) & ((1 << GID_NBITS) - 1);
+	IUINT16 fid = (hdr >> (GID_NBITS + CID_NBITS + 1)) & ((1 << FID_NBITS) - 1);
+	IUINT16 gid = (hdr >> (CID_NBITS + 1)) & ((1 << GID_NBITS) - 1);
 	IUINT16 cid = (hdr >> 1) & ((1 << CID_NBITS) - 1);
 	IUINT16 reset = hdr & ((1 << 1) - 1);
 
@@ -608,7 +608,7 @@ static char *ikcp_get_packet_data_buf(struct IKCPSEG *seg) {
 // Outer header for fec
 static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
 	IUINT16 *p = (IUINT16 *)ikcp_get_packet_data_buf(seg);
-	*p = (seg->fty & ((1 << FTY_NBITS) - 1)) | ((seg->gid & ((1 << GID_NBITS) - 1)) << 2) | ((seg->fid & ((1 << FID_NBITS) - 1)) << 4);
+	*p = (seg->fty & ((1 << FTY_NBITS) - 1)) | ((seg->gid & ((1 << GID_NBITS) - 1)) << FTY_NBITS) | ((seg->fid & ((1 << FID_NBITS) - 1)) << (FTY_NBITS + GID_NBITS));
 }
 
 // Inner header for arq
