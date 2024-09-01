@@ -264,14 +264,13 @@ static char *ikcp_get_packet_data_buf(char *data_buf) {
 //---------------------------------------------------------------------
 int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 {
-	IKCPSEG *seg;
-
 	IUINT32 size = len;
 	bool term = size & (1u << 31);
 	size &= (1u << 31) - 1;
 	len = size;
 
 	if (len != ARQ_DATA_SIZE) {
+		// nsDbgPrint("%d", len);
 		return -2;
 	}
 
@@ -289,7 +288,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -3;
 	}
 
-	seg = ikcp_segment_malloc(kcp);
+	IKCPSEG *seg = ikcp_segment_malloc(kcp);
 	if (seg == NULL) {
 		return -3;
 	}

@@ -560,7 +560,7 @@ unsafe fn nwm_cb_unlock() {
 }
 
 #[named]
-unsafe fn thread_wait_sync(h: Handle) -> Option<()> {
+pub unsafe fn thread_wait_sync(h: Handle) -> Option<()> {
     while !entries::work_thread::reset_threads() {
         let res = svcWaitSynchronization(h, THREAD_WAIT_NS);
         if res == 0 {

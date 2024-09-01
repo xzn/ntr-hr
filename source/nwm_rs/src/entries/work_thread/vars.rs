@@ -94,14 +94,16 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
     let mut term_cur = 0;
     let mut term_size = 0;
     terms[term_cur] = if let Some(d) = rp_term_data_buf_malloc() {
-        d
+        d.add(ARQ_DATA_HDR_SIZE as usize)
     } else {
         return false;
     };
 
+    let rp_packet_data_size = entries::thread_nwm::get_packet_data_size();
     let mut copy_to_terms = |mut data: *const u8, mut len: usize| {
         while len > 0 {
-            if PACKET_SIZE as usize - term_size >= len {
+            let len_0 = rp_packet_data_size as usize - term_size;
+            if len_0 >= len {
                 ptr::copy_nonoverlapping(
                     data,
                     terms.get_unchecked_mut(term_cur).add(term_size),
@@ -110,8 +112,7 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
                 term_size += len;
                 break;
             } else {
-                if term_size < PACKET_SIZE as usize {
-                    let len_0 = PACKET_SIZE as usize - term_size;
+                if len_0 > 0 {
                     ptr::copy_nonoverlapping(
                         data,
                         terms.get_unchecked_mut(term_cur).add(term_size),
@@ -122,9 +123,8 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
                 }
                 term_cur += 1;
                 term_size = 0;
-
                 terms[term_cur] = if let Some(d) = rp_term_data_buf_malloc() {
-                    d
+                    d.add(ARQ_DATA_HDR_SIZE as usize)
                 } else {
                     return false;
                 };
@@ -150,13 +150,14 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
 
         let mut size: u32 = 0;
         ptr::copy_nonoverlapping(dst.sub(mem::size_of::<u32>()) as *const _, &mut size, 1);
-        let size = size as u16
+        let size = size as u16;
+        let hdr = size
             | if i.get() == core_count.get() - 1 {
                 (info.v_last_adjusted as u16) << 11
             } else {
                 (info.v_adjusted as u16) << 11
             };
-        if !copy_to_terms(&size as *const u16 as *const _, mem::size_of_val(&size)) {
+        if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {
             return false;
         }
         if !copy_to_terms(*dst, size as usize) {
@@ -167,16 +168,23 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
         *dst = ptr::null_mut();
     }
 
-    let rp_packet_data_size = entries::thread_nwm::get_packet_data_size();
     for i in 0..=term_cur {
-        let term = terms.get_unchecked_mut(i);
-
-        let size = rp_packet_data_size as u32 | (1 << 31);
-        ptr::copy_nonoverlapping(&size, term.sub(mem::size_of::<u32>()) as *mut _, 1);
+        let mut term = *terms.get_unchecked_mut(i);
 
         if i == term_cur {
             ptr::write_bytes(term.add(term_size), 0, rp_packet_data_size - term_size);
         }
+
+        let mut size = rp_packet_data_size as u32;
+
+        term = term.sub(ARQ_DATA_HDR_SIZE as usize);
+        size += ARQ_DATA_HDR_SIZE;
+
+        let hdr = (w.get() as u16) << 13 | (RP_CORE_COUNT_MAX as u16) << 14;
+        ptr::copy_nonoverlapping(&hdr, term as *mut _, 1);
+
+        size |= 1 << 31;
+        ptr::copy_nonoverlapping(&size, term.sub(mem::size_of::<u32>()) as *mut _, 1);
 
         let cb = &mut *reliable_stream_cb;
         while !entries::work_thread::reset_threads() {
@@ -197,12 +205,22 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
 
 #[named]
 pub unsafe fn rp_term_data_buf_malloc() -> Option<*mut c_char> {
+    entries::thread_nwm::thread_wait_sync(seg_mem_lock)?;
+
     let cb = &mut *reliable_stream_cb;
     let dst = mp_malloc(&mut cb.send_pool) as *mut u8;
     if dst == ptr::null_mut() {
         nsDbgPrint!(mpAllocFailed, c_str!("send_pool"));
         crate::entries::work_thread::set_reset_threads_ar();
+        let res = svcReleaseMutex(seg_mem_lock);
+        if res != 0 {
+            nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
+        }
         return None;
+    }
+    let res = svcReleaseMutex(seg_mem_lock);
+    if res != 0 {
+        nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
     }
     Some(dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize))
 }
@@ -210,6 +228,10 @@ pub unsafe fn rp_term_data_buf_malloc() -> Option<*mut c_char> {
 #[named]
 #[no_mangle]
 unsafe fn rp_term_data_buf_free(dst: *const ::libc::c_char) {
+    if entries::thread_nwm::thread_wait_sync(seg_mem_lock) == None {
+        return;
+    }
+
     let cb = &mut *reliable_stream_cb;
     if mp_free(
         &mut cb.send_pool,
@@ -217,7 +239,15 @@ unsafe fn rp_term_data_buf_free(dst: *const ::libc::c_char) {
     ) < 0
     {
         nsDbgPrint!(mpFreeFailed, c_str!("send_pool"));
+        let res = svcReleaseMutex(seg_mem_lock);
+        if res != 0 {
+            nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
+        }
         return;
+    }
+    let res = svcReleaseMutex(seg_mem_lock);
+    if res != 0 {
+        nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
     }
 }
 

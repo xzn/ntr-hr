@@ -15,10 +15,14 @@ pub struct ArqRpHdr {
     pub t: ThreadId,
 }
 
+const _arq_rp_hdr_size_assert: () = {
+    assert!(mem::size_of::<u16>() == ARQ_DATA_HDR_SIZE as usize);
+};
+
 impl ArqRpHdr {
     pub unsafe fn write_hdr(&self, dst: *mut u8) {
-        let hdr: [u8; ARQ_DATA_HDR_SIZE as usize] = const_default();
-        ptr::copy_nonoverlapping(hdr.as_ptr(), dst, ARQ_DATA_HDR_SIZE as usize);
+        let hdr = (self.w.get() as u16) << 13 | (self.t.get() as u16) << 14;
+        ptr::copy_nonoverlapping(&hdr as *const u16, dst as *mut _, 1 as usize);
     }
 }
 
