@@ -259,8 +259,8 @@ mod loop_main {
 
             let res = svcCreateSemaphore(
                 &mut seg_mem_sem,
-                ARQ_BUFS_COUNT as s32,
-                ARQ_BUFS_COUNT as s32,
+                RP_ARQ_BUFS_COUNT as s32,
+                RP_ARQ_BUFS_COUNT as s32,
             );
             if res != 0 {
                 nsDbgPrint!(createSemaphoreFailed, c_str!("seg_mem_sem"), res);
@@ -371,7 +371,7 @@ mod loop_main {
             0,
             ptr::null_mut(),
             0,
-            ARQ_BUFS_COUNT as i32,
+            RP_ARQ_BUFS_COUNT as i32,
             cb.nwm_syn_data.as_mut_ptr(),
         ) != 0
         {

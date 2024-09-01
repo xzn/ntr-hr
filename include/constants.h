@@ -158,6 +158,9 @@ enum {
 #define ARQ_CUR_COUNT_MAX_2 DIV_ROUND_UP(ARQ_PREFERRED_COUNT_MAX, 2)
 // Additional allocable count is multiplied by max recovery to original ratio
 #define ARQ_PREFERRED_COUNT_MAX_2 (ARQ_PREFERRED_COUNT_MAX * 2)
+// Additional count for buffer room for encoding
+#define RP_ARQ_PREFERRED_COUNT (RP_CORE_COUNT_MAX * NWM_WORK_COUNT)
+#define RP_ARQ_PREFERRED_COUNT_MAX (ARQ_PREFERRED_COUNT_MAX + RP_ARQ_PREFERRED_COUNT)
 // Includes FEC_OVERHEAD_SIZE
 #define ARQ_OVERHEAD_SIZE 2
 #define ARQ_SEG_SIZE (sizeof(struct IKCPSEG))
@@ -168,7 +171,7 @@ enum {
 _Static_assert((NWM_HDR_SIZE + FEC_OVERHEAD_SIZE) % sizeof(void *) == 0, "Need adjusting overhead for alignment.");
 _Static_assert(RP_DATA_SIZE % sizeof(void *) == 0, "Need adjusting packet size for alignment.");
 
-#define SEND_BUFS_DATA_COUNT MAX(RP_COMPRESSED_COUNT_MAX, ARQ_PREFERRED_COUNT_MAX)
+#define SEND_BUFS_DATA_COUNT MAX(RP_COMPRESSED_COUNT_MAX, RP_ARQ_PREFERRED_COUNT_MAX)
 
 #define RP_CONFIG_RELIABLE_STREAM_FLAG (1 << 30)
 #define RP_CONFIG_RELIABLE_STREAM_DELTA_PROG (1 << 31)
