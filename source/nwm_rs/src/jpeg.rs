@@ -10,7 +10,10 @@ pub struct JpegShared {
 }
 
 #[derive(Copy, Clone, ConstDefault)]
-pub struct ArqRpHdr();
+pub struct ArqRpHdr {
+    pub w: WorkIndex,
+    pub t: ThreadId,
+}
 
 impl ArqRpHdr {
     pub unsafe fn write_hdr(&self, dst: *mut u8) {

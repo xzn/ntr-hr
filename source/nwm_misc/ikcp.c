@@ -190,6 +190,8 @@ static void ikcp_segment_free(ikcpcb *kcp, IKCPSEG *seg)
 	if (!seg->weak_data) {
 		if (seg->is_kcp_seg_data) {
 			ikcp_seg_data_buf_free(seg->data_buf);
+		} else if (seg->is_term_seg_data) {
+			rp_term_data_buf_free(seg->data_buf);
 		} else {
 			rp_seg_data_buf_free(seg->data_buf);
 		}
@@ -247,7 +249,7 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 #define pid_bs_offset (1 << (PID_NBITS - 1))
 #define pid_bs_n (1 << (PID_NBITS - 2))
 
-static IUINT8 data_counter = 0;
+// static IUINT8 data_counter = 0;
 
 static char *ikcp_get_fec_data_buf(char *data_buf) {
 	return data_buf - (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE);
@@ -264,11 +266,12 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 {
 	IKCPSEG *seg;
 
-	if (len <= 0) return -1;
+	IUINT32 size = len;
+	bool term = size & (1u << 31);
+	size &= (1u << 31) - 1;
+	len = size;
 
-	// TODO
-	// only support (len == ARQ_DATA_SIZE) actually
-	if (len > ARQ_DATA_SIZE) {
+	if (len != ARQ_DATA_SIZE) {
 		return -2;
 	}
 
@@ -291,12 +294,13 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -3;
 	}
 
-	memset(ikcp_get_fec_data_buf(buffer) + sizeof(IUINT16), data_counter, FEC_DATA_SIZE - sizeof(IUINT16));
-	++data_counter;
+	// memset(ikcp_get_fec_data_buf(buffer) + sizeof(IUINT16), data_counter, FEC_DATA_SIZE - sizeof(IUINT16));
+	// ++data_counter;
 
 	*seg = (struct IKCPSEG){ 0 };
 	seg->data_buf = buffer;
 	seg->pid = kcp->pid;
+	seg->is_term_seg_data = term;
 	rp_arq_bitset_set(&kcp->pid_bs, kcp->pid);
 	// nsDbgPrint("rp_arq_bitset_set for %d", (int)kcp->pid);
 	++kcp->pid;

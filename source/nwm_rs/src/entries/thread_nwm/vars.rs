@@ -296,33 +296,39 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
             pos_next
         }
         ReliableStreamMethod::KCP => {
-            let cb = &mut *reliable_stream_cb;
             let hdr = &dst.user.hdr;
-            let dst = dst
-                .dst
-                .sub(rp_packet_data_size - dst.free_in_bytes as usize)
-                .sub(ARQ_DATA_HDR_SIZE as usize);
-            hdr.write_hdr(dst);
+            let dst = if term {
+                dst.dst
+                    .sub(rp_packet_data_size - dst.free_in_bytes as usize)
+            } else {
+                dst.dst
+            };
 
-            let size = size as u32;
-            ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
-
-            // TODO move to !term branch and add marshalling code to term branch
-            while !entries::work_thread::reset_threads() {
-                let res = rp_syn_rel1(&mut cb.nwm_syn, dst as *mut _);
-                if res == 0 {
-                    break;
-                }
-                if res != RES_TIMEOUT as s32 {
-                    nsDbgPrint!(waitForSyncFailed, c_str!("nwm_syn.rp_syn_rel1"), res);
-                    entries::work_thread::set_reset_threads_ar();
-                    return false;
-                }
+            let mut size = size as u32;
+            if !term {
+                let dst = dst.sub(ARQ_DATA_HDR_SIZE as usize);
+                size += ARQ_DATA_HDR_SIZE;
+                hdr.write_hdr(dst);
             }
 
+            ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
+
             if term {
-                return true;
+                return entries::work_thread::set_term_dst(dst, hdr.w, hdr.t);
             } else {
+                let cb = &mut *reliable_stream_cb;
+                while !entries::work_thread::reset_threads() {
+                    let res = rp_syn_rel1(&mut cb.nwm_syn, dst as *mut _);
+                    if res == 0 {
+                        break;
+                    }
+                    if res != RES_TIMEOUT as s32 {
+                        nsDbgPrint!(waitForSyncFailed, c_str!("nwm_syn.rp_syn_rel1"), res);
+                        entries::work_thread::set_reset_threads_ar();
+                        return false;
+                    }
+                }
+
                 if let Some(dst) = rp_data_buf_malloc() {
                     dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize)
                 } else {

@@ -60,6 +60,167 @@ impl BlitCtx {
 pub type BlitCtxes = RangedArray<BlitCtx, WORK_COUNT>;
 static mut blit_ctxes: BlitCtxes = const_default();
 
+static mut term_dsts: RangedArray<RangedArray<*mut u8, RP_CORE_COUNT_MAX>, WORK_COUNT> =
+    const_default();
+
+#[derive(ConstDefault, Clone, Copy)]
+pub struct TermInfo {
+    pub is_top: bool,
+    pub core_count: CoreCount,
+    pub v_adjusted: u32,
+    pub v_last_adjusted: u32,
+}
+
+static mut term_infos: RangedArray<TermInfo, WORK_COUNT> = const_default();
+static mut jpeg_quality: u32 = const_default();
+
+pub unsafe fn set_term_dst(dst: *mut u8, w: WorkIndex, t: ThreadId) -> bool {
+    let d = term_dsts.get_mut(&w).get_mut(&t);
+    if *d == ptr::null_mut() {
+        *d = dst;
+        return true;
+    }
+    return false;
+}
+
+pub unsafe fn set_term_info(info: &TermInfo, w: WorkIndex) {
+    *term_infos.get_mut(&w) = *info;
+}
+
+// FIXME endianness
+#[named]
+unsafe fn send_term_dsts(w: WorkIndex) -> bool {
+    let mut terms: [*mut u8; RP_CORE_COUNT_MAX as usize + 1] = const_default();
+    let mut term_cur = 0;
+    let mut term_size = 0;
+    terms[term_cur] = if let Some(d) = rp_term_data_buf_malloc() {
+        d
+    } else {
+        return false;
+    };
+
+    let mut copy_to_terms = |mut data: *const u8, mut len: usize| {
+        while len > 0 {
+            if PACKET_SIZE as usize - term_size >= len {
+                ptr::copy_nonoverlapping(
+                    data,
+                    terms.get_unchecked_mut(term_cur).add(term_size),
+                    len,
+                );
+                term_size += len;
+                break;
+            } else {
+                if term_size < PACKET_SIZE as usize {
+                    let len_0 = PACKET_SIZE as usize - term_size;
+                    ptr::copy_nonoverlapping(
+                        data,
+                        terms.get_unchecked_mut(term_cur).add(term_size),
+                        len_0,
+                    );
+                    data = data.add(len_0);
+                    len -= len_0;
+                }
+                term_cur += 1;
+                term_size = 0;
+
+                terms[term_cur] = if let Some(d) = rp_term_data_buf_malloc() {
+                    d
+                } else {
+                    return false;
+                };
+            }
+        }
+        true
+    };
+
+    let info = term_infos.get(&w);
+    let hdr = (if info.is_top { 0 } else { 1 } as u16) << 9
+        | (info.core_count.get() as u16) << 7
+        | jpeg_quality as u16;
+    if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {
+        return false;
+    }
+
+    let core_count = get_core_count_in_use();
+    for i in ThreadId::up_to(&core_count) {
+        let dst = term_dsts.get_mut(&w).get_mut(&i);
+        if *dst == ptr::null_mut() {
+            return false;
+        }
+
+        let mut size: u32 = 0;
+        ptr::copy_nonoverlapping(dst.sub(mem::size_of::<u32>()) as *const _, &mut size, 1);
+        let size = size as u16
+            | if i.get() == core_count.get() - 1 {
+                (info.v_last_adjusted as u16) << 11
+            } else {
+                (info.v_adjusted as u16) << 11
+            };
+        if !copy_to_terms(&size as *const u16 as *const _, mem::size_of_val(&size)) {
+            return false;
+        }
+        if !copy_to_terms(*dst, size as usize) {
+            return false;
+        }
+
+        rp_seg_data_buf_free(dst.sub(ARQ_DATA_HDR_SIZE as usize));
+        *dst = ptr::null_mut();
+    }
+
+    let rp_packet_data_size = entries::thread_nwm::get_packet_data_size();
+    for i in 0..=term_cur {
+        let term = terms.get_unchecked_mut(i);
+
+        let size = rp_packet_data_size as u32 | (1 << 31);
+        ptr::copy_nonoverlapping(&size, term.sub(mem::size_of::<u32>()) as *mut _, 1);
+
+        if i == term_cur {
+            ptr::write_bytes(term.add(term_size), 0, rp_packet_data_size - term_size);
+        }
+
+        let cb = &mut *reliable_stream_cb;
+        while !entries::work_thread::reset_threads() {
+            let res = rp_syn_rel1(&mut cb.nwm_syn, *term as *mut _);
+            if res == 0 {
+                break;
+            }
+            if res != RES_TIMEOUT as s32 {
+                nsDbgPrint!(waitForSyncFailed, c_str!("nwm_syn.rp_syn_rel1"), res);
+                entries::work_thread::set_reset_threads_ar();
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+#[named]
+pub unsafe fn rp_term_data_buf_malloc() -> Option<*mut c_char> {
+    let cb = &mut *reliable_stream_cb;
+    let dst = mp_malloc(&mut cb.send_pool) as *mut u8;
+    if dst == ptr::null_mut() {
+        nsDbgPrint!(mpAllocFailed, c_str!("send_pool"));
+        crate::entries::work_thread::set_reset_threads_ar();
+        return None;
+    }
+    Some(dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize))
+}
+
+#[named]
+#[no_mangle]
+unsafe fn rp_term_data_buf_free(dst: *const ::libc::c_char) {
+    let cb = &mut *reliable_stream_cb;
+    if mp_free(
+        &mut cb.send_pool,
+        dst.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize) as *mut _,
+    ) < 0
+    {
+        nsDbgPrint!(mpFreeFailed, c_str!("send_pool"));
+        return;
+    }
+}
+
 #[derive(ConstDefault)]
 pub struct JpegGlobal {
     jpeg: *mut crate::jpeg::Jpeg,
@@ -106,7 +267,7 @@ pub unsafe fn set_core_count_in_use(v: u32_) {
     core_count_in_use.set(v)
 }
 
-pub unsafe fn reset_vars() {
+pub unsafe fn reset_vars(quality: u32) {
     last_row_last_n = 0;
 
     for i in WorkIndex::all() {
@@ -121,6 +282,9 @@ pub unsafe fn reset_vars() {
             *info.flag.as_ptr() = 0;
         }
     }
+
+    term_dsts = const_default();
+    jpeg_quality = quality;
 }
 
 pub struct ThreadDoVars(crate::entries::thread_screen::ScreenWorkVars);
@@ -152,7 +316,7 @@ impl ThreadDoVars {
         }
     }
 
-    pub fn release(self) {
+    pub fn release(self) -> Option<()> {
         unsafe {
             let w = self.v().work_index();
             let syn = (*syn_handles).works.get(&w);
@@ -160,11 +324,16 @@ impl ThreadDoVars {
             let f = syn.work_done_count.fetch_add(1, Ordering::AcqRel);
             let core_count = get_core_count_in_use();
             if f == core_count.get() - 1 {
+                if !send_term_dsts(w) {
+                    return None;
+                }
+
                 syn.work_done_count.store(0, Ordering::Release);
                 syn.work_begin_flag.store(false, Ordering::Release);
 
                 self.v().release_work_done();
             }
+            Some(())
         }
     }
 }

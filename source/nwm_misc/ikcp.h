@@ -298,6 +298,7 @@ struct IKCPSEG
 	bool recovery_data;
 	bool weak_data;
 	bool is_kcp_seg_data;
+	bool is_term_seg_data;
 	bool gid_end;
 
 	char *data_buf;
@@ -355,6 +356,7 @@ extern "C" {
 extern char *ikcp_seg_data_buf_malloc(void);
 extern void ikcp_seg_data_buf_free(const char *data_buf);
 
+extern void rp_term_data_buf_free(const char *data_buf);
 extern void rp_seg_data_buf_free(const char *data_buf);
 extern int rp_udp_output(char *buf, int len, ikcpcb *kcp);
 

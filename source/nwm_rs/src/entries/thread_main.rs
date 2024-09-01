@@ -390,7 +390,7 @@ mod loop_main {
             return None;
         }
 
-        crate::entries::work_thread::reset_vars();
+        crate::entries::work_thread::reset_vars(config.quality_ar());
         crate::entries::thread_nwm::reset_vars(dst_flags, qos)?;
 
         for i in WorkIndex::all() {
@@ -476,6 +476,7 @@ mod loop_main {
 
             let t = crate::ThreadId::init();
             crate::entries::work_thread::work_thread_loop(t);
+            crate::entries::work_thread::set_reset_threads_ar();
 
             nsDbgPrint!(mainLoopReset);
         }

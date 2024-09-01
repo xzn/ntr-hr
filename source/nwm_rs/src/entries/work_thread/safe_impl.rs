@@ -1,3 +1,5 @@
+use jpeg::ArqRpHdr;
+
 use super::*;
 
 pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
@@ -53,7 +55,7 @@ pub fn send_frame(t: &ThreadId, vars: ThreadVars) -> Option<()> {
         return None;
     }
 
-    v.release();
+    v.release()?;
     Some(())
 }
 
@@ -159,6 +161,14 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
             };
         }
 
+        let term_info = TermInfo {
+            is_top: ctx.is_top,
+            core_count,
+            v_adjusted,
+            v_last_adjusted,
+        };
+        set_term_info(&term_info, w);
+
         true
     }
 }
@@ -240,7 +250,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
                     } else {
                         return None;
                     };
-                    let hdr = const_default();
+                    let hdr = ArqRpHdr { w, t: *t };
 
                     Some((jpeg::WorkderDstUser { hdr }, dst))
                 })() {
