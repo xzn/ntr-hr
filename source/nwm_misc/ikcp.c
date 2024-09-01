@@ -230,6 +230,16 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 #define pid_bs_offset (1 << (PID_NBITS - 1))
 #define pid_bs_n (1 << (PID_NBITS - 2))
 
+static IUINT8 data_counter = 0;
+
+static char *ikcp_get_fec_data_buf(char *data_buf) {
+	return data_buf - (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE);
+}
+
+static char *ikcp_get_packet_data_buf(char *data_buf) {
+	return data_buf - ARQ_OVERHEAD_SIZE;
+}
+
 //---------------------------------------------------------------------
 // user/upper level send
 //---------------------------------------------------------------------
@@ -263,6 +273,9 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	if (seg == NULL) {
 		return -3;
 	}
+
+	memset(ikcp_get_fec_data_buf(buffer) + sizeof(IUINT16), data_counter, FEC_DATA_SIZE - sizeof(IUINT16));
+	++data_counter;
 
 	*seg = (struct IKCPSEG){ 0 };
 	seg->data_buf = buffer;
@@ -602,14 +615,6 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 // ikcp_encode_seg
 //---------------------------------------------------------------------
 
-static char *ikcp_get_fec_data_buf(char *data_buf) {
-	return data_buf - (ARQ_OVERHEAD_SIZE - FEC_OVERHEAD_SIZE);
-}
-
-static char *ikcp_get_packet_data_buf(char *data_buf) {
-	return data_buf - ARQ_OVERHEAD_SIZE;
-}
-
 // FIXME:
 // Currently works on little endian only
 
@@ -623,8 +628,6 @@ static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
 static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
 	IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg->data_buf);
 	*p |= (seg->pid & ((1 << PID_NBITS) - 1)) | ((kcp->cid & ((1 << CID_NBITS) - 1)) << PID_NBITS);
-
-	memset(&p[1], seg->pid, FEC_DATA_SIZE - sizeof(IUINT16));
 }
 
 
