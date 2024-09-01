@@ -70,6 +70,12 @@ pub unsafe fn get_reliable_stream_method() -> ReliableStreamMethod {
 static mut kcp_conv_count: u8 = 0;
 
 unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
+    let nwm_lock = if let Some(l) = NwmCbLock::lock() {
+        l
+    } else {
+        return None;
+    };
+
     reliable_stream = flags & RP_CONFIG_RELIABLE_STREAM_FLAG > 0;
     reliable_stream_method = reliable_stream_kcp;
 
@@ -79,12 +85,6 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
         ReliableStreamMethod::None => {}
         ReliableStreamMethod::KCP => {
             let kcp = &mut (*reliable_stream_cb).ikcp;
-
-            let nwm_lock = if let Some(l) = NwmCbLock::lock() {
-                l
-            } else {
-                return None;
-            };
 
             if ikcp_create(kcp, kcp_conv_count as u16) < 0 {
                 return None;
@@ -458,6 +458,12 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
         return 0;
     }
 
+    let nwm_lock = if let Some(l) = NwmCbLock::lock() {
+        l
+    } else {
+        return -1;
+    };
+
     match get_reliable_stream_method() {
         ReliableStreamMethod::None => {
             return 0;
@@ -466,11 +472,6 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
             let cb = &mut (*reliable_stream_cb);
             let kcp = &mut cb.ikcp;
 
-            let nwm_lock = if let Some(l) = NwmCbLock::lock() {
-                l
-            } else {
-                return -1;
-            };
             let ret = ikcp_input(kcp, recv_buf, ret as i32);
             if ret < 0 {
                 // Reset KCP
