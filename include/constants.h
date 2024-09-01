@@ -155,7 +155,7 @@ enum {
 // 25 ms or 1/40 of a second of queued packets for send
 #define ARQ_CUR_COUNT_MAX DIV_ROUND_UP(RP_QOS_PACKET_RATE_MAX, 40)
 // Additional allocable count is multiplied by max recovery to original ratio for FEC
-#define ARQ_CUR_COUNT_MAX_2 DIV_ROUND_UP((ARQ_PREFERRED_COUNT_MAX * 3), 2)
+#define ARQ_CUR_COUNT_MAX_2 DIV_ROUND_UP(ARQ_PREFERRED_COUNT_MAX, 2)
 // Additional allocable count is multiplied by max recovery to original ratio
 #define ARQ_PREFERRED_COUNT_MAX_2 (ARQ_PREFERRED_COUNT_MAX * 2)
 // Includes FEC_OVERHEAD_SIZE
