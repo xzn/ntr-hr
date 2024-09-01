@@ -307,6 +307,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
             let size = size as u32;
             ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
 
+            // TODO move to !term branch and add marshalling code to term branch
             while !entries::work_thread::reset_threads() {
                 let res = rp_syn_rel1(&mut cb.nwm_syn, dst as *mut _);
                 if res == 0 {

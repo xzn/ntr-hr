@@ -371,7 +371,7 @@ mod loop_main {
             0,
             ptr::null_mut(),
             0,
-            RP_ARQ_BUFS_COUNT as i32,
+            RP_ARQ_BUFS_TERM_COUNT as i32,
             cb.nwm_syn_data.as_mut_ptr(),
         ) != 0
         {

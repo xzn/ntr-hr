@@ -188,7 +188,6 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
     unsafe {
         let ctx = vars.blit_ctx();
         let w = vars.v().work_index();
-        let mut worker = get_jpeg().getWorker(w, *t);
 
         let src = ctx.src;
         let i_start = *ctx.i_start.get(&t);
@@ -211,35 +210,51 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
 
         let progress = || {};
 
-        let (user, dst) = match entries::thread_nwm::get_reliable_stream_method() {
+        match entries::thread_nwm::get_reliable_stream_method() {
             entries::thread_nwm::ReliableStreamMethod::None => {
-                let ninfo = vars.nwm_infos().get(&t);
-                (
-                    jpeg::WorkderDstUser {
-                        info: ninfo as *const _,
-                    },
-                    *ninfo.info.pos.as_ptr(),
-                )
+                let mut worker = get_jpeg().getWorker(w, *t);
+
+                let (user, dst) = (|| {
+                    let ninfo = vars.nwm_infos().get(&t);
+                    (
+                        jpeg::WorkderDstUser {
+                            info: ninfo as *const _,
+                        },
+                        *ninfo.info.pos.as_ptr(),
+                    )
+                })();
+
+                let dst = crate::jpeg::WorkerDst {
+                    dst: dst as *mut u8,
+                    free_in_bytes: crate::entries::thread_nwm::get_packet_data_size() as u16,
+                    user,
+                };
+                worker.encode(dst, src, pre_progress, progress);
             }
             entries::thread_nwm::ReliableStreamMethod::KCP => {
-                let dst = if let Some(dst) = entries::thread_nwm::rp_data_buf_malloc() {
-                    dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize)
+                let mut worker = get_jpeg().getWorkerRs(w, *t);
+
+                if let Some((user, dst)) = (|| {
+                    let dst = if let Some(dst) = entries::thread_nwm::rp_data_buf_malloc() {
+                        dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize)
+                    } else {
+                        return None;
+                    };
+                    let hdr = const_default();
+
+                    Some((jpeg::WorkderDstUser { hdr }, dst))
+                })() {
+                    let dst = crate::jpeg::WorkerDst {
+                        dst: dst as *mut u8,
+                        free_in_bytes: crate::entries::thread_nwm::get_packet_data_size() as u16,
+                        user,
+                    };
+                    worker.encode(dst, src, pre_progress, progress);
                 } else {
                     return false;
-                };
-
-                let hdr = const_default();
-
-                (jpeg::WorkderDstUser { hdr }, dst)
+                }
             }
         };
-        let dst = crate::jpeg::WorkerDst {
-            dst: dst as *mut u8,
-            free_in_bytes: crate::entries::thread_nwm::get_packet_data_size() as u16,
-            user,
-        };
-
-        worker.encode(dst, src, pre_progress, progress);
 
         true
     }

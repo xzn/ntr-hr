@@ -110,7 +110,7 @@ pub struct HuffState {
 pub const BIT_BUF_SIZE: usize = mem::size_of::<BitBufType>() * 8;
 
 #[derive(ConstDefault)]
-pub struct JpegWorker<'a> {
+pub struct JpegWorker<'a, const RS: bool> {
     shared: &'a JpegShared,
     bufs: &'a mut WorkerBufs,
     info: &'a CInfo,
@@ -119,8 +119,8 @@ pub struct JpegWorker<'a> {
     last_dc_val: [i16; MAX_COMPONENTS],
 }
 
-pub struct JpegEncode<'a, 'c> {
-    worker: &'c mut JpegWorker<'a>,
+pub struct JpegEncode<'a, 'c, const RS: bool> {
+    worker: &'c mut JpegWorker<'a, RS>,
     dst: WorkerDst,
 }
 
@@ -142,7 +142,24 @@ impl Jpeg {
         *info.workIndex.index_into_mut(&mut self.info) = info;
     }
 
-    pub unsafe fn getWorker(&mut self, workIndex: WorkIndex, threadId: ThreadId) -> JpegWorker {
+    pub unsafe fn getWorker(
+        &mut self,
+        workIndex: WorkIndex,
+        threadId: ThreadId,
+    ) -> JpegWorker<false> {
+        JpegWorker::init(
+            &self.shared,
+            threadId.index_into_mut(&mut self.bufs),
+            workIndex.index_into(&self.info),
+            threadId,
+        )
+    }
+
+    pub unsafe fn getWorkerRs(
+        &mut self,
+        workIndex: WorkIndex,
+        threadId: ThreadId,
+    ) -> JpegWorker<true> {
         JpegWorker::init(
             &self.shared,
             threadId.index_into_mut(&mut self.bufs),
@@ -258,14 +275,14 @@ enum EncodeBufferBase<'a, const N: usize> {
     Dst,
 }
 
-struct EncodeBuffer<'a, 'c, 'd, const N: usize> {
+struct EncodeBuffer<'a, 'c, 'd, const N: usize, const RS: bool> {
     buf: *mut u8,
     base: EncodeBufferBase<'a, N>,
     state: &'c mut HuffState,
     dst: &'d mut WorkerDst,
 }
 
-impl<'a, 'c, 'd, const N: usize> EncodeBuffer<'a, 'c, 'd, N>
+impl<'a, 'c, 'd, const N: usize, const RS: bool> EncodeBuffer<'a, 'c, 'd, N, RS>
 where
     'a: 'd,
 {
@@ -303,13 +320,18 @@ where
     }
 
     pub unsafe fn EMIT_BYTE(&mut self, b: u8) {
-        *self.buf = b;
-        *(self.buf.add(1)) = 0;
-        self.buf = self.buf.add(2 - (b < 0xFF) as usize);
+        if RS {
+            *self.buf = b;
+            self.buf = self.buf.add(1);
+        } else {
+            *self.buf = b;
+            *(self.buf.add(1)) = 0;
+            self.buf = self.buf.add(2 - (b < 0xFF) as usize);
+        }
     }
 
     unsafe fn FLUSH(&mut self) {
-        if self.state.c & 0x80808080 & !(self.state.c + 0x01010101) > 0 {
+        if !RS && (self.state.c & 0x80808080 & !(self.state.c + 0x01010101) > 0) {
             self.EMIT_BYTE((self.state.c >> 24) as u8);
             self.EMIT_BYTE((self.state.c >> 16) as u8);
             self.EMIT_BYTE((self.state.c >> 8) as u8);
@@ -360,7 +382,7 @@ fn JPEG_NBITS(x: i32) -> u8 {
     }
 }
 
-impl<'a> JpegWorker<'a> {
+impl<'a, const RS: bool> JpegWorker<'a, RS> {
     pub fn encode<F, G>(&'a mut self, dst: WorkerDst, src: &[u8], pre_progress: F, progress: G)
     where
         F: FnMut(),
@@ -386,7 +408,7 @@ impl<'a> JpegWorker<'a> {
     }
 }
 
-impl<'a, 'c> JpegEncode<'a, 'c> {
+impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
     fn write_marker(&mut self, mark: u8)
     /* Emit a marker code */
     {
@@ -871,7 +893,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         ac_derived_tbl: &DerivedTbl,
     ) {
         let mut localbuf: [u8; BUFSIZE] = const_default();
-        let mut buf = EncodeBuffer::init(state, dst, &mut localbuf);
+        let mut buf = EncodeBuffer::<_, RS>::init(state, dst, &mut localbuf);
 
         let mut temp = block[0] as i32 - last_dc_val as i32;
         let mut nbits = temp >> (core::mem::size_of_val(&temp) * 8 - 1);
@@ -976,7 +998,8 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
 
         let mut localbuf: [u8; mem::size_of::<BitBufType>() * 4] = const_default();
         let put_buffer = self.worker.huffState.c;
-        let mut buf = EncodeBuffer::init(&mut self.worker.huffState, &mut self.dst, &mut localbuf);
+        let mut buf =
+            EncodeBuffer::<_, RS>::init(&mut self.worker.huffState, &mut self.dst, &mut localbuf);
 
         while put_bits >= 8 {
             put_bits -= 8;
@@ -1012,7 +1035,7 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
 
         pre_progress();
 
-        if self.worker.threadId.get() == 0 {
+        if !RS && self.worker.threadId.get() == 0 {
             self.write_headers();
         }
 
@@ -1036,10 +1059,12 @@ impl<'a, 'c> JpegEncode<'a, 'c> {
         }
         self.flush_mcu();
 
-        if self.worker.threadId.get() == self.worker.shared.coreCount.get() - 1 {
-            self.write_trailer();
-        } else {
-            self.write_rst();
+        if !RS {
+            if self.worker.threadId.get() == self.worker.shared.coreCount.get() - 1 {
+                self.write_trailer();
+            } else {
+                self.write_rst();
+            }
         }
 
         self.write_term();
