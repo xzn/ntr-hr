@@ -604,14 +604,12 @@ static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
 	*p = (seg->fty & ((1 << FTY_NBITS) - 1)) | ((seg->gid & ((1 << GID_NBITS) - 1)) << FTY_NBITS) | ((seg->fid & ((1 << FID_NBITS) - 1)) << (FTY_NBITS + GID_NBITS));
 }
 
-static IUINT8 data_counter = 0;
 // Inner header for arq
 static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
 	IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg->data_buf);
 	*p |= (seg->pid & ((1 << PID_NBITS) - 1)) | ((kcp->cid & ((1 << CID_NBITS) - 1)) << PID_NBITS);
 
-	memset(&p[1], data_counter, FEC_DATA_SIZE - sizeof(IUINT16));
-	++data_counter;
+	memset(&p[1], seg->pid, FEC_DATA_SIZE - sizeof(IUINT16));
 }
 
 
@@ -1001,6 +999,9 @@ int ikcp_send_next(ikcpcb *kcp)
 
 		seg->gid = (IUINT16)-1 & ((1 << GID_NBITS) - 1);
 		seg->fid = kcp->cid;
+		IUINT16 hdr = 0;
+		IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg->data_buf);
+		*p = hdr;
 		ikcp_encode_arq_hdr(kcp, seg);
 		ikcp_encode_fec_hdr(seg);
 
