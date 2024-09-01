@@ -55,9 +55,7 @@ _Static_assert(sizeof(FEC_COUNTS) / sizeof(*FEC_COUNTS) == FEC_TYPE_COUNT);
 static int fec_send_intervals[FEC_TYPE_COUNT];
 
 // max of original_count + recovery_count
-#define FEC_COUNT_MAX (4)
-
-_Static_assert(FEC_COUNT_MAX <= (1 << GID_NBITS));
+#define FEC_COUNT_MAX (1 << GID_NBITS)
 
 //=====================================================================
 // KCP BASIC
@@ -370,7 +368,7 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 			return -2;
 		}
 
-		if (seg->pid == (IUINT16)-1 || !ikcp_input_check_nack(seg->pid, data, size, kcp)) {
+		if (seg->recovery_data || !ikcp_input_check_nack(seg->pid, data, size, kcp)) {
 			iqueue_del(&seg->node, 1);
 			if (!seg->recovery_data) {
 				if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
@@ -438,7 +436,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 				return -2;
 			}
 
-			if (seg->wrn == 0 || (seg->pid != (IUINT16)-1 && ikcp_input_check_nack(seg->pid, data, size, kcp))) {
+			if (seg->wrn == 0 || (!seg->recovery_data && ikcp_input_check_nack(seg->pid, data, size, kcp))) {
 				return 1;
 			}
 
@@ -545,8 +543,6 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		}
 	}
 
-	int ret;
-
 	for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
 		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
 		bool should_break = seg->fid == fid && seg->gid == gid;
@@ -563,7 +559,7 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 
 	for (int i = 0; i < RSND_COUNT; ++i) {
 		struct IQUEUEHEAD *queue = &kcp->rsnd_lsts[i];
-		ret = ikcp_input_handle_nack(kcp, queue, data, size, 4 + i, false);
+		int ret = ikcp_input_handle_nack(kcp, queue, data, size, 4 + i, false);
 		if (ret < 0) {
 			return ret * 0x10 - 5 - i;
 		}
@@ -704,7 +700,7 @@ static struct arq_seg_iter_t arq_seg_iter_next(ikcpcb *kcp, struct arq_seg_iter_
 	return iter;
 }
 
-static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
+static int ikcp_insert_standalone_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 {
 	struct IQUEUEHEAD *p;
 	p = kcp->snd_cur.next;
@@ -747,10 +743,10 @@ static int ikcp_insert_send_cur(ikcpcb *kcp, struct IKCPSEG *seg)
 	return -1;
 }
 
-static int ikcp_insert_send_cur_from_iter(ikcpcb *kcp, struct arq_seg_iter_t *iter)
+static int ikcp_insert_send_cur(ikcpcb *kcp, struct arq_seg_iter_t *iter)
 {
 	iqueue_del(&iter->seg->node, 5);
-	return ikcp_insert_send_cur(kcp, iter->seg);
+	return ikcp_insert_standalone_send_cur(kcp, iter->seg);
 }
 
 static int ikcp_reset_send_wak(ikcpcb *kcp)
@@ -813,7 +809,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			ikcp_encode_arq_hdr(kcp, iters[0].seg);
 			int wsn = 0;
 			int ret;
-			ret = ikcp_insert_send_cur_from_iter(kcp, &iters[0]);
+			ret = ikcp_insert_send_cur(kcp, &iters[0]);
 			if (ret < 0) {
 				return -12;
 			}
@@ -832,7 +828,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				iters[count].seg->wsn = count * fec_send_intervals[fec_type] + wsn;
 
 				ikcp_encode_arq_hdr(kcp, iters[count].seg);
-				ret = ikcp_insert_send_cur_from_iter(kcp, &iters[count]);
+				ret = ikcp_insert_send_cur(kcp, &iters[count]);
 				if (ret < 0) {
 					return -14;
 				}
@@ -884,7 +880,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 				if (fecal_encode(fecal_encoder, &fecal_symbol) != 0) {
 					return -18;
 				}
-				ret = ikcp_insert_send_cur(kcp, seg);
+				ret = ikcp_insert_standalone_send_cur(kcp, seg);
 				if (ret < 0) {
 					return -19;
 				}
@@ -918,7 +914,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 	ikcp_encode_arq_hdr(kcp, iters[0].seg);
 	int wsn = 0;
 	int ret;
-	ret = ikcp_insert_send_cur_from_iter(kcp, &iters[0]);
+	ret = ikcp_insert_send_cur(kcp, &iters[0]);
 	if (ret < 0) {
 		return -6;
 	}
@@ -942,7 +938,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			seg->recovery_data = false;
 			seg->weak_data = false;
 		}
-		ret = ikcp_insert_send_cur(kcp, seg);
+		ret = ikcp_insert_standalone_send_cur(kcp, seg);
 		if (ret < 0) {
 			return -8;
 		}

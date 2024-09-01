@@ -766,6 +766,7 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                 continue;
             }
 
+            let mut dst_queued = false;
             if has_dst {
                 let dst = dst.assume_init() as *mut u8;
 
@@ -781,27 +782,29 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     return false;
                 } else if ret == 0 {
                     has_dst = false;
+                    dst_queued = true;
                 }
             }
 
             // Ready send again
             let ret = ikcp_send_ready_and_get_delay(kcp);
-            if ret < -0x10 && has_dst {
+            if ret < -0x10 && dst_queued {
                 // Reset KCP
                 nsDbgPrint!(kcpSendFailed, ret);
                 crate::entries::work_thread::set_reset_threads_ar();
                 nwm_cb_unlock();
                 return false;
             }
-            if ret < 0
-                && (svcGetSystemTick() as s64 - rp_output_next_tick) / SYSCLOCK_ARM11 as s64
+            if ret < 0 {
+                if (svcGetSystemTick() as s64 - rp_output_next_tick) / SYSCLOCK_ARM11 as s64
                     >= RP_KCP_TIMEOUT_SEC
-            {
-                // Reset KCP
-                nsDbgPrint!(kcpTimeout);
-                crate::entries::work_thread::set_reset_threads_ar();
-                nwm_cb_unlock();
-                return false;
+                {
+                    // Reset KCP
+                    nsDbgPrint!(kcpTimeout);
+                    crate::entries::work_thread::set_reset_threads_ar();
+                    nwm_cb_unlock();
+                    return false;
+                }
             } else {
                 // Send next
                 let ret = ikcp_send_next(kcp);
