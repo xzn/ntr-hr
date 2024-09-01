@@ -106,10 +106,10 @@ void nsDbgPrintVerboseVABuf(const char *file_name, int line_number, const char *
 
 		if (file_name && func_name) {
 			u64 ticks = svcGetSystemTick();
-			u64 mono_us = ticks * 1000 / (SYSCLOCK_ARM11 / 1000000);
+			u64 mono_ns = ticks * 1000000000 / SYSCLOCK_ARM11;
 			u32 pid = getCurrentProcessId();
 
-			nsDbgPrintRawInternal(DBG_VERBOSE_TITLE, (u32)(mono_us / 1000000), (u32)(mono_us % 1000000), pid, file_name, line_number, func_name);
+			nsDbgPrintRawInternal(DBG_VERBOSE_TITLE, (u32)(mono_ns / 1000000 % 60000), (u32)(mono_ns % 1000000), pid, file_name, line_number, func_name);
 			nsDbgPrintRawInternal(" ");
 		}
 

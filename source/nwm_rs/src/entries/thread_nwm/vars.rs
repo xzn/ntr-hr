@@ -448,46 +448,49 @@ unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
         return -1;
     };
 
-    let ret = recv(fd, recv_buf as *mut _, RP_RECV_PACKET_SIZE as usize, 0);
+    loop {
+        let ret = recv(fd, recv_buf as *mut _, RP_RECV_PACKET_SIZE as usize, 0);
 
-    if ret == 0 {
-        nsDbgPrint!(nwmInputNothing);
-        return 0;
-    } else if ret < 0 {
-        nsDbgPrint!(nwmInputFailed, ret as i32, *__errno());
-        return 0;
-    }
-
-    let nwm_lock = if let Some(l) = NwmCbLock::lock() {
-        l
-    } else {
-        return -1;
-    };
-
-    match get_reliable_stream_method() {
-        ReliableStreamMethod::None => {
+        if ret == 0 {
+            nsDbgPrint!(nwmInputNothing);
+            return 0;
+        } else if ret < 0 {
+            let err = *__errno();
+            if err != ctru::EWOULDBLOCK as i32 || err != ctru::EAGAIN as i32 {
+                nsDbgPrint!(nwmInputFailed, ret as i32, err);
+            }
             return 0;
         }
-        ReliableStreamMethod::KCP => {
-            let cb = &mut (*reliable_stream_cb);
-            let kcp = &mut cb.ikcp;
 
-            let ret = ikcp_input(kcp, recv_buf, ret as i32);
-            if ret < 0 {
-                // Reset KCP
-                if ret < -0x10 {
-                    nsDbgPrint!(kcpInputFailed, ret);
+        let nwm_lock = if let Some(l) = NwmCbLock::lock() {
+            l
+        } else {
+            return -1;
+        };
+
+        match get_reliable_stream_method() {
+            ReliableStreamMethod::None => {
+                return 0;
+            }
+            ReliableStreamMethod::KCP => {
+                let cb = &mut (*reliable_stream_cb);
+                let kcp = &mut cb.ikcp;
+
+                let ret = ikcp_input(kcp, recv_buf, ret as i32);
+                if ret < 0 {
+                    // Reset KCP
+                    if ret < -0x10 {
+                        nsDbgPrint!(kcpInputFailed, ret);
+                    }
+                    drop(nwm_lock);
+                    crate::entries::work_thread::set_reset_threads_ar();
+                    return -1;
                 }
                 drop(nwm_lock);
-                crate::entries::work_thread::set_reset_threads_ar();
-                return -1;
+                let _ = svcSignalEvent(reliable_stream_cb_evt);
             }
-            drop(nwm_lock);
-            let _ = svcSignalEvent(reliable_stream_cb_evt);
         }
     }
-
-    0
 }
 
 #[derive(PartialEq, Eq)]

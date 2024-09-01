@@ -7,6 +7,7 @@
 #include "poll.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 
 sendPacketTypedef nwmSendPacket;
 static RT_HOOK nwmValParamHook;
@@ -130,6 +131,9 @@ int nsPoll2(int s) {
 			nsPoll2End();
 			return -1;
 		}
+
+		s32 tmp = fcntl(nwm_recv_sock, F_GETFL);
+		fcntl(nwm_recv_sock, F_SETFL, tmp | O_NONBLOCK);
 	}
 
 	struct pollfd pi[2];
@@ -146,7 +150,7 @@ int nsPoll2(int s) {
 		showDbg("socket poll failed: %08"PRIx32, (u32)errno);
 		return -1;
 	}
-	if (pi[1].revents & (POLLIN | POLLHUP)) {
+	if (pi[1].revents & (POLLIN)) {
 		if (nsControlRecv(nwm_recv_sock) < 0) {
 			// nsDbgPrint("nsControlRecv failed\n");
 			nsPoll2End();

@@ -15,6 +15,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "3ds/os.h"
+
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -61,13 +63,18 @@ static int fec_send_intervals[FEC_TYPE_COUNT];
 // KCP BASIC
 //=====================================================================
 
-// struct SavedSeg {
+// static struct SavedSeg {
 // 	IUINT16 pid; // packet id
 // 	IUINT16 fid; // fec packet group id
 // 	IUINT8 fty; // fec type
 // 	IUINT8 gid; // id within fec packet group
 // 	IUINT8 wrn; // wait resend count
 // } saved_segs[1 << PID_NBITS];
+
+// static u64 saved_timing;
+// static u64 last_timing;
+// static u64 max_timing;
+// static IUINT16 saved_fid;
 
 
 //---------------------------------------------------------------------
@@ -222,6 +229,10 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 		return -1;
 
 	// memset(saved_segs, 0, sizeof(saved_segs));
+	// saved_timing = 0;
+	// max_timing = 0;
+	// last_timing = svcGetSystemTick();
+	// saved_fid = (IUINT16)-1;
 	rp_arq_bitset_clear_all(&kcp->pid_bs);
 
 	return 0;
@@ -571,6 +582,23 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		}
 	}
 
+	// if (saved_fid != (IUINT16)-1 && ((fid - saved_fid) & ((1 << FID_NBITS) - 1)) < (1 << (FID_NBITS - 1))) {
+	// 	u64 timing = svcGetSystemTick() - saved_timing;
+	// 	saved_fid = (IUINT16)-1;
+	// 	saved_timing = 0;
+
+	// 	if (timing > max_timing) {
+	// 		max_timing = timing;
+	// 	}
+	// 	u64 next_timing = svcGetSystemTick();
+	// 	if ((next_timing - last_timing) / SYSCLOCK_ARM11 >= 1) {
+	// 		last_timing = next_timing;
+	// 		u64 mono_ns = max_timing * 1000000000 / SYSCLOCK_ARM11;
+	// 		nsDbgPrint("kcp delay %u.%u", (unsigned)(mono_ns / 1000000 % 60000), (unsigned)(mono_ns % 1000000));
+	// 		max_timing = 0;
+	// 	}
+	// }
+
 	for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
 		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
 		bool should_break = seg->fid == fid && seg->gid == gid;
@@ -645,15 +673,15 @@ static int ikcp_send_cur_get_delay(ikcpcb *kcp)
 }
 
 static const enum FEC_TYPE FEC_TYPES[] = {
-	FEC_TYPE_1_3, // rsnd_lst[RSND_COUNT - 1]
-	FEC_TYPE_1_2, // ...
-	FEC_TYPE_2_3, // rsnd_lst[0]
+	FEC_TYPE_1_1, // rsnd_lst[RSND_COUNT - 1]
+	FEC_TYPE_1_1, // ...
+	FEC_TYPE_1_1, // rsnd_lst[0]
 	FEC_TYPE_1_1, // snd_lst
 };
 
 _Static_assert(sizeof(FEC_TYPES) / sizeof(*FEC_TYPES) == ARQ_QUEUE_COUNT);
 
-static const enum FEC_TYPE FEC_FALLBACK_TYPE = FEC_TYPE_1_2; // must have (original_count == 1)
+static const enum FEC_TYPE FEC_FALLBACK_TYPE = FEC_TYPE_1_1; // must have (original_count == 1)
 
 static enum FEC_TYPE fec_type_from_queue(enum ARQ_QUEUE queue) {
 	return FEC_TYPES[queue];
@@ -991,6 +1019,14 @@ static int ikcp_send_cur(ikcpcb *kcp)
 			seg->weak_data = true;
 			// seg->data_buf = NULL;
 		}
+	} else {
+		// if (
+		// 	saved_fid == (IUINT16)-1
+		// 	|| ((seg->fid - saved_fid) & ((1 << FID_NBITS) - 1)) >= (1 << (FID_NBITS - 1))
+		// ) {
+		// 	saved_timing = svcGetSystemTick();
+		// 	saved_fid = seg->fid;
+		// }
 	}
 	iqueue_add_tail(&seg->node, &kcp->snd_wak);
 	return 0;
