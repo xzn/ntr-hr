@@ -442,55 +442,73 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
 #[no_mangle]
 #[named]
 unsafe extern "C" fn nsControlRecv(fd: c_int) -> c_int {
-    let recv_buf = if let Some(dst) = rp_recv_data_buf() {
+    let recv_bufs = if let Some(dst) = rp_recv_data_buf() {
         dst
     } else {
         return -1;
     };
 
+    let mut recv_ret = 0;
+    let mut recv_idx = 0;
+    let mut recv_buf = ptr::null_mut::<u8>();
     loop {
-        let ret = recv(fd, recv_buf as *mut _, RP_RECV_PACKET_SIZE as usize, 0);
-
+        let buf = recv_bufs.get_unchecked_mut(recv_idx);
+        let ret = recv(
+            fd,
+            buf.as_mut_ptr() as *mut _,
+            RP_RECV_PACKET_SIZE as usize,
+            0,
+        );
         if ret == 0 {
-            nsDbgPrint!(nwmInputNothing);
-            return 0;
+            break;
         } else if ret < 0 {
             let err = *__errno();
             if err != ctru::EWOULDBLOCK as i32 || err != ctru::EAGAIN as i32 {
                 nsDbgPrint!(nwmInputFailed, ret as i32, err);
-            }
-            return 0;
-        }
-
-        let nwm_lock = if let Some(l) = NwmCbLock::lock() {
-            l
-        } else {
-            return -1;
-        };
-
-        match get_reliable_stream_method() {
-            ReliableStreamMethod::None => {
                 return 0;
             }
-            ReliableStreamMethod::KCP => {
-                let cb = &mut (*reliable_stream_cb);
-                let kcp = &mut cb.ikcp;
+            break;
+        }
+        recv_ret = ret;
+        recv_buf = buf.as_mut_ptr();
+        recv_idx = (recv_idx + 1) % RP_RECV_BUF_N as usize;
+    }
 
-                let ret = ikcp_input(kcp, recv_buf, ret as i32);
-                if ret < 0 {
-                    // Reset KCP
-                    if ret < -0x10 {
-                        nsDbgPrint!(kcpInputFailed, ret);
-                    }
-                    drop(nwm_lock);
-                    crate::entries::work_thread::set_reset_threads_ar();
-                    return -1;
+    if recv_ret == 0 {
+        nsDbgPrint!(nwmInputNothing);
+        return 0;
+    }
+
+    let nwm_lock = if let Some(l) = NwmCbLock::lock() {
+        l
+    } else {
+        return -1;
+    };
+
+    match get_reliable_stream_method() {
+        ReliableStreamMethod::None => {
+            return 0;
+        }
+        ReliableStreamMethod::KCP => {
+            let cb = &mut (*reliable_stream_cb);
+            let kcp = &mut cb.ikcp;
+
+            let ret = ikcp_input(kcp, recv_buf, recv_ret as i32);
+            if ret < 0 {
+                // Reset KCP
+                if ret < -0x10 {
+                    nsDbgPrint!(kcpInputFailed, ret);
                 }
                 drop(nwm_lock);
-                let _ = svcSignalEvent(reliable_stream_cb_evt);
+                crate::entries::work_thread::set_reset_threads_ar();
+                return -1;
             }
+            drop(nwm_lock);
+            let _ = svcSignalEvent(reliable_stream_cb_evt);
         }
     }
+
+    0
 }
 
 #[derive(PartialEq, Eq)]
@@ -666,13 +684,14 @@ unsafe fn rp_data_buf_free(dst: *const ::libc::c_char) {
     }
 }
 
-unsafe fn rp_recv_data_buf() -> Option<*mut c_char> {
+unsafe fn rp_recv_data_buf(
+) -> Option<&'static mut [[c_char; RP_RECV_PACKET_SIZE as usize]; RP_RECV_BUF_N as usize]> {
     if !recv_seg_mem_inited.load(Ordering::Acquire) {
         return None;
     }
 
     let cb = &mut *reliable_stream_cb;
-    Some(cb.recv_buf.as_mut_ptr())
+    Some(&mut cb.recv_buf)
 }
 
 #[no_mangle]
