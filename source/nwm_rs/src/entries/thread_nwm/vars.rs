@@ -79,12 +79,22 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
         ReliableStreamMethod::None => {}
         ReliableStreamMethod::KCP => {
             let kcp = &mut (*reliable_stream_cb).ikcp;
+
+            let nwm_lock = if let Some(l) = NwmCbLock::lock() {
+                l
+            } else {
+                return None;
+            };
+
             if ikcp_create(kcp, kcp_conv_count as u16) < 0 {
                 return None;
             }
             let sndwnd = ((ARQ_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32;
             let curwnd = ((ARQ_CUR_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32;
             ikcp_wndsize(kcp, sndwnd, curwnd);
+
+            drop(nwm_lock);
+
             kcp_conv_count += 1;
         }
     }
