@@ -297,7 +297,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
         }
         ReliableStreamMethod::KCP => {
             let hdr = &dst.user.hdr;
-            let dst = if term {
+            let mut dst = if term {
                 dst.dst
                     .sub(rp_packet_data_size - dst.free_in_bytes as usize)
             } else {
@@ -306,7 +306,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
 
             let mut size = size as u32;
             if !term {
-                let dst = dst.sub(ARQ_DATA_HDR_SIZE as usize);
+                dst = dst.sub(ARQ_DATA_HDR_SIZE as usize);
                 size += ARQ_DATA_HDR_SIZE;
                 hdr.write_hdr(dst);
             }
@@ -314,7 +314,9 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
             ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
 
             if term {
-                return entries::work_thread::set_term_dst(dst, hdr.w, hdr.t);
+                // return entries::work_thread::set_term_dst(dst, hdr.w, hdr.t);
+                rp_seg_data_buf_free(dst.sub(ARQ_DATA_HDR_SIZE as usize));
+                return true;
             } else {
                 let cb = &mut *reliable_stream_cb;
                 while !entries::work_thread::reset_threads() {
