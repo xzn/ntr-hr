@@ -64,6 +64,8 @@ impl WorkerDst {
                 }
                 len -= self.free_in_bytes;
                 src = unsafe { src.add(self.free_in_bytes as usize) };
+                unsafe { self.dst = self.dst.add(self.free_in_bytes as usize) };
+                self.free_in_bytes = 0;
                 if !self.flush() {
                     return false;
                 }

@@ -301,7 +301,8 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
                 dst.dst
                     .sub(rp_packet_data_size - dst.free_in_bytes as usize)
             } else {
-                dst.dst
+                // assert!(dst.free_in_bytes == 0);
+                dst.dst.sub(rp_packet_data_size)
             };
 
             let mut size = size as u32;
@@ -314,9 +315,7 @@ pub unsafe fn rp_send_buffer(dst: &mut crate::jpeg::WorkerDst, term: bool) -> bo
             ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
 
             if term {
-                // return entries::work_thread::set_term_dst(dst, hdr.w, hdr.t);
-                rp_seg_data_buf_free(dst.sub(ARQ_DATA_HDR_SIZE as usize));
-                return true;
+                return entries::work_thread::set_term_dst(dst, hdr.w, hdr.t);
             } else {
                 let cb = &mut *reliable_stream_cb;
                 while !entries::work_thread::reset_threads() {

@@ -666,7 +666,7 @@ static void ikcp_encode_fec_hdr(struct IKCPSEG *seg) {
 // Inner header for arq
 static void ikcp_encode_arq_hdr(ikcpcb *kcp, struct IKCPSEG *seg) {
 	IUINT16 *p = (IUINT16 *)ikcp_get_fec_data_buf(seg->data_buf);
-	nsDbgPrint("%x", (unsigned)*p);
+	// nsDbgPrint("%x", (unsigned)*p);
 	*p |= (seg->pid & ((1 << PID_NBITS) - 1)) | ((kcp->cid & ((1 << CID_NBITS) - 1)) << PID_NBITS);
 }
 

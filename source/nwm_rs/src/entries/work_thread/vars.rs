@@ -90,11 +90,15 @@ pub unsafe fn set_term_info(info: &TermInfo, w: WorkIndex) {
 // FIXME endianness
 #[named]
 unsafe fn send_term_dsts(w: WorkIndex) -> bool {
+    if *term_dsts.get(&w).get(&ThreadId::init_unchecked(0)) == ptr::null_mut() {
+        return true;
+    }
+
     let mut terms: [*mut u8; RP_CORE_COUNT_MAX as usize + 1] = const_default();
     let mut term_cur = 0;
     let mut term_size = 0;
     terms[term_cur] = if let Some(d) = rp_term_data_buf_malloc() {
-        d.add(ARQ_DATA_HDR_SIZE as usize)
+        d.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize)
     } else {
         return false;
     };
@@ -124,7 +128,7 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
                 term_cur += 1;
                 term_size = 0;
                 terms[term_cur] = if let Some(d) = rp_term_data_buf_malloc() {
-                    d.add(ARQ_DATA_HDR_SIZE as usize)
+                    d.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE + ARQ_DATA_HDR_SIZE) as usize)
                 } else {
                     return false;
                 };
@@ -143,8 +147,9 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
 
     let core_count = get_core_count_in_use();
     for i in ThreadId::up_to(&core_count) {
-        let dst = term_dsts.get_mut(&w).get_mut(&i);
-        if *dst == ptr::null_mut() {
+        let dst_ref = term_dsts.get_mut(&w).get_mut(&i);
+        let dst = *dst_ref;
+        if dst == ptr::null_mut() {
             return false;
         }
 
@@ -160,35 +165,35 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
         if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {
             return false;
         }
-        if !copy_to_terms(*dst, size as usize) {
+        if !copy_to_terms(dst, size as usize) {
             return false;
         }
 
         rp_seg_data_buf_free(dst.sub(ARQ_DATA_HDR_SIZE as usize));
-        *dst = ptr::null_mut();
+        *dst_ref = ptr::null_mut();
     }
 
     for i in 0..=term_cur {
-        let mut term = *terms.get_unchecked_mut(i);
+        let mut dst = *terms.get_unchecked_mut(i);
 
         if i == term_cur {
-            ptr::write_bytes(term.add(term_size), 0, rp_packet_data_size - term_size);
+            ptr::write_bytes(dst.add(term_size), 0, rp_packet_data_size - term_size);
         }
 
         let mut size = rp_packet_data_size as u32;
 
-        term = term.sub(ARQ_DATA_HDR_SIZE as usize);
+        dst = dst.sub(ARQ_DATA_HDR_SIZE as usize);
         size += ARQ_DATA_HDR_SIZE;
 
         let hdr = (w.get() as u16) << 13 | (RP_CORE_COUNT_MAX as u16) << 14;
-        ptr::copy_nonoverlapping(&hdr, term as *mut _, 1);
+        ptr::copy_nonoverlapping(&hdr, dst as *mut _, 1);
 
         size |= 1 << 31;
-        ptr::copy_nonoverlapping(&size, term.sub(mem::size_of::<u32>()) as *mut _, 1);
+        ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
 
         let cb = &mut *reliable_stream_cb;
         while !entries::work_thread::reset_threads() {
-            let res = rp_syn_rel1(&mut cb.nwm_syn, *term as *mut _);
+            let res = rp_syn_rel1(&mut cb.nwm_syn, dst as *mut _);
             if res == 0 {
                 break;
             }
@@ -222,7 +227,7 @@ pub unsafe fn rp_term_data_buf_malloc() -> Option<*mut c_char> {
     if res != 0 {
         nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
     }
-    Some(dst.add((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize))
+    Some(dst)
 }
 
 #[named]
