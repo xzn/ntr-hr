@@ -19,9 +19,19 @@ const _arq_rp_hdr_size_assert: () = {
     assert!(mem::size_of::<u16>() == ARQ_DATA_HDR_SIZE as usize);
 };
 
+const _arq_rp_w_size_assert: () = {
+    assert!(WORK_COUNT - 1 <= ((1 << RP_KCP_HDR_W_NBITS) - 1));
+};
+
+// We store RP_CORE_COUNT_MAX as a special value to indicate term packet
+const _arq_rp_t_size_assert: () = {
+    assert!(RP_CORE_COUNT_MAX <= ((1 << RP_KCP_HDR_T_NBITS) - 1));
+};
+
 impl ArqRpHdr {
     pub unsafe fn write_hdr(&self, dst: *mut u8) {
-        let hdr = (self.w.get() as u16) << 13 | (self.t.get() as u16) << 14;
+        let hdr = (self.w.get() as u16) << (PID_NBITS + CID_NBITS)
+            | (self.t.get() as u16) << (PID_NBITS + CID_NBITS + RP_KCP_HDR_W_NBITS);
         ptr::copy_nonoverlapping(&hdr as *const u16, dst as *mut _, 1 as usize);
     }
 }
@@ -151,24 +161,11 @@ impl Jpeg {
         *info.workIndex.index_into_mut(&mut self.info) = info;
     }
 
-    pub unsafe fn getWorker(
+    pub unsafe fn getWorker<const RS: bool>(
         &mut self,
         workIndex: WorkIndex,
         threadId: ThreadId,
-    ) -> JpegWorker<false> {
-        JpegWorker::init(
-            &self.shared,
-            threadId.index_into_mut(&mut self.bufs),
-            workIndex.index_into(&self.info),
-            threadId,
-        )
-    }
-
-    pub unsafe fn getWorkerRs(
-        &mut self,
-        workIndex: WorkIndex,
-        threadId: ThreadId,
-    ) -> JpegWorker<true> {
+    ) -> JpegWorker<RS> {
         JpegWorker::init(
             &self.shared,
             threadId.index_into_mut(&mut self.bufs),

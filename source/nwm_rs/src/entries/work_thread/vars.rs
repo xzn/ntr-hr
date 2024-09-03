@@ -87,6 +87,14 @@ pub unsafe fn set_term_info(info: &TermInfo, w: WorkIndex) {
     *term_infos.get_mut(&w) = *info;
 }
 
+const _arq_rp_size_size_assert: () = {
+    assert!(PACKET_SIZE <= ((1 << RP_KCP_HDR_SIZE_NBITS) - 1));
+};
+
+const _arq_rp_quality_size_assert: () = {
+    assert!(RP_QUALITY_MAX <= ((1 << RP_KCP_HDR_QUALITY_NBITS) - 1));
+};
+
 // FIXME endianness
 #[named]
 unsafe fn send_term_dsts(w: WorkIndex) -> bool {
@@ -138,8 +146,8 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
     };
 
     let info = term_infos.get(&w);
-    let hdr = (if info.is_top { 0 } else { 1 } as u16) << 9
-        | (info.core_count.get() as u16) << 7
+    let hdr = (if info.is_top { 0 } else { 1 } as u16) << (RP_KCP_HDR_QUALITY_NBITS + RP_KCP_HDR_T_NBITS)
+        | (info.core_count.get() as u16) << RP_KCP_HDR_QUALITY_NBITS
         | jpeg_quality as u16;
     if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {
         return false;
@@ -158,9 +166,9 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
         let size = size as u16;
         let hdr = size
             | if i.get() == core_count.get() - 1 {
-                (info.v_last_adjusted as u16) << 11
+                (info.v_last_adjusted as u16) << RP_KCP_HDR_SIZE_NBITS
             } else {
-                (info.v_adjusted as u16) << 11
+                (info.v_adjusted as u16) << RP_KCP_HDR_SIZE_NBITS
             };
         if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {
             return false;
@@ -185,7 +193,8 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
         dst = dst.sub(ARQ_DATA_HDR_SIZE as usize);
         size += ARQ_DATA_HDR_SIZE;
 
-        let hdr = (w.get() as u16) << 13 | (RP_CORE_COUNT_MAX as u16) << 14;
+        let hdr = (w.get() as u16) << (PID_NBITS + CID_NBITS)
+            | (RP_CORE_COUNT_MAX as u16) << (PID_NBITS + CID_NBITS + RP_KCP_HDR_W_NBITS);
         ptr::copy_nonoverlapping(&hdr, dst as *mut _, 1);
 
         size |= 1 << 31;

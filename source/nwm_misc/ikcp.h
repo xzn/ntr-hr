@@ -282,6 +282,13 @@ typedef struct IQUEUEHEAD iqueue_head;
 #include "mempool.h"
 #include "fecal.h"
 
+#define FID_NBITS (12)
+#define FTY_NBITS (2)
+#define GID_NBITS (2)
+
+#define PID_NBITS (12)
+#define CID_NBITS (1)
+
 extern FecalEncoder rp_kcp_fecal_encoder;
 
 struct IKCPSEG

@@ -222,7 +222,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
 
         match entries::thread_nwm::get_reliable_stream_method() {
             entries::thread_nwm::ReliableStreamMethod::None => {
-                let mut worker = get_jpeg().getWorker(w, *t);
+                let mut worker = get_jpeg().getWorker::<false>(w, *t);
 
                 let (user, dst) = (|| {
                     let ninfo = vars.nwm_infos().get(&t);
@@ -242,7 +242,7 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
                 worker.encode(dst, src, pre_progress, progress);
             }
             entries::thread_nwm::ReliableStreamMethod::KCP => {
-                let mut worker = get_jpeg().getWorkerRs(w, *t);
+                let mut worker = get_jpeg().getWorker::<true>(w, *t);
 
                 if let Some((user, dst)) = (|| {
                     let dst = if let Some(dst) = entries::thread_nwm::rp_data_buf_malloc() {
