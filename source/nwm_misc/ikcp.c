@@ -1106,6 +1106,8 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int curwnd)
 	if (kcp) {
 		if (sndwnd > 0) {
 			kcp->n_snd_max = _imin_(sndwnd, ARQ_BUFS_COUNT);
+		} else {
+			return -1;
 		}
 		if (curwnd > 0) {
 			kcp->n_cur_max = _imin_(curwnd, ARQ_CUR_BUFS_COUNT);
@@ -1116,6 +1118,8 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int curwnd)
 				int count = _imax_(counts.original_count + counts.recovery_count, 3);
 				fec_send_intervals[i] = (kcp->n_cur_max + count / 2) / count;
 			}
+		} else {
+			return -2;
 		}
 	}
 	return 0;

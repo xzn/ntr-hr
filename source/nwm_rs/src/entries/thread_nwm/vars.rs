@@ -91,7 +91,9 @@ unsafe fn init_reliable_stream(flags: u32_, qos: u32_) -> Option<()> {
             }
             let sndwnd = ((ARQ_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32;
             let curwnd = ((ARQ_CUR_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32;
-            ikcp_wndsize(kcp, sndwnd, curwnd);
+            if ikcp_wndsize(kcp, sndwnd, curwnd) != 0 {
+                return None;
+            }
 
             drop(nwm_lock);
 
