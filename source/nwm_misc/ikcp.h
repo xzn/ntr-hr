@@ -289,6 +289,8 @@ typedef struct IQUEUEHEAD iqueue_head;
 #define PID_NBITS (12)
 #define CID_NBITS (1)
 
+#define count_nbits (sizeof(IUINT16) * 8 - PID_NBITS)
+
 extern FecalEncoder rp_kcp_fecal_encoder;
 
 struct IKCPSEG
@@ -351,8 +353,9 @@ struct IKCPCB
 	mp_pool_t seg_pool;
 
 	struct BitSet4096Mem pid_bs;
+	u16 nacks[DIV_ROUND_UP(ARQ_PREFERRED_COUNT_MAX * 2, (1 << count_nbits))][2];
+	u16 n_nacks;
 };
-
 
 typedef struct IKCPCB ikcpcb;
 

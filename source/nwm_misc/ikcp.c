@@ -357,31 +357,10 @@ static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
 // FIXME:
 // Currently works on little endian only
 
-static int ikcp_input_check_nack(IUINT16 pid, char *data, int size, ikcpcb *kcp) {
-	if (!data || !size) {
-		return -2;
-	}
-
-	// TODO maybe optimize
-	IUINT16 *ptr = (IUINT16 *)data;
-	size /= 2;
-
-#define count_nbits (sizeof(IUINT16) * 8 - PID_NBITS)
-
-	for (int i = 0; i < size; ++i) {
-		if (i == size - 1) {
-			IUINT16 val = ptr[i];
-			IUINT16 nack_start = (val >> count_nbits) & ((1 << PID_NBITS) - 1);
-			IUINT16 nack_count_0 = (1 << (PID_NBITS - 2)) - 1;
-			IUINT16 pid_diff = (pid - nack_start) & ((1 << PID_NBITS) - 1);
-			if (pid_diff <= nack_count_0) {
-				return 1;
-			}
-		}
-
-		IUINT16 val = ptr[i];
-		IUINT16 nack_start = (val >> count_nbits) & ((1 << PID_NBITS) - 1);
-		IUINT16 nack_count_0 = val & ((1 << count_nbits) - 1);
+static int ikcp_input_check_nack(IUINT16 pid, ikcpcb *kcp) {
+	for (int i = 0; i < kcp->n_nacks; ++i) {
+		IUINT16 nack_start = kcp->nacks[i][0];
+		IUINT16 nack_count_0 = kcp->nacks[i][1];
 		IUINT16 pid_diff = (pid - nack_start) & ((1 << PID_NBITS) - 1);
 		if (pid_diff <= nack_count_0) {
 			return -1;
@@ -391,7 +370,7 @@ static int ikcp_input_check_nack(IUINT16 pid, char *data, int size, ikcpcb *kcp)
 	return 0;
 }
 
-static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size, int r) {
+static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, int r) {
 	IUINT16 fid = seg->fid;
 	IUINT16 fty = seg->fty;
 	struct fec_counts_t counts = FEC_COUNTS[fty];
@@ -403,7 +382,7 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 			return -2;
 		}
 
-		if (seg->recovery_data || !ikcp_input_check_nack(seg->pid, data, size, kcp)) {
+		if (seg->recovery_data || (r && !ikcp_input_check_nack(seg->pid, kcp))) {
 			iqueue_del(&seg->node, 1);
 			if (!seg->recovery_data) {
 				if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
@@ -455,7 +434,7 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 	return 0;
 }
 
-static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, char *data, int size, struct IQUEUEHEAD **next) {
+static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, struct IQUEUEHEAD **next) {
 	struct IKCPSEG *segs[FEC_COUNT_MAX] = { seg, 0 };
 	int count = 1;
 	IUINT16 fty = seg->fty;
@@ -472,7 +451,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 				return -2;
 			}
 
-			if (seg->wrn == 0 || (!seg->recovery_data && ikcp_input_check_nack(seg->pid, data, size, kcp))) {
+			if (seg->wrn == 0 || (!seg->recovery_data && ikcp_input_check_nack(seg->pid, kcp))) {
 				return 1;
 			}
 
@@ -529,11 +508,11 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, cha
 	return 0;
 }
 
-static int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, char *data, int size, int g, bool r)
+static int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, int g, bool r)
 {
 	for (struct IQUEUEHEAD *p = queue->next, *next = p->next; p != queue; p = next, next = p->next) {
 		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
-		if (!ikcp_input_check_nack(seg->pid, data, size, kcp)) {
+		if (!ikcp_input_check_nack(seg->pid, kcp)) {
 			iqueue_del(&seg->node, g);
 			if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
 				nsDbgPrint("rp_arq_bitset_check failed for %d", (int)seg->pid);
@@ -603,12 +582,29 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 	}
 #endif
 
+	kcp->n_nacks = 0;
+
+	IUINT16 *ptr = (IUINT16 *)data;
+	size /= 2;
+	while (size) {
+		IUINT16 val = *ptr;
+		IUINT16 nack_start = (val >> count_nbits) & ((1 << PID_NBITS) - 1);
+		IUINT16 nack_count_0 = size == 1 ? (1 << (PID_NBITS - 2)) - 1 : val & ((1 << count_nbits) - 1);
+
+		kcp->nacks[kcp->n_nacks][0] = nack_start;
+		kcp->nacks[kcp->n_nacks][1] = nack_count_0;
+		++kcp->n_nacks;
+
+		++ptr;
+		--size;
+	}
+
 	for (struct IQUEUEHEAD *p = kcp->snd_wak.next, *next = p->next; p != &kcp->snd_wak; p = next, next = p->next) {
 		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
 		bool should_break = seg->fid == fid && seg->gid == gid;
 		if (seg->gid_end) {
 			int ret;
-			if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, data, size, true)) < 0) {
+			if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, true)) < 0) {
 				return ret * 0x10 - 3;
 			}
 		}
@@ -619,7 +615,7 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 
 	for (int i = 0; i < RSND_COUNT; ++i) {
 		struct IQUEUEHEAD *queue = &kcp->rsnd_lsts[i];
-		int ret = ikcp_input_handle_nack(kcp, queue, data, size, 4 + i, false);
+		int ret = ikcp_input_handle_nack(kcp, queue, 4 + i, false);
 		if (ret < 0) {
 			return ret * 0x10 - 5 - i;
 		}
@@ -627,8 +623,8 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 
 	if (1) for (struct IQUEUEHEAD *p_0 = kcp->snd_cur.next, *p = p_0, *next = p->next; p != &kcp->snd_cur; p = next, next = p->next) {
 		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
-		if (seg->wrn && seg->gid == 0 && !ikcp_input_check_nack(seg->pid, data, size, kcp)) {
-			int ret = ikcp_input_handle_send_cur_nack(kcp, seg, data, size, &next);
+		if (seg->wrn && seg->gid == 0 && !ikcp_input_check_nack(seg->pid, kcp)) {
+			int ret = ikcp_input_handle_send_cur_nack(kcp, seg, &next);
 			if (ret < 0) {
 				__atomic_store_n(&kcp->rp_output_retry, true, __ATOMIC_RELEASE);
 				return ret * 0x10 - 4;
@@ -805,7 +801,7 @@ static int ikcp_reset_send_wak(ikcpcb *kcp)
 		seg = iqueue_entry(p, IKCPSEG, node);
 		if (seg->gid_end) {
 			int ret;
-			if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, 0, 0, false)) != 0) {
+			if ((ret = ikcp_input_handle_send_wak_nack(kcp, seg, false)) != 0) {
 				return ret * 0x10 - 3;
 			}
 		}
