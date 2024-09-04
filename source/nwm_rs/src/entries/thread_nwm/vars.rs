@@ -784,17 +784,21 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     }
                 }
             } else if timeout > 0 {
-                let res = svcWaitSynchronization(reliable_stream_cb_evt, timeout);
-                if res != 0 && res != RES_TIMEOUT as s32 {
-                    nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
-                    entries::work_thread::set_reset_threads_ar();
-                    if !relock_nwm {
-                        nwm_cb_unlock();
+                if send_delay < 0 {
+                    let res = svcWaitSynchronization(reliable_stream_cb_evt, timeout);
+                    if res != 0 && res != RES_TIMEOUT as s32 {
+                        nsDbgPrint!(waitForSyncFailed, c_str!("reliable_stream_cb_evt"), res);
+                        entries::work_thread::set_reset_threads_ar();
+                        if !relock_nwm {
+                            nwm_cb_unlock();
+                        }
+                        return false;
                     }
-                    return false;
-                }
-                if res == 0 && !has_dst {
-                    retry = true;
+                    if res == 0 && !has_dst {
+                        retry = true;
+                    }
+                } else {
+                    svcSleepThread(timeout);
                 }
             }
 
