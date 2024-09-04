@@ -146,7 +146,8 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
     };
 
     let info = term_infos.get(&w);
-    let hdr = (if info.is_top { 0 } else { 1 } as u16) << (RP_KCP_HDR_QUALITY_NBITS + RP_KCP_HDR_T_NBITS)
+    let hdr = (if info.is_top { 0 } else { 1 } as u16)
+        << (RP_KCP_HDR_QUALITY_NBITS + RP_KCP_HDR_T_NBITS)
         | (info.core_count.get() as u16) << RP_KCP_HDR_QUALITY_NBITS
         | jpeg_quality as u16;
     if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {
@@ -154,16 +155,20 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
     }
 
     let core_count = get_core_count_in_use();
+    let mut sizes: RangedArray<u32, RP_CORE_COUNT_MAX> = const_default();
     for i in ThreadId::up_to(&core_count) {
-        let dst_ref = term_dsts.get_mut(&w).get_mut(&i);
-        let dst = *dst_ref;
+        let dst = *term_dsts.get_mut(&w).get_mut(&i);
         if dst == ptr::null_mut() {
             return false;
         }
 
-        let mut size: u32 = 0;
-        ptr::copy_nonoverlapping(dst.sub(mem::size_of::<u32>()) as *const _, &mut size, 1);
-        let size = size as u16;
+        ptr::copy_nonoverlapping(
+            dst.sub(mem::size_of::<u32>()) as *const _,
+            sizes.get_mut(&i),
+            1,
+        );
+        let size = *sizes.get(&i) as u16;
+
         let hdr = size
             | if i.get() == core_count.get() - 1 {
                 (info.v_last_adjusted as u16) << RP_KCP_HDR_SIZE_NBITS
@@ -173,7 +178,13 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
         if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {
             return false;
         }
-        if !copy_to_terms(dst, size as usize) {
+    }
+
+    for i in ThreadId::up_to(&core_count) {
+        let dst_ref = term_dsts.get_mut(&w).get_mut(&i);
+        let dst = *dst_ref;
+
+        if !copy_to_terms(dst, *sizes.get(&i) as usize) {
             return false;
         }
 

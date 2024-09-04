@@ -80,7 +80,7 @@ u32 mapRemoteMemoryInLoader(Handle hProcess, u32 addr, u32 size, u32 op) {
 	if (ret != 0) {
 		return ret;
 	}
-	if (outAddr != addr) {
+	if (op == MEMOP_ALLOC && outAddr != addr) {
 		showDbg("outAddr: %08"PRIx32", addr: %08"PRIx32"\n", outAddr, addr);
 		return -1;
 	}
