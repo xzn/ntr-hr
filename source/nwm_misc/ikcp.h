@@ -308,6 +308,7 @@ struct IKCPSEG
 	bool weak_data;
 	bool is_kcp_seg_data;
 	bool is_term_seg_data;
+	bool term_notify;
 	bool gid_end;
 
 	char *data_buf;
@@ -369,6 +370,7 @@ extern void ikcp_seg_data_buf_free(const char *data_buf);
 extern void rp_term_data_buf_free(const char *data_buf);
 extern void rp_seg_data_buf_free(const char *data_buf);
 extern int rp_udp_output(char *buf, int len, ikcpcb *kcp);
+extern void rp_term_notify(void);
 
 //---------------------------------------------------------------------
 // interface

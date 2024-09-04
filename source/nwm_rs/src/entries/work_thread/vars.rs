@@ -102,6 +102,10 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
         return true;
     }
 
+    if entries::thread_nwm::thread_wait_sync(term_seg_mem_sem) == None {
+        return false;
+    }
+
     let mut terms: [*mut u8; RP_CORE_COUNT_MAX as usize + 1] = const_default();
     let mut term_cur = 0;
     let mut term_size = 0;
@@ -209,6 +213,9 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
         ptr::copy_nonoverlapping(&hdr, dst as *mut _, 1);
 
         size |= 1 << 31;
+        if i == term_cur {
+            size |= 1 << 30;
+        }
         ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1);
 
         let cb = &mut *reliable_stream_cb;
@@ -230,7 +237,7 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
 
 #[named]
 pub unsafe fn rp_term_data_buf_malloc() -> Option<*mut c_char> {
-    entries::thread_nwm::thread_wait_sync(term_seg_mem_sem)?;
+    // entries::thread_nwm::thread_wait_sync(term_seg_mem_sem)?;
     entries::thread_nwm::thread_wait_sync(seg_mem_lock)?;
 
     let cb = &mut *reliable_stream_cb;
@@ -272,15 +279,25 @@ unsafe fn rp_term_data_buf_free(dst: *const ::libc::c_char) {
         return;
     }
 
-    let mut count = mem::MaybeUninit::uninit();
-    let res = svcReleaseSemaphore(count.as_mut_ptr(), term_seg_mem_sem, 1);
-    if res != 0 {
-        nsDbgPrint!(releaseSemaphoreFailed, c_str!("term_seg_mem_sem"), 0, res);
-    }
+    // let mut count = mem::MaybeUninit::uninit();
+    // let res = svcReleaseSemaphore(count.as_mut_ptr(), term_seg_mem_sem, 1);
+    // if res != 0 {
+    //     nsDbgPrint!(releaseSemaphoreFailed, c_str!("term_seg_mem_sem"), 0, res);
+    // }
 
     let res = svcReleaseMutex(seg_mem_lock);
     if res != 0 {
         nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);
+    }
+}
+
+#[named]
+#[no_mangle]
+unsafe fn rp_term_notify() {
+    let mut count = mem::MaybeUninit::uninit();
+    let res = svcReleaseSemaphore(count.as_mut_ptr(), term_seg_mem_sem, 1);
+    if res != 0 {
+        nsDbgPrint!(releaseSemaphoreFailed, c_str!("term_seg_mem_sem"), 0, res);
     }
 }
 

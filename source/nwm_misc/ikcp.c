@@ -259,7 +259,8 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 {
 	IUINT32 size = len;
 	bool term = size & (1u << 31);
-	size &= (1u << 31) - 1;
+	bool notify = size & (1u << 30);
+	size &= ~0 & ~(1u << 31) & ~(1u << 30);
 	len = size;
 
 	if (len != ARQ_DATA_SIZE) {
@@ -293,6 +294,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	seg->data_buf = buffer;
 	seg->pid = kcp->pid;
 	seg->is_term_seg_data = term;
+	seg->term_notify = notify;
 	rp_arq_bitset_set(&kcp->pid_bs, kcp->pid);
 	// nsDbgPrint("rp_arq_bitset_set for %d", (int)kcp->pid);
 	++kcp->pid;
@@ -1030,6 +1032,9 @@ static int ikcp_send_cur(ikcpcb *kcp)
 			saved_fid = seg->fid;
 		}
 #endif
+	}
+	if (seg->term_notify) {
+		rp_term_notify();
 	}
 	iqueue_add_tail(&seg->node, &kcp->snd_wak);
 	return 0;

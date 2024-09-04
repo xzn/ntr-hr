@@ -277,8 +277,10 @@ mod loop_main {
             // reduce latency somewhat
             let res = svcCreateSemaphore(
                 &mut term_seg_mem_sem,
-                (RP_CORE_COUNT_MAX + 1) as s32,
-                (RP_CORE_COUNT_MAX + 1) as s32,
+                // (RP_CORE_COUNT_MAX + 1) as s32,
+                // (RP_CORE_COUNT_MAX + 1) as s32,
+                1,
+                1,
             );
             if res != 0 {
                 nsDbgPrint!(createSemaphoreFailed, c_str!("term_seg_mem_sem"), res);
