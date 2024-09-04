@@ -203,6 +203,7 @@ mod loop_main {
     struct InitVars {
         core_count: CoreCount,
         thread_prio: u32_,
+        qos: u32_,
     }
 
     struct InitCleanup(InitVars);
@@ -259,8 +260,8 @@ mod loop_main {
 
             let res = svcCreateSemaphore(
                 &mut seg_mem_sem,
-                RP_ARQ_ENCODE_BUFS_COUNT as s32,
-                RP_ARQ_ENCODE_BUFS_COUNT as s32,
+                ((RP_ARQ_ENCODE_BUFS_COUNT * v.qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as s32,
+                ((RP_ARQ_ENCODE_BUFS_COUNT * v.qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as s32,
             );
             if res != 0 {
                 nsDbgPrint!(createSemaphoreFailed, c_str!("seg_mem_sem"), res);
@@ -351,6 +352,7 @@ mod loop_main {
         let vars = InitVars {
             core_count,
             thread_prio,
+            qos,
         };
         let jpeg = crate::entries::work_thread::get_jpeg();
         jpeg.reset(config.quality_ar(), vars.core_count);
@@ -371,7 +373,7 @@ mod loop_main {
             0,
             ptr::null_mut(),
             0,
-            RP_ARQ_BUFS_COUNT as i32,
+            ((RP_ARQ_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32,
             cb.nwm_syn_data.as_mut_ptr(),
         ) != 0
         {
