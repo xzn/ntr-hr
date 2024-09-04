@@ -230,6 +230,7 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
 
 #[named]
 pub unsafe fn rp_term_data_buf_malloc() -> Option<*mut c_char> {
+    entries::thread_nwm::thread_wait_sync(term_seg_mem_sem)?;
     entries::thread_nwm::thread_wait_sync(seg_mem_lock)?;
 
     let cb = &mut *reliable_stream_cb;
@@ -270,6 +271,13 @@ unsafe fn rp_term_data_buf_free(dst: *const ::libc::c_char) {
         }
         return;
     }
+
+    let mut count = mem::MaybeUninit::uninit();
+    let res = svcReleaseSemaphore(count.as_mut_ptr(), term_seg_mem_sem, 1);
+    if res != 0 {
+        nsDbgPrint!(releaseSemaphoreFailed, c_str!("term_seg_mem_sem"), 0, res);
+    }
+
     let res = svcReleaseMutex(seg_mem_lock);
     if res != 0 {
         nsDbgPrint!(releaseMutexFailed, c_str!("seg_mem_lock"), res);

@@ -273,6 +273,18 @@ mod loop_main {
                 return None;
             }
 
+            // HACK
+            // reduce latency somewhat
+            let res = svcCreateSemaphore(
+                &mut term_seg_mem_sem,
+                (RP_CORE_COUNT_MAX + 1) as s32,
+                (RP_CORE_COUNT_MAX + 1) as s32,
+            );
+            if res != 0 {
+                nsDbgPrint!(createSemaphoreFailed, c_str!("term_seg_mem_sem"), res);
+                return None;
+            }
+
             // let res = svcCreateSemaphore(
             //     &mut cur_seg_mem_sem,
             //     SEND_CUR_BUFS_COUNT as s32,
@@ -297,6 +309,8 @@ mod loop_main {
             unsafe {
                 // let _ = svcCloseHandle(cur_seg_mem_lock);
                 // let _ = svcCloseHandle(cur_seg_mem_sem);
+
+                let _ = svcCloseHandle(term_seg_mem_sem);
 
                 let _ = svcCloseHandle(seg_mem_lock);
                 let _ = svcCloseHandle(seg_mem_sem);
