@@ -460,7 +460,7 @@ mod loop_main {
                     Some(crate::entries::thread_aux::thread_aux),
                     2,
                     s.aux2,
-                    0x3f,
+                    RP_THREAD_PRIO_MAX as s32,
                     1,
                 )?))
             } else {
@@ -478,7 +478,7 @@ mod loop_main {
                 }),
                 0,
                 s.nwm,
-                0xc,
+                RP_THREAD_PRIO_MIN as s32,
                 -2,
             )?);
 
@@ -486,7 +486,7 @@ mod loop_main {
                 Some(crate::entries::thread_screen::thread_screen),
                 0,
                 s.screen,
-                0xc,
+                RP_THREAD_PRIO_MIN as s32,
                 2,
             )?);
 

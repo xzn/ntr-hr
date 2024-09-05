@@ -466,11 +466,11 @@ int nsStartup(void) {
 	*nsContext = (NS_CONTEXT){ 0 };
 
 	u32 listenPort = NS_MENU_LISTEN_PORT;
-	u32 affinity = 0x10;
+	u32 affinity = RP_THREAD_PRIO_MIN;
 	if (nsConfig->initMode == NS_INITMODE_FROMHOOK) {
 		listenPort = NS_HOOK_LISTEN_PORT + getCurrentProcessId();
 		if (getCurrentProcessId() != 0x1a) { // except for nwm process
-			affinity = 0x3f;
+			affinity = RP_THREAD_PRIO_MAX;
 		}
 	}
 
