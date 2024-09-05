@@ -192,9 +192,9 @@ socket_exit:
 enum ReliableStream {
 	ReliableStreamNone,
 	ReliableStreamOn,
-	ReliableStreamDelta,
+	ReliableStreamDelta, // Not implemented yet
 	ReliableStreamMin = ReliableStreamNone,
-	ReliableStreamMax = ReliableStreamDelta,
+	ReliableStreamMax = ReliableStreamOn,
 };
 
 static enum ReliableStream getReliableStreamFromFlag(int flag) {
