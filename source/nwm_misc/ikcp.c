@@ -234,7 +234,9 @@ int ikcp_create(ikcpcb* kcp, IUINT16 cid)
 	last_timing = svcGetSystemTick();
 	saved_fid = (IUINT16)-1;
 #endif
+#ifdef CHECK_PID
 	rp_arq_bitset_clear_all(&kcp->pid_bs);
+#endif
 
 	return 0;
 }
@@ -272,6 +274,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		return -4;
 	}
 
+#ifdef CHECK_PID
 	if (rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, (kcp->pid + pid_bs_offset) & ((1 << PID_NBITS) - 1), pid_bs_n)) {
 		// nsDbgPrint("rp_arq_bitset_check_n_wrapped for %d ffs %d", (int)kcp->pid, (int)rp_arq_bitset_ffs_n_wrapped(&kcp->pid_bs, (kcp->pid + pid_bs_offset) & ((1 << PID_NBITS) - 1), pid_bs_n));
 		return 1;
@@ -281,6 +284,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 		nsDbgPrint("rp_arq_bitset_check failed for %d", (int)kcp->pid);
 		return -3;
 	}
+#endif
 
 	IKCPSEG *seg = ikcp_segment_malloc(kcp);
 	if (seg == NULL) {
@@ -295,7 +299,9 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	seg->pid = kcp->pid;
 	seg->is_term_seg_data = term;
 	seg->term_notify = notify;
+#ifdef CHECK_PID
 	rp_arq_bitset_set(&kcp->pid_bs, kcp->pid);
+#endif
 	// nsDbgPrint("rp_arq_bitset_set for %d", (int)kcp->pid);
 	++kcp->pid;
 	kcp->pid &= ((1 << PID_NBITS) - 1);
@@ -387,12 +393,14 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, int
 		if (seg->recovery_data || (r && !ikcp_input_check_nack(seg->pid, kcp))) {
 			iqueue_del(&seg->node, 1);
 			if (!seg->recovery_data) {
+#ifdef CHECK_PID
 				if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
 					nsDbgPrint("rp_arq_bitset_check failed for %d", (int)seg->pid);
 					return -3;
 				}
 				// nsDbgPrint("rp_arq_bitset_clear for %d", (int)seg->pid);
 				rp_arq_bitset_clear(&kcp->pid_bs, seg->pid);
+#endif
 				// memcpy(&saved_segs[seg->pid], &seg->pid, sizeof(struct SavedSeg));
 				--kcp->n_snd;
 			}
@@ -491,6 +499,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, str
 
 		iqueue_del(&seg->node, 3);
 		if (!seg->recovery_data) {
+#ifdef CHECK_PID
 			if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
 				nsDbgPrint("rp_arq_bitset_check failed for %d fid %d fty %d gid %d wrn %d", (int)seg->pid, (int)seg->fid, (int)fty, (int)seg->gid, (int)seg->wrn);
 				// struct SavedSeg *s = &saved_segs[seg->pid];
@@ -499,6 +508,7 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, str
 			}
 			// nsDbgPrint("rp_arq_bitset_clear for %d", (int)seg->pid);
 			rp_arq_bitset_clear(&kcp->pid_bs, seg->pid);
+#endif
 			// memcpy(&saved_segs[seg->pid], &seg->pid, sizeof(struct SavedSeg));
 			--kcp->n_snd;
 		}
@@ -516,12 +526,14 @@ static int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, int g, 
 		struct IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
 		if (!ikcp_input_check_nack(seg->pid, kcp)) {
 			iqueue_del(&seg->node, g);
+#ifdef CHECK_PID
 			if (!rp_arq_bitset_check(&kcp->pid_bs, seg->pid)) {
 				nsDbgPrint("rp_arq_bitset_check failed for %d", (int)seg->pid);
 				return -5;
 			}
 			// nsDbgPrint("rp_arq_bitset_clear for %d", (int)seg->pid);
 			rp_arq_bitset_clear(&kcp->pid_bs, seg->pid);
+#endif
 			// memcpy(&saved_segs[seg->pid], &seg->pid, sizeof(struct SavedSeg));
 			--kcp->n_snd;
 			ikcp_segment_free(kcp, seg);
@@ -815,6 +827,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 {
 	struct arq_seg_iter_t iters[FEC_COUNT_MAX] = { arq_seg_iter_init(kcp), { 0 } };
 	if (!iters[0].seg) {
+#ifdef CHECK_PID
 		if (rp_arq_bitset_check_n_wrapped(&kcp->pid_bs, (kcp->pid + pid_bs_offset) & ((1 << PID_NBITS) - 1), pid_bs_n)) {
 			int ret;
 			if ((ret = ikcp_reset_send_wak(kcp)) < 0) {
@@ -822,6 +835,7 @@ static int ikcp_queue_send_cur(ikcpcb *kcp)
 			}
 			iters[0] = arq_seg_iter_init(kcp);
 		}
+#endif
 		if (!iters[0].seg)
 			return 1;
 	}

@@ -291,6 +291,8 @@ typedef struct IQUEUEHEAD iqueue_head;
 
 #define count_nbits (sizeof(IUINT16) * 8 - PID_NBITS)
 
+// #define CHECK_PID
+
 extern FecalEncoder rp_kcp_fecal_encoder;
 
 struct IKCPSEG
@@ -353,7 +355,9 @@ struct IKCPCB
 	char seg_mem[ARQ_SEG_MEM_COUNT][ARQ_SEG_SIZE] ALIGNED(sizeof(void *));
 	mp_pool_t seg_pool;
 
+#ifdef CHECK_PID
 	struct BitSet4096Mem pid_bs;
+#endif
 	u16 nacks[DIV_ROUND_UP(ARQ_PREFERRED_COUNT_MAX * 2, (1 << count_nbits))][2];
 	u16 n_nacks;
 };
