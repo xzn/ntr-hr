@@ -1049,6 +1049,7 @@ static int ikcp_send_cur(ikcpcb *kcp)
 	}
 	if (seg->term_notify) {
 		rp_term_notify();
+		seg->term_notify = false;
 	}
 	iqueue_add_tail(&seg->node, &kcp->snd_wak);
 	return 0;
