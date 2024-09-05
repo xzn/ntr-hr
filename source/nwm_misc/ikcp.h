@@ -358,7 +358,8 @@ struct IKCPCB
 #ifdef CHECK_PID
 	struct BitSet4096Mem pid_bs;
 #endif
-	u16 nacks[DIV_ROUND_UP(ARQ_PREFERRED_COUNT_MAX * 2, (1 << count_nbits))][2];
+	// Worst case every other packet is nack
+	u16 nacks[DIV_ROUND_UP(ARQ_PREFERRED_COUNT_MAX, 2)][2];
 	u16 n_nacks;
 };
 
