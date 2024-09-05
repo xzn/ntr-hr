@@ -22,5 +22,4 @@ struct rp_cb {
 	void *nwm_syn_data[SEND_BUFS_COUNT];
 };
 
-// Currently breaks reliable stream handshake; do not set to 1
-#define NWM_PROPORTIONAL_MIN_INTERVAL 0
+#define NWM_PROPORTIONAL_MIN_INTERVAL 1

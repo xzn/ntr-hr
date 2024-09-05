@@ -408,7 +408,7 @@ unsafe extern "C" fn rp_udp_output(buf: *mut u8, len: s32, kcp: *mut ikcpcb) -> 
     } else {
         0
     };
-    let next_interval = if NWM_PROPORTIONAL_MIN_INTERVAL > 0 {
+    let next_interval = if (*kcp).session_established && NWM_PROPORTIONAL_MIN_INTERVAL > 0 {
         min_send_interval_tick as s64 * len as s64 / PACKET_SIZE as s64
     } else {
         min_send_interval_tick as s64
