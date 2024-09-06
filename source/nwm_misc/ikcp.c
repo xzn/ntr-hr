@@ -605,6 +605,10 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		IUINT16 nack_start = (val >> count_nbits) & ((1 << PID_NBITS) - 1);
 		IUINT16 nack_count_0 = size == 1 ? (1 << (PID_NBITS - 2)) - 1 : val & ((1 << count_nbits) - 1);
 
+		if (kcp->n_nacks >= sizeof(kcp->nacks) / sizeof(*kcp->nacks)) {
+			return -4;
+		}
+
 		kcp->nacks[kcp->n_nacks][0] = nack_start;
 		kcp->nacks[kcp->n_nacks][1] = nack_count_0;
 		++kcp->n_nacks;
