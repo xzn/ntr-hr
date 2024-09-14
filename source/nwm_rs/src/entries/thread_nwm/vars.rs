@@ -864,6 +864,9 @@ unsafe fn kcp_thread_nwm_loop() -> bool {
                     nwm_cb_unlock();
                     return false;
                 }
+                if !(*kcp).session_established {
+                    rp_output_next_tick += min_send_interval_tick as s64 * 40;
+                }
             }
         }
 
