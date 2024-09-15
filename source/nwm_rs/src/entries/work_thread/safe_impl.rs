@@ -176,21 +176,17 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
 fn bctx_init(v: &ThreadBeginVars) -> bool {
     unsafe {
         let ctx = v.ctx();
-        let mut ret = false;
         let mut format = v.v().format();
 
         ctx.is_top = v.v().is_top();
         format &= 0xf;
-        if ctx.format != format {
-            ret = true;
-        }
         ctx.format = format;
         ctx.src = v.v().img_src();
         ctx.frame_id = v.frame_id();
 
         *ctx.should_capture.as_ptr() = false;
 
-        ret
+        get_blit_format_changed(ctx.is_top, ctx.format)
     }
 }
 

@@ -59,6 +59,17 @@ impl BlitCtx {
 
 pub type BlitCtxes = RangedArray<BlitCtx, WORK_COUNT>;
 static mut blit_ctxes: BlitCtxes = const_default();
+static mut blit_formats: RangedArray<u32_, SCREEN_COUNT> = const_default();
+
+pub unsafe fn get_blit_format_changed(is_top: bool, format: u32_) -> bool {
+    let blit_format = blit_formats.get_b_mut(if is_top { false } else { true });
+    if *blit_format == format {
+        false
+    } else {
+        *blit_format = format;
+        true
+    }
+}
 
 static mut term_dsts: RangedArray<RangedArray<*mut u8, RP_CORE_COUNT_MAX>, WORK_COUNT> =
     const_default();

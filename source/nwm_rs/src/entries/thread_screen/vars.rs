@@ -296,7 +296,7 @@ impl ScreenWorkVars {
     pub fn img_src_prev(&self) -> *const u8_ {
         unsafe {
             let iinfo = img_infos.get_b_mut(self.is_top());
-            let index = &mut ImgWorkIndex::init_unchecked(iinfo.index.load(Ordering::Acquire));
+            let mut index = ImgWorkIndex::init_unchecked(iinfo.index.load(Ordering::Acquire));
             index.prev_wrapped();
             *iinfo.bufs.get(&index)
         }
