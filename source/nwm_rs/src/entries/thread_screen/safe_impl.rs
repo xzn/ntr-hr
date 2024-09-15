@@ -186,20 +186,24 @@ unsafe fn capture_screen(is_top: bool, cap_info: &CapInfo, dst: u32, w: WorkInde
 
     let dma_conf = DmaConfig {
         channelId: -1,
-        flags: (DMACFG_WAIT_AVAILABLE | DMACFG_USE_DST_CONFIG | DMACFG_USE_SRC_CONFIG) as u8_,
+        flags: (DMACFG_WAIT_AVAILABLE | DMACFG_DST_MEMORY_CONFIG | DMACFG_SRC_MEMORY_CONFIG) as u8_,
         endianSwapSize: 0,
         _padding: 0,
-        dstCfg: DmaDeviceConfig {
+        srcDev: DmaDeviceConfig {
             deviceId: -1,
             allowedAlignments: 15,
+        },
+        dstMem: DmaMemoryConfig {
             burstSize: burst_size as s16,
             burstStride: burst_size as s16,
             transferSize: transfer_size as s16,
             transferStride: transfer_size as s16,
         },
-        srcCfg: DmaDeviceConfig {
+        dstDev: DmaDeviceConfig {
             deviceId: -1,
             allowedAlignments: 15,
+        },
+        srcMem: DmaMemoryConfig {
             burstSize: burst_size as s16,
             burstStride: burst_size as s16,
             transferSize: transfer_size as s16,
