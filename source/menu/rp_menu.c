@@ -298,9 +298,7 @@ int remotePlayMenu(u32 localaddr) {
 		xsnprintf(qualityCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Quality: %"PRId32, config.quality);
 
 		char qosCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		u32 qosMB = config.qos / 1024 / 1024;
-		u32 qosKB = config.qos / 1024 % 1024 * 125 / 128;
-		xsnprintf(qosCaption, LOCAL_OPT_TEXT_BUF_SIZE, "QoS: %"PRId32".%"PRId32" MBps", qosMB, qosKB);
+		xsnprintf(qosCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Bandwidth Limit: %"PRId32" Mbps", config.qos / 1024 / 128);
 
 		char dstAddrCaption[LOCAL_OPT_TEXT_BUF_SIZE];
 		xsnprintf(dstAddrCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Viewer IP: %d.%d.%d.%d", dstAddr4[0], dstAddr4[1], dstAddr4[2], dstAddr4[3]);
