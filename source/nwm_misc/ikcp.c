@@ -368,8 +368,11 @@ static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
 static int ikcp_input_check_nack(IUINT16 pid, ikcpcb *kcp) {
 	for (int i = 0; i < kcp->n_nacks; ++i) {
 		IUINT16 nack_start = kcp->nacks[i][0];
-		IUINT16 nack_count_0 = kcp->nacks[i][1];
 		IUINT16 pid_diff = (pid - nack_start) & ((1 << PID_NBITS) - 1);
+		if (pid_diff >= (1 << PID_NBITS) - (1 << (PID_NBITS - 2))) {
+			return 0;
+		}
+		IUINT16 nack_count_0 = kcp->nacks[i][1];
 		if (pid_diff <= nack_count_0) {
 			return -1;
 		}
