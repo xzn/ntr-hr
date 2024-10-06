@@ -8,7 +8,7 @@ pub const rp_config_u32_count: usize = mem::size_of::<RP_CONFIG>() / mem::size_o
 pub const ntr_config: *mut NTR_CONFIG =
     (NS_CONFIG_ADDR as usize + mem::offset_of!(NS_CONFIG, ntrConfig)) as *mut NTR_CONFIG;
 
-pub const JPEG_SAMP_FACTOR: c_int = 2;
+pub const JPEG_SAMP_FACTOR: c_int = crate::jpeg::vars::MAX_SAMP_FACTOR as c_int;
 pub const THREAD_WAIT_NS: s64 = NWM_THREAD_WAIT_NS as s64;
 
 mod gpu;
