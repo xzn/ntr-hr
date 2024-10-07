@@ -204,8 +204,9 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
         let i_count = *ctx.i_count.get(&t);
         let pitch = ctx.pitch();
 
-        let j_start = get_jpeg().shared.inRowsBlk * pitch as usize * i_start as usize;
-        let j_count = get_jpeg().shared.inRowsBlk * pitch as usize * i_count as usize;
+        let mcu_size = crate::jpeg::vars::DCTSIZE * get_jpeg().shared.maxVSampFactor;
+        let j_start = mcu_size * pitch as usize * i_start as usize;
+        let j_count = mcu_size * pitch as usize * i_count as usize;
         let i_count_half = J_MAX_HALF_FACTOR(i_count as u32_) as usize;
 
         let src = &slice::from_raw_parts(src, ctx.src_len() as usize)[j_start..(j_start + j_count)];

@@ -261,13 +261,19 @@ impl CompInfos {
         comp.ac_tbl_no = actbl;
     }
 
-    pub const fn setColorSpaceYCbCr(&mut self) {
+    pub const fn setColorSpaceYCbCr420(&mut self) {
         self.setComp(0, 1, 2, 2, 0, 0, 0);
         self.setComp(1, 2, 1, 1, 1, 1, 1);
         self.setComp(2, 3, 1, 1, 1, 1, 1);
     }
 
-    pub const fn setColorSpaceYCbCrNoSubsamp(&mut self) {
+    pub const fn setColorSpaceYCbCr422(&mut self) {
+        self.setComp(0, 1, 2, 1, 0, 0, 0);
+        self.setComp(1, 2, 1, 1, 1, 1, 1);
+        self.setComp(2, 3, 1, 1, 1, 1, 1);
+    }
+
+    pub const fn setColorSpaceYCbCr444(&mut self) {
         self.setComp(0, 1, 1, 1, 0, 0, 0);
         self.setComp(1, 2, 1, 1, 1, 1, 1);
         self.setComp(2, 3, 1, 1, 1, 1, 1);
@@ -663,8 +669,9 @@ pub struct JpegTbls {
     pub huffTbls: HuffTbls,
     pub entropyTbls: EntropyTbls,
     pub colorConvTbls: ColorConvTabs,
-    pub compInfosStd: CompInfos,
-    pub compInfosNoSubsamp: CompInfos,
+    pub compInfos420: CompInfos,
+    pub compInfos422: CompInfos,
+    pub compInfos444: CompInfos,
 }
 
 impl JpegTbls {
@@ -673,8 +680,9 @@ impl JpegTbls {
         tbls.huffTbls.init();
         tbls.entropyTbls.setEntropyTbls(&tbls.huffTbls);
         tbls.colorConvTbls.init();
-        tbls.compInfosStd.setColorSpaceYCbCr();
-        tbls.compInfosNoSubsamp.setColorSpaceYCbCrNoSubsamp();
+        tbls.compInfos420.setColorSpaceYCbCr420();
+        tbls.compInfos422.setColorSpaceYCbCr422();
+        tbls.compInfos444.setColorSpaceYCbCr444();
         tbls
     }
 }

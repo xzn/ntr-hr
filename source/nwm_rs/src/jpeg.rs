@@ -23,11 +23,13 @@ const fn jdiv_round_up(a: usize, b: usize) -> usize
 }
 
 impl JpegShared {
-    fn setCompInfos(&mut self, hq: bool) {
-        if hq {
-            self.compInfos = &jpegTbls.compInfosNoSubsamp;
+    fn setCompInfos(&mut self, hq: u32) {
+        if hq == 2 {
+            self.compInfos = &jpegTbls.compInfos444;
+        } else if hq == 1 {
+            self.compInfos = &jpegTbls.compInfos422;
         } else {
-            self.compInfos = &jpegTbls.compInfosStd;
+            self.compInfos = &jpegTbls.compInfos420;
         }
         self.maxHSampFactor = 1;
         self.maxVSampFactor = 1;
@@ -194,7 +196,7 @@ pub struct Jpeg {
 }
 
 impl Jpeg {
-    pub fn reset<'a>(&'a mut self, quality: u32, coreCount: CoreCount, hq: bool) {
+    pub fn reset<'a>(&'a mut self, quality: u32, coreCount: CoreCount, hq: u32) {
         self.shared.quantTbls.setQuality(quality);
         self.shared.divisors.setDivisors(&self.shared.quantTbls);
         self.shared.coreCount = coreCount;
@@ -694,7 +696,9 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         for ci in 0..MAX_COMPONENTS {
             let comp = &self.worker.shared.compInfos.infos[ci];
             let color = &mut self.worker.bufs.color[ci];
-            if comp.v_samp_factor < S as u8 {
+            if comp.v_samp_factor < self.worker.shared.maxVSampFactor as u8
+                || comp.h_samp_factor < self.worker.shared.maxHSampFactor as u8
+            {
                 color.ptr = ptr::null_mut();
             } else {
                 let output_base = output_base * S as usize;
@@ -731,6 +735,22 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         }
     }
 
+    fn h2v1_downsample(
+        input: &[u8; GSP_SCREEN_WIDTH as usize],
+        output: &mut [u8; GSP_SCREEN_WIDTH as usize],
+    ) {
+        let mut bias = 0;
+        for (input, output) in input.array_chunks::<{ MAX_SAMP_FACTOR }>().zip(output) {
+            *output = ((input[0] as u16
+                + input[1] as u16
+                + input[0] as u16
+                + input[1] as u16
+                + bias as u16)
+                >> 2) as u8;
+            bias ^= 1; /* 1=>2, 2=>1 */
+        }
+    }
+
     fn h2v2_downsample(
         input: &[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
         output: &mut [u8; GSP_SCREEN_WIDTH as usize],
@@ -753,10 +773,16 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
 
     pub fn downsample(&mut self, output_base: usize) {
         for ci in 0..MAX_COMPONENTS {
+            let comp = &self.worker.shared.compInfos.infos[ci];
             let input = &self.worker.bufs.color[ci];
             if input.ptr == ptr::null_mut() {
-                let output = &mut self.worker.bufs.prep[ci][output_base];
-                Self::h2v2_downsample(&input.buf, output);
+                if comp.v_samp_factor < self.worker.shared.maxVSampFactor as u8 {
+                    let output = &mut self.worker.bufs.prep[ci][output_base];
+                    Self::h2v2_downsample(&input.buf, output);
+                } else {
+                    let output = &mut self.worker.bufs.prep[ci][output_base];
+                    Self::h2v1_downsample(&input.buf[0], output);
+                }
             }
         }
     }
@@ -769,9 +795,10 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         }
     }
 
-    fn pre_process_no_subsamp(&mut self, src: [&[u8]; DCTSIZE]) {
+    fn pre_process_no_vsubsamp(&mut self, src: [&[u8]; DCTSIZE]) {
         for (base, chunk) in src.array_chunks::<1>().enumerate() {
             self.color_convert(chunk, base);
+            self.downsample(base);
         }
     }
 
@@ -1130,7 +1157,7 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
 
         self.reset_mcu();
 
-        if self.worker.shared.inRowsBlk == in_rows_blk {
+        if self.worker.shared.maxVSampFactor == MAX_SAMP_FACTOR {
             let src_chunks = src.chunks_exact(pitch).array_chunks::<in_rows_blk>();
             for chunks in src_chunks {
                 /* Pre-process */
@@ -1149,10 +1176,10 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
 
                 progress();
             }
-        } else if self.worker.shared.inRowsBlk == DCTSIZE {
+        } else {
             let src_chunks = src.chunks_exact(pitch).array_chunks::<DCTSIZE>();
             for chunk in src_chunks {
-                self.pre_process_no_subsamp(chunk);
+                self.pre_process_no_vsubsamp(chunk);
 
                 pre_progress();
 

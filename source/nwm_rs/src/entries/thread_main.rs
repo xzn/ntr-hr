@@ -373,9 +373,9 @@ mod loop_main {
         let jpeg = crate::entries::work_thread::get_jpeg();
         let quality = config.quality_ar();
         jpeg.reset(
-            quality & ((1 << 7) - 1),
+            quality & ((1 << RP_KCP_HDR_QUALITY_NBITS) - 1),
             vars.core_count,
-            quality & (1 << 7) != 0,
+            (quality >> RP_KCP_HDR_QUALITY_NBITS) & ((1 << RP_KCP_HDR_CHROMASS_NBITS) - 1),
         );
 
         let cb = &mut *reliable_stream_cb;
