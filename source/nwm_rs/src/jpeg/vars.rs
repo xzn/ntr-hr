@@ -177,9 +177,9 @@ impl ColorConvTabs {
              */
             self.rgb_ycc_tab[i + B_CB_OFF] =
                 ((FIX(0.50000) * i as isize) + CBCR_OFFSET + ONE_HALF - 1) as i32;
-            /*  B=>Cb and R=>Cr tables are the same
-                rgb_ycc_tab[i + R_CR_OFF] = FIX(0.50000) * i  + CBCR_OFFSET + ONE_HALF - 1;
-            */
+            /* B=>Cb and R=>Cr tables are the same
+             * rgb_ycc_tab[i + R_CR_OFF] = FIX(0.50000) * i + CBCR_OFFSET + ONE_HALF - 1;
+             */
             self.rgb_ycc_tab[i + G_CR_OFF] = ((-FIX(0.41869)) * i as isize) as i32;
             self.rgb_ycc_tab[i + B_CR_OFF] = ((-FIX(0.08131)) * i as isize) as i32;
 
@@ -263,6 +263,12 @@ impl CompInfos {
 
     pub const fn setColorSpaceYCbCr(&mut self) {
         self.setComp(0, 1, 2, 2, 0, 0, 0);
+        self.setComp(1, 2, 1, 1, 1, 1, 1);
+        self.setComp(2, 3, 1, 1, 1, 1, 1);
+    }
+
+    pub const fn setColorSpaceYCbCrNoSubsamp(&mut self) {
+        self.setComp(0, 1, 1, 1, 0, 0, 0);
         self.setComp(1, 2, 1, 1, 1, 1, 1);
         self.setComp(2, 3, 1, 1, 1, 1, 1);
     }
@@ -600,7 +606,7 @@ pub const MAX_BLOCKS_IN_MCU: usize = MAX_SAMP_FACTOR * MAX_SAMP_FACTOR + 1 + 1;
 
 pub struct WorkerColorBuf {
     pub buf: [[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
-    pub ptr: *mut [[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
+    pub ptr: *mut u8,
 }
 
 #[derive(ConstDefault)]
@@ -651,24 +657,14 @@ pub const jpeg_natural_order: [u8; DCTSIZE2] = [
 ];
 
 pub const in_rows_blk: usize = DCTSIZE * MAX_SAMP_FACTOR;
-pub const in_rows_blk_half: usize = in_rows_blk / 2;
-
-const fn jdiv_round_up(a: u32, b: u32) -> u32
-/* Compute a/b rounded up to next integer, ie, ceil(a/b) */
-/* Assumes a >= 0, b > 0 */
-{
-    (a + b - 1) / b
-}
-
-pub const MCUs_per_row: u16 =
-    jdiv_round_up(GSP_SCREEN_WIDTH as u32, (MAX_SAMP_FACTOR * DCTSIZE) as u32) as u16;
 
 #[derive(ConstDefault)]
 pub struct JpegTbls {
     pub huffTbls: HuffTbls,
     pub entropyTbls: EntropyTbls,
     pub colorConvTbls: ColorConvTabs,
-    pub compInfos: CompInfos,
+    pub compInfosStd: CompInfos,
+    pub compInfosNoSubsamp: CompInfos,
 }
 
 impl JpegTbls {
@@ -677,7 +673,8 @@ impl JpegTbls {
         tbls.huffTbls.init();
         tbls.entropyTbls.setEntropyTbls(&tbls.huffTbls);
         tbls.colorConvTbls.init();
-        tbls.compInfos.setColorSpaceYCbCr();
+        tbls.compInfosStd.setColorSpaceYCbCr();
+        tbls.compInfosNoSubsamp.setColorSpaceYCbCrNoSubsamp();
         tbls
     }
 }

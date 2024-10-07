@@ -94,6 +94,9 @@ const last_row_last_n_range: u32_ = 10;
 fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
     unsafe {
         let ctx = v.ctx();
+        if ctx.width() != GSP_SCREEN_WIDTH {
+            return false;
+        }
         let w = v.v().work_index();
 
         let core_count = get_core_count_in_use();
@@ -102,8 +105,9 @@ fn ready_work(v: &ThreadBeginVars, t: &ThreadId) -> bool {
 
         let l = v.last_row_last_n();
 
-        let mcu_size = crate::jpeg::vars::DCTSIZE as u32_ * JPEG_SAMP_FACTOR as u32_;
-        let mcus_per_row = ctx.width() / mcu_size;
+        let mcu_size =
+            crate::jpeg::vars::DCTSIZE as u32_ * get_jpeg().shared.maxVSampFactor as u32_;
+        let mcus_per_row = get_jpeg().shared.mcusPerRow as u32_;
         let mcu_rows = ctx.height() / mcu_size;
         let mcu_rows_per_thread =
             core::intrinsics::unchecked_div(mcu_rows + core_count.get() - 1, core_count.get());
@@ -200,8 +204,8 @@ fn do_send_frame(t: &ThreadId, vars: &ThreadDoVars) -> bool {
         let i_count = *ctx.i_count.get(&t);
         let pitch = ctx.pitch();
 
-        let j_start = crate::jpeg::vars::in_rows_blk * pitch as usize * i_start as usize;
-        let j_count = crate::jpeg::vars::in_rows_blk * pitch as usize * i_count as usize;
+        let j_start = get_jpeg().shared.inRowsBlk * pitch as usize * i_start as usize;
+        let j_count = get_jpeg().shared.inRowsBlk * pitch as usize * i_count as usize;
         let i_count_half = J_MAX_HALF_FACTOR(i_count as u32_) as usize;
 
         let src = &slice::from_raw_parts(src, ctx.src_len() as usize)[j_start..(j_start + j_count)];

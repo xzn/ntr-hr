@@ -371,7 +371,12 @@ mod loop_main {
             qos,
         };
         let jpeg = crate::entries::work_thread::get_jpeg();
-        jpeg.reset(config.quality_ar(), vars.core_count);
+        let quality = config.quality_ar();
+        jpeg.reset(
+            quality & ((1 << 7) - 1),
+            vars.core_count,
+            quality & (1 << 7) != 0,
+        );
 
         let cb = &mut *reliable_stream_cb;
         if mp_init(

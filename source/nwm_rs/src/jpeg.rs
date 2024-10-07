@@ -7,6 +7,49 @@ pub struct JpegShared {
     quantTbls: QuantTbls,
     divisors: Divisors,
     coreCount: CoreCount,
+    compInfos: &'static CompInfos,
+    pub maxHSampFactor: usize,
+    pub maxVSampFactor: usize,
+    pub maxBlocksInMcu: usize,
+    pub inRowsBlk: usize,
+    pub mcusPerRow: usize,
+}
+
+const fn jdiv_round_up(a: usize, b: usize) -> usize
+/* Compute a/b rounded up to next integer, ie, ceil(a/b) */
+/* Assumes a >= 0, b > 0 */
+{
+    (a + b - 1) / b
+}
+
+impl JpegShared {
+    fn setCompInfos(&mut self, hq: bool) {
+        if hq {
+            self.compInfos = &jpegTbls.compInfosNoSubsamp;
+        } else {
+            self.compInfos = &jpegTbls.compInfosStd;
+        }
+        self.maxHSampFactor = 1;
+        self.maxVSampFactor = 1;
+        self.maxBlocksInMcu = 0;
+        for i in 0..MAX_COMPONENTS {
+            self.maxHSampFactor = cmp::max(
+                self.maxHSampFactor,
+                self.compInfos.infos[i].h_samp_factor as usize,
+            );
+            self.maxVSampFactor = cmp::max(
+                self.maxVSampFactor,
+                self.compInfos.infos[i].v_samp_factor as usize,
+            );
+            self.maxBlocksInMcu += self.compInfos.infos[i].h_samp_factor as usize
+                * self.compInfos.infos[i].v_samp_factor as usize;
+        }
+        if self.maxBlocksInMcu > MAX_BLOCKS_IN_MCU {
+            panic!();
+        }
+        self.inRowsBlk = DCTSIZE * self.maxHSampFactor;
+        self.mcusPerRow = jdiv_round_up(GSP_SCREEN_WIDTH as usize, self.inRowsBlk);
+    }
 }
 
 #[derive(Copy, Clone, ConstDefault)]
@@ -145,16 +188,17 @@ pub struct JpegEncode<'a, 'c, const RS: bool> {
 
 #[derive(ConstDefault)]
 pub struct Jpeg {
-    shared: JpegShared,
+    pub shared: JpegShared,
     bufs: [WorkerBufs; RP_CORE_COUNT_MAX as usize],
     info: [CInfo; WORK_COUNT as usize],
 }
 
 impl Jpeg {
-    pub fn reset<'a>(&'a mut self, quality: u32, coreCount: CoreCount) {
+    pub fn reset<'a>(&'a mut self, quality: u32, coreCount: CoreCount, hq: bool) {
         self.shared.quantTbls.setQuality(quality);
         self.shared.divisors.setDivisors(&self.shared.quantTbls);
         self.shared.coreCount = coreCount;
+        self.shared.setCompInfos(hq);
     }
 
     pub fn setInfo(&mut self, info: CInfo) {
@@ -205,24 +249,24 @@ fn cconvert<const R: usize, const G: usize, const B: usize, const P: usize, cons
     let output0 = if output0.ptr == ptr::null_mut() {
         &mut output0.buf
     } else {
-        output0.ptr
+        unsafe { slice::from_raw_parts_mut(output0.ptr as *mut [u8; GSP_SCREEN_WIDTH as usize], N) }
     };
     let output1 = if output1.ptr == ptr::null_mut() {
         &mut output1.buf
     } else {
-        output1.ptr
+        unsafe { slice::from_raw_parts_mut(output1.ptr as *mut [u8; GSP_SCREEN_WIDTH as usize], N) }
     };
     let output2 = if output2.ptr == ptr::null_mut() {
         &mut output2.buf
     } else {
-        output2.ptr
+        unsafe { slice::from_raw_parts_mut(output2.ptr as *mut [u8; GSP_SCREEN_WIDTH as usize], N) }
     };
     for i in 0..N {
         let input: &[u8; GSP_SCREEN_WIDTH as usize * P] = input[i].try_into().unwrap();
 
-        let output0 = unsafe { &mut (*output0)[i] };
-        let output1 = unsafe { &mut (*output1)[i] };
-        let output2 = unsafe { &mut (*output2)[i] };
+        let output0 = unsafe { &mut output0.get_unchecked_mut(i) };
+        let output1 = unsafe { &mut output1.get_unchecked_mut(i) };
+        let output2 = unsafe { &mut output2.get_unchecked_mut(i) };
 
         for (((input, output0), output1), output2) in input
             .array_chunks::<P>()
@@ -252,24 +296,24 @@ fn cconvert2<const N: usize, F>(
     let output0 = if output0.ptr == ptr::null_mut() {
         &mut output0.buf
     } else {
-        output0.ptr
+        unsafe { slice::from_raw_parts_mut(output0.ptr as *mut [u8; GSP_SCREEN_WIDTH as usize], N) }
     };
     let output1 = if output1.ptr == ptr::null_mut() {
         &mut output1.buf
     } else {
-        output1.ptr
+        unsafe { slice::from_raw_parts_mut(output1.ptr as *mut [u8; GSP_SCREEN_WIDTH as usize], N) }
     };
     let output2 = if output2.ptr == ptr::null_mut() {
         &mut output2.buf
     } else {
-        output2.ptr
+        unsafe { slice::from_raw_parts_mut(output2.ptr as *mut [u8; GSP_SCREEN_WIDTH as usize], N) }
     };
     for i in 0..N {
         let input: &[u8; GSP_SCREEN_WIDTH as usize * 2] = input[i].try_into().unwrap();
 
-        let output0 = unsafe { &mut (*output0)[i] };
-        let output1 = unsafe { &mut (*output1)[i] };
-        let output2 = unsafe { &mut (*output2)[i] };
+        let output0 = unsafe { &mut output0.get_unchecked_mut(i) };
+        let output1 = unsafe { &mut output1.get_unchecked_mut(i) };
+        let output2 = unsafe { &mut output2.get_unchecked_mut(i) };
 
         for (((input, output0), output1), output2) in input
             .array_chunks::<2>()
@@ -526,7 +570,7 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
 
         self.write_byte(MAX_COMPONENTS as u8);
 
-        for info in &jpegTbls.compInfos.infos {
+        for info in &self.worker.shared.compInfos.infos {
             self.write_byte(info.component_id);
             self.write_byte((info.h_samp_factor << 4) + info.v_samp_factor);
             self.write_byte(info.quant_tbl_no);
@@ -584,7 +628,7 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         self.write_byte(MAX_COMPONENTS as u8);
 
         for i in 0..MAX_COMPONENTS {
-            let comp = &jpegTbls.compInfos.infos[i];
+            let comp = &self.worker.shared.compInfos.infos[i];
             self.write_byte(comp.component_id);
 
             /* We emit 0 for unused field(s); this is recommended by the P&M text
@@ -646,40 +690,38 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         }
     }
 
-    pub fn color_convert(&mut self, input: &[&[u8]; MAX_SAMP_FACTOR], output_base: usize) {
+    pub fn color_convert<const S: usize>(&mut self, input: &[&[u8]; S], output_base: usize) {
         for ci in 0..MAX_COMPONENTS {
-            let comp = &jpegTbls.compInfos.infos[ci];
+            let comp = &self.worker.shared.compInfos.infos[ci];
             let color = &mut self.worker.bufs.color[ci];
-            if comp.v_samp_factor < MAX_SAMP_FACTOR as u8 {
+            if comp.v_samp_factor < S as u8 {
                 color.ptr = ptr::null_mut();
             } else {
-                let output_base = output_base * MAX_SAMP_FACTOR as usize;
-                let output_step = MAX_SAMP_FACTOR;
-                let output: &mut [[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR] =
-                    (&mut self.worker.bufs.prep[ci][output_base..output_base + output_step])
-                        .try_into()
-                        .unwrap();
+                let output_base = output_base * S as usize;
+                let output_step = S;
+                let output: &mut u8 =
+                    &mut self.worker.bufs.prep[ci][output_base..output_base + output_step][0][0];
                 color.ptr = output;
             }
         }
         match self.worker.info.colorSpace {
-            ColorSpace::XBGR => cconvert::<3, 2, 1, 4, { MAX_SAMP_FACTOR }>(
+            ColorSpace::XBGR => cconvert::<3, 2, 1, 4, { S }>(
                 input,
                 &mut self.worker.bufs.color,
                 &jpegTbls.colorConvTbls.rgb_ycc_tab,
             ),
-            ColorSpace::BGR => cconvert::<2, 1, 0, 3, { MAX_SAMP_FACTOR }>(
+            ColorSpace::BGR => cconvert::<2, 1, 0, 3, { S }>(
                 input,
                 &mut self.worker.bufs.color,
                 &jpegTbls.colorConvTbls.rgb_ycc_tab,
             ),
-            ColorSpace::RGB565 => cconvert2::<{ MAX_SAMP_FACTOR }, _>(
+            ColorSpace::RGB565 => cconvert2::<{ S }, _>(
                 input,
                 rgb565_comps,
                 &mut self.worker.bufs.color,
                 &jpegTbls.colorConvTbls,
             ),
-            ColorSpace::RGB5A1 => cconvert2::<{ MAX_SAMP_FACTOR }, _>(
+            ColorSpace::RGB5A1 => cconvert2::<{ S }, _>(
                 input,
                 rgb5a1_comps,
                 &mut self.worker.bufs.color,
@@ -719,11 +761,17 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         }
     }
 
-    fn pre_process(&mut self, src: [&[u8]; in_rows_blk_half], which_half: bool) {
+    fn pre_process(&mut self, src: [&[u8]; DCTSIZE], which_half: bool) {
         for (base, chunk) in src.array_chunks::<{ MAX_SAMP_FACTOR }>().enumerate() {
             let output_base = if which_half { base + DCTSIZE / 2 } else { base };
             self.color_convert(chunk, output_base);
             self.downsample(output_base);
+        }
+    }
+
+    fn pre_process_no_subsamp(&mut self, src: [&[u8]; DCTSIZE]) {
+        for (base, chunk) in src.array_chunks::<1>().enumerate() {
+            self.color_convert(chunk, base);
         }
     }
 
@@ -886,20 +934,20 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         Self::quantize(output, divisors);
     }
 
-    fn compress(&mut self, MCU_col_num: u16) {
+    fn compress(&mut self, MCU_col_num: usize) {
         let mut blkn = 0;
 
-        if MCU_col_num > MCUs_per_row {
+        if MCU_col_num > self.worker.shared.mcusPerRow {
             panic!();
         }
 
         for ci in 0..MAX_COMPONENTS {
-            let comp = &jpegTbls.compInfos.infos[ci];
+            let comp = &self.worker.shared.compInfos.infos[ci];
             let MCU_width = comp.h_samp_factor;
             let MCU_height = comp.v_samp_factor;
 
             let MCU_sample_width = MCU_width as u16 * DCTSIZE as u16;
-            let xpos = MCU_col_num * MCU_sample_width;
+            let xpos = MCU_col_num as u16 * MCU_sample_width;
             let mut ypos = 0;
 
             for _ in 0..MCU_height {
@@ -996,7 +1044,7 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         let mut blkn = 0;
 
         for ci in 0..MAX_COMPONENTS {
-            let comp = &jpegTbls.compInfos.infos[ci];
+            let comp = &self.worker.shared.compInfos.infos[ci];
             let MCU_width = comp.h_samp_factor;
             let MCU_height = comp.v_samp_factor;
 
@@ -1060,7 +1108,7 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
     }
 
     fn process(&mut self) {
-        for MCU_col_num in 0..MCUs_per_row {
+        for MCU_col_num in 0..self.worker.shared.mcusPerRow {
             self.compress(MCU_col_num);
             self.encode_mcu();
         }
@@ -1074,8 +1122,6 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         let bpp = self.get_bpp_for_format();
         let pitch = GSP_SCREEN_WIDTH as usize * bpp as usize;
 
-        let src_chunks = src.chunks_exact(pitch).array_chunks::<in_rows_blk>();
-
         pre_progress();
 
         if !RS && self.worker.threadId.get() == 0 {
@@ -1083,22 +1129,38 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         }
 
         self.reset_mcu();
-        for chunks in src_chunks {
-            /* Pre-process */
-            let mut chunks = chunks.array_chunks::<in_rows_blk_half>();
 
-            let chunk0 = chunks.next().unwrap();
-            self.pre_process(*chunk0, false);
+        if self.worker.shared.inRowsBlk == in_rows_blk {
+            let src_chunks = src.chunks_exact(pitch).array_chunks::<in_rows_blk>();
+            for chunks in src_chunks {
+                /* Pre-process */
+                let mut chunks = chunks.array_chunks::<{ in_rows_blk / 2 }>();
 
-            let chunk1 = chunks.next().unwrap();
-            self.pre_process(*chunk1, true);
+                let chunk0 = chunks.next().unwrap();
+                self.pre_process(*chunk0, false);
 
-            pre_progress();
+                let chunk1 = chunks.next().unwrap();
+                self.pre_process(*chunk1, true);
 
-            /* Compress and encode */
-            self.process();
+                pre_progress();
 
-            progress();
+                /* Compress and encode */
+                self.process();
+
+                progress();
+            }
+        } else if self.worker.shared.inRowsBlk == DCTSIZE {
+            let src_chunks = src.chunks_exact(pitch).array_chunks::<DCTSIZE>();
+            for chunk in src_chunks {
+                self.pre_process_no_subsamp(chunk);
+
+                pre_progress();
+
+                /* Compress and encode */
+                self.process();
+
+                progress();
+            }
         }
         self.flush_mcu();
 
