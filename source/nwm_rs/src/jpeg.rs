@@ -196,17 +196,33 @@ fn pconvert(r: u8, g: u8, b: u8, y: &mut u8, cb: &mut u8, cr: &mut u8, ctab: &[i
 
 fn cconvert<const R: usize, const G: usize, const B: usize, const P: usize, const N: usize>(
     input: &[&[u8]; N],
-    output: &mut [[[u8; GSP_SCREEN_WIDTH as usize]; N]; MAX_COMPONENTS],
+    output: &mut [WorkerColorBuf; MAX_COMPONENTS],
     tab: &[i32; TABLE_SIZE],
 ) where
     [(); GSP_SCREEN_WIDTH as usize * P]:,
 {
+    let [output0, output1, output2] = output;
+    let output0 = if output0.ptr == ptr::null_mut() {
+        &mut output0.buf
+    } else {
+        output0.ptr
+    };
+    let output1 = if output1.ptr == ptr::null_mut() {
+        &mut output1.buf
+    } else {
+        output1.ptr
+    };
+    let output2 = if output2.ptr == ptr::null_mut() {
+        &mut output2.buf
+    } else {
+        output2.ptr
+    };
     for i in 0..N {
         let input: &[u8; GSP_SCREEN_WIDTH as usize * P] = input[i].try_into().unwrap();
-        let [output0, output1, output2] = output;
-        let output0 = &mut output0[i];
-        let output1 = &mut output1[i];
-        let output2 = &mut output2[i];
+
+        let output0 = unsafe { &mut (*output0)[i] };
+        let output1 = unsafe { &mut (*output1)[i] };
+        let output2 = unsafe { &mut (*output2)[i] };
 
         for (((input, output0), output1), output2) in input
             .array_chunks::<P>()
@@ -226,18 +242,34 @@ fn cconvert<const R: usize, const G: usize, const B: usize, const P: usize, cons
 fn cconvert2<const N: usize, F>(
     input: &[&[u8]; N],
     comps: F,
-    output: &mut [[[u8; GSP_SCREEN_WIDTH as usize]; N]; MAX_COMPONENTS],
+    output: &mut [WorkerColorBuf; MAX_COMPONENTS],
     tab: &ColorConvTabs,
 ) where
     F: Fn(u16, &ColorConvTabs) -> (u8, u8, u8),
     [(); GSP_SCREEN_WIDTH as usize * 2]:,
 {
+    let [output0, output1, output2] = output;
+    let output0 = if output0.ptr == ptr::null_mut() {
+        &mut output0.buf
+    } else {
+        output0.ptr
+    };
+    let output1 = if output1.ptr == ptr::null_mut() {
+        &mut output1.buf
+    } else {
+        output1.ptr
+    };
+    let output2 = if output2.ptr == ptr::null_mut() {
+        &mut output2.buf
+    } else {
+        output2.ptr
+    };
     for i in 0..N {
         let input: &[u8; GSP_SCREEN_WIDTH as usize * 2] = input[i].try_into().unwrap();
-        let [output0, output1, output2] = output;
-        let output0 = &mut output0[i];
-        let output1 = &mut output1[i];
-        let output2 = &mut output2[i];
+
+        let output0 = unsafe { &mut (*output0)[i] };
+        let output1 = unsafe { &mut (*output1)[i] };
+        let output2 = unsafe { &mut (*output2)[i] };
 
         for (((input, output0), output1), output2) in input
             .array_chunks::<2>()
@@ -614,7 +646,22 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         }
     }
 
-    pub fn color_convert(&mut self, input: &[&[u8]; MAX_SAMP_FACTOR]) {
+    pub fn color_convert(&mut self, input: &[&[u8]; MAX_SAMP_FACTOR], output_base: usize) {
+        for ci in 0..MAX_COMPONENTS {
+            let comp = &jpegTbls.compInfos.infos[ci];
+            let color = &mut self.worker.bufs.color[ci];
+            if comp.v_samp_factor < MAX_SAMP_FACTOR as u8 {
+                color.ptr = ptr::null_mut();
+            } else {
+                let output_base = output_base * MAX_SAMP_FACTOR as usize;
+                let output_step = MAX_SAMP_FACTOR;
+                let output: &mut [[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR] =
+                    (&mut self.worker.bufs.prep[ci][output_base..output_base + output_step])
+                        .try_into()
+                        .unwrap();
+                color.ptr = output;
+            }
+        }
         match self.worker.info.colorSpace {
             ColorSpace::XBGR => cconvert::<3, 2, 1, 4, { MAX_SAMP_FACTOR }>(
                 input,
@@ -642,13 +689,6 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         }
     }
 
-    fn fullsize_downsample(
-        input: &[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
-        output: &mut [[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
-    ) {
-        *output = *input;
-    }
-
     fn h2v2_downsample(
         input: &[[u8; GSP_SCREEN_WIDTH as usize]; MAX_SAMP_FACTOR],
         output: &mut [u8; GSP_SCREEN_WIDTH as usize],
@@ -670,23 +710,20 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
     }
 
     pub fn downsample(&mut self, output_base: usize) {
-        for (ci, comp) in (&jpegTbls.compInfos.infos).into_iter().enumerate() {
-            let output_base = output_base * comp.v_samp_factor as usize;
-            let output_step = comp.v_samp_factor as usize;
+        for ci in 0..MAX_COMPONENTS {
             let input = &self.worker.bufs.color[ci];
-            let output = &mut self.worker.bufs.prep[ci][output_base..output_base + output_step];
-            if comp.v_samp_factor < MAX_SAMP_FACTOR as u8 {
-                Self::h2v2_downsample(input, &mut output[0]);
-            } else {
-                Self::fullsize_downsample(input, output.try_into().unwrap());
+            if input.ptr == ptr::null_mut() {
+                let output = &mut self.worker.bufs.prep[ci][output_base];
+                Self::h2v2_downsample(&input.buf, output);
             }
         }
     }
 
     fn pre_process(&mut self, src: [&[u8]; in_rows_blk_half], which_half: bool) {
         for (base, chunk) in src.array_chunks::<{ MAX_SAMP_FACTOR }>().enumerate() {
-            self.color_convert(chunk);
-            self.downsample(if which_half { base + DCTSIZE / 2 } else { base });
+            let output_base = if which_half { base + DCTSIZE / 2 } else { base };
+            self.color_convert(chunk, output_base);
+            self.downsample(output_base);
         }
     }
 
