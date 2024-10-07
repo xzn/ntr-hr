@@ -11,15 +11,23 @@
 static u32 rpStarted;
 
 enum {
-	REMOTE_PLAY_MENU_CORE_COUNT,
-	REMOTE_PLAY_MENU_THREAD_PRIORITY,
+	REMOTE_PLAY_ADVMENU_CORE_COUNT,
+	REMOTE_PLAY_ADVMENU_THREAD_PRIORITY,
+	REMOTE_PLAY_ADVMENU_CHROMA_SUBSAMP,
+	REMOTE_PLAY_ADVMENU_BACK,
+
+	REMOTE_PLAY_ADVMENU_COUNT,
+};
+
+enum {
+	REMOTE_PLAY_MENU_QUALITY,
 	REMOTE_PLAY_MENU_PRIORITY_SCREEN,
 	REMOTE_PLAY_MENU_PRIORITY_FACTOR,
-	REMOTE_PLAY_MENU_QUALITY,
 	REMOTE_PLAY_MENU_QOS,
 	REMOTE_PLAY_MENU_VIEWER_IP,
 	REMOTE_PLAY_MENU_VIEWER_PORT,
 	REMOTE_PLAY_MENU_RELIABLE_STREAM,
+	REMOTE_PLAY_MENU_ADV,
 
 	REMOTE_PLAY_MENU_APPLY,
 
@@ -245,6 +253,114 @@ static const char *getReliableStreamDesc(enum ReliableStream reliableStream) {
     }
 }
 
+static const char *getChromaSSName(int i) {
+	switch (i) {
+		default:
+		case RP_CHROMASS_420:
+			return "On";
+		case RP_CHROMASS_422:
+			return "Half";
+		case RP_CHROMASS_444:
+			return "Off";
+	}
+}
+
+static const char *getChromaSSDesc(int i) {
+	switch (i) {
+		default:
+		case RP_CHROMASS_420:
+			return "On: YUV420 (Default) (Fastest)";
+		case RP_CHROMASS_422:
+			return "Half: YUV422";
+		case RP_CHROMASS_444:
+			return "Off: YUV444 (No chroma subsampling)\nBest quality.";
+	}
+}
+
+static int remotePlayAdvMenu(RP_CONFIG *config) {
+	u32 select = 0;
+
+	while (1) {
+		char coreCountCaption[LOCAL_OPT_TEXT_BUF_SIZE];
+		xsnprintf(coreCountCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Number of Encoding Cores: %"PRId32, config->coreCount);
+
+		char encoderPriorityCaption[LOCAL_OPT_TEXT_BUF_SIZE];
+		xsnprintf(encoderPriorityCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Encoder Priority: %"PRId32, config->threadPriority);
+
+		char chromaSSCaption[LOCAL_OPT_TEXT_BUF_SIZE];
+		xsnprintf(chromaSSCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Chroma Subsampling: %s", getChromaSSName(config->chromaSs));
+
+		const char *captions[REMOTE_PLAY_ADVMENU_COUNT];
+
+		captions[REMOTE_PLAY_ADVMENU_CORE_COUNT] = coreCountCaption,
+		captions[REMOTE_PLAY_ADVMENU_THREAD_PRIORITY] = encoderPriorityCaption;
+		captions[REMOTE_PLAY_ADVMENU_CHROMA_SUBSAMP] = chromaSSCaption;
+		captions[REMOTE_PLAY_ADVMENU_BACK] = "Back";
+
+		const char *descs[REMOTE_PLAY_ADVMENU_COUNT] = { 0 };
+
+		descs[REMOTE_PLAY_ADVMENU_THREAD_PRIORITY] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
+		descs[REMOTE_PLAY_ADVMENU_CHROMA_SUBSAMP] = getChromaSSDesc(config->chromaSs);
+
+		u32 keys;
+		select = showMenuEx2("Remote Play (Advanced Options)", REMOTE_PLAY_ADVMENU_COUNT, captions, descs, select, &keys);
+
+		if (keys == KEY_B) {
+			return 0;
+		}
+
+		switch (select) {
+			case REMOTE_PLAY_ADVMENU_CORE_COUNT: { /* core count */
+				int coreCount = config->coreCount;
+				if (keys == KEY_X)
+					coreCount = rpConfig->coreCount;
+				else
+					menu_adjust_value_with_key(&coreCount, keys, 1, 1);
+
+				coreCount = CLAMP(coreCount, RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX);
+
+				if (coreCount != (int)config->coreCount) {
+					config->coreCount = coreCount;
+				}
+				break;
+			}
+
+			case REMOTE_PLAY_ADVMENU_THREAD_PRIORITY: { /* encoder priority */
+				int threadPriority = config->threadPriority;
+				if (keys == KEY_X)
+					threadPriority = rpConfig->threadPriority;
+				else
+					menu_adjust_value_with_key(&threadPriority, keys, 5, 10);
+
+				threadPriority = CLAMP(threadPriority, RP_THREAD_PRIO_MIN, RP_THREAD_PRIO_MAX);
+
+				if (threadPriority != (int)config->threadPriority) {
+					config->threadPriority = threadPriority;
+				}
+				break;
+			}
+
+			case REMOTE_PLAY_ADVMENU_CHROMA_SUBSAMP: { /* chroma subsample */
+				int chromaSs = config->chromaSs;
+				if (keys == KEY_X)
+					chromaSs = rpConfig->chromaSs;
+				else
+					menu_adjust_value_with_key(&chromaSs, keys, 1, 1);
+
+				chromaSs = CWRAP(chromaSs, RP_CHROMASS_MIN, RP_CHROMASS_MAX);
+
+				if (chromaSs != (int)config->chromaSs) {
+					config->chromaSs = chromaSs;
+				}
+			}
+
+			case REMOTE_PLAY_ADVMENU_BACK: if (keys == KEY_A) { /* back */
+				return 0;
+			}
+		}
+	}
+}
+
 int remotePlayMenu(u32 localaddr) {
 	if (!ntrConfig->isNew3DS) {
 		showDbg("Remote Play is available on New 3DS only.");
@@ -282,12 +398,6 @@ int remotePlayMenu(u32 localaddr) {
 			titleCurrent = titleNotStarted;
 		}
 
-		char coreCountCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		xsnprintf(coreCountCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Number of Encoding Cores: %"PRId32, config.coreCount);
-
-		char encoderPriorityCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		xsnprintf(encoderPriorityCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Encoder Priority: %"PRId32, config.threadPriority);
-
 		char priorityScreenCaption[LOCAL_OPT_TEXT_BUF_SIZE];
 		xsnprintf(priorityScreenCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Priority Screen: %s", (config.mode & 0xff00) == 0 ? "Bottom" : "Top");
 
@@ -311,8 +421,6 @@ int remotePlayMenu(u32 localaddr) {
 		xsnprintf(reliableStreamCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Reliable Stream: %s", getReliableStreamName(reliableStream));
 
 		const char *captions[REMOTE_PLAY_MENU_COUNT];
-		captions[REMOTE_PLAY_MENU_CORE_COUNT] = coreCountCaption,
-		captions[REMOTE_PLAY_MENU_THREAD_PRIORITY] = encoderPriorityCaption;
 		captions[REMOTE_PLAY_MENU_PRIORITY_SCREEN] = priorityScreenCaption;
 		captions[REMOTE_PLAY_MENU_PRIORITY_FACTOR] = priorityFactorCaption;
 		captions[REMOTE_PLAY_MENU_QUALITY] = qualityCaption;
@@ -320,10 +428,10 @@ int remotePlayMenu(u32 localaddr) {
 		captions[REMOTE_PLAY_MENU_VIEWER_IP] = dstAddrCaption;
 		captions[REMOTE_PLAY_MENU_VIEWER_PORT] = dstPortCaption;
 		captions[REMOTE_PLAY_MENU_RELIABLE_STREAM] = reliableStreamCaption;
+		captions[REMOTE_PLAY_MENU_ADV] = "Advanced Options";
 		captions[REMOTE_PLAY_MENU_APPLY] = "Apply";
 
 		const char *descs[REMOTE_PLAY_MENU_COUNT] = { 0 };
-		descs[REMOTE_PLAY_MENU_THREAD_PRIORITY] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
 		descs[REMOTE_PLAY_MENU_PRIORITY_FACTOR] = "0: Priority screen only.";
 		descs[REMOTE_PLAY_MENU_RELIABLE_STREAM] = getReliableStreamDesc(reliableStream);
 
@@ -335,36 +443,6 @@ int remotePlayMenu(u32 localaddr) {
 		}
 
 		switch (select) {
-			case REMOTE_PLAY_MENU_CORE_COUNT: { /* core count */
-				int coreCount = config.coreCount;
-				if (keys == KEY_X)
-					coreCount = rpConfig->coreCount;
-				else
-					menu_adjust_value_with_key(&coreCount, keys, 1, 1);
-
-				coreCount = CLAMP(coreCount, RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX);
-
-				if (coreCount != (int)config.coreCount) {
-					config.coreCount = coreCount;
-				}
-				break;
-			}
-
-			case REMOTE_PLAY_MENU_THREAD_PRIORITY: { /* encoder priority */
-				int threadPriority = config.threadPriority;
-				if (keys == KEY_X)
-					threadPriority = rpConfig->threadPriority;
-				else
-					menu_adjust_value_with_key(&threadPriority, keys, 5, 10);
-
-				threadPriority = CLAMP(threadPriority, RP_THREAD_PRIO_MIN, RP_THREAD_PRIO_MAX);
-
-				if (threadPriority != (int)config.threadPriority) {
-					config.threadPriority = threadPriority;
-				}
-				break;
-			}
-
 			case REMOTE_PLAY_MENU_PRIORITY_SCREEN: { /* screen priority */
 				u32 mode = !!(config.mode & 0xff00);
 				if (keys == KEY_X)
@@ -496,6 +574,11 @@ int remotePlayMenu(u32 localaddr) {
 				if (dstPort != (int)config.dstPort) {
 					config.dstPort = dstPort;
 				}
+				break;
+			}
+
+			case REMOTE_PLAY_MENU_ADV: if (keys == KEY_A) { /* advanced */
+				remotePlayAdvMenu(&config);
 				break;
 			}
 

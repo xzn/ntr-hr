@@ -135,6 +135,14 @@ enum {
 	SVC_MENU_CMD_SHOW_MSG,
 };
 
+enum {
+	RP_CHROMASS_420,
+	RP_CHROMASS_422,
+	RP_CHROMASS_444,
+	RP_CHROMASS_MIN = RP_CHROMASS_420,
+	RP_CHROMASS_MAX = RP_CHROMASS_444,
+};
+
 #define NWM_HEAP_SIZE (0x4000)
 #define NWM_WORK_COUNT (2)
 #define NWM_THREAD_WAIT_NS (100000000)
@@ -180,5 +188,8 @@ _Static_assert(RP_DATA_SIZE % sizeof(void *) == 0, "Need adjusting packet size f
 
 #define RP_CONFIG_RELIABLE_STREAM_FLAG (1 << 30)
 #define RP_CONFIG_RELIABLE_STREAM_DELTA_PROG (1 << 31)
+
+#define RP_KCP_HDR_QUALITY_NBITS (7)
+#define RP_KCP_HDR_CHROMASS_NBITS (2)
 
 #endif

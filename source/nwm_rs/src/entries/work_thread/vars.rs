@@ -84,6 +84,7 @@ pub struct TermInfo {
 
 static mut term_infos: RangedArray<TermInfo, WORK_COUNT> = const_default();
 static mut jpeg_quality: u32 = const_default();
+static mut jpeg_chroma_ss: u32 = const_default();
 
 pub unsafe fn set_term_dst(dst: *mut u8, w: WorkIndex, t: ThreadId) -> bool {
     let d = term_dsts.get_mut(&w).get_mut(&t);
@@ -161,8 +162,9 @@ unsafe fn send_term_dsts(w: WorkIndex) -> bool {
     };
 
     let info = term_infos.get(&w);
-    let hdr = (if info.is_top { 0 } else { 1 } as u16)
-        << (RP_KCP_HDR_QUALITY_NBITS + RP_KCP_HDR_T_NBITS)
+    let hdr = (jpeg_chroma_ss as u16) << (RP_KCP_HDR_QUALITY_NBITS + RP_KCP_HDR_T_NBITS + 1)
+        | (if info.is_top { 0 } else { 1 } as u16)
+            << (RP_KCP_HDR_QUALITY_NBITS + RP_KCP_HDR_T_NBITS)
         | (info.core_count.get() as u16) << RP_KCP_HDR_QUALITY_NBITS
         | jpeg_quality as u16;
     if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {
@@ -358,7 +360,7 @@ pub unsafe fn set_core_count_in_use(v: u32_) {
     core_count_in_use.set(v)
 }
 
-pub unsafe fn reset_vars(quality: u32) {
+pub unsafe fn reset_vars(quality: u32, chroma_ss: u32) {
     last_row_last_n = 0;
 
     for i in WorkIndex::all() {
@@ -376,6 +378,7 @@ pub unsafe fn reset_vars(quality: u32) {
 
     term_dsts = const_default();
     jpeg_quality = quality;
+    jpeg_chroma_ss = chroma_ss;
 }
 
 pub struct ThreadDoVars(crate::entries::thread_screen::ScreenWorkVars);

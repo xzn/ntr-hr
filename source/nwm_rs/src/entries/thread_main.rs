@@ -198,6 +198,10 @@ mod loop_main {
         unsafe fn thread_prio_ar(&self) -> u32_ {
             config_ar!(threadPriority)
         }
+
+        unsafe fn chroma_ss_ar(&self) -> u32_ {
+            config_ar!(chromaSs)
+        }
     }
 
     struct InitVars {
@@ -372,11 +376,8 @@ mod loop_main {
         };
         let jpeg = crate::entries::work_thread::get_jpeg();
         let quality = config.quality_ar();
-        jpeg.reset(
-            quality & ((1 << RP_KCP_HDR_QUALITY_NBITS) - 1),
-            vars.core_count,
-            (quality >> RP_KCP_HDR_QUALITY_NBITS) & ((1 << RP_KCP_HDR_CHROMASS_NBITS) - 1),
-        );
+        let chroma_ss = config.chroma_ss_ar();
+        jpeg.reset(quality, vars.core_count, chroma_ss);
 
         let cb = &mut *reliable_stream_cb;
         if mp_init(
@@ -413,7 +414,7 @@ mod loop_main {
             return None;
         }
 
-        crate::entries::work_thread::reset_vars(config.quality_ar());
+        crate::entries::work_thread::reset_vars(quality, chroma_ss);
         crate::entries::thread_nwm::reset_vars(dst_flags, qos)?;
 
         for i in WorkIndex::all() {

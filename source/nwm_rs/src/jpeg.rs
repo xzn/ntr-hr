@@ -24,9 +24,9 @@ const fn jdiv_round_up(a: usize, b: usize) -> usize
 
 impl JpegShared {
     fn setCompInfos(&mut self, hq: u32) {
-        if hq == 2 {
+        if hq == RP_CHROMASS_444 {
             self.compInfos = &jpegTbls.compInfos444;
-        } else if hq == 1 {
+        } else if hq == RP_CHROMASS_422 {
             self.compInfos = &jpegTbls.compInfos422;
         } else {
             self.compInfos = &jpegTbls.compInfos420;

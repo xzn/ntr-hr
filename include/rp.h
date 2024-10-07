@@ -12,6 +12,7 @@ typedef struct {
 	u32 dstAddr;
 	u32 threadPriority;
 	u32 gamePid;
+	u32 chromaSs;
 } RP_CONFIG;
 
 int rpStartupFromMenu(RP_CONFIG *config);

@@ -89,5 +89,3 @@ pub const RP_KCP_HDR_T_NBITS: u32 = 2;
 pub const RP_KCP_HDR_SIZE_NBITS: u32 = 11;
 #[allow(dead_code)]
 pub const RP_KCP_HDR_RC_NBITS: u32 = 5;
-pub const RP_KCP_HDR_QUALITY_NBITS: u32 = 7;
-pub const RP_KCP_HDR_CHROMASS_NBITS: u32 = 7;
