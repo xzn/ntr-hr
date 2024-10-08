@@ -104,6 +104,13 @@ static int injectToPM(void) {
 static int qtmPatched = 0;
 static int qtmPayloadAddr = 0;
 static int qtmDisabled = 0;
+
+// When enabling this patch, the qtm camera service usage is more or less disabled.
+// This increases performance on New 3DS for remote play by up to 20%.
+// Performance on New 3DS is still ~5% slower than New 2DS despite the improvement.
+// Still trying to figure out where that last difference comes from...
+// Note: head tracking is always active even if 3D is turned off, whether by slider or
+// through system settings. Hence this patch is necessary for performance.
 static void rpDoQTMPatchAndToggle(void) {
 #define RP_QTM_HDR_SIZE (4)
 	u8 desiredHeader[RP_QTM_HDR_SIZE] = {
@@ -145,14 +152,14 @@ static void rpDoQTMPatchAndToggle(void) {
 
 #define RP_QTM_PAYLOAD_SIZE (32)
 	u8 payload[RP_QTM_PAYLOAD_SIZE] = {
-		0x00, 0x60, 0xa0, 0xe1, // mov r6, r0
-		0x01, 0x01, 0xa0, 0xe3, // loop: mov r0, #0x40000000
-		0x00, 0x10, 0xa0, 0xe3, // mov r1, #0
-		0x0a, 0x00, 0x00, 0xef, // swi 0x0a
-		0xfb, 0xff, 0xff, 0xea, // b loop
-		0x06, 0x00, 0xa0, 0xe1, // mov r0, r6
-		0x32, 0x00, 0x00, 0xef, // swi 0x32
-		0x1e, 0xff, 0x2f, 0xe1, // bx lr
+		0x01, 0x01, 0xA0, 0xE3, // mov r0, #0x40000000
+		0x00, 0x10, 0xA0, 0xE3, // mov r1, #0
+		0x0A, 0x00, 0x00, 0xEF, // svc #0xa
+		0x00, 0x20, 0xA0, 0xE3, // mov r2, #0
+		0x00, 0x30, 0xA0, 0xE3, // mov r3, #0
+		0x0F, 0x00, 0x85, 0xE8, // stm r5, {r0, r1, r2, r3}
+		0x70, 0x80, 0xBD, 0xE8, // ldmia sp!, {r4, r5, r6, pc}
+		0x00, 0xF0, 0x20, 0xE3, // nop
 	};
 
 	if (!qtmPatched) {
@@ -208,22 +215,10 @@ retry:
 		qtmPatched = 1;
 	}
 
-#define RP_QTM_PAYLOAD_SWITCH_OFFSET (16)
-#define RP_QTM_PAYLOAD_SWITCH_SIZE (4)
-	u32 qtmPayloadSwitchAddr = qtmPayloadAddr + RP_QTM_PAYLOAD_SWITCH_OFFSET;
-
 	if (!qtmDisabled) {
 		u32 branchDistance = qtmPayloadAddr - remotePC;
 
-		u32 replacementInst = (branchDistance / 4 - 2) | 0xeb000000;
-
-		u8 *qtmPayloadSwitchOn = payload + RP_QTM_PAYLOAD_SWITCH_OFFSET;
-
-		ret = copyRemoteMemory(hProcess, (void *)qtmPayloadSwitchAddr, CUR_PROCESS_HANDLE, qtmPayloadSwitchOn, RP_QTM_PAYLOAD_SWITCH_SIZE);
-		if (ret != 0) {
-			showDbg("Switch on QTM memory for payload at %08"PRIx32" failed: %08"PRIx32, qtmPayloadSwitchAddr, ret);
-			goto final_unlock;
-		}
+		u32 replacementInst = (branchDistance / 4 - 2) | 0xea000000; // b inst
 
 		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &replacementInst, RP_QTM_HDR_SIZE);
 		if (ret != 0) {
@@ -237,16 +232,6 @@ retry:
 		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, desiredHeader, RP_QTM_HDR_SIZE);
 		if (ret != 0) {
 			showDbg("Restore QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
-			goto final_unlock;
-		}
-
-		u8 qtmPayloadSwitchOff[RP_QTM_PAYLOAD_SWITCH_SIZE] = {
-			0x00, 0xf0, 0x20, 0xe3,
-		};
-
-		ret = copyRemoteMemory(hProcess, (void *)qtmPayloadSwitchAddr, CUR_PROCESS_HANDLE, qtmPayloadSwitchOff, RP_QTM_PAYLOAD_SWITCH_SIZE);
-		if (ret != 0) {
-			showDbg("Switch off QTM memory for payload at %08"PRIx32" failed: %08"PRIx32, qtmPayloadSwitchAddr, ret);
 			goto final_unlock;
 		}
 
