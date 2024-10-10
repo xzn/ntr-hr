@@ -662,8 +662,6 @@ pub const jpeg_natural_order: [u8; DCTSIZE2] = [
     52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 ];
 
-pub const in_rows_blk: usize = DCTSIZE * MAX_SAMP_FACTOR;
-
 #[derive(ConstDefault)]
 pub struct JpegTbls {
     pub huffTbls: HuffTbls,

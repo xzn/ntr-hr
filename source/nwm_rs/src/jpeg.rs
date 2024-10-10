@@ -1158,10 +1158,12 @@ impl<'a, 'c, const RS: bool> JpegEncode<'a, 'c, RS> {
         self.reset_mcu();
 
         if self.worker.shared.maxVSampFactor == MAX_SAMP_FACTOR {
-            let src_chunks = src.chunks_exact(pitch).array_chunks::<in_rows_blk>();
+            let src_chunks = src
+                .chunks_exact(pitch)
+                .array_chunks::<{ DCTSIZE * MAX_SAMP_FACTOR }>();
             for chunks in src_chunks {
                 /* Pre-process */
-                let mut chunks = chunks.array_chunks::<{ in_rows_blk / 2 }>();
+                let mut chunks = chunks.array_chunks::<{ DCTSIZE }>();
 
                 let chunk0 = chunks.next().unwrap();
                 self.pre_process(*chunk0, false);
