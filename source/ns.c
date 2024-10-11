@@ -324,6 +324,11 @@ static void nsHandleRemotePlay(void) {
 	config.qos = pac->args[2];
 	if (pac->args[3] == 1404036572) /* guarding magic */
 		config.dstPort = pac->args[4];
+
+	config.threadPriority = rpConfig->threadPriority;
+	config.coreCount = rpConfig->coreCount;
+	config.chromaSs = rpConfig->chromaSs;
+
 	rpStartupFromMenu(&config);
 }
 

@@ -653,20 +653,16 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 	config->dstPort = CLAMP(config->dstPort & 0xffff, RP_PORT_MIN, RP_PORT_MAX) | dstFlag;
 
 	if (config->threadPriority == 0) {
-		config->threadPriority = rpConfig->threadPriority;
-		if (config->threadPriority == 0) {
-			config->threadPriority = RP_THREAD_PRIO_DEFAULT;
-		}
+		config->threadPriority = RP_THREAD_PRIO_DEFAULT;
 	}
 	config->threadPriority = CLAMP(config->threadPriority, RP_THREAD_PRIO_MIN, RP_THREAD_PRIO_MAX);
 
 	if (config->coreCount == 0) {
-		config->coreCount = rpConfig->coreCount;
-		if (config->coreCount == 0) {
-			config->coreCount = RP_CORE_COUNT_DEFAULT;
-		}
+		config->coreCount = RP_CORE_COUNT_DEFAULT;
 	}
 	config->coreCount = CLAMP(config->coreCount, RP_CORE_COUNT_MIN, RP_CORE_COUNT_MAX);
+
+	config->chromaSs = CLAMP(config->chromaSs, RP_CHROMASS_MIN, RP_CHROMASS_MAX);
 
 	config->gamePid = plgLoader->gamePluginPid;
 }
