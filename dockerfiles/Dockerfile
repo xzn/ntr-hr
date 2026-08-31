@@ -1,4 +1,4 @@
-FROM archlinux:base-devel-20260111.0.480139
+FROM docker.io/library/archlinux:base-devel-20260823.0.578598
 
 ENV DEVKITPRO=/opt/devkitpro
 ENV DEVKITARM=/opt/devkitpro/devkitARM
@@ -49,7 +49,7 @@ RUN pacman -Syuu llvm clang rustup wget cmake ninja python git lld unzip vim zip
         ninja install && \
         cd .. && \
     rm -rf "llvm-project-$CLANG_VERSION.src.tar.xz" "llvm-project-$CLANG_VERSION.src" compiler-rt-build && \
-    export RUST_VERSION=2026-01-08 && \
+    export RUST_VERSION=2026-08-02 && \
     rustup toolchain install nightly-$RUST_VERSION && \
     rustup component add rust-src && \
     pacman-key --recv BC26F752D25B92CE272E0F44F7FD5492264BB9D0 --keyserver keyserver.ubuntu.com && \

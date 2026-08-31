@@ -6,7 +6,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: xzn92/ntr-hr-build-environment:2026-01-08
+      image: xzn92/ntr-hr-build-environment:2026-08-02
     steps:
       - name: Rust env
         run: |
