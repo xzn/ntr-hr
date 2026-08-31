@@ -1,20 +1,14 @@
 #![no_std]
 #![allow(internal_features)]
 #![allow(incomplete_features)]
-#![feature(atomic_from_mut)]
 #![feature(core_intrinsics)]
 #![feature(const_trait_impl)]
 #![feature(generic_const_exprs)]
 #![feature(generic_const_items)]
 #![feature(adt_const_params)]
-#![feature(inherent_associated_types)]
 #![feature(trivial_bounds)]
-#![feature(maybe_uninit_array_assume_init)]
-#![feature(stmt_expr_attributes)]
-#![feature(iter_array_chunks)]
+#![cfg_attr(not(feature = "o3ds"), feature(iter_array_chunks))]
 #![feature(array_ptr_get)]
-#![feature(more_float_constants)]
-#![feature(exact_size_is_empty)]
 #![allow(static_mut_refs)]
 
 use ::libc::*;
@@ -50,9 +44,9 @@ mod ctru {
 mod dbg;
 #[macro_use]
 mod vars;
+mod encoder;
 mod entries;
 mod fix;
-mod encoder;
 mod utils;
 
 #[panic_handler]
