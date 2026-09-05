@@ -17,13 +17,32 @@ impl Impl {
 
     pub fn set_config(&self, a: &[u32]) -> bool {
         if a.len() >= config_consts::RP_CONFIG_U32_COUNT {
+            let mut ret = false;
+            let mut quality = 0;
+            let quality_check = !entries::thread_nwm::get_lossless_compression()
+                && !entries::thread_nwm::get_reliable_stream_delta_prog();
             for i in 0..config_consts::RP_CONFIG_U32_COUNT {
                 let f =
                     unsafe { AtomicU32::from_ptr((config_consts::RP_CONFIG as *mut u32).add(i)) };
                 let p = unsafe { *a.as_ptr().add(i) };
-                f.store(p, Ordering::Release);
+                let t = f.load(Ordering::Acquire);
+                if t != p {
+                    f.store(p, Ordering::Release);
+                    if quality_check && i == config_consts::RP_CONFIG_QUALITY_OFFSET_COUNT {
+                        quality = p;
+                    } else if i != config_consts::RP_CONFIG_DSTADDR_OFFSET_COUNT {
+                        ret = true;
+                    }
+                }
             }
-            true
+
+            if !ret && quality > 0 {
+                unsafe {
+                    encoder::jpeg_update_quality(quality);
+                }
+            }
+
+            ret
         } else {
             false
         }

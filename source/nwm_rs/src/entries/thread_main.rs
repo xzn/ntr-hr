@@ -37,7 +37,6 @@ fn once_encoder() -> Option<()> {
     unsafe {
         encoder::ENCODER = encoder.to_ptr() as *mut encoder::Encoder;
         let encoder = &mut *encoder::ENCODER;
-
         encoder.once();
     }
 
@@ -265,26 +264,7 @@ fn init(#[cfg(not(feature = "o3ds"))] nwm_bufs: &NwmBufs) -> Option<Init> {
 
         let encoder = &mut *encoder::ENCODER;
         let quality = RP_CONFIG.quality().load(Ordering::Acquire);
-        let chroma_ss = [
-            RP_CONFIG
-                .chroma_ss(ScreenIndex::init(RP_SCREEN_TOP as u32))
-                .load(Ordering::Acquire),
-            RP_CONFIG
-                .chroma_ss(ScreenIndex::init(RP_SCREEN_BOT as u32))
-                .load(Ordering::Acquire),
-        ];
-        let downsample = [
-            RP_CONFIG
-                .downsample(ScreenIndex::init(RP_SCREEN_TOP as u32))
-                .load(Ordering::Acquire),
-            RP_CONFIG
-                .downsample(ScreenIndex::init(RP_SCREEN_BOT as u32))
-                .load(Ordering::Acquire),
-        ];
-        let quality = [
-            encoder::downsample_quality_scale(downsample[RP_SCREEN_TOP as usize] as u8, quality),
-            encoder::downsample_quality_scale(downsample[RP_SCREEN_BOT as usize] as u8, quality),
-        ];
+        let (chroma_ss, downsample, quality) = encoder::jpeg_get_params(quality);
         let color_bias = entries::thread_nwm::get_lossless_compression_bias();
         let color_bias = [color_bias, color_bias];
         #[cfg(not(feature = "o3ds"))]
@@ -300,7 +280,7 @@ fn init(#[cfg(not(feature = "o3ds"))] nwm_bufs: &NwmBufs) -> Option<Init> {
 
         #[cfg(feature = "o3ds")]
         encoder.init(quality, chroma_ss, downsample, color_bias)?;
-        entries::work_thread::init(quality, chroma_ss, downsample, color_bias);
+        entries::work_thread::init(chroma_ss, downsample, color_bias);
 
         #[cfg(not(feature = "o3ds"))]
         entries::thread_nwm::init_nwm_infos(nwm_bufs, core_count);
@@ -385,7 +365,7 @@ fn main(_impl_: Impl, #[cfg(not(feature = "o3ds"))] s: &mut ThreadsStorage) -> O
         // high priority so every dsp frame is captured
         // audio is optional: a failed create must not kill remote play
         #[cfg(not(feature = "o3ds"))]
-        let _audio = if unsafe { RP_CONFIG.audio_enable().load(Ordering::Acquire) } != 0 {
+        let _audio = if RP_CONFIG.audio_enable().load(Ordering::Acquire) != 0 {
             CreateThread::create(
                 Some(entries::thread_audio::thread_audio),
                 0,

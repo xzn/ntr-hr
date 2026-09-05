@@ -77,7 +77,9 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
         let s = is_top_index(is_top);
         let screen = s.index_into(&self.worker.data.shared.screens);
         #[cfg(not(feature = "mem3"))]
-        let jpeg_screen = s.index_into(&self.worker.jpeg_shared.screens);
+        let jpeg_shared = self.worker.jpeg_shared;
+        #[cfg(not(feature = "mem3"))]
+        let jpeg_screen = s.index_into(&jpeg_shared.screens);
         #[cfg(not(feature = "mem3"))]
         let pitch = GSP_SCREEN_WIDTH as usize * bpp as usize;
 
@@ -344,11 +346,13 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             })
         } else {
             JpegEncodeRet::JpegRet(JpegRet {
+                quality: *is_top_index(is_top).index_into(&self.worker.jpeg_shared.quality) as u8,
                 mcus: jpeg_screen.mcus,
             })
         });
         #[cfg(feature = "o3ds")]
         let ret = Some(());
+
         ret
     }
 

@@ -858,6 +858,7 @@ pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
 }
 
 // rp_output tail-calls nwmSendPacket, a call before this is true is a null jump
+#[cfg(not(feature = "o3ds"))]
 pub fn nwm_send_ready() -> bool {
     unsafe { nwmSendPacket.is_some() }
 }
@@ -1002,7 +1003,7 @@ static mut MIN_SEND_INTERVAL_NS: DurationNs = const_default();
 // outside this pacer; keep at least a quarter of the budget for video
 #[cfg(not(feature = "o3ds"))]
 fn pacer_qos(qos: u32) -> u32 {
-    if unsafe { RP_CONFIG.audio_enable().load(Ordering::Acquire) } != 0 {
+    if RP_CONFIG.audio_enable().load(Ordering::Acquire) != 0 {
         qos.saturating_sub(entries::thread_audio::AUDIO_QOS_BUDGET)
             .max(qos / 4)
             .max(1)

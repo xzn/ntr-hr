@@ -35,6 +35,14 @@ pub mod config_consts {
     #[allow(unused)]
     pub const RP_CONFIG_U32_COUNT: usize = mem::size_of::<RP_CONFIG>() / mem::size_of::<u32>();
 
+    #[allow(unused)]
+    pub const RP_CONFIG_DSTADDR_OFFSET_COUNT: usize =
+        mem::offset_of!(RP_CONFIG, dstAddr) / mem::size_of::<u32>();
+
+    #[allow(unused)]
+    pub const RP_CONFIG_QUALITY_OFFSET_COUNT: usize =
+        mem::offset_of!(RP_CONFIG, quality) / mem::size_of::<u32>();
+
     pub const NTR_CONFIG: *mut NTR_CONFIG =
         (NS_CONFIG_ADDR as usize + mem::offset_of!(NS_CONFIG, ntrConfig)) as *mut NTR_CONFIG;
 }

@@ -1204,6 +1204,136 @@ pub fn gen_optimal_table(tbl: &mut HuffTbl, freq: &mut [usize; 257]) {
 
 pub static mut ENCODER: *mut Encoder = const_default();
 
+pub fn jpeg_get_params(
+    quality: u32,
+) -> (
+    [u32; SCREEN_COUNT as usize],
+    [u32; SCREEN_COUNT as usize],
+    [u32; SCREEN_COUNT as usize],
+) {
+    let chroma_ss = [
+        RP_CONFIG
+            .chroma_ss(ScreenIndex::init(RP_SCREEN_TOP as u32))
+            .load(Ordering::Acquire),
+        RP_CONFIG
+            .chroma_ss(ScreenIndex::init(RP_SCREEN_BOT as u32))
+            .load(Ordering::Acquire),
+    ];
+    let downsample = [
+        RP_CONFIG
+            .downsample(ScreenIndex::init(RP_SCREEN_TOP as u32))
+            .load(Ordering::Acquire),
+        RP_CONFIG
+            .downsample(ScreenIndex::init(RP_SCREEN_BOT as u32))
+            .load(Ordering::Acquire),
+    ];
+    let quality = [
+        encoder::downsample_quality_scale(downsample[RP_SCREEN_TOP as usize] as u8, quality),
+        encoder::downsample_quality_scale(downsample[RP_SCREEN_BOT as usize] as u8, quality),
+    ];
+
+    (chroma_ss, downsample, quality)
+}
+
+#[named]
+pub unsafe fn jpeg_update_quality(q: u32) {
+    let encoder = unsafe { &mut *ENCODER };
+
+    let (chroma_ss, _, quality) = jpeg_get_params(q);
+
+    encoder
+        .jpeg_shared
+        .init(quality, chroma_ss, &mut encoder.shared);
+
+    ns_dbg_print!(val, c_str!("JPEG quality updated"), q as s32);
+}
+
+#[named]
+#[allow(unused)]
+pub unsafe fn jpeg_quality_work_acquire() -> Option<()> {
+    #[cfg(not(feature = "o3ds"))]
+    {
+        let encoder = unsafe { &*ENCODER };
+        let shared = &encoder.jpeg_shared;
+
+        if shared.quality_need_update.load(Ordering::Acquire) {
+            wait_syn(
+                cname!(),
+                shared.quality_done_update,
+                c_str!("quality_done_update"),
+            )?;
+        }
+        wait_syn(
+            cname!(),
+            shared.quality_can_update,
+            c_str!("quality_can_update"),
+        )?;
+    }
+    Some(())
+}
+
+#[named]
+#[allow(unused)]
+pub unsafe fn jpeg_quality_work_release() {
+    #[cfg(not(feature = "o3ds"))]
+    {
+        let encoder = unsafe { &*ENCODER };
+        let shared = &encoder.jpeg_shared;
+
+        unsafe {
+            release_sem(
+                cname!(),
+                shared.quality_can_update,
+                c_str!("quality_can_update"),
+            );
+        }
+    }
+}
+
+#[named]
+pub unsafe fn jpeg_quality_update_acquire(#[allow(unused)] shared: &JpegShared) -> Option<()> {
+    #[cfg(not(feature = "o3ds"))]
+    {
+        let res = unsafe { svcClearEvent(shared.quality_done_update) };
+        if res != 0 {
+            ns_dbg_print!(failed, c_str!("Clear quality_done_update failed"), res);
+            set_reset_threads();
+            return None;
+        }
+        shared.quality_need_update.store(true, Ordering::Release);
+        wait_syn(
+            cname!(),
+            shared.quality_can_update,
+            c_str!("quality_can_update"),
+        )?;
+    }
+
+    Some(())
+}
+
+#[named]
+pub unsafe fn jpeg_quality_update_release(#[allow(unused)] shared: &JpegShared) -> Option<()> {
+    #[cfg(not(feature = "o3ds"))]
+    {
+        unsafe {
+            release_sem(
+                cname!(),
+                shared.quality_can_update,
+                c_str!("quality_can_update"),
+            );
+        }
+        shared.quality_need_update.store(false, Ordering::Release);
+        let res = unsafe { svcSignalEvent(shared.quality_done_update) };
+        if res != 0 {
+            ns_dbg_print!(failed, c_str!("Signal quality_done_update failed"), res);
+            set_reset_threads();
+            return None;
+        }
+    }
+
+    Some(())
+}
+
 pub const fn jdiv_round_up(a: usize, b: usize) -> usize
 /* Compute a/b rounded up to next integer, ie, ceil(a/b) */
 /* Assumes a >= 0, b > 0 */

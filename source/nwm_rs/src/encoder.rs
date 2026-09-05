@@ -30,6 +30,7 @@ pub struct JpegDqRet {
 
 #[cfg(not(feature = "o3ds"))]
 pub struct JpegRet {
+    pub quality: u8,
     pub mcus: u16,
 }
 
@@ -81,18 +82,20 @@ pub struct JpegScreenShared {
     div_shifts: [[u8; DCTSIZE2]; NUM_QUANT_TBLS],
 }
 
-#[cfg(feature = "o3ds")]
 pub struct JpegShared {
     pub quality: [u32; RP_SCREEN_COUNT as usize],
     pub screens: [JpegScreenShared; RP_SCREEN_COUNT as usize],
-}
-
-#[cfg(not(feature = "o3ds"))]
-pub struct JpegShared {
-    pub quality: [u32; RP_SCREEN_COUNT as usize],
+    #[cfg(not(feature = "o3ds"))]
+    pub quality_need_update: AtomicBool,
+    #[cfg(not(feature = "o3ds"))]
+    pub quality_can_update: Handle,
+    #[cfg(not(feature = "o3ds"))]
+    pub quality_done_update: Handle,
+    #[cfg(not(feature = "o3ds"))]
     pub div_delta_q_shifts: [[[u8; DCTSIZE2]; NUM_QUANT_TBLS]; DELTA_Q_COUNT as usize],
-    pub screens: [JpegScreenShared; RP_SCREEN_COUNT as usize],
+    #[cfg(not(feature = "o3ds"))]
     pub delta_q_tbls: [[[u8; DCTSIZE2]; NUM_QUANT_TBLS]; DELTA_Q_COUNT as usize],
+    #[cfg(not(feature = "o3ds"))]
     pub delta_q0_tbls: [[[u8; DCTSIZE2]; NUM_QUANT_TBLS]; DELTA_Q_COUNT as usize],
 }
 

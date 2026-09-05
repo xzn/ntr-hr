@@ -42,7 +42,6 @@ impl Impl {
 }
 
 pub unsafe fn init(
-    quality: [u32; RP_SCREEN_COUNT as usize],
     chroma_ss: [u32; RP_SCREEN_COUNT as usize],
     downsample: [u32; RP_SCREEN_COUNT as usize],
     color_bias: [u8; RP_SCREEN_COUNT as usize],
@@ -75,7 +74,6 @@ pub unsafe fn init(
         {
             TERM_INFOS = const_default();
         }
-        ENCODE_JPEG_QUALITY = quality;
         ENCODE_CHROMA_SS = chroma_ss;
         ENCODE_DOWNSAMPLE = downsample;
         ENCODE_LOSSLESS_COLOR_BIAS = color_bias;
@@ -353,6 +351,10 @@ impl WorkFrame {
             entries::thread_screen::work_done_flag_release(self.0.0.w);
         }
 
+        unsafe {
+            encoder::jpeg_quality_work_acquire()?;
+        }
+
         #[cfg(not(feature = "o3ds"))]
         unsafe {
             let bctx = self.0.0.bctx();
@@ -601,6 +603,10 @@ impl Drop for WorkRet {
                 syn.work_ready_flag.store(false, Ordering::Release);
 
                 unsafe {
+                    encoder::jpeg_quality_work_release();
+                }
+
+                unsafe {
                     release_sem(
                         cname!(),
                         SYN_HANDLES.works.get(&w).work_done,
@@ -691,11 +697,10 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
 
     let info = unsafe { TERM_INFOS.get(&w) };
     let downsample = unsafe { *is_top_index(info.is_top).index_into(&ENCODE_DOWNSAMPLE) } as u8;
-    let (lossless, delta_prog, quality) =
-        if let EncodeRet::LosslessRet(encoder::LosslessEncodeRet::LosslessRet(ret)) = ret {
+    let (delta_prog, quality) = match ret {
+        EncodeRet::LosslessRet(encoder::LosslessEncodeRet::LosslessRet(ret)) => {
             let delta_prog = entries::thread_nwm::get_reliable_stream_delta_prog();
             (
-                true,
                 delta_prog,
                 ret.color_bias as u16
                     | if delta_prog {
@@ -704,11 +709,13 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
                         0
                     },
             )
-        } else if let EncodeRet::JpegRet(encoder::JpegEncodeRet::JpegDqRet(dq_ret)) = ret {
-            (false, true, dq_ret.delta_q as u16)
-        } else {
-            (false, false, 0)
-        };
+        }
+
+        EncodeRet::JpegRet(ret) => match ret {
+            encoder::JpegEncodeRet::JpegRet(jpeg_ret) => (false, jpeg_ret.quality as u16),
+            encoder::JpegEncodeRet::JpegDqRet(dq_ret) => (true, dq_ret.delta_q as u16),
+        },
+    };
     let hdr = (downsample as u16)
         << (RP_KCP_HDR_QUALITY_NBITS + RP_KCP_HDR_T_NBITS + 1 + RP_KCP_HDR_CHROMASS_NBITS + 1)
         | (delta_prog as u16)
@@ -718,11 +725,7 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
         | (is_top_index(info.is_top).get() as u16)
             << (RP_KCP_HDR_QUALITY_NBITS + RP_KCP_HDR_T_NBITS)
         | (info.core_count.get() as u16) << RP_KCP_HDR_QUALITY_NBITS
-        | (if lossless || delta_prog {
-            quality
-        } else {
-            unsafe { *is_top_index(info.is_top).index_into(&ENCODE_JPEG_QUALITY) as u16 }
-        });
+        | quality;
 
     let need_even_odd = downsample == RP_DOWNSAMPLE_CHECKER || downsample == RP_DOWNSAMPLE_EVEN_ODD;
     let ex_hdr = need_even_odd;
@@ -1105,9 +1108,14 @@ pub unsafe fn work_thread_loop(t: ThreadIndex) -> Option<()> {
         unsafe {
             let mut rp_config = RP_CONFIG_SAVED;
             rp_config.dstAddr = 0;
+            rp_config.quality = (*config_consts::RP_CONFIG).quality;
             if rp_config != *config_consts::RP_CONFIG {
                 set_reset_threads();
                 return None;
+            }
+            if RP_CONFIG_SAVED.quality != rp_config.quality {
+                RP_CONFIG_SAVED.quality = rp_config.quality;
+                encoder::jpeg_update_quality(rp_config.quality);
             }
         }
         safe_impl::send_frame(Impl { w: work_index, t })?;
@@ -1187,7 +1195,6 @@ pub struct TermInfo {
 
 #[cfg(not(feature = "o3ds"))]
 static mut TERM_INFOS: RangedArray<TermInfo, WORK_COUNT> = const_default();
-static mut ENCODE_JPEG_QUALITY: [u32; RP_SCREEN_COUNT as usize] = const_default();
 static mut ENCODE_LOSSLESS_COLOR_BIAS: [u8; RP_SCREEN_COUNT as usize] = const_default();
 static mut ENCODE_CHROMA_SS: [u32; RP_SCREEN_COUNT as usize] = const_default();
 static mut ENCODE_DOWNSAMPLE: [u32; RP_SCREEN_COUNT as usize] = const_default();

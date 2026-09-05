@@ -130,7 +130,8 @@ impl LosslessShared {
 }
 
 impl JpegShared {
-    fn init(
+    #[named]
+    pub fn init(
         &mut self,
         quality: [u32; RP_SCREEN_COUNT as usize],
         hq: [u32; RP_SCREEN_COUNT as usize],
@@ -140,6 +141,12 @@ impl JpegShared {
         let delta_prog = shared.delta_prog;
         #[cfg(feature = "o3ds")]
         let delta_prog = false;
+
+        unsafe {
+            if jpeg_quality_update_acquire(self).is_none() {
+                return const_default();
+            }
+        }
 
         self.quality = quality;
         for s in ScreenIndex::all() {
@@ -178,12 +185,20 @@ impl JpegShared {
             }
         }
 
-        self.set_comp_infos(
+        let ret = self.set_comp_infos(
             hq,
             #[cfg(not(feature = "o3ds"))]
             delta_prog,
             shared,
-        )
+        );
+
+        unsafe {
+            if jpeg_quality_update_release(self).is_none() {
+                return const_default();
+            }
+        }
+
+        ret
     }
 
     #[cfg(not(feature = "o3ds"))]
@@ -213,6 +228,7 @@ impl JpegShared {
         }
     }
 
+    #[named]
     fn once(&mut self) {
         #[cfg(not(feature = "o3ds"))]
         self.once_delta_q_tbls();
@@ -435,6 +451,41 @@ impl Encoder {
 
         #[cfg(not(feature = "o3ds"))]
         self.common_shared_mut.init(delta_prog, core_count);
+
+        #[cfg(not(feature = "o3ds"))]
+        {
+            let shared = &mut self.jpeg_shared;
+            shared.quality_need_update.store(false, Ordering::Relaxed);
+            unsafe {
+                if shared.quality_can_update != 0 {
+                    let _ = svcCloseHandle(shared.quality_can_update);
+                    shared.quality_can_update = 0;
+                }
+                let res = svcCreateSemaphore(&mut shared.quality_can_update, 1, 1);
+                if res != 0 {
+                    ns_dbg_print!(
+                        create_semaphore_failed,
+                        c_str!("jpeg shared quality_can_update"),
+                        res
+                    );
+                    return None;
+                }
+
+                if shared.quality_done_update != 0 {
+                    let _ = svcCloseHandle(shared.quality_done_update);
+                    shared.quality_done_update = 0;
+                }
+                let res = svcCreateEvent(&mut shared.quality_done_update, RESET_STICKY);
+                if res != 0 {
+                    ns_dbg_print!(
+                        create_event_failed,
+                        c_str!("jpeg shared quality_done_update"),
+                        res
+                    );
+                    return None;
+                }
+            }
+        }
 
         let shared_mut_params = self.jpeg_shared.init(quality, hq, &mut self.shared);
         #[cfg(feature = "o3ds")]
