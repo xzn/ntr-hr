@@ -6,10 +6,6 @@
     feature(const_btree_new)
 )]
 #![cfg_attr(
-    all(feature = "unstable", feature = "enable-atomics"),
-    feature(cfg_target_has_atomic)
-)]
-#![cfg_attr(
     feature = "enable-atomics",
     allow(clippy::declare_interior_mutable_const)
 )]
