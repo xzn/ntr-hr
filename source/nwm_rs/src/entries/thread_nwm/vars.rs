@@ -388,6 +388,7 @@ const RP_KCP_TIMEOUT_TICK: s32 = 2 * SYSCLOCK_ARM11 as s32;
 #[named]
 #[cfg(not(feature = "o3ds"))]
 unsafe fn do_kcp_thread_nwm() -> bool {
+    let audio_enable = unsafe { entries::thread_audio::AUDIO_ENABLE };
     if let Some(mut lock) = NwmCbLock::lock(cname!()) {
         let mut dst = mem::MaybeUninit::uninit();
         let mut has_dst = false;
@@ -431,7 +432,11 @@ unsafe fn do_kcp_thread_nwm() -> bool {
                     set_reset_threads();
                     return false;
                 }
-                THREAD_WAIT_NS.get()
+                if audio_enable {
+                    unsafe { MIN_SEND_INTERVAL_NS.get() }
+                } else {
+                    THREAD_WAIT_NS.get()
+                }
             };
 
             let relock_nwm = timeout_ns != 0;
@@ -464,6 +469,9 @@ unsafe fn do_kcp_thread_nwm() -> bool {
                             ns_dbg_print!(wait_syn_failed, c_str!("Wait for nwm_syn"), res);
                             set_reset_threads();
                             return None;
+                        }
+                        if audio_enable {
+                            entries::thread_audio::drain_audio();
                         }
                         if send_delay >= 0 {
                             break;
@@ -608,7 +616,7 @@ pub extern "C" fn thread_nwm(_: *mut c_void) {
                 sleep_thread(MIN_SEND_INTERVAL_NS);
                 continue;
             }
-            if wait_syn_audio(cname!(), SYN_HANDLES.nwm_ready, c_str!("nwm_ready")).is_none() {
+            if wait_syn(cname!(), SYN_HANDLES.nwm_ready, c_str!("nwm_ready")).is_none() {
                 break;
             }
         }
@@ -621,14 +629,36 @@ pub extern "C" fn thread_nwm(_: *mut c_void) {
 fn nwm_ready_acquire(w: WorkIndex) -> bool {
     let need_syn = unsafe { NWM_NEED_SYN.get_mut(&w) };
     if *need_syn {
-        if wait_syn_audio(
-            cname!(),
-            unsafe { SYN_HANDLES.works.get(&w).nwm_ready },
-            c_str!("nwm_ready"),
-        )
-        .is_none()
-        {
-            return false;
+        let audio_enable = unsafe { entries::thread_audio::AUDIO_ENABLE };
+        if audio_enable {
+            loop {
+                if reset_threads() {
+                    return false;
+                }
+                let res = wait_syn_ns(
+                    cname!(),
+                    unsafe { SYN_HANDLES.works.get(&w).nwm_ready },
+                    c_str!("nwm_ready"),
+                    unsafe { MIN_SEND_INTERVAL_NS },
+                );
+                if res.is_none() {
+                    return false;
+                }
+                if res == Some(true) {
+                    break;
+                }
+                entries::thread_audio::drain_audio();
+            }
+        } else {
+            if wait_syn(
+                cname!(),
+                unsafe { SYN_HANDLES.works.get(&w).nwm_ready },
+                c_str!("nwm_ready"),
+            )
+            .is_none()
+            {
+                return false;
+            }
         }
         *need_syn = false;
     }
