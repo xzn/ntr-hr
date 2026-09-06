@@ -461,7 +461,11 @@ impl Encoder {
                     let _ = svcCloseHandle(shared.quality_can_update);
                     shared.quality_can_update = 0;
                 }
-                let res = svcCreateSemaphore(&mut shared.quality_can_update, 1, 1);
+                let res = svcCreateSemaphore(
+                    &mut shared.quality_can_update,
+                    WORK_COUNT as s32,
+                    WORK_COUNT as s32,
+                );
                 if res != 0 {
                     ns_dbg_print!(
                         create_semaphore_failed,

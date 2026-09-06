@@ -1301,11 +1301,13 @@ pub unsafe fn jpeg_quality_update_acquire(#[allow(unused)] shared: &JpegShared) 
             return None;
         }
         shared.quality_need_update.store(true, Ordering::Release);
-        wait_syn(
-            cname!(),
-            shared.quality_can_update,
-            c_str!("quality_can_update"),
-        )?;
+        for _ in 0..WORK_COUNT {
+            wait_syn(
+                cname!(),
+                shared.quality_can_update,
+                c_str!("quality_can_update"),
+            )?;
+        }
     }
 
     Some(())
@@ -1316,10 +1318,11 @@ pub unsafe fn jpeg_quality_update_release(#[allow(unused)] shared: &JpegShared) 
     #[cfg(not(feature = "o3ds"))]
     {
         unsafe {
-            release_sem(
+            release_sem_count(
                 cname!(),
                 shared.quality_can_update,
                 c_str!("quality_can_update"),
+                WORK_COUNT as s32,
             );
         }
         shared.quality_need_update.store(false, Ordering::Release);
