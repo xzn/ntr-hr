@@ -10,7 +10,9 @@ const DSP_REGION1: u32 = 0x1FF70000 + 0x80000000; // final-mix region 1 (mirror 
 const DSP_FINAL_SAMPLES_OFF: u32 = 0xA80; // (0x8540 - 0x8000) DSP words * 2
 const DSP_FRAME_COUNTER_OFF: u32 = 0x7FFE; // last u16 of the 0x8000-byte region
 
+#[allow(unused)]
 const AUDIO_SAMPLE_RATE: u32 = 32728; // dsp final-mix rate
+#[allow(unused)]
 const AUDIO_FRAME_SAMPLES: u32 = 160; // samples per dsp mix frame
 const AUDIO_FRAME_BYTES: usize = 640; // 160 samples * 2 ch * 2 bytes (s16 LE)
 const AUDIO_HDR_TYPE: u8 = 4; // hdr[2]: NTR-HR+ audio packet type
@@ -24,8 +26,7 @@ const AUDIO_PAYLOAD_BYTES: usize = AUDIO_REDUNDANCY * AUDIO_FRAME_BYTES;
 // poll well under the ~4.888 ms dsp frame so no mix frame is missed
 const AUDIO_POLL_NS: s64 = 1_500_000;
 
-// bytes/s this stream adds to the radio; reserved from the video pacer qos so
-// the viewer's bandwidth limit governs combined a/v instead of video alone
+#[allow(unused)]
 pub const AUDIO_QOS_BUDGET: u32 =
     (AUDIO_SAMPLE_RATE / AUDIO_FRAME_SAMPLES) * (DATA_HDR_SIZE as u32 + AUDIO_PAYLOAD_BYTES as u32);
 
@@ -91,11 +92,14 @@ unsafe fn audio_enqueue(pkt: *const u8) {
     AUDIO_Q_TAIL.store(tail.wrapping_add(1), Ordering::Release);
 }
 
+pub static mut AUDIO_ENABLE: bool = false;
+
 // drained by the nwm thread each loop iteration, so only it calls nwmSendPacket;
 // a dead session drains without sending so the ring cannot back up forever
 pub fn drain_audio() {
-    let ready =
-        entries::thread_nwm::nwm_send_ready() && entries::thread_nwm::nwm_session_alive();
+    let ready = unsafe { AUDIO_ENABLE }
+        && entries::thread_nwm::nwm_send_ready()
+        && entries::thread_nwm::nwm_session_alive();
     loop {
         let tail = AUDIO_Q_TAIL.load(Ordering::Acquire);
         let head = AUDIO_Q_HEAD.load(Ordering::Relaxed);
@@ -105,7 +109,22 @@ pub fn drain_audio() {
         let slot = AUDIO_RING[head as usize & (AUDIO_Q_LEN - 1)].load(Ordering::Relaxed);
         if ready && !slot.is_null() {
             let packet_buf = unsafe { slot.add(NWM_HDR_SIZE as usize) };
-            let _ = unsafe { entries::thread_nwm::rp_output(packet_buf, AUDIO_PKT_SIZE) };
+
+            let curr_tick = get_system_tick().get() as u32;
+            let mut next_tick = unsafe { entries::thread_nwm::RP_OUTPUT_NEXT_TICK };
+            let tick_diff = next_tick as s32 - curr_tick as s32;
+
+            if tick_diff > 0 {
+                let sleep_value = DurationTick::init(tick_diff as s64).get_ns();
+                sleep_thread(sleep_value);
+
+                if NWM_AGGRESSIVE_NEXT_TICK == 0 {
+                    next_tick = get_system_tick().get() as u32
+                }
+            }
+
+            let _ =
+                unsafe { entries::thread_nwm::rp_output(packet_buf, AUDIO_PKT_SIZE, next_tick) };
         }
         AUDIO_Q_HEAD.store(head.wrapping_add(1), Ordering::Release);
     }

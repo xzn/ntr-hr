@@ -247,6 +247,12 @@ fn init(#[cfg(not(feature = "o3ds"))] nwm_bufs: &NwmBufs) -> Option<Init> {
                 .store(RP_DST_PORT_DEFAULT | dst_flags, Ordering::Release)
         }
 
+        #[cfg(not(feature = "o3ds"))]
+        {
+            entries::thread_audio::AUDIO_ENABLE =
+                RP_CONFIG.audio_enable().load(Ordering::Acquire) > 0;
+        }
+
         let qos = RP_CONFIG.qos().load(Ordering::Acquire);
         entries::thread_nwm::init(dst_flags, qos)?;
 
@@ -365,7 +371,7 @@ fn main(_impl_: Impl, #[cfg(not(feature = "o3ds"))] s: &mut ThreadsStorage) -> O
         // high priority so every dsp frame is captured
         // audio is optional: a failed create must not kill remote play
         #[cfg(not(feature = "o3ds"))]
-        let _audio = if RP_CONFIG.audio_enable().load(Ordering::Acquire) != 0 {
+        let _audio = if unsafe { entries::thread_audio::AUDIO_ENABLE } {
             CreateThread::create(
                 Some(entries::thread_audio::thread_audio),
                 0,

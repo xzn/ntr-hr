@@ -608,7 +608,7 @@ pub extern "C" fn thread_nwm(_: *mut c_void) {
                 sleep_thread(MIN_SEND_INTERVAL_NS);
                 continue;
             }
-            if wait_syn(cname!(), SYN_HANDLES.nwm_ready, c_str!("nwm_ready")).is_none() {
+            if wait_syn_audio(cname!(), SYN_HANDLES.nwm_ready, c_str!("nwm_ready")).is_none() {
                 break;
             }
         }
@@ -621,7 +621,7 @@ pub extern "C" fn thread_nwm(_: *mut c_void) {
 fn nwm_ready_acquire(w: WorkIndex) -> bool {
     let need_syn = unsafe { NWM_NEED_SYN.get_mut(&w) };
     if *need_syn {
-        if wait_syn(
+        if wait_syn_audio(
             cname!(),
             unsafe { SYN_HANDLES.works.get(&w).nwm_ready },
             c_str!("nwm_ready"),
@@ -820,17 +820,8 @@ fn nwm_send_next_buffer(
     }
 
     let packet_size = total_size + DATA_HDR_SIZE + if lossless { RP_LOSSLESS_HDR_SIZE } else { 0 };
-    if unsafe { rp_output(packet_buf, packet_size as usize) }.is_none() {
+    if unsafe { rp_output(packet_buf, packet_size as usize, tick) }.is_none() {
         return false;
-    }
-
-    unsafe {
-        RP_OUTPUT_NEXT_TICK = tick
-            + if NWM_PROPORTIONAL_MIN_INTERVAL > 0 {
-                MIN_SEND_INTERVAL_TICK * packet_size / PACKET_SIZE
-            } else {
-                MIN_SEND_INTERVAL_TICK
-            };
     }
 
     if !thread_end_done {
@@ -849,11 +840,26 @@ fn nwm_send_next_buffer(
     true
 }
 
-pub unsafe fn rp_output(packet_buf: *mut u8, packet_size: usize) -> Option<()> {
+pub unsafe fn rp_output(
+    packet_buf: *mut u8,
+    packet_size: usize,
+    #[cfg(not(feature = "o3ds"))] tick: u32,
+) -> Option<()> {
     let nwm_buf = unsafe { packet_buf.sub(NWM_HDR_SIZE as usize) };
     unsafe {
         nwm_output(nwm_buf, packet_size);
     }
+
+    #[cfg(not(feature = "o3ds"))]
+    unsafe {
+        RP_OUTPUT_NEXT_TICK = tick
+            + if NWM_PROPORTIONAL_MIN_INTERVAL > 0 {
+                MIN_SEND_INTERVAL_TICK * packet_size as u32 / PACKET_SIZE
+            } else {
+                MIN_SEND_INTERVAL_TICK
+            };
+    }
+
     Some(())
 }
 
@@ -997,31 +1003,12 @@ unsafe fn init_lossless_compression(flags: u32) {
 }
 
 static mut MIN_SEND_INTERVAL_TICK: u32 = const_default();
-static mut MIN_SEND_INTERVAL_NS: DurationNs = const_default();
-
-// reserve a fixed slice of the qos budget for the audio stream, which sends
-// outside this pacer; keep at least a quarter of the budget for video
-#[cfg(not(feature = "o3ds"))]
-fn pacer_qos(qos: u32) -> u32 {
-    if RP_CONFIG.audio_enable().load(Ordering::Acquire) != 0 {
-        qos.saturating_sub(entries::thread_audio::AUDIO_QOS_BUDGET)
-            .max(qos / 4)
-            .max(1)
-    } else {
-        qos
-    }
-}
-
-#[cfg(feature = "o3ds")]
-fn pacer_qos(qos: u32) -> u32 {
-    qos
-}
+pub static mut MIN_SEND_INTERVAL_NS: DurationNs = const_default();
 
 unsafe fn init_min_send_interval(qos: u32) {
     unsafe {
         (*config_consts::OV_STATS).kcp_qos = qos;
         CURRENT_QOS.store(qos, Ordering::Release);
-        let qos = pacer_qos(qos);
         let tick = (SYSCLOCK_ARM11 as u64 * PACKET_SIZE as u64) / qos as u64;
         MIN_SEND_INTERVAL_TICK = tick as u32;
         MIN_SEND_INTERVAL_NS = DurationTick::init(tick as s64).get_ns();
@@ -1038,7 +1025,7 @@ static mut NWM_NEED_SYN: RangedArray<bool, WORK_COUNT> = const_default();
 #[cfg(not(feature = "o3ds"))]
 static mut CUR_SEG_MEM_COUNT: u32 = 0;
 
-static mut RP_OUTPUT_NEXT_TICK: u32 = const_default();
+pub static mut RP_OUTPUT_NEXT_TICK: u32 = const_default();
 
 pub unsafe fn init(dst_flags: u32, qos: u32) -> Option<()> {
     unsafe {

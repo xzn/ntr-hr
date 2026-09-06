@@ -230,6 +230,23 @@ pub fn wait_syn(cname: CName, h: Handle, syn_name: *const c_char) -> Option<()> 
 
 #[must_use]
 #[cfg(not(feature = "o3ds"))]
+pub fn wait_syn_audio(cname: CName, h: Handle, syn_name: *const c_char) -> Option<()> {
+    let dur_ns = if unsafe { entries::thread_audio::AUDIO_ENABLE } {
+        unsafe { entries::thread_nwm::MIN_SEND_INTERVAL_NS }
+    } else {
+        THREAD_WAIT_NS
+    };
+    while !reset_threads() {
+        let ret = wait_syn_ns(cname, h, syn_name, dur_ns)?;
+        if ret {
+            return Some(());
+        }
+    }
+    None
+}
+
+#[must_use]
+#[cfg(not(feature = "o3ds"))]
 pub fn wait_syn_once(cname: CName, h: Handle, syn_name: *const c_char) -> Option<bool> {
     wait_syn_ns(cname, h, syn_name, THREAD_WAIT_NS)
 }
