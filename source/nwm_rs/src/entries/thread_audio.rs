@@ -34,6 +34,9 @@ fn newer_region(fc0: u16, fc1: u16) -> u32 {
     }
 }
 
+pub const AUDIO_QOS_BUDGET: u32 =
+    (AUDIO_SAMPLE_RATE / AUDIO_FRAME_SAMPLES) * (DATA_HDR_SIZE as u32 + AUDIO_PAYLOAD_BYTES as u32);
+
 // spsc ring: the audio thread (core 1) produces packets, the nwm thread
 // (core 2) drains and sends them, so nwmSendPacket stays single-threaded and
 // no cross-core send lock is needed. length must stay a power of two.

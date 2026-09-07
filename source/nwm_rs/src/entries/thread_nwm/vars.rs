@@ -188,7 +188,18 @@ pub fn rp_rel_stream_max_qos() -> u32 {
 
 #[cfg(not(feature = "o3ds"))]
 pub fn rp_delta_q_qos() -> u32 {
-    unsafe { CURRENT_QOS.load(Ordering::Acquire) }
+    unsafe {
+        let qos = CURRENT_QOS.load(Ordering::Acquire);
+        // reserve a fixed slice of the qos budget for the audio stream
+        // keep at least a quarter of the budget for video
+        if entries::thread_audio::AUDIO_ENABLE {
+            qos.saturating_sub(entries::thread_audio::AUDIO_QOS_BUDGET)
+                .max(qos / 4)
+                .max(1)
+        } else {
+            qos
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
