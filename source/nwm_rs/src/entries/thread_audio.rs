@@ -133,6 +133,8 @@ pub fn drain_audio() {
                 if NWM_AGGRESSIVE_NEXT_TICK == 0 {
                     next_tick = get_system_tick().get() as u32
                 }
+            } else {
+                next_tick = curr_tick;
             }
 
             let _ =
