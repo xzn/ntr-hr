@@ -15,12 +15,20 @@ impl Impl {
         }
     }
 
+    #[named]
     pub fn set_config(&self, a: &[u32]) -> bool {
         if a.len() >= config_consts::RP_CONFIG_U32_COUNT {
             let mut ret = false;
+
             let mut quality = 0;
+            let mut qos = 0;
             let quality_check = !entries::thread_nwm::get_lossless_compression()
                 && !entries::thread_nwm::get_reliable_stream_delta_prog();
+            let qos_check = !entries::thread_nwm::get_lossless_compression()
+                && !entries::thread_nwm::get_reliable_stream_delta_prog()
+                && entries::thread_nwm::get_reliable_stream()
+                    == entries::thread_nwm::ReliableStream::None;
+
             for i in 0..config_consts::RP_CONFIG_U32_COUNT {
                 let f =
                     unsafe { AtomicU32::from_ptr((config_consts::RP_CONFIG as *mut u32).add(i)) };
@@ -28,7 +36,9 @@ impl Impl {
                 let t = f.load(Ordering::Acquire);
                 if t != p {
                     f.store(p, Ordering::Release);
-                    if quality_check && i == config_consts::RP_CONFIG_QUALITY_OFFSET_COUNT {
+                    if qos_check && i == config_consts::RP_CONFIG_QOS_OFFSET_COUNT {
+                        qos = p;
+                    } else if quality_check && i == config_consts::RP_CONFIG_QUALITY_OFFSET_COUNT {
                         quality = p;
                     } else if i != config_consts::RP_CONFIG_DSTADDR_OFFSET_COUNT {
                         ret = true;
@@ -36,9 +46,17 @@ impl Impl {
                 }
             }
 
-            if !ret && quality > 0 {
-                unsafe {
-                    encoder::jpeg_update_quality(quality);
+            if !ret {
+                if qos > 0 {
+                    unsafe {
+                        entries::thread_nwm::init_min_send_interval(qos);
+                    }
+                    ns_dbg_print!(val, c_str!("Bandwidth limit updated"), qos as s32);
+                }
+                if quality > 0 {
+                    unsafe {
+                        encoder::jpeg_update_quality(quality);
+                    }
                 }
             }
 

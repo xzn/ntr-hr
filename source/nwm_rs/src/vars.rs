@@ -36,6 +36,10 @@ pub mod config_consts {
     pub const RP_CONFIG_U32_COUNT: usize = mem::size_of::<RP_CONFIG>() / mem::size_of::<u32>();
 
     #[allow(unused)]
+    pub const RP_CONFIG_QOS_OFFSET_COUNT: usize =
+        mem::offset_of!(RP_CONFIG, qos) / mem::size_of::<u32>();
+
+    #[allow(unused)]
     pub const RP_CONFIG_DSTADDR_OFFSET_COUNT: usize =
         mem::offset_of!(RP_CONFIG, dstAddr) / mem::size_of::<u32>();
 

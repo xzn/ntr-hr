@@ -1035,7 +1035,7 @@ unsafe fn init_lossless_compression(flags: u32) {
 static mut MIN_SEND_INTERVAL_TICK: u32 = const_default();
 pub static mut MIN_SEND_INTERVAL_NS: DurationNs = const_default();
 
-unsafe fn init_min_send_interval(qos: u32) {
+pub unsafe fn init_min_send_interval(qos: u32) {
     unsafe {
         (*config_consts::OV_STATS).kcp_qos = qos;
         CURRENT_QOS.store(qos, Ordering::Release);
