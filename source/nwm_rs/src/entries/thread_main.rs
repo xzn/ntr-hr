@@ -249,8 +249,8 @@ fn init(#[cfg(not(feature = "o3ds"))] nwm_bufs: &NwmBufs) -> Option<Init> {
 
         #[cfg(not(feature = "o3ds"))]
         {
-            entries::thread_audio::AUDIO_ENABLE =
-                RP_CONFIG.audio_enable().load(Ordering::Acquire) > 0;
+            let audio_enable = RP_CONFIG.audio_enable().load(Ordering::Acquire) > 0;
+            entries::thread_audio::AUDIO_ENABLE = audio_enable && entries::thread_audio::init();
         }
 
         let qos = RP_CONFIG.qos().load(Ordering::Acquire);

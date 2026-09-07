@@ -433,7 +433,7 @@ unsafe fn do_kcp_thread_nwm() -> bool {
                     return false;
                 }
                 if audio_enable {
-                    unsafe { MIN_SEND_INTERVAL_NS.get() }
+                    entries::thread_audio::AUDIO_POLL_NS
                 } else {
                     THREAD_WAIT_NS.get()
                 }
@@ -639,7 +639,7 @@ fn nwm_ready_acquire(w: WorkIndex) -> bool {
                     cname!(),
                     unsafe { SYN_HANDLES.works.get(&w).nwm_ready },
                     c_str!("nwm_ready"),
-                    unsafe { MIN_SEND_INTERVAL_NS },
+                    DurationNs::init(entries::thread_audio::AUDIO_POLL_NS),
                 );
                 if res.is_none() {
                     return false;

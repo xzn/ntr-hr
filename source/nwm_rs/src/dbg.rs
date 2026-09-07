@@ -80,7 +80,7 @@ impl NsDbgPrint {
     ns_dbg_print_fn!(release_mutex_failed, "Release mutex %s failed: %08x\n", what: *const c_char, ret: s32);
     ns_dbg_print_fn!(release_sem_failed, "Release sem %s failed: %08x\n", what: *const c_char, ret: s32);
 
-    ns_dbg_print_fn!(val, "%s: %08d\n", what: *const c_char, ret: s32);
+    ns_dbg_print_fn!(val, "%s: %d\n", what: *const c_char, ret: s32);
     ns_dbg_print_fn!(failed, "%s failed: %08x\n", what: *const c_char, ret: s32);
     ns_dbg_print_fn!(msg, "%s\n", msg: *const c_char);
     ns_dbg_print_fn!(mem_usage, "Mem usage: %08x\n", size: u32);

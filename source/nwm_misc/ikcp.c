@@ -170,7 +170,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	IUINT32 size = len;
 	bool term = size & (1u << 31);
 	bool notify = size & (1u << 30);
-	size &= ~0 & ~(1u << 31) & ~(1u << 30);
+	size &= ~(1u << 31) & ~(1u << 30);
 	len = size;
 
 	if (len != ARQ_DATA_SIZE) {
