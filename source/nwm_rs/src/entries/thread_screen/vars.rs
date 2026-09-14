@@ -89,9 +89,16 @@ pub struct Params {
 #[cfg(not(feature = "o3ds"))]
 pub unsafe fn work_index_next_wrapped() {
     unsafe {
-        let mut w = PARAMS.work_index.get_atomic();
-        w.next_wrapped();
-        PARAMS.work_index.set_atomic(w.get());
+        let a = PARAMS.work_index.atomic();
+        let mut curr = a.load(Ordering::Acquire);
+        loop {
+            let mut w = WorkIndex::init_unchecked(curr);
+            w.next_wrapped();
+            match a.compare_exchange_weak(curr, w.get(), Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => break,
+                Err(temp) => curr = temp,
+            }
+        }
     }
 }
 

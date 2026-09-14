@@ -194,9 +194,13 @@ pub fn rp_delta_q_qos() -> u32 {
         // reserve a fixed slice of the qos budget for the audio stream
         // keep at least a quarter of the budget for video
         if entries::thread_audio::AUDIO_ENABLE {
-            qos.saturating_sub(entries::thread_audio::AUDIO_QOS_BUDGET)
-                .max(qos / 4)
-                .max(1)
+            qos.saturating_sub(if entries::thread_audio::AUDIO_KCP {
+                entries::thread_audio::AUDIO_KCP_QOS_BUDGET
+            } else {
+                entries::thread_audio::AUDIO_QOS_BUDGET
+            })
+            .max(qos / 4)
+            .max(1)
         } else {
             qos
         }
