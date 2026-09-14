@@ -1093,14 +1093,18 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
 }
 
 pub fn get_color_bias_from_format(bias: u8, format: ColorSpace) -> u8 {
-    cmp::max(
-        bias,
-        match format {
-            ColorSpace::RGBA8 | ColorSpace::RGB8 => RP_COLOR_BIAS_NONE,
-            ColorSpace::RGB565 | ColorSpace::RGB5A1 => RP_COLOR_BIAS_1,
-            ColorSpace::RGB4 => RP_COLOR_BIAS_2,
-        },
-    )
+    if false {
+        cmp::max(
+            bias,
+            match format {
+                ColorSpace::RGBA8 | ColorSpace::RGB8 => RP_COLOR_BIAS_NONE,
+                ColorSpace::RGB565 | ColorSpace::RGB5A1 => RP_COLOR_BIAS_1,
+                ColorSpace::RGB4 => RP_COLOR_BIAS_2,
+            },
+        )
+    } else {
+        bias
+    }
 }
 
 pub fn get_color_space_from_format(format: u32) -> ColorSpace {
