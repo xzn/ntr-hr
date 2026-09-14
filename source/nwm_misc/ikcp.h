@@ -311,6 +311,7 @@ struct IKCPSEG
 	IUINT8 weak_data : 1;
 	IUINT8 is_kcp_seg_data : 1;
 	IUINT8 is_term_seg_data : 1;
+	IUINT8 is_audio_seg_data : 1;
 	IUINT8 term_notify : 1;
 	IUINT8 gid_end : 1;
 
@@ -323,7 +324,7 @@ const unsigned RP_RECV_PACKET_SIZE = ROUND_UP(PACKET_SIZE, sizeof(void *));
 const unsigned ARQ_BUFS_COUNT = ARQ_PREFERRED_COUNT_MAX;
 const unsigned ARQ_CUR_BUFS_COUNT = ARQ_CUR_COUNT_MAX;
 const unsigned RP_ARQ_ENCODE_BUFS_COUNT = RP_ARQ_ENCODE_COUNT_MAX;
-const unsigned RP_ARQ_BUFS_COUNT = RP_ARQ_PREFERRED_COUNT_MAX;
+const unsigned RP_ARQ_EXTRA_BUFS_COUNT = RP_ARQ_EXTRA_COUNT_MAX;
 const unsigned SEND_BUFS_COUNT = SEND_BUFS_DATA_COUNT;
 const unsigned SEND_BUFS_SIZE = SEND_BUFS_DATA_COUNT * NWM_PACKET_SIZE;
 const unsigned SEND_CUR_BUFS_COUNT = ARQ_CUR_COUNT_MAX_2;
@@ -385,6 +386,7 @@ extern "C" {
 extern char *ikcp_seg_data_buf_malloc(void);
 extern void ikcp_seg_data_buf_free(const char *data_buf);
 
+extern bool rp_audio_data_buf_free(const char *data_buf);
 extern bool rp_term_data_buf_free(const char *data_buf);
 extern void rp_seg_data_buf_free(const char *data_buf);
 extern int rp_udp_output(char *buf, int len, u32 *tick, ikcpcb *kcp);

@@ -41,14 +41,19 @@ pub const AUDIO_QOS_BUDGET: u32 =
 // (core 2) drains and sends them, so nwmSendPacket stays single-threaded and
 // no cross-core send lock is needed. length must stay a power of two.
 const AUDIO_Q_LEN: usize = 8;
+const _AUDIO_Q_LEN_ASSERT: () = {
+    assert!(AUDIO_Q_LEN <= RP_ARQ_AUDIO_COUNT as usize);
+};
 const AUDIO_PKT_SIZE: usize = DATA_HDR_SIZE as usize + AUDIO_PAYLOAD_BYTES;
 
 struct AudioWorkArea {
     staging: [u8; AUDIO_PKT_SIZE],
-    bufs: [[u8; NWM_PACKET_SIZE as usize]; AUDIO_Q_LEN],
-    pool: mp_pool_t,
+    bufs: [[u8; NWM_PACKET_SIZE as usize]; RP_ARQ_AUDIO_COUNT as usize],
     head: AtomicU32, // consumer index (nwm thread)
     tail: AtomicU32, // producer index (audio thread)
+    pool: mp_pool_t,
+    lock: Handle,
+    sem: Handle,
 }
 
 static mut AUDIO_WORK: *mut AudioWorkArea = const_default();
@@ -61,11 +66,15 @@ pub fn once_audio() {
             *packet_buf.add(1) = 0; // hdr[1]: flags (reserved)
             *packet_buf.add(2) = AUDIO_HDR_TYPE; // hdr[2]: audio type
             *packet_buf.add(3) = AUDIO_FMT_PCM16; // hdr[3]: format/version
+
+            (*AUDIO_WORK).lock = 0;
+            (*AUDIO_WORK).sem = 0;
         }
     }
 }
 
 pub static mut AUDIO_ENABLE: bool = false;
+pub static mut AUDIO_KCP: bool = false;
 
 #[named]
 pub fn init() -> bool {
@@ -84,6 +93,30 @@ pub fn init() -> bool {
             ns_dbg_print!(mp_init_failed, c_str!("AUDIO_WORK.pool"));
             return false;
         }
+
+        if w.lock != 0 {
+            let _ = svcCloseHandle(w.lock);
+            w.lock = 0;
+        }
+        if w.sem != 0 {
+            let _ = svcCloseHandle(w.sem);
+            w.sem = 0;
+        }
+        let res = svcCreateSemaphore(
+            &mut w.sem,
+            RP_ARQ_AUDIO_COUNT as s32,
+            RP_ARQ_AUDIO_COUNT as s32,
+        );
+        if res != 0 {
+            ns_dbg_print!(create_semaphore_failed, c_str!("AUDIO_WORK.sem"), res);
+            return false;
+        }
+        let res = svcCreateMutex(&mut w.lock, false);
+        if res != 0 {
+            ns_dbg_print!(create_mutex_failed, c_str!("AUDIO_WORK.lock"), res);
+            return false;
+        }
+
         w.head.store(0, Ordering::Relaxed);
         w.tail.store(0, Ordering::Relaxed);
         true
@@ -160,6 +193,8 @@ pub extern "C" fn thread_audio(_: *mut c_void) {
     let mut have_last = false;
 
     while !reset_threads() {
+        unsafe { svcSleepThread(AUDIO_POLL_NS) };
+
         let fc0 =
             unsafe { ptr::read_volatile((DSP_REGION0 + DSP_FRAME_COUNTER_OFF) as *const u16) };
         let fc1 =
@@ -169,7 +204,6 @@ pub extern "C" fn thread_audio(_: *mut c_void) {
 
         // skip if the mix hasn't advanced
         if have_last && fc == last_fc {
-            unsafe { svcSleepThread(AUDIO_POLL_NS) };
             continue;
         }
         last_fc = fc;
@@ -192,9 +226,182 @@ pub extern "C" fn thread_audio(_: *mut c_void) {
             audio_enqueue(packet_buf);
         }
         seq = seq.wrapping_add(1);
-
-        unsafe { svcSleepThread(AUDIO_POLL_NS) };
     }
 
     unsafe { svcExitThread() }
+}
+
+#[named]
+unsafe fn audio_enqueue_kcp(dst: *const u8) -> bool {
+    let size = ARQ_RP_DATA_SIZE;
+
+    let dst = unsafe { dst.sub(ARQ_DATA_HDR_SIZE as usize) };
+    let size = size + ARQ_DATA_HDR_SIZE;
+
+    let hdr = (RP_CORE_COUNT_MAX as u16)
+        << (PID_NBITS + CID_NBITS + entries::work_thread::RP_KCP_HDR_W_NBITS);
+    unsafe {
+        ptr::copy_nonoverlapping(&hdr, dst as *mut _, 1);
+    }
+
+    let size = size | (1 << 29);
+    unsafe { ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1) };
+
+    let cb = unsafe { &mut *entries::thread_nwm::RELIABLE_STREAM_CB };
+    while !reset_threads() {
+        let res = unsafe { rp_syn_rel1(&mut cb.nwm_syn, dst as *mut _) };
+        if res == 0 {
+            break;
+        }
+        if res != RES_TIMEOUT as s32 {
+            ns_dbg_print!(failed, c_str!("Wait for nwm_syn"), res);
+            set_reset_threads();
+            return false;
+        }
+    }
+    true
+}
+
+pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
+    unsafe {
+        __system_initSyscalls();
+    }
+
+    let mut staging: *mut c_char = ptr::null_mut();
+    let mut staging_next: *mut c_char = ptr::null_mut();
+
+    let mut last_fc: u16 = 0;
+    let mut have_last = false;
+
+    while !reset_threads() {
+        unsafe { svcSleepThread(AUDIO_POLL_NS) };
+
+        let ready = unsafe { AUDIO_KCP }
+            && entries::thread_nwm::nwm_send_ready()
+            && entries::thread_nwm::nwm_session_alive();
+        if !ready {
+            continue;
+        }
+
+        if staging.is_null() {
+            if let Some(d) = unsafe { rp_audio_data_buf_malloc() } {
+                staging = d;
+                staging_next = staging;
+
+                unsafe {
+                    let hdr = (1 as u16) << entries::work_thread::EX_HDR_BIT;
+                    ptr::copy_nonoverlapping(&hdr, staging_next as *mut _, 1);
+                    staging_next = staging_next.add(mem::size_of::<u16>());
+
+                    const RP_KCP_EXHDR_AUDIO_SHIFT: usize = 15;
+                    let hdr = ((1 as u16) << RP_KCP_EXHDR_AUDIO_SHIFT)
+                        | ((1 as u16) << entries::work_thread::EXHDR_V2_BIT);
+                    ptr::copy_nonoverlapping(&hdr, staging_next as *mut _, 1);
+                    staging_next = staging_next.add(mem::size_of::<u16>());
+                }
+            } else {
+                staging = ptr::null_mut();
+                staging_next = ptr::null_mut();
+                set_reset_threads();
+            }
+        }
+
+        let fc0 =
+            unsafe { ptr::read_volatile((DSP_REGION0 + DSP_FRAME_COUNTER_OFF) as *const u16) };
+        let fc1 =
+            unsafe { ptr::read_volatile((DSP_REGION1 + DSP_FRAME_COUNTER_OFF) as *const u16) };
+        let src = newer_region(fc0, fc1);
+        let fc = if src == DSP_REGION1 { fc1 } else { fc0 };
+
+        // skip if the mix hasn't advanced
+        if have_last && fc == last_fc {
+            continue;
+        }
+        last_fc = fc;
+        have_last = true;
+
+        unsafe {
+            ptr::copy_nonoverlapping(
+                (src + DSP_FINAL_SAMPLES_OFF) as *const u8,
+                staging_next,
+                AUDIO_FRAME_BYTES,
+            );
+            staging_next = staging_next.add(AUDIO_FRAME_BYTES);
+
+            let staging_left =
+                ARQ_RP_DATA_SIZE as usize - staging_next.offset_from_unsigned(staging);
+            if staging_left < AUDIO_FRAME_BYTES {
+                ptr::write_bytes(staging_next, 0, staging_left);
+                if !audio_enqueue_kcp(staging) {
+                    break;
+                }
+                staging = ptr::null_mut();
+                staging_next = ptr::null_mut();
+            }
+        }
+    }
+
+    unsafe { svcExitThread() }
+}
+
+#[named]
+unsafe fn rp_audio_data_buf_malloc_base() -> Option<*mut c_char> {
+    unsafe {
+        let w = &mut *AUDIO_WORK;
+        wait_syn(cname!(), w.sem, c_str!("AUDIO_WORK.sem"))?;
+
+        wait_syn(cname!(), w.lock, c_str!("AUDIO_WORK.lock"))?;
+
+        let dst = mp_malloc(&mut w.pool) as *mut u8;
+
+        let ret = if dst == ptr::null_mut() {
+            ns_dbg_print!(msg, c_str!("Mem pool audio alloc failed"));
+            set_reset_threads();
+            None
+        } else {
+            Some(dst)
+        };
+
+        release_mutex(cname!(), w.lock, c_str!("AUDIO_WORK.lock"));
+
+        ret
+    }
+}
+
+#[named]
+unsafe fn rp_audio_data_buf_free_base(dst: *const ::libc::c_char) -> bool {
+    unsafe {
+        let w = &mut *AUDIO_WORK;
+
+        if wait_syn(cname!(), w.lock, c_str!("AUDIO_WORK.lock")).is_none() {
+            ns_dbg_print!(msg, c_str!("Mem pool audio lock failed"));
+            return false;
+        }
+
+        if mp_free(&mut w.pool, dst as *mut _) < 0 {
+            ns_dbg_print!(msg, c_str!("Mem pool audio free failed"));
+            return false;
+        };
+
+        release_mutex(cname!(), w.lock, c_str!("AUDIO_WORK.lock"));
+
+        release_sem(cname!(), w.sem, c_str!("AUDIO_WORK.sem"));
+
+        true
+    }
+}
+
+unsafe fn rp_audio_data_buf_malloc() -> Option<*mut c_char> {
+    unsafe {
+        if let Some(d) = rp_audio_data_buf_malloc_base() {
+            Some(entries::thread_nwm::rp_data_buf_data(d))
+        } else {
+            None
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+unsafe fn rp_audio_data_buf_free(dst: *const ::libc::c_char) -> bool {
+    unsafe { rp_audio_data_buf_free_base(dst.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize)) }
 }

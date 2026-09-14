@@ -78,7 +78,8 @@ pub unsafe fn init_reliable_stream_cb(qos: u32) -> Option<()> {
             0,
             ptr::null_mut(),
             0,
-            ((RP_ARQ_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32,
+            ((RP_ARQ_ENCODE_BUFS_COUNT * qos + RP_QOS_MAX / 2) / RP_QOS_MAX) as i32
+                + RP_ARQ_EXTRA_BUFS_COUNT as i32,
             syn.nwm_syn_data.as_mut_ptr(),
         );
         if res != 0 {
@@ -405,7 +406,9 @@ unsafe fn do_kcp_thread_nwm() -> bool {
         let mut has_dst = false;
 
         while !reset_threads() {
-            entries::thread_audio::drain_audio();
+            if audio_enable {
+                entries::thread_audio::drain_audio();
+            }
             let next_send_tick = unsafe { RP_OUTPUT_NEXT_TICK };
 
             if (get_system_tick().get() as u32 - next_send_tick) as s32 >= RP_KCP_TIMEOUT_TICK {
@@ -472,6 +475,9 @@ unsafe fn do_kcp_thread_nwm() -> bool {
                                 dst.as_mut_ptr(),
                             )
                         };
+                        if audio_enable {
+                            entries::thread_audio::drain_audio();
+                        }
                         if res == 0 {
                             has_dst = true;
                             break;
@@ -480,9 +486,6 @@ unsafe fn do_kcp_thread_nwm() -> bool {
                             ns_dbg_print!(wait_syn_failed, c_str!("Wait for nwm_syn"), res);
                             set_reset_threads();
                             return None;
-                        }
-                        if audio_enable {
-                            entries::thread_audio::drain_audio();
                         }
                         if send_delay >= 0 {
                             break;
@@ -622,7 +625,6 @@ pub extern "C" fn thread_nwm(_: *mut c_void) {
     unsafe {
         __system_initSyscalls();
         while !reset_threads() {
-            entries::thread_audio::drain_audio();
             if send_next_buffer() {
                 sleep_thread(MIN_SEND_INTERVAL_NS);
                 continue;
@@ -638,9 +640,13 @@ pub extern "C" fn thread_nwm(_: *mut c_void) {
 #[cfg(not(feature = "o3ds"))]
 #[named]
 fn nwm_ready_acquire(w: WorkIndex) -> bool {
+    let audio_enable = unsafe { entries::thread_audio::AUDIO_ENABLE };
+    if audio_enable {
+        entries::thread_audio::drain_audio();
+    }
+
     let need_syn = unsafe { NWM_NEED_SYN.get_mut(&w) };
     if *need_syn {
-        let audio_enable = unsafe { entries::thread_audio::AUDIO_ENABLE };
         if audio_enable {
             loop {
                 if reset_threads() {

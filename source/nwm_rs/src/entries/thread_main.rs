@@ -247,17 +247,22 @@ fn init(#[cfg(not(feature = "o3ds"))] nwm_bufs: &NwmBufs) -> Option<Init> {
                 .store(RP_DST_PORT_DEFAULT | dst_flags, Ordering::Release)
         }
 
-        #[cfg(not(feature = "o3ds"))]
-        {
-            let audio_enable = RP_CONFIG.audio_enable().load(Ordering::Acquire) > 0;
-            entries::thread_audio::AUDIO_ENABLE = audio_enable && entries::thread_audio::init();
-        }
-
         let qos = RP_CONFIG.qos().load(Ordering::Acquire);
         entries::thread_nwm::init(dst_flags, qos)?;
 
         let mode = RP_CONFIG.mode().load(Ordering::Acquire);
         entries::thread_screen::init(mode);
+
+        #[cfg(not(feature = "o3ds"))]
+        {
+            let audio_enable_val = RP_CONFIG.audio_enable().load(Ordering::Acquire);
+            let audio_enable = audio_enable_val > 0;
+            let audio_kcp = entries::thread_nwm::get_reliable_stream()
+                == entries::thread_nwm::ReliableStream::KCP
+                && audio_enable_val > 1;
+            entries::thread_audio::AUDIO_ENABLE = audio_enable && entries::thread_audio::init();
+            entries::thread_audio::AUDIO_KCP = entries::thread_audio::AUDIO_ENABLE && audio_kcp;
+        }
 
         let thread_prio = RP_CONFIG.thread_prio().load(Ordering::Acquire);
         let res = svcSetThreadPriority(THREAD_MAIN_HANDLE, thread_prio as i32);
@@ -373,7 +378,11 @@ fn main(_impl_: Impl, #[cfg(not(feature = "o3ds"))] s: &mut ThreadsStorage) -> O
         #[cfg(not(feature = "o3ds"))]
         let _audio = if unsafe { entries::thread_audio::AUDIO_ENABLE } {
             CreateThread::create(
-                Some(entries::thread_audio::thread_audio),
+                if unsafe { entries::thread_audio::AUDIO_KCP } {
+                    Some(entries::thread_audio::thread_audio_kcp)
+                } else {
+                    Some(entries::thread_audio::thread_audio)
+                },
                 0,
                 s.stacks.audio,
                 RP_THREAD_PRIO_MIN as s32,

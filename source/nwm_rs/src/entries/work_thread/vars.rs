@@ -631,6 +631,11 @@ pub unsafe fn set_term_dst(dst: *mut u8, w: WorkIndex, t: ThreadIndex) -> bool {
     return false;
 }
 
+#[cfg(not(feature = "o3ds"))]
+pub const EX_HDR_BIT: u32 = 15;
+#[cfg(not(feature = "o3ds"))]
+pub const EXHDR_V2_BIT: u32 = 14;
+
 #[named]
 #[cfg(not(feature = "o3ds"))]
 unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
@@ -647,6 +652,8 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
     {
         return false;
     }
+
+    let term_v2 = unsafe { entries::thread_audio::AUDIO_KCP };
 
     let mut terms: [*mut u8; RP_CORE_COUNT_MAX as usize + 1] = const_default();
     let mut term_cur = 0;
@@ -686,7 +693,21 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
                 term_cur += 1;
                 term_size = 0;
                 terms[term_cur] = if let Some(d) = unsafe { rp_term_data_buf_malloc() } {
-                    entries::thread_nwm::rp_data_buf_data(d)
+                    let d = entries::thread_nwm::rp_data_buf_data(d);
+                    if term_v2 {
+                        unsafe {
+                            let hdr = (1 as u16) << entries::work_thread::EX_HDR_BIT;
+                            ptr::copy_nonoverlapping(&hdr, d as *mut _, 1);
+                            let d = d.add(mem::size_of::<u16>());
+                            term_size += mem::size_of::<u16>();
+
+                            let hdr = (1 as u16) << entries::work_thread::EXHDR_V2_BIT;
+                            ptr::copy_nonoverlapping(&hdr, d as *mut _, 1);
+                            let _d = d.add(mem::size_of::<u16>());
+                            term_size += mem::size_of::<u16>();
+                        }
+                    }
+                    d
                 } else {
                     return false;
                 };
@@ -728,9 +749,8 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
         | quality;
 
     let need_even_odd = downsample == RP_DOWNSAMPLE_CHECKER || downsample == RP_DOWNSAMPLE_EVEN_ODD;
-    let ex_hdr = need_even_odd;
+    let ex_hdr = need_even_odd || term_v2;
     let hdr = if ex_hdr {
-        const EX_HDR_BIT: u32 = 15;
         assert!(
             RP_KCP_HDR_QUALITY_NBITS
                 + RP_KCP_HDR_T_NBITS
@@ -754,6 +774,10 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
 
         if need_even_odd {
             hdr |= info.even_odd as u16;
+        }
+
+        if term_v2 {
+            hdr |= (1 as u16) << EXHDR_V2_BIT;
         }
 
         if !copy_to_terms(&hdr as *const u16 as *const _, mem::size_of_val(&hdr)) {

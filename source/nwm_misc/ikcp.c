@@ -92,6 +92,8 @@ static void ikcp_segment_free(ikcpcb *kcp, IKCPSEG *seg)
 	if (!seg->weak_data) {
 		if (seg->is_kcp_seg_data) {
 			ikcp_seg_data_buf_free(seg->data_buf);
+		} else if (seg->is_audio_seg_data) {
+			rp_audio_data_buf_free(seg->data_buf);
 		} else if (seg->is_term_seg_data) {
 			rp_term_data_buf_free(seg->data_buf);
 		} else {
@@ -170,7 +172,8 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	IUINT32 size = len;
 	bool term = size & (1u << 31);
 	bool notify = size & (1u << 30);
-	size &= ~(1u << 31) & ~(1u << 30);
+	bool audio = size & (1u << 29);
+	size &= ~(1u << 31) & ~(1u << 30) & ~(1u << 29);
 	len = size;
 
 	if (len != ARQ_DATA_SIZE) {
@@ -205,8 +208,9 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	*seg = (struct IKCPSEG){ 0 };
 	seg->data_buf = buffer;
 	seg->pid = kcp->pid;
-	seg->is_term_seg_data = term;
-	seg->term_notify = notify;
+	seg->is_term_seg_data = !!term;
+	seg->term_notify = !!notify;
+	seg->is_audio_seg_data = !!audio;
 #ifdef CHECK_PID
 	rp_arq_bitset_set(&kcp->pid_bs, kcp->pid);
 #endif
