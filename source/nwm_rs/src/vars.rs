@@ -219,9 +219,13 @@ pub const fn img_buffer_size(is_top: bool) -> usize {
         * 4 // max bpp
         * if is_top {
             #[cfg(not(feature = "o3ds"))]
-            { GSP_SCREEN_HEIGHT_TOP_2X }
+            {
+                GSP_SCREEN_HEIGHT_TOP_2X
+            }
             #[cfg(feature = "o3ds")]
-            { GSP_SCREEN_HEIGHT_TOP }
+            {
+                GSP_SCREEN_HEIGHT_TOP
+            }
         } else {
             GSP_SCREEN_HEIGHT_BOTTOM
         }) as usize

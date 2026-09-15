@@ -79,7 +79,14 @@ pub enum TopScreenWidth {
 pub fn top_screen_width() -> TopScreenWidth {
     unsafe {
         if FULL_WIDTH >= 2 {
-            TopScreenWidth::Both
+            #[cfg(not(feature = "o3ds"))]
+            {
+                TopScreenWidth::Both
+            }
+            #[cfg(feature = "o3ds")]
+            {
+                TopScreenWidth::Left
+            }
         } else if FULL_WIDTH >= 1 {
             TopScreenWidth::Right
         } else {
