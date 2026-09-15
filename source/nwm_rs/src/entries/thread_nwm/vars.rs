@@ -376,7 +376,7 @@ extern "C" fn ikcp_seg_data_buf_malloc() -> *mut c_char {
 #[named]
 #[unsafe(no_mangle)]
 #[cfg(not(feature = "o3ds"))]
-extern "C" fn ikcp_seg_data_buf_free(dst: *const c_char) {
+extern "C" fn ikcp_seg_data_buf_free(dst: *const c_char) -> bool {
     let cb = unsafe { &mut *RELIABLE_STREAM_CB };
     if unsafe {
         mp_free(
@@ -387,14 +387,15 @@ extern "C" fn ikcp_seg_data_buf_free(dst: *const c_char) {
     {
         ns_dbg_print!(msg, c_str!("Mem pool cur send free failed"));
         set_reset_threads();
-        return;
+        return false;
     }
     unsafe { CUR_SEG_MEM_COUNT -= 1 };
+    true
 }
 
 #[unsafe(no_mangle)]
 #[cfg(not(feature = "o3ds"))]
-extern "C" fn rp_seg_data_buf_free(data_buf: *const c_char) {
+extern "C" fn rp_seg_data_buf_free(data_buf: *const c_char) -> bool {
     unsafe { rp_data_buf_free(data_buf.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize) as *mut _) }
 }
 
@@ -1643,10 +1644,11 @@ pub unsafe fn rp_data_buf_malloc() -> Option<*mut c_char> {
 
 #[named]
 #[cfg(not(feature = "o3ds"))]
-unsafe fn rp_data_buf_free(dst: *const ::libc::c_char) {
+unsafe fn rp_data_buf_free(dst: *const ::libc::c_char) -> bool {
     unsafe {
-        entries::work_thread::rp_term_data_buf_free_base(dst);
+        let ret = entries::work_thread::rp_term_data_buf_free_base(dst);
         release_sem(cname!(), SEG_MEM_SEM, c_str!("SEG_MEM_SEM"));
+        ret
     }
 }
 

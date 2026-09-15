@@ -384,11 +384,11 @@ extern "C" {
 #endif
 
 extern char *ikcp_seg_data_buf_malloc(void);
-extern void ikcp_seg_data_buf_free(const char *data_buf);
+extern bool ikcp_seg_data_buf_free(const char *data_buf);
 
 extern bool rp_audio_data_buf_free(const char *data_buf);
 extern bool rp_term_data_buf_free(const char *data_buf);
-extern void rp_seg_data_buf_free(const char *data_buf);
+extern bool rp_seg_data_buf_free(const char *data_buf);
 extern int rp_udp_output(char *buf, int len, u32 *tick, ikcpcb *kcp);
 extern void rp_term_notify(void);
 extern void rp_set_qos(u32 qos);

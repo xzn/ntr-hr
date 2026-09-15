@@ -87,20 +87,27 @@ static IKCPSEG* ikcp_segment_malloc(ikcpcb *kcp)
 }
 
 // delete a segment
-static void ikcp_segment_free(ikcpcb *kcp, IKCPSEG *seg)
+static bool ikcp_segment_free(ikcpcb *kcp, IKCPSEG *seg)
 {
 	if (!seg->weak_data) {
 		if (seg->is_kcp_seg_data) {
-			ikcp_seg_data_buf_free(seg->data_buf);
+			if (!ikcp_seg_data_buf_free(seg->data_buf))
+				return false;
 		} else if (seg->is_audio_seg_data) {
-			rp_audio_data_buf_free(seg->data_buf);
+			if (!rp_audio_data_buf_free(seg->data_buf))
+				return false;
 		} else if (seg->is_term_seg_data) {
-			rp_term_data_buf_free(seg->data_buf);
+			if (!rp_term_data_buf_free(seg->data_buf))
+				return false;
 		} else {
-			rp_seg_data_buf_free(seg->data_buf);
+			if (!rp_seg_data_buf_free(seg->data_buf))
+				return false;
 		}
 	}
-	mp_free(&kcp->seg_pool, seg);
+	if (mp_free(&kcp->seg_pool, seg) < 0)
+		return false;
+
+	return true;
 }
 
 // output segment
@@ -312,7 +319,8 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, int
 
 		if (seg->recovery_data) {
 			iqueue_del(&seg->node, 1);
-			ikcp_segment_free(kcp, seg);
+			if (!ikcp_segment_free(kcp, seg))
+				return -4;
 		} else if (r && !ikcp_input_check_nack(seg->pid, kcp)) {
 			iqueue_del(&seg->node, 1);
 #ifdef CHECK_PID
@@ -326,7 +334,8 @@ static int ikcp_input_handle_send_wak_nack(ikcpcb *kcp, struct IKCPSEG *seg, int
 			// memcpy(&saved_segs[seg->pid], &seg->pid, sizeof(struct SavedSeg));
 			++ack_count;
 			--kcp->n_snd;
-			ikcp_segment_free(kcp, seg);
+			if (!ikcp_segment_free(kcp, seg))
+				return -5;
 		} else {
 			iqueue_del(&seg->node, 2);
 			seg->gid_end = false;
@@ -433,7 +442,8 @@ static int ikcp_input_handle_send_cur_nack(ikcpcb *kcp, struct IKCPSEG *seg, str
 			// memcpy(&saved_segs[seg->pid], &seg->pid, sizeof(struct SavedSeg));
 			--kcp->n_snd;
 		}
-		ikcp_segment_free(kcp, seg);
+		if (!ikcp_segment_free(kcp, seg))
+			return -5;
 	}
 
 	*next = n;
@@ -457,7 +467,8 @@ static int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, int g, 
 #endif
 			// memcpy(&saved_segs[seg->pid], &seg->pid, sizeof(struct SavedSeg));
 			--kcp->n_snd;
-			ikcp_segment_free(kcp, seg);
+			if (!ikcp_segment_free(kcp, seg))
+				return -4;
 		}
 	}
 	return 0;
@@ -1096,7 +1107,8 @@ int ikcp_send_next(ikcpcb *kcp)
 		seg->data_buf = ikcp_seg_data_buf_malloc();
 		if (!seg->data_buf) {
 			seg->weak_data = true;
-			ikcp_segment_free(kcp, seg);
+			if (!ikcp_segment_free(kcp, seg))
+				return -4;
 			return -2;
 		}
 		seg->is_kcp_seg_data = true;
@@ -1125,7 +1137,8 @@ int ikcp_send_next(ikcpcb *kcp)
 			break;
 		}
 
-		ikcp_segment_free(kcp, seg);
+		if (!ikcp_segment_free(kcp, seg))
+			return -6;
 		return 0;
 	}
 
