@@ -304,9 +304,8 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
                     staging_next = staging_next.add(mem::size_of::<u16>());
                 }
             } else {
-                staging = ptr::null_mut();
-                staging_next = ptr::null_mut();
                 set_reset_threads();
+                break;
             }
         }
 
