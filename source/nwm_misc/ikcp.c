@@ -171,6 +171,35 @@ static char *ikcp_get_packet_data_buf(char *data_buf) {
 	return data_buf - ARQ_OVERHEAD_SIZE;
 }
 
+enum ARQ_QUEUE {
+	ARQ_QUEUE_RSND2,
+	ARQ_QUEUE_RSND1,
+	ARQ_QUEUE_RSND0,
+	ARQ_QUEUE_SND,
+	ARQ_QUEUE_COUNT,
+};
+
+_Static_assert(ARQ_QUEUE_COUNT == RSND_COUNT + 1); // rsnd count + snd
+_Static_assert(ARQ_QUEUE_RSND0 == RSND_COUNT - 1);
+
+static struct IQUEUEHEAD *arq_queue_get(ikcpcb *kcp, enum ARQ_QUEUE queue) {
+	if (queue <= ARQ_QUEUE_RSND0) {
+		return &kcp->rsnd_lsts[ARQ_QUEUE_RSND0 - queue];
+	} else if (queue == ARQ_QUEUE_SND) {
+		return &kcp->snd_lst;
+	} else {
+		return 0;
+	}
+}
+
+static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
+	if (wrn > 0) {
+		wrn = _imin_(wrn, RSND_COUNT) - 1;
+		return &kcp->rsnd_lsts[wrn];
+	}
+	return &kcp->snd_lst;
+}
+
 //---------------------------------------------------------------------
 // user/upper level send
 //---------------------------------------------------------------------
@@ -226,7 +255,10 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 	kcp->pid &= ((1 << PID_NBITS) - 1);
 
 	iqueue_init(&seg->node);
-	iqueue_add_tail(&seg->node, &kcp->snd_lst);
+	if (seg->is_audio_seg_data)
+		iqueue_add(&seg->node, arq_queue_get(kcp, ARQ_QUEUE_RSND1));
+	else
+		iqueue_add_tail(&seg->node, &kcp->snd_lst);
 	++kcp->n_snd;
 
 	return 0;
@@ -251,35 +283,6 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 //---------------------------------------------------------------------
 // input data
 //---------------------------------------------------------------------
-
-enum ARQ_QUEUE {
-	ARQ_QUEUE_RSND2,
-	ARQ_QUEUE_RSND1,
-	ARQ_QUEUE_RSND0,
-	ARQ_QUEUE_SND,
-	ARQ_QUEUE_COUNT,
-};
-
-_Static_assert(ARQ_QUEUE_COUNT == RSND_COUNT + 1); // rsnd count + snd
-_Static_assert(ARQ_QUEUE_RSND0 == RSND_COUNT - 1);
-
-static struct IQUEUEHEAD *arq_queue_get(ikcpcb *kcp, enum ARQ_QUEUE queue) {
-	if (queue <= ARQ_QUEUE_RSND0) {
-		return &kcp->rsnd_lsts[ARQ_QUEUE_RSND0 - queue];
-	} else if (queue == ARQ_QUEUE_SND) {
-		return &kcp->snd_lst;
-	} else {
-		return 0;
-	}
-}
-
-static struct IQUEUEHEAD *arq_queue_get_from_wrn(ikcpcb *kcp, int wrn) {
-	if (wrn > 0) {
-		wrn = _imin_(wrn, RSND_COUNT) - 1;
-		return &kcp->rsnd_lsts[wrn];
-	}
-	return &kcp->snd_lst;
-}
 
 // FIXME:
 // Currently works on little endian only
