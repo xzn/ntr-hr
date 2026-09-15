@@ -65,6 +65,28 @@ type FrameCounts = RangedArray<u32, SCREEN_COUNT>;
 type FrameQueues = RangedArray<u32, SCREEN_COUNT>;
 
 static mut CONFIG: Config = const_default();
+static mut FULL_WIDTH: u32 = const_default();
+
+#[allow(unused)]
+#[derive(PartialEq, Eq)]
+pub enum TopScreenWidth {
+    Left,
+    Right,
+    Both,
+}
+
+#[allow(unused)]
+pub fn top_screen_width() -> TopScreenWidth {
+    unsafe {
+        if FULL_WIDTH >= 2 {
+            TopScreenWidth::Both
+        } else if FULL_WIDTH >= 1 {
+            TopScreenWidth::Right
+        } else {
+            TopScreenWidth::Left
+        }
+    }
+}
 
 #[cfg(not(feature = "o3ds"))]
 const FRAME_TIMING_FACTOR_DQ: u32 = 2;
@@ -194,7 +216,9 @@ pub fn set_no_skip_frames() {
     let _ = unsafe { svcSignalEvent(*SYN_HANDLES.screens_port_ready.get(&is_top_index(false))) };
 }
 
-pub unsafe fn init(mode: u32) {
+pub unsafe fn init(mode: u32, full_width: u32) {
+    unsafe { FULL_WIDTH = full_width };
+
     let is_top = (mode & 0xff00) > 0;
     let factor = mode & 0xff;
 
@@ -306,6 +330,13 @@ impl WorkDone {
     }
 }
 
+#[allow(unused)]
+pub const EYE_LEFT: usize = 0;
+#[allow(unused)]
+pub const EYE_RIGHT: usize = 1;
+#[allow(unused)]
+pub const EYE_COUNT: usize = 2;
+
 #[derive(ConstDefault)]
 pub struct WorkReadyParams {
     pub is_top: bool,
@@ -313,7 +344,9 @@ pub struct WorkReadyParams {
     #[cfg(feature = "mem3")]
     pub pitch: u32,
     #[cfg(not(feature = "o3ds"))]
-    pub dma: Handle,
+    pub dma: [Handle; EYE_COUNT],
+    #[cfg(not(feature = "o3ds"))]
+    pub both_eyes: bool,
 }
 
 type WorkReady = RangedArray<WorkReadyParams, WORK_COUNT>;
@@ -327,7 +360,8 @@ fn thread_ready_release(
     format: u32,
     #[cfg(feature = "mem3")] pitch: u32,
     #[cfg(not(feature = "o3ds"))] work_index: WorkIndex,
-    #[cfg(not(feature = "o3ds"))] dma: Handle,
+    #[cfg(not(feature = "o3ds"))] dma: [Handle; EYE_COUNT],
+    #[cfg(not(feature = "o3ds"))] both_eyes: bool,
 ) {
     unsafe {
         #[cfg(feature = "o3ds")]
@@ -340,6 +374,8 @@ fn thread_ready_release(
                 format,
                 #[cfg(not(feature = "o3ds"))]
                 dma,
+                #[cfg(not(feature = "o3ds"))]
+                both_eyes,
             };
         }
         #[cfg(feature = "mem3")]
@@ -496,9 +532,25 @@ pub fn wait_for_vblank(is_top: bool) {
 #[derive(ConstDefault, Clone, Copy)]
 pub struct ScreenInfo {
     pub fill: u32,
-    pub src: *mut u8,
+    pub src_0: *mut u8,
+    pub src_1: *mut u8,
+    pub full_width: bool,
     pub pitch: u32,
     pub format: u32,
+}
+
+impl ScreenInfo {
+    #[allow(unused)]
+    fn src(&self) -> *mut u8 {
+        if !self.src_1.is_null()
+            && entries::thread_screen::top_screen_width()
+                == entries::thread_screen::TopScreenWidth::Right
+        {
+            self.src_1
+        } else {
+            self.src_0
+        }
+    }
 }
 
 pub fn update_gpu_regs(is_top: bool) -> ScreenInfo {
@@ -509,30 +561,32 @@ pub fn update_gpu_regs(is_top: bool) -> ScreenInfo {
             screen_info.pitch = ptr::read_volatile(GPU_FB_TOP_STRIDE as *const u32);
 
             let fb = ptr::read_volatile(GPU_FB_TOP_SEL as *const u32);
-            if fb & 1 == 0 {
-                screen_info.src =
-                    ptr::read_volatile(GPU_FB_TOP_LEFT_ADDR_1 as *const u32) as *mut u8;
+            screen_info.src_0 = if fb & 1 == 0 {
+                ptr::read_volatile(GPU_FB_TOP_LEFT_ADDR_1 as *const u32) as *mut u8
             } else {
-                screen_info.src =
-                    ptr::read_volatile(GPU_FB_TOP_LEFT_ADDR_2 as *const u32) as *mut u8;
-            }
+                ptr::read_volatile(GPU_FB_TOP_LEFT_ADDR_2 as *const u32) as *mut u8
+            };
+            screen_info.src_1 = if fb & 1 == 0 {
+                ptr::read_volatile(GPU_FB_TOP_RIGHT_ADDR_1 as *const u32) as *mut u8
+            } else {
+                ptr::read_volatile(GPU_FB_TOP_RIGHT_ADDR_2 as *const u32) as *mut u8
+            };
 
-            let full_width = (screen_info.format & (7 << 4)) == 0;
-            if full_width {
-                screen_info.pitch *= 2;
-            }
+            screen_info.full_width = (screen_info.format & (7 << 4)) == 0;
             screen_info.fill = ptr::read_volatile(LCD_TOP_FILLCOLOR as *const u32);
         } else {
             screen_info.format = ptr::read_volatile(GPU_FB_BOTTOM_FMT as *const u32);
             screen_info.pitch = ptr::read_volatile(GPU_FB_BOTTOM_STRIDE as *const u32);
 
             let fb = ptr::read_volatile(GPU_FB_BOTTOM_SEL as *const u32);
-            if fb & 1 == 0 {
-                screen_info.src = ptr::read_volatile(GPU_FB_BOTTOM_ADDR_1 as *const u32) as *mut u8;
+            screen_info.src_0 = if fb & 1 == 0 {
+                ptr::read_volatile(GPU_FB_BOTTOM_ADDR_1 as *const u32) as *mut u8
             } else {
-                screen_info.src = ptr::read_volatile(GPU_FB_BOTTOM_ADDR_2 as *const u32) as *mut u8;
-            }
+                ptr::read_volatile(GPU_FB_BOTTOM_ADDR_2 as *const u32) as *mut u8
+            };
+            screen_info.src_1 = ptr::null_mut();
             screen_info.fill = ptr::read_volatile(LCD_BOTTOM_FILLCOLOR as *const u32);
+            screen_info.full_width = false;
         }
         screen_info.format &= 0xf;
         screen_info
@@ -545,7 +599,7 @@ type DmaHandles = RangedArray<Handle, WORK_COUNT>;
 #[derive(ConstDefault)]
 pub struct ScreenParams {
     #[cfg(not(feature = "mem3"))]
-    pub dmas: DmaHandles,
+    pub dmas: [DmaHandles; EYE_COUNT],
     pub game_handle: Handle,
     pub game_pid: u32,
     pub game_fcram_base: u32,
@@ -613,7 +667,7 @@ pub fn try_capture_screen(is_top: bool, screen_info: &ScreenInfo) -> bool {
 
     #[cfg(feature = "mem3")]
     unsafe {
-        IMG_INFO = (screen_info.src as u32 | (1 << 31)) as *mut u8;
+        IMG_INFO = (screen_info.src() as u32 | (1 << 31)) as *mut u8;
         thread_ready_release(is_top, screen_info.format, screen_info.pitch);
         true
     }
@@ -657,7 +711,21 @@ fn capture_screen(
         #[cfg(feature = "o3ds")]
         let w = WorkIndex::init(0);
 
-        let phys = screen_info.src as u32;
+        let top_screen_width = entries::thread_screen::top_screen_width();
+        let top_screen_right = top_screen_width == entries::thread_screen::TopScreenWidth::Right;
+        let top_screen_both = top_screen_width == entries::thread_screen::TopScreenWidth::Both;
+        let both_eyes = top_screen_both && !screen_info.full_width;
+
+        let phys_0 = if top_screen_right {
+            screen_info.src_1
+        } else {
+            screen_info.src_0
+        } as u32;
+        let phys_1 = if both_eyes {
+            screen_info.src_1 as u32
+        } else {
+            0
+        };
 
         let format = screen_info.format & 0xf;
 
@@ -685,11 +753,20 @@ fn capture_screen(
 
         let mut pitch = screen_info.pitch;
 
+        if !top_screen_both && screen_info.full_width {
+            pitch *= 2;
+        }
+
         let height = if is_top {
-            GSP_SCREEN_HEIGHT_TOP
+            if top_screen_both && screen_info.full_width {
+                GSP_SCREEN_HEIGHT_TOP_2X
+            } else {
+                GSP_SCREEN_HEIGHT_TOP
+            }
         } else {
             GSP_SCREEN_HEIGHT_BOTTOM
         };
+
         let buf_size = transfer_size * height;
 
         if transfer_size == pitch {
@@ -704,91 +781,101 @@ fn capture_screen(
             pitch = transfer_size;
         }
 
-        let dma_conf = DmaConfig {
-            channelId: -1,
-            flags: (DMACFG_WAIT_AVAILABLE | DMACFG_DST_MEMORY_CONFIG | DMACFG_SRC_MEMORY_CONFIG)
-                as u8,
-            endianSwapSize: 0,
-            _padding: 0,
-            srcDev: DmaDeviceConfig {
-                deviceId: -1,
-                allowedAlignments: 15,
-            },
-            dstMem: DmaMemoryConfig {
-                burstSize: burst_size as s16,
-                burstStride: burst_size as s16,
-                transferSize: transfer_size as s16,
-                transferStride: transfer_size as s16,
-            },
-            dstDev: DmaDeviceConfig {
-                deviceId: -1,
-                allowedAlignments: 15,
-            },
-            srcMem: DmaMemoryConfig {
-                burstSize: burst_size as s16,
-                burstStride: burst_size as s16,
-                transferSize: transfer_size as s16,
-                transferStride: pitch as s16,
-            },
-        };
-
-        if buf_size > img_buffer_size(is_top) as u32 {
-            ns_dbg_print!(failed, c_str!("buf_size"), buf_size as s32);
-            sleep_thread(THREAD_WAIT_NS);
-            return false;
-        }
-
-        {
-            let dma = params.dmas.get_mut(&w);
-            if *dma != 0 {
-                let _ = svcCloseHandle(*dma);
-                *dma = 0;
+        let mut do_dma = |phys, dst, eye: usize| {
+            if phys == 0 {
+                return 0;
             }
-        }
 
-        let (process, addr) = if is_in_vram(phys) {
-            close_game_handle(params);
-            (
-                entries::start_up::HOME_PROCESS_HANDLE,
-                0x1f000000 + (phys - 0x18000000),
-            )
-        } else if is_in_fcram(phys) {
-            let process = get_game_handle(params);
-            if process == 0 {
-                sleep_thread(THREAD_WAIT_NS);
-                return false;
+            let dma_conf = DmaConfig {
+                channelId: -1,
+                flags: (DMACFG_WAIT_AVAILABLE | DMACFG_DST_MEMORY_CONFIG | DMACFG_SRC_MEMORY_CONFIG)
+                    as u8,
+                endianSwapSize: 0,
+                _padding: 0,
+                srcDev: DmaDeviceConfig {
+                    deviceId: -1,
+                    allowedAlignments: 15,
+                },
+                dstMem: DmaMemoryConfig {
+                    burstSize: burst_size as s16,
+                    burstStride: burst_size as s16,
+                    transferSize: transfer_size as s16,
+                    transferStride: transfer_size as s16,
+                },
+                dstDev: DmaDeviceConfig {
+                    deviceId: -1,
+                    allowedAlignments: 15,
+                },
+                srcMem: DmaMemoryConfig {
+                    burstSize: burst_size as s16,
+                    burstStride: burst_size as s16,
+                    transferSize: transfer_size as s16,
+                    transferStride: pitch as s16,
+                },
+            };
+
+            {
+                let dma = params.dmas.get_unchecked_mut(eye).get_mut(&w);
+                if *dma != 0 {
+                    let _ = svcCloseHandle(*dma);
+                    *dma = 0;
+                }
             }
-            (process, SCREEN_PARAMS.game_fcram_base + (phys - 0x20000000))
-        } else {
-            sleep_thread(THREAD_WAIT_NS);
-            return false;
-        };
 
-        let dma = {
-            let mut dma = mem::MaybeUninit::uninit();
-            let res = svcStartInterProcessDma(
-                dma.as_mut_ptr(),
-                CUR_PROCESS_HANDLE,
-                dst,
-                process,
-                addr,
-                buf_size,
-                &dma_conf,
-            );
-            if res != 0 {
+            let (process, addr) = if is_in_vram(phys) {
                 close_game_handle(params);
-                ns_dbg_print!(failed, c_str!("dma"), res);
+                (
+                    entries::start_up::HOME_PROCESS_HANDLE,
+                    0x1f000000 + (phys - 0x18000000),
+                )
+            } else if is_in_fcram(phys) {
+                let process = get_game_handle(params);
+                if process == 0 {
+                    sleep_thread(THREAD_WAIT_NS);
+                    return 0;
+                }
+                (process, SCREEN_PARAMS.game_fcram_base + (phys - 0x20000000))
+            } else {
                 sleep_thread(THREAD_WAIT_NS);
-                return false;
-            }
+                return 0;
+            };
 
-            #[cfg(not(feature = "o3ds"))]
-            send_overlay_stats(&mut params.overlay);
+            let dma = {
+                let mut dma = mem::MaybeUninit::uninit();
+                let res = svcStartInterProcessDma(
+                    dma.as_mut_ptr(),
+                    CUR_PROCESS_HANDLE,
+                    dst,
+                    process,
+                    addr,
+                    buf_size,
+                    &dma_conf,
+                );
+                if res != 0 {
+                    close_game_handle(params);
+                    ns_dbg_print!(failed, c_str!("dma"), res);
+                    sleep_thread(THREAD_WAIT_NS);
+                    return 0;
+                }
 
-            let dma = dma.assume_init();
-            *params.dmas.get_mut(&w) = dma;
+                #[cfg(not(feature = "o3ds"))]
+                send_overlay_stats(&mut params.overlay);
+
+                let dma = dma.assume_init();
+                *params.dmas.get_unchecked_mut(eye).get_mut(&w) = dma;
+                dma
+            };
+
             dma
         };
+
+        let dma = [
+            do_dma(phys_0, dst, EYE_LEFT),
+            do_dma(phys_1, dst + buf_size, EYE_RIGHT),
+        ];
+        if dma[0] == 0 {
+            return false;
+        }
         #[cfg(feature = "o3ds")]
         {
             let _ = dma;
@@ -801,6 +888,8 @@ fn capture_screen(
             w,
             #[cfg(not(feature = "o3ds"))]
             dma,
+            #[cfg(not(feature = "o3ds"))]
+            both_eyes,
         );
 
         true

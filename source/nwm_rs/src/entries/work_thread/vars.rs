@@ -149,7 +149,18 @@ impl BlitCtxInit {
     #[named]
     #[cfg(not(feature = "o3ds"))]
     fn dma_sync(&self) {
-        if wait_syn_once(cname!(), self.0.0.work_ready_params().dma, c_str!("dma")).is_none() {
+        let wait_dma = |eye| {
+            let dma = unsafe { *self.0.0.work_ready_params().dma.get_unchecked(eye) };
+            if dma > 0 {
+                wait_syn_once(cname!(), dma, c_str!("dma"))
+            } else {
+                Some(false)
+            }
+        };
+        if wait_dma(entries::thread_screen::EYE_LEFT).is_none() {
+            return;
+        }
+        if wait_dma(entries::thread_screen::EYE_RIGHT).is_none() {
             return;
         }
 
@@ -288,6 +299,7 @@ impl WorkFrame {
                     bctx.frame_id,
                     bctx.is_top,
                     downsample,
+                    self.0.0.work_ready_params().both_eyes,
                 )
             } {
                 return None;
@@ -571,6 +583,7 @@ impl Drop for WorkRet {
         #[cfg(not(feature = "o3ds"))]
         {
             let w = self.0.w;
+            let both_eyes = self.0.work_ready_params().both_eyes;
             let bctx = self.0.bctx();
             let syn = unsafe { SYN_HANDLES.works.get(&w) };
 
@@ -580,7 +593,7 @@ impl Drop for WorkRet {
             if f == core_count.get() - 1 {
                 entries::thread_screen::reset_no_skip_frame(bctx.is_top);
 
-                if !unsafe { send_term_dsts(w, &self.1) } {
+                if !unsafe { send_term_dsts(w, both_eyes, &self.1) } {
                     set_reset_threads();
                 }
 
@@ -638,7 +651,7 @@ pub const EXHDR_V2_BIT: u32 = 14;
 
 #[named]
 #[cfg(not(feature = "o3ds"))]
-unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
+unsafe fn send_term_dsts(w: WorkIndex, both_eyes: bool, ret: &EncodeRet) -> bool {
     if *unsafe { TERM_DSTS.get(&w).get(&ThreadIndex::init(0)) } == ptr::null_mut() {
         return true;
     }
@@ -749,7 +762,10 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
         | quality;
 
     let need_even_odd = downsample == RP_DOWNSAMPLE_CHECKER || downsample == RP_DOWNSAMPLE_EVEN_ODD;
-    let ex_hdr = need_even_odd || term_v2;
+    let full_width = info.is_top
+        && entries::thread_screen::top_screen_width()
+            == entries::thread_screen::TopScreenWidth::Both;
+    let ex_hdr = need_even_odd || term_v2 || full_width;
     let hdr = if ex_hdr {
         assert!(
             RP_KCP_HDR_QUALITY_NBITS
@@ -774,6 +790,14 @@ unsafe fn send_term_dsts(w: WorkIndex, ret: &EncodeRet) -> bool {
 
         if need_even_odd {
             hdr |= info.even_odd as u16;
+        }
+
+        if full_width {
+            hdr |= (1 as u16) << 1;
+        }
+
+        if full_width && both_eyes {
+            hdr |= (1 as u16) << 2;
         }
 
         if term_v2 {
@@ -1183,11 +1207,7 @@ impl BlitCtx {
     }
 
     pub fn height(&self) -> u32 {
-        if self.is_top {
-            GSP_SCREEN_HEIGHT_TOP
-        } else {
-            GSP_SCREEN_HEIGHT_BOTTOM
-        }
+        rp_screen_height!(self.is_top)
     }
 
     #[cfg(not(feature = "mem3"))]

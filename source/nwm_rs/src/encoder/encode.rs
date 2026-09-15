@@ -138,11 +138,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
         let height = src.len() / pitch;
 
         #[cfg(feature = "mem3")]
-        let height = if is_top {
-            GSP_SCREEN_HEIGHT_TOP
-        } else {
-            GSP_SCREEN_HEIGHT_BOTTOM
-        } as usize;
+        let height = rp_screen_height!(is_top) as usize;
         #[cfg(feature = "mem3")]
         let src = unsafe { slice::from_raw_parts(src, pitch as usize * height) };
         #[cfg(feature = "mem3")]
@@ -593,11 +589,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         let mut src_iter = src.chunks_exact(pitch).map(|x| x.as_ptr());
 
         #[cfg(feature = "mem3")]
-        let height = if is_top {
-            GSP_SCREEN_HEIGHT_TOP
-        } else {
-            GSP_SCREEN_HEIGHT_BOTTOM
-        } as usize;
+        let height = rp_screen_height!(is_top) as usize;
         #[cfg(feature = "mem3")]
         let mut src_iter = {
             let src = unsafe { slice::from_raw_parts(src, pitch as usize * height) };

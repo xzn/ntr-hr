@@ -286,11 +286,7 @@ impl JpegShared {
             #[cfg(not(feature = "mem3"))]
             if screen.downsample == RP_DOWNSAMPLE_CHECKER {
                 let tl = GSP_SCREEN_WIDTH;
-                let br = if is_top {
-                    GSP_SCREEN_HEIGHT_TOP
-                } else {
-                    GSP_SCREEN_HEIGHT_BOTTOM
-                };
+                let br = rp_screen_height!(is_top);
 
                 let mcu_l_v = tl / jpeg_screen.mcu_col_size as u32;
                 let mcu_l_r = tl % jpeg_screen.mcu_col_size as u32;

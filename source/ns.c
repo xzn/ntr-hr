@@ -338,6 +338,7 @@ static void nsHandleRemotePlay(void) {
 	if (pac->args[3] == 1404036572) /* guarding magic */ {
 		config.dstPort = pac->args[4];
 		config.audioEnable = pac->args[5]; // NTR-HR+ audio (0 on stock clients)
+		config.fullWidth = pac->args[6];
 	}
 
 	config.threadPriority = rpConfig->threadPriority;

@@ -1273,10 +1273,20 @@ struct DataHdr([u8; DATA_HDR_SIZE as usize]);
 static mut DATA_BUF_HDRS: RangedArray<DataHdr, WORK_COUNT> = const_default();
 
 impl DataHdr {
-    fn init(frame_id: u8, is_top: bool, downsample: u8, lossless: u8) -> Self {
+    fn init(frame_id: u8, is_top: bool, downsample: u8, lossless: u8, both_eyes: bool) -> Self {
         Self([
             frame_id,
-            is_top as u8,
+            if is_top {
+                if entries::thread_screen::top_screen_width()
+                    == entries::thread_screen::TopScreenWidth::Both
+                {
+                    is_top as u8 | ((1 as u8) << 1) | ((both_eyes as u8) << 2)
+                } else {
+                    is_top as u8
+                }
+            } else {
+                is_top as u8
+            },
             2 | downsample << 2 | lossless as u8,
             0,
         ])
@@ -1319,7 +1329,13 @@ fn nwm_done_release(w: &mut WorkIndex) {
 
 #[named]
 #[cfg(not(feature = "o3ds"))]
-pub unsafe fn nwm_done_acquire(w: WorkIndex, frame_id: u8, is_top: bool, downsample: u8) -> bool {
+pub unsafe fn nwm_done_acquire(
+    w: WorkIndex,
+    frame_id: u8,
+    is_top: bool,
+    downsample: u8,
+    both_eyes: bool,
+) -> bool {
     unsafe {
         if wait_syn(
             cname!(),
@@ -1346,7 +1362,7 @@ pub unsafe fn nwm_done_acquire(w: WorkIndex, frame_id: u8, is_top: bool, downsam
 
         let hdr = DATA_BUF_HDRS.get_mut(&w);
         let lossless = get_lossless_compression();
-        *hdr = DataHdr::init(frame_id, is_top, downsample, lossless as u8);
+        *hdr = DataHdr::init(frame_id, is_top, downsample, lossless as u8, both_eyes);
 
         true
     }
@@ -1357,7 +1373,7 @@ pub unsafe fn nwm_start_frame(frame_id: u8, is_top: bool, downsample: u8) {
     unsafe {
         let hdr = DATA_BUF_HDRS.get_mut(&WorkIndex::init(0));
         let lossless = get_lossless_compression();
-        *hdr = DataHdr::init(frame_id, is_top, downsample, lossless as u8);
+        *hdr = DataHdr::init(frame_id, is_top, downsample, lossless as u8, false);
     }
 }
 

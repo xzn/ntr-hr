@@ -16,6 +16,60 @@ macro_rules! rp_need_core_syn {
 }
 
 #[allow(unused)]
+#[cfg(not(feature = "o3ds"))]
+macro_rules! rp_screen_height {
+    ($is_top:expr) => {
+        if $is_top {
+            if entries::thread_screen::top_screen_width()
+                == entries::thread_screen::TopScreenWidth::Both
+            {
+                GSP_SCREEN_HEIGHT_TOP_2X
+            } else {
+                GSP_SCREEN_HEIGHT_TOP
+            }
+        } else {
+            GSP_SCREEN_HEIGHT_BOTTOM
+        }
+    };
+}
+
+#[allow(unused)]
+#[cfg(not(feature = "o3ds"))]
+macro_rules! rp_screen_height_max {
+    ($is_top:expr) => {
+        if $is_top {
+            GSP_SCREEN_HEIGHT_TOP_2X
+        } else {
+            GSP_SCREEN_HEIGHT_BOTTOM
+        }
+    };
+}
+
+#[allow(unused)]
+#[cfg(feature = "o3ds")]
+macro_rules! rp_screen_height {
+    ($is_top:expr) => {
+        if $is_top {
+            GSP_SCREEN_HEIGHT_TOP
+        } else {
+            GSP_SCREEN_HEIGHT_BOTTOM
+        }
+    };
+}
+
+#[allow(unused)]
+#[cfg(feature = "o3ds")]
+macro_rules! rp_screen_height_max {
+    ($is_top:expr) => {
+        if $is_top {
+            GSP_SCREEN_HEIGHT_TOP
+        } else {
+            GSP_SCREEN_HEIGHT_BOTTOM
+        }
+    };
+}
+
+#[allow(unused)]
 pub const FRAME_TIME_MAX_F: u32 = 4;
 #[allow(unused)]
 pub const FRAME_TIME_FACTOR: u32 = 3;
@@ -127,6 +181,10 @@ impl RpConfig {
         rp_config_field!(audioEnable)
     }
 
+    pub fn full_width(&self) -> &mut AtomicU32 {
+        rp_config_field!(fullWidth)
+    }
+
     pub fn chroma_ss(&self, s: ScreenIndex) -> &mut AtomicU32 {
         rp_config_screen_field!(chromaSs, s)
     }
@@ -160,7 +218,10 @@ pub const fn img_buffer_size(is_top: bool) -> usize {
     (GSP_SCREEN_WIDTH
         * 4 // max bpp
         * if is_top {
-            GSP_SCREEN_HEIGHT_TOP
+            #[cfg(not(feature = "o3ds"))]
+            { GSP_SCREEN_HEIGHT_TOP_2X }
+            #[cfg(feature = "o3ds")]
+            { GSP_SCREEN_HEIGHT_TOP }
         } else {
             GSP_SCREEN_HEIGHT_BOTTOM
         }) as usize

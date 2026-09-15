@@ -62,7 +62,8 @@ pub struct CheckerParams {
     pub mcus: u16,
     pub mcu_rows: u16,
     pub mcus_per_row: u16,
-    pub mcu_row_params: [McuRowParams; jdiv_round_up(downsample_checker_screen_dim(true), DCTSIZE)],
+    pub mcu_row_params:
+        [McuRowParams; jdiv_round_up(downsample_checker_screen_dim_max(true), DCTSIZE)],
 }
 
 pub struct JpegScreenShared {
@@ -177,7 +178,7 @@ pub struct Encoder {
 
 #[cfg(not(feature = "o3ds"))]
 const DELTA_Q_PREV_COEFFS_TOP_N: usize =
-    GSP_SCREEN_WIDTH as usize * GSP_SCREEN_HEIGHT_TOP as usize * MAX_COMPONENTS;
+    GSP_SCREEN_WIDTH as usize * GSP_SCREEN_HEIGHT_TOP_2X as usize * MAX_COMPONENTS;
 #[cfg(not(feature = "o3ds"))]
 const DELTA_Q_PREV_COEFFS_BOT_N: usize =
     GSP_SCREEN_WIDTH as usize * GSP_SCREEN_HEIGHT_BOTTOM as usize * MAX_COMPONENTS;

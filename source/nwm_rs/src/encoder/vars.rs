@@ -743,12 +743,8 @@ pub const fn downsample_screen_width(downsample: u8) -> usize {
     }
 }
 
-pub const fn downsample_screen_height(downsample: u8, is_top: bool) -> usize {
-    let height = if is_top {
-        GSP_SCREEN_HEIGHT_TOP as usize
-    } else {
-        GSP_SCREEN_HEIGHT_BOTTOM as usize
-    };
+pub fn downsample_screen_height(downsample: u8, is_top: bool) -> usize {
+    let height = rp_screen_height!(is_top) as usize;
     match downsample {
         RP_DOWNSAMPLE_QUARTER => height / DOWNSAMPLE_FACTOR,
         RP_DOWNSAMPLE_EVEN_ODD | _ => height,
@@ -756,12 +752,14 @@ pub const fn downsample_screen_height(downsample: u8, is_top: bool) -> usize {
 }
 
 #[cfg(not(feature = "mem3"))]
-pub const fn downsample_checker_screen_dim(is_top: bool) -> usize {
-    let height = if is_top {
-        GSP_SCREEN_HEIGHT_TOP as usize
-    } else {
-        GSP_SCREEN_HEIGHT_BOTTOM as usize
-    };
+pub fn downsample_checker_screen_dim(is_top: bool) -> usize {
+    let height = rp_screen_height!(is_top) as usize;
+    (GSP_SCREEN_WIDTH as usize + height) / DOWNSAMPLE_FACTOR
+}
+
+#[cfg(not(feature = "mem3"))]
+pub const fn downsample_checker_screen_dim_max(is_top: bool) -> usize {
+    let height = rp_screen_height_max!(is_top) as usize;
     (GSP_SCREEN_WIDTH as usize + height) / DOWNSAMPLE_FACTOR
 }
 

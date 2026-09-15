@@ -251,7 +251,8 @@ fn init(#[cfg(not(feature = "o3ds"))] nwm_bufs: &NwmBufs) -> Option<Init> {
         entries::thread_nwm::init(dst_flags, qos)?;
 
         let mode = RP_CONFIG.mode().load(Ordering::Acquire);
-        entries::thread_screen::init(mode);
+        let full_width = RP_CONFIG.full_width().load(Ordering::Acquire);
+        entries::thread_screen::init(mode, full_width);
 
         #[cfg(not(feature = "o3ds"))]
         {

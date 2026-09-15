@@ -23,6 +23,7 @@ typedef struct {
 	u32 separateScreenConfig;
 	RP_SCREEN_CONFIG screens[RP_SCREEN_COUNT];
 	u32 audioEnable; // NTR-HR+: stream game audio (0 = off, stock behavior)
+	u32 fullWidth;
 } RP_CONFIG;
 
 #define RP_CONFIG_ADV_CFG(config) ((void *)&(config)->coreCount)
