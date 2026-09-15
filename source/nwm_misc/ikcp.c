@@ -256,7 +256,7 @@ int ikcp_queue(ikcpcb *kcp, char *buffer, int len)
 
 	iqueue_init(&seg->node);
 	if (seg->is_audio_seg_data)
-		iqueue_add(&seg->node, arq_queue_get(kcp, ARQ_QUEUE_RSND1));
+		iqueue_add(&seg->node, arq_queue_get_from_wrn(kcp, (seg->wrn = RSND_COUNT - 1)));
 	else
 		iqueue_add_tail(&seg->node, &kcp->snd_lst);
 	++kcp->n_snd;
