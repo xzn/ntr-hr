@@ -723,7 +723,7 @@ fn capture_screen(
         let top_screen_both = top_screen_width == entries::thread_screen::TopScreenWidth::Both;
         let both_eyes = top_screen_both && !screen_info.full_width;
 
-        let phys_0 = if top_screen_right {
+        let phys_0 = if top_screen_right && !screen_info.full_width {
             screen_info.src_1
         } else {
             screen_info.src_0
