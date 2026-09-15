@@ -207,7 +207,9 @@ enum {
 // JPEG
 // #define RP_COMPRESSED_SIZE_MAX (0x30000)
 // Lossless
-#define RP_COMPRESSED_SIZE_MAX (0x48000)
+// #define RP_COMPRESSED_SIZE_MAX (0x48000)
+// Lossless Full-Width
+#define RP_COMPRESSED_SIZE_MAX (0x90000)
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 #define ROUND_UP(n, d) (DIV_ROUND_UP(n, d) * (d))
