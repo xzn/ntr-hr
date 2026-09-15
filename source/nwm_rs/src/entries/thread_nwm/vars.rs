@@ -615,10 +615,16 @@ unsafe fn do_kcp_thread_nwm() -> bool {
 }
 
 #[cfg(not(feature = "o3ds"))]
+#[named]
 pub extern "C" fn kcp_thread_nwm(_: *mut c_void) {
     unsafe {
         __system_initSyscalls();
         while !reset_threads() && do_kcp_thread_nwm() {}
+
+        // reset kcp struct
+        if let Some(mut lock) = NwmCbLock::lock(cname!()) {
+            ikcp_create(&mut lock.get().ikcp, KCP_CONV as u16);
+        }
         svcExitThread()
     }
 }

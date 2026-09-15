@@ -609,6 +609,10 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 	}
 #endif
 
+	if (!kcp->session_established) {
+		return 0;
+	}
+
 	kcp->n_nacks = 0;
 
 	IUINT16 *ptr = (IUINT16 *)data;

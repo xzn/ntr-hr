@@ -27,6 +27,8 @@ pub struct DeltaQManager {
     pub q: f32,
     pub nbits: f32,
     pub qd: u8,
+    pub n: u8,
+    pub d: u8,
 }
 
 #[derive(ConstDefault, Clone, Copy)]
@@ -422,14 +424,13 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let qd_2 = nd * q_steps_i;
 
             // clamp small values, but not too small for the powf in next step
-            const QD2_THRES_F: f32 = 8f32;
-            const QD2_THRES: f32 = SCALE_QD_F / QD2_THRES_F;
-            const QD2_MUL: f32 = QD2_THRES_F / (QD2_THRES_F - 1f32);
-            let qd_2 = (if qd_2 < 0f32 {
-                (qd_2 + SCALE_QD_I_F * QD2_THRES).min(0f32)
+            let qd2_thres_f: f32 = 8f32 * 400f32 * mcusi;
+            let qd2_thres: f32 = qd2_thres_f;
+            let qd_2 = if qd_2 < 0f32 {
+                (qd_2 + qd2_thres).min(0f32)
             } else {
-                (qd_2 - SCALE_QD_I_F * QD2_THRES).max(0f32)
-            }) * QD2_MUL;
+                (qd_2 - qd2_thres).max(0f32)
+            };
 
             let scale_qd = |qd: f32, np: f32, pp: f32, ns: f32, ps: f32| {
                 if qd < 0f32 {
@@ -450,15 +451,24 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             qc.q = qc.q * 0.5f32 + qd * 0.5f32;
             if qc.q > 0f32 && qd < 0f32 || qc.q < 0f32 && qd > 0f32 {
                 qc.q = 0f32;
+                qc.n = 1;
             } else if qd.abs() > 0.5f32 {
-                let q_thres = current_qos * (1f32 / RP_QOS_MAX as f32);
+                qc.n = cmp::max(qc.n, 1);
+                qc.d = cmp::max(qc.d, 1);
+
+                let q_thres =
+                    current_qos * (qd2_thres_f / RP_QOS_MAX as f32) * qc.d as f32 / qc.n as f32;
+                qc.n *= 2;
+
                 if qc.q.abs() >= q_thres {
                     let q = (prev_delta_q as i32 + unsafe { roundf(qd) } as i32).clamp(0, qr as i32)
                         as u8;
+                    qc.d = cmp::max((*delta_q as i32 - q as i32).abs() as u8, 1);
                     *delta_q = q;
                     qc.qd = DELTA_Q_COUNT - 1 - q;
                     qc.nbits = nbits;
                     qc.q = 0f32;
+                    qc.n = 1;
                 }
             }
 
