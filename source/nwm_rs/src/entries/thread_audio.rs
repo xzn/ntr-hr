@@ -58,6 +58,8 @@ struct AudioWorkArea {
     pool: mp_pool_t,
     lock: Handle,
     sem: Handle,
+    syn: rp_syn_comp_func_t,
+    syn_data: [*mut c_void; RP_ARQ_AUDIO_COUNT as usize],
 }
 
 static mut AUDIO_WORK: *mut AudioWorkArea = const_default();
@@ -118,6 +120,19 @@ pub fn init() -> bool {
         let res = svcCreateMutex(&mut w.lock, false);
         if res != 0 {
             ns_dbg_print!(create_mutex_failed, c_str!("AUDIO_WORK.lock"), res);
+            return false;
+        }
+
+        let res = rp_syn_init1(
+            &mut w.syn,
+            0,
+            ptr::null_mut(),
+            0,
+            w.syn_data.len() as i32,
+            w.syn_data.as_mut_ptr(),
+        );
+        if res != 0 {
+            ns_dbg_print!(failed, c_str!("audio syn init"), res);
             return false;
         }
 
@@ -251,19 +266,32 @@ unsafe fn audio_enqueue_kcp(dst: *const u8) -> bool {
     let size = size | (1 << 29);
     unsafe { ptr::copy_nonoverlapping(&size, dst.sub(mem::size_of::<u32>()) as *mut _, 1) };
 
-    let cb = unsafe { &mut *entries::thread_nwm::RELIABLE_STREAM_CB };
     while !reset_threads() {
-        let res = unsafe { rp_syn_rel1(&mut cb.nwm_syn, dst as *mut _) };
+        let res = unsafe { rp_syn_rel(&mut (*AUDIO_WORK).syn, dst as *mut _) };
         if res == 0 {
             break;
         }
         if res != RES_TIMEOUT as s32 {
-            ns_dbg_print!(failed, c_str!("Wait for nwm_syn"), res);
+            ns_dbg_print!(failed, c_str!("Wait for audio syn"), res);
             set_reset_threads();
             return false;
         }
     }
     true
+}
+
+#[named]
+pub fn get_audio_kcp(timeout_ns: s64) -> *mut u8 {
+    let mut dst = mem::MaybeUninit::<*mut c_void>::uninit();
+    let res = unsafe { rp_syn_acq(&mut (*AUDIO_WORK).syn, timeout_ns, dst.as_mut_ptr()) };
+    if res == 0 {
+        return unsafe { dst.assume_init() } as *mut _;
+    }
+    if res != RES_TIMEOUT as s32 {
+        ns_dbg_print!(wait_syn_failed, c_str!("Wait for audio syn"), res);
+        set_reset_threads();
+    }
+    ptr::null_mut()
 }
 
 pub extern "C" fn thread_audio_kcp(_: *mut c_void) {

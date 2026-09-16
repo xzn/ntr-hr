@@ -406,6 +406,7 @@ const RP_KCP_TIMEOUT_TICK: s32 = 2 * SYSCLOCK_ARM11 as s32;
 #[cfg(not(feature = "o3ds"))]
 unsafe fn do_kcp_thread_nwm() -> bool {
     let audio_enable = unsafe { entries::thread_audio::AUDIO_ENABLE };
+    let audio_kcp = unsafe { entries::thread_audio::AUDIO_KCP };
     if let Some(mut lock) = NwmCbLock::lock(cname!()) {
         let mut dst = mem::MaybeUninit::uninit();
         let mut has_dst = false;
@@ -473,6 +474,17 @@ unsafe fn do_kcp_thread_nwm() -> bool {
 
                 if can_queue && !has_dst {
                     while !reset_threads() {
+                        if audio_kcp {
+                            let dst_audio = entries::thread_audio::get_audio_kcp(0);
+                            if !dst_audio.is_null() {
+                                unsafe { *dst.as_mut_ptr() = dst_audio as *mut c_void };
+                                has_dst = true;
+                                break;
+                            }
+                            if reset_threads() {
+                                return None;
+                            }
+                        }
                         let res = unsafe {
                             rp_syn_acq(
                                 &mut (*RELIABLE_STREAM_CB).nwm_syn,
