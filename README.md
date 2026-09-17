@@ -43,6 +43,7 @@ Removed all other features aside from streaming and PLG loading:
 - cell9
 - Nanquitas
 - PabloMK7
+- denzi-gh (For DSP audio capture support)
 
 Especially thanks to cell9 for releasing the source of NTR 3.6 making this mod possible
 
@@ -78,7 +79,7 @@ Priority settings is up to your personal preference.
 
 ### Audio capture
 
-Audio capture is **NOT** supported. Use a 3.5 mm audio aux cable to connect from your 3DS' headphone jack to your PC's line-in as a workaround for audio capture.
+DPS audio capture can be enabled in NTRViewer-HR's Debug window. CSND audio capture is not supported. Use a 3.5 mm audio aux cable to connect from your 3DS' headphone jack to your PC's line-in as a workaround for audio capture if desired.
 
 ### New 3DS/New 2DS only
 
