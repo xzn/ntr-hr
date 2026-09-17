@@ -789,6 +789,14 @@ fn capture_screen(
         }
 
         let mut do_dma = |phys, dst, eye: usize| {
+            {
+                let dma = params.dmas.get_unchecked_mut(eye).get_mut(&w);
+                if *dma != 0 {
+                    let _ = svcCloseHandle(*dma);
+                    *dma = 0;
+                }
+            }
+
             if phys == 0 {
                 return 0;
             }
@@ -820,14 +828,6 @@ fn capture_screen(
                     transferStride: pitch as s16,
                 },
             };
-
-            {
-                let dma = params.dmas.get_unchecked_mut(eye).get_mut(&w);
-                if *dma != 0 {
-                    let _ = svcCloseHandle(*dma);
-                    *dma = 0;
-                }
-            }
 
             let (process, addr) = if is_in_vram(phys) {
                 close_game_handle(params);
@@ -865,9 +865,6 @@ fn capture_screen(
                     return 0;
                 }
 
-                #[cfg(not(feature = "o3ds"))]
-                send_overlay_stats(&mut params.overlay);
-
                 let dma = dma.assume_init();
                 *params.dmas.get_unchecked_mut(eye).get_mut(&w) = dma;
                 dma
@@ -887,6 +884,9 @@ fn capture_screen(
         {
             let _ = dma;
         }
+
+        #[cfg(not(feature = "o3ds"))]
+        send_overlay_stats(&mut params.overlay);
 
         thread_ready_release(
             is_top,
