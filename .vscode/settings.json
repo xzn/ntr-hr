@@ -9,6 +9,7 @@
         "-I${workspaceFolder}/libctru/libctru/include",
         "-DARM11",
         "-D__3DS__",
+        "-DNEW_3DS",
         "-Wno-reserved-user-defined-literal",
         "-Wno-c2x-extensions",
     ],

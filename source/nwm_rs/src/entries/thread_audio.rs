@@ -225,22 +225,48 @@ pub extern "C" fn thread_audio(_: *mut c_void) {
         if have_last && fc == last_fc {
             continue;
         }
+
+        let fc_diff = if have_last {
+            (fc - last_fc) as usize
+        } else {
+            1
+        };
         last_fc = fc;
         have_last = true;
 
         unsafe {
             // drop the oldest frame, read the new one into the last slot
-            ptr::copy(
-                payload.add(AUDIO_FRAME_BYTES),
-                payload,
-                (AUDIO_REDUNDANCY - 1) * AUDIO_FRAME_BYTES,
-            );
+            if fc_diff < AUDIO_REDUNDANCY {
+                ptr::copy(
+                    payload.add(AUDIO_FRAME_BYTES * fc_diff),
+                    payload,
+                    (AUDIO_REDUNDANCY - fc_diff) * AUDIO_FRAME_BYTES,
+                );
+            }
+
+            let fc_gap = cmp::min(fc_diff, AUDIO_REDUNDANCY) - 1;
+
+            if fc_gap > 0 {
+                ptr::write_bytes(
+                    newest.sub(AUDIO_FRAME_BYTES * fc_gap),
+                    0,
+                    AUDIO_FRAME_BYTES * fc_gap,
+                );
+            }
+
             ptr::copy_nonoverlapping(
                 (src + DSP_FINAL_SAMPLES_OFF) as *const u8,
                 newest,
                 AUDIO_FRAME_BYTES,
             );
-            *packet_buf.add(0) = seq; // hdr[0]: newest frame's sequence number
+
+            const SEQ_GAP_SAFE: usize = 32;
+
+            *packet_buf.add(0) = seq.wrapping_add(if fc_diff < SEQ_GAP_SAFE {
+                fc_gap as u8
+            } else {
+                u8::MAX / 2
+            }); // hdr[0]: newest frame's sequence number
             // hand off to the nwm thread; it owns every nwmSendPacket call
             audio_enqueue(packet_buf);
         }
@@ -300,7 +326,10 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
     }
 
     let mut staging: *mut c_char = ptr::null_mut();
+    let mut staging_hdr2: *mut c_char = ptr::null_mut();
     let mut staging_next: *mut c_char = ptr::null_mut();
+    let mut staging_count: u16 = 0;
+    let mut staging_reprime = false;
 
     let mut last_fc: u16 = 0;
     let mut have_last = false;
@@ -324,11 +353,7 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
                     let hdr = (1 as u16) << entries::work_thread::EX_HDR_BIT;
                     ptr::copy_nonoverlapping(&hdr, staging_next as *mut _, 1);
                     staging_next = staging_next.add(mem::size_of::<u16>());
-
-                    const RP_KCP_EXHDR_AUDIO_SHIFT: usize = 15;
-                    let hdr = ((1 as u16) << RP_KCP_EXHDR_AUDIO_SHIFT)
-                        | ((1 as u16) << entries::work_thread::EXHDR_V2_BIT);
-                    ptr::copy_nonoverlapping(&hdr, staging_next as *mut _, 1);
+                    staging_hdr2 = staging_next;
                     staging_next = staging_next.add(mem::size_of::<u16>());
                 }
             } else {
@@ -348,26 +373,60 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
         if have_last && fc == last_fc {
             continue;
         }
-        last_fc = fc;
-        have_last = true;
+
+        let fc_diff = if have_last {
+            (fc - last_fc) as usize
+        } else {
+            1
+        };
+        let fc_reprime = fc_diff > 1;
 
         unsafe {
-            ptr::copy_nonoverlapping(
-                (src + DSP_FINAL_SAMPLES_OFF) as *const u8,
-                staging_next,
-                AUDIO_FRAME_BYTES,
-            );
-            staging_next = staging_next.add(AUDIO_FRAME_BYTES);
+            let force = fc_reprime && staging_count > 0;
+            if !force {
+                ptr::copy_nonoverlapping(
+                    (src + DSP_FINAL_SAMPLES_OFF) as *const u8,
+                    staging_next,
+                    AUDIO_FRAME_BYTES,
+                );
+                staging_next = staging_next.add(AUDIO_FRAME_BYTES);
+                staging_count += 1;
+
+                last_fc = fc;
+                have_last = true;
+
+                if fc_reprime {
+                    staging_reprime = true;
+                }
+            }
 
             let staging_left =
                 ARQ_RP_DATA_SIZE as usize - staging_next.offset_from_unsigned(staging);
-            if staging_left < AUDIO_FRAME_BYTES {
+            if force || staging_left < AUDIO_FRAME_BYTES {
                 ptr::write_bytes(staging_next, 0, staging_left);
+
+                const RP_KCP_EXHDR_AUDIO_SHIFT: usize = 15;
+
+                const RP_KCP_EXHDR_AUDIO_COUNT_MASK: u16 = 3;
+                const RP_KCP_EXHDR_AUDIO_COUNT_SHIFT: usize = 12;
+
+                const RP_KCP_EXHDR_AUDIO_REPRIME_SHIFT: usize = 11;
+
+                let hdr = ((1 as u16) << RP_KCP_EXHDR_AUDIO_SHIFT)
+                    | ((1 as u16) << entries::work_thread::EXHDR_V2_BIT)
+                    | ((staging_count & RP_KCP_EXHDR_AUDIO_COUNT_MASK)
+                        << RP_KCP_EXHDR_AUDIO_COUNT_SHIFT)
+                    | ((staging_reprime as u16) << RP_KCP_EXHDR_AUDIO_REPRIME_SHIFT);
+                ptr::copy_nonoverlapping(&hdr, staging_hdr2 as *mut _, 1);
+
                 if !audio_enqueue_kcp(staging) {
                     break;
                 }
                 staging = ptr::null_mut();
+                staging_hdr2 = ptr::null_mut();
                 staging_next = ptr::null_mut();
+                staging_count = 0;
+                staging_reprime = false;
             }
         }
     }
