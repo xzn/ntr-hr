@@ -44,7 +44,7 @@ pub const AUDIO_KCP_QOS_BUDGET: u32 = (AUDIO_SAMPLE_RATE / AUDIO_FRAME_SAMPLES)
 // spsc ring: the audio thread (core 1) produces packets, the nwm thread
 // (core 2) drains and sends them, so nwmSendPacket stays single-threaded and
 // no cross-core send lock is needed. length must stay a power of two.
-const AUDIO_Q_LEN: usize = 8;
+const AUDIO_Q_LEN: usize = 32;
 const _AUDIO_Q_LEN_ASSERT: () = {
     assert!(AUDIO_Q_LEN <= RP_ARQ_AUDIO_COUNT as usize);
 };
