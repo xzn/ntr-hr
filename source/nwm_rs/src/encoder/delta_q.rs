@@ -443,7 +443,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                 }
             };
 
-            let mcus_scale = mcus / MCUS_THRES;
+            let mcus_scale = MCUS_THRES / mcus;
             // scaled so smaller values are even less significant,
             // then give extra boost to the predicted value (likely wrong, TODO maybe)
             let p_1 = unsafe { powf(core::f32::consts::SQRT_2, mcus_scale) };
