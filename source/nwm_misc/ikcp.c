@@ -480,11 +480,11 @@ static int ikcp_input_handle_nack(ikcpcb *kcp, struct IQUEUEHEAD *queue, int g, 
 #define KCP_CONGC_COUNT_THRES (16 << 16)
 #define KCP_CONGC_COUNT_AVG (48 << 16)
 #define KCP_CONGC_DEC_THRES (12)
-#define KCP_CONGC_DEC_RATEF (12)
+#define KCP_CONGC_DEC_RATEF (6)
 #define KCP_CONGC_DEC_MINF (4)
 #define KCP_CONGC_INC_THRES (18)
 #define KCP_CONGC_INC_MAXF (2)
-#define KCP_CONGC_INC_RATEF (12)
+#define KCP_CONGC_INC_RATEF (96)
 #define KCP_CONGC_TICK_F (4)
 
 static int ikcp_input_congc(ikcpcc *congc)
