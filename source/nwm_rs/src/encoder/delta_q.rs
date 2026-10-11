@@ -27,7 +27,7 @@ pub struct DeltaQManager {
     pub q: f32,
     pub nbits: f32,
     pub qd: u8,
-    pub n: u8,
+    pub n: f32,
     pub d: u8,
 }
 
@@ -423,8 +423,11 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let nd = qc.nbits - nbits;
             let qd_2 = nd * q_steps_i;
 
+            const QD_THRES_FRAC: f32 = 5f32;
+            const QD_THRES_BASE: f32 = DELTA_Q_COUNT as f32 / QD_THRES_FRAC;
+            const MCUS_THRES: f32 = 300f32;
             // clamp small values, but not too small for the powf in next step
-            let qd2_thres_f: f32 = 8f32 * 400f32 * mcusi;
+            let qd2_thres_f: f32 = QD_THRES_BASE * MCUS_THRES * mcusi;
             let qd2_thres: f32 = qd2_thres_f;
             let qd_2 = if qd_2 < 0f32 {
                 (qd_2 + qd2_thres).min(0f32)
@@ -440,25 +443,30 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                 }
             };
 
+            let mcus_scale = mcus / MCUS_THRES;
             // scaled so smaller values are even less significant,
             // then give extra boost to the predicted value (likely wrong, TODO maybe)
-            const P_1: f32 = core::f32::consts::SQRT_2;
-            const P_2: f32 = core::f32::consts::FRAC_1_SQRT_2;
-            let qd1 = scale_qd(qd_1, P_1, P_1, 1f32, 1f32);
-            let qd2 = scale_qd(qd_2, P_2, P_2, 1f32, 1f32);
+            let p_1 = unsafe { powf(core::f32::consts::SQRT_2, mcus_scale) };
+            let p_2 = unsafe { powf(core::f32::consts::FRAC_1_SQRT_2, mcus_scale) };
+            let qd1 = scale_qd(qd_1, p_1, p_1, 1f32, 1f32);
+            let qd2 = scale_qd(qd_2, p_2, p_2, 1f32, 1f32);
 
             let qd = qd1 + qd2;
             qc.q = qc.q * 0.5f32 + qd * 0.5f32;
             if qc.q > 0f32 && qd < 0f32 || qc.q < 0f32 && qd > 0f32 {
                 qc.q = 0f32;
-                qc.n = 1;
+                qc.n = 1f32;
             } else if qd.abs() > 0.5f32 {
-                qc.n = cmp::max(qc.n, 1);
+                qc.n = qc.n.max(1f32);
                 qc.d = cmp::max(qc.d, 1);
 
-                let q_thres =
-                    current_qos * (qd2_thres_f / RP_QOS_MAX as f32) * qc.d as f32 / qc.n as f32;
-                qc.n *= 2;
+                let q_thres = current_qos * (qd2_thres_f / RP_QOS_MAX as f32) * qc.d as f32 / qc.n;
+                qc.n *= unsafe {
+                    powf(
+                        core::f32::consts::SQRT_2,
+                        TARGET_FRAME_RATE as f32 / frame_rate,
+                    )
+                };
 
                 if qc.q.abs() >= q_thres {
                     let q = (prev_delta_q as i32 + unsafe { roundf(qd) } as i32).clamp(0, qr as i32)
@@ -468,7 +476,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                     qc.qd = DELTA_Q_COUNT - 1 - q;
                     qc.nbits = nbits;
                     qc.q = 0f32;
-                    qc.n = 1;
+                    qc.n = 1f32;
                 }
             }
 
