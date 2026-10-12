@@ -28,7 +28,7 @@ pub struct DeltaQManager {
     pub nbits: f32,
     pub qd: u8,
     pub n: f32,
-    pub d: u8,
+    pub d: f32,
 }
 
 #[derive(ConstDefault, Clone, Copy)]
@@ -340,7 +340,10 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                 0f32
             }
         };
-        let comp_size = comp_size * u8::BITS as f32 * mcusi;
+
+        const COMP_THRES: f32 = 4f32 / 3f32;
+        let comp_thres = COMP_THRES * jpeg_screen.max_blocks_in_mcu as f32 * u8::BITS as f32;
+        let comp_size = comp_size * mcusi * u8::BITS as f32;
 
         let (qos, qos_c) = if comp_size > 0f32 {
             let qos_d = if qc.qb > comp_size {
@@ -394,7 +397,8 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let qd = qc.f[0].d.min(0f32);
             let qd_1 = qc_1.f[0].d.max(0f32);
             let qos_c =
-                qos_b + qd + qd_1 * frame_rate_1.min(frame_rate) * mcus_1 * mcusi / frame_rate;
+                (qos_b + qd + qd_1 * frame_rate_1.min(frame_rate) * mcus_1 * mcusi / frame_rate)
+                    .max(comp_thres);
 
             (qos_c, qos_c)
         } else {
@@ -414,11 +418,8 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
 
         let (qd_1, qd_2) = {
             let q_steps_i = jpeg_screen.delta_q_params.q_steps_i;
-            const COMP_THRES: f32 = 4f32 / 3f32;
             let comp_d = if comp_size > 0f32 {
-                qos - (comp_size
-                    - COMP_THRES * u8::BITS as f32 * jpeg_screen.max_blocks_in_mcu as f32)
-                    .max(0f32)
+                qos - comp_size
             } else {
                 0f32
             };
@@ -426,16 +427,33 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let nd = qc.nbits - nbits;
             let qd_2 = nd * q_steps_i;
 
-            const QD_THRES_FRAC: f32 = 5f32;
-            const QD_THRES_BASE: f32 = DELTA_Q_COUNT as f32 / QD_THRES_FRAC;
+            const QD_THRES: f32 = 4f32;
             const MCUS_THRES: f32 = 300f32;
             // clamp small values, but not too small for the powf in next step
-            let qd2_thres_f: f32 = QD_THRES_BASE * MCUS_THRES * mcusi;
-            let qd2_thres: f32 = qd2_thres_f;
-            let qd_2 = if qd_2 < 0f32 {
-                (qd_2 + qd2_thres).min(0f32)
+            let mcus_thres: f32 = MCUS_THRES * mcusi;
+            let qd_thres: f32 = QD_THRES / SCALE_QD_F * mcus_thres;
+
+            const Q_THRES_FRAME_RATE_F: f32 = 15f32;
+            qc.n = (qc.n.max(1f32)
+                * unsafe {
+                    powf(
+                        QD_THRES,
+                        TARGET_FRAME_RATE as f32 / Q_THRES_FRAME_RATE_F / frame_rate,
+                    )
+                })
+            .min(QD_THRES * QD_THRES);
+            qc.d = qc.d.max(1f32);
+
+            let qd_1 = if qd_1 < 0f32 && qd_2 >= 0f32 {
+                (qd_1 * mcus_thres * mcus_thres + qd_thres).min(0f32) * (qc.n / qc.d).min(1f32)
             } else {
-                (qd_2 - qd2_thres).max(0f32)
+                qd_1
+            };
+
+            let qd_2 = if qd_2 < 0f32 {
+                (qd_2 + qd_thres).min(0f32)
+            } else {
+                (qd_2 - qd_thres).max(0f32)
             };
 
             let scale_qd = |qd: f32, np: f32, pp: f32, ns: f32, ps: f32| {
@@ -455,34 +473,19 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let qd2 = scale_qd(qd_2, p_2, p_2, 1f32, 1f32);
 
             let qd = qd1 + qd2;
-            qc.q = qc.q * 0.5f32 + qd * 0.5f32;
-            if qc.q > 0f32 && qd < 0f32 || qc.q < 0f32 && qd > 0f32 {
+            qc.q = (qc.q + qd) * 0.5;
+
+            let q_thres = (current_qos * (QD_THRES / RP_QOS_MAX as f32) * qc.d / qc.n).max(1f32);
+
+            if qc.q.abs() >= q_thres {
+                let qi = unsafe { roundf(qd) } as i32;
+                let q = (prev_delta_q as i32 + qi).clamp(0, qr as i32) as u8;
+                qc.d = ((qi.abs() as u8).max(1) as f32).min(QD_THRES);
+                *delta_q = q;
+                qc.qd = DELTA_Q_COUNT - 1 - q;
+                qc.nbits = nbits;
                 qc.q = 0f32;
                 qc.n = 1f32;
-            } else if qd.abs() > 0.5f32 {
-                qc.n = qc.n.max(1f32);
-                qc.d = cmp::max(qc.d, 1);
-
-                let q_thres = (current_qos * (qd2_thres_f / RP_QOS_MAX as f32) * qc.d as f32
-                    / qc.n)
-                    .max(1f32);
-                qc.n *= unsafe {
-                    powf(
-                        core::f32::consts::SQRT_2,
-                        TARGET_FRAME_RATE as f32 / frame_rate,
-                    )
-                };
-
-                if qc.q.abs() >= q_thres {
-                    let q = (prev_delta_q as i32 + unsafe { roundf(qd) } as i32).clamp(0, qr as i32)
-                        as u8;
-                    qc.d = cmp::max((*delta_q as i32 - q as i32).abs() as u8, 1);
-                    *delta_q = q;
-                    qc.qd = DELTA_Q_COUNT - 1 - q;
-                    qc.nbits = nbits;
-                    qc.q = 0f32;
-                    qc.n = 1f32;
-                }
             }
 
             (qd1, qd2)

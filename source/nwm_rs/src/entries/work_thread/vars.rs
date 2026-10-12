@@ -345,6 +345,8 @@ impl WorkFrame {
         #[cfg(not(feature = "o3ds"))]
         unsafe {
             *LAST_FRAME_TIMINGS.get_mut(&is_top_index(bctx.is_top)) = self.1;
+
+            entries::thread_screen::reset_no_skip_frame(bctx.is_top);
         }
 
         self.work_ready_release()
@@ -591,8 +593,6 @@ impl Drop for WorkRet {
             let core_count = core_count_in_use();
 
             if f == core_count.get() - 1 {
-                entries::thread_screen::reset_no_skip_frame(bctx.is_top);
-
                 if !unsafe { send_term_dsts(w, both_eyes, &self.1) } {
                     set_reset_threads();
                 }

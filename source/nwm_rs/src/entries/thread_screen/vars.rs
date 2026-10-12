@@ -263,18 +263,20 @@ pub unsafe fn init(mode: u32, full_width: u32) {
         };
     }
 
+    const FRAME_TIMING_ALLOWANCE: u32 = SYSCLOCK_ARM11;
+
     #[cfg(not(feature = "o3ds"))]
     {
         conf.frame_timing_allowance = if entries::thread_nwm::get_reliable_stream_delta_prog() {
-            SYSCLOCK_ARM11 / FRAME_TIMING_FACTOR_DQ
+            FRAME_TIMING_ALLOWANCE / FRAME_TIMING_FACTOR_DQ
         } else {
-            SYSCLOCK_ARM11
+            FRAME_TIMING_ALLOWANCE
         }
     }
 
     #[cfg(feature = "o3ds")]
     {
-        conf.frame_timing_allowance = SYSCLOCK_ARM11
+        conf.frame_timing_allowance = FRAME_TIMING_ALLOWANCE
     }
 }
 
