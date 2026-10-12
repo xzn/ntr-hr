@@ -48,7 +48,7 @@ pub struct DeltaQParams {
     pub m: f32,
 }
 
-pub const DELTA_Q_CACHE_COUNTS: [u8; MAX_COMPONENTS] = [10, 5, 5];
+pub const DELTA_Q_CACHE_COUNTS: [u8; MAX_COMPONENTS] = [8, 4, 4];
 pub const DELTA_Q_CACHE_MAX: u8 = {
     let mut max = 0;
     let mut i = 0;
@@ -388,13 +388,13 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                 update_coefs(&mut qc.f[i], rr[i]);
             }
 
-            let qd = qc.f[0].d.min(0f32);
+            // let qd = qc.f[0].d.min(0f32);
+            let qd = qos_d.min(0f32);
             let qd_1 = qc_1.f[0].d.max(0f32);
-            let qos_c =
-                (qos_b + qd + qd_1 * frame_rate_1.min(frame_rate) * mcus_1 * mcusi / frame_rate)
-                    .max(-comp_thres);
+            let qos_c = (qos_b + qd).max(comp_thres - comp_size);
+            let qos = qos_c + qd_1 * frame_rate_1.min(frame_rate) * mcus_1 * mcusi / frame_rate;
 
-            (qos_c, qos_c)
+            (qos, qos_c)
         } else {
             (qos_b, qos_b)
         };
@@ -427,7 +427,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let mcus_thres: f32 = MCUS_THRES * mcusi;
             let qd_thres: f32 = QD_THRES / SCALE_QD_F * mcus_thres;
 
-            const Q_THRES_FRAME_RATE_F: f32 = 15f32;
+            const Q_THRES_FRAME_RATE_F: f32 = 8f32;
             qc.n = (qc.n.max(1f32)
                 * unsafe {
                     powf(
@@ -463,18 +463,28 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             // then give extra boost to the predicted value (likely wrong, TODO maybe)
             let p_1 = unsafe { powf(core::f32::consts::SQRT_2, mcus_scale) };
             let p_2 = unsafe { powf(core::f32::consts::FRAC_1_SQRT_2, mcus_scale) };
-            let qd1 = scale_qd(qd_1, p_1, p_1, 1f32, 1f32);
+            let qd1 = scale_qd(qd_1, p_1, p_2, 1f32, 1f32);
             let qd2 = scale_qd(qd_2, p_2, p_2, 1f32, 1f32);
 
-            let qd = qd1 + qd2;
-            qc.q = (qc.q + qd) * 0.5;
-
-            let q_thres = (current_qos
-                * (QD_THRES / RP_QOS_MAX as f32 / SCALE_QD_F)
-                * prev_delta_q as f32
+            let q_thres = (QD_THRES
+                * unsafe {
+                    sqrtf(current_qos * prev_delta_q as f32 / RP_QOS_MAX as f32 / SCALE_QD_F)
+                }
                 * qc.d
                 / qc.n)
                 .max(1f32);
+
+            let qd = qd1 + qd2;
+            if qc.q == 0f32
+                || qc.q <= q_thres && qd > 0f32
+                || qc.q >= q_thres && qd < 0f32
+                || qc.q < 0f32 && qd >= q_thres
+                || qc.q > 0f32 && qd <= q_thres
+            {
+                qc.q = qd;
+            } else {
+                qc.q = (qc.q + qd) * 0.5;
+            }
 
             if qc.q.abs() >= q_thres && qd != 0f32 {
                 let qi = unsafe {
