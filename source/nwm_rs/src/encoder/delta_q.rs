@@ -419,7 +419,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
         let (qd_1, qd_2) = {
             let q_steps_i = jpeg_screen.delta_q_params.q_steps_i;
             let comp_d = if comp_size > 0f32 {
-                qos - comp_size
+                qos - (comp_size - comp_thres).max(0f32)
             } else {
                 0f32
             };
@@ -445,7 +445,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             qc.d = qc.d.max(1f32);
 
             let qd_1 = if qd_1 < 0f32 && qd_2 >= 0f32 {
-                (qd_1 * mcus_thres * mcus_thres + qd_thres).min(0f32) * (qc.n / qc.d).min(1f32)
+                (qd_1 * mcus_thres * mcus_thres + qd_thres).min(0f32)
             } else {
                 qd_1
             };
@@ -477,8 +477,14 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
 
             let q_thres = (current_qos * (QD_THRES / RP_QOS_MAX as f32) * qc.d / qc.n).max(1f32);
 
-            if qc.q.abs() >= q_thres {
-                let qi = unsafe { roundf(qd) } as i32;
+            if qc.q.abs() >= q_thres && qd != 0f32 {
+                let qi = unsafe {
+                    if qd.abs() < 1f32 {
+                        if qd > 0f32 { 1 } else { -1 }
+                    } else {
+                        roundf(qd) as i32
+                    }
+                };
                 let q = (prev_delta_q as i32 + qi).clamp(0, qr as i32) as u8;
                 qc.d = ((qi.abs() as u8).max(1) as f32).min(QD_THRES);
                 *delta_q = q;

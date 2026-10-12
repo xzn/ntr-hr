@@ -96,7 +96,7 @@ pub fn top_screen_width() -> TopScreenWidth {
 }
 
 #[cfg(not(feature = "o3ds"))]
-const FRAME_TIMING_FACTOR_DQ: u32 = 2;
+const FRAME_TIMING_FACTOR_DQ: u32 = 4;
 #[cfg(not(feature = "o3ds"))]
 pub fn frame_timing_allowance() -> u32 {
     unsafe { CONFIG.frame_timing_allowance }
