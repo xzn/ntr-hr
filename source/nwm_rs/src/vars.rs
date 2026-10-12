@@ -70,9 +70,9 @@ macro_rules! rp_screen_height_max {
 }
 
 #[allow(unused)]
-pub const FRAME_TIME_MAX_F: u32 = 4;
+pub const FRAME_TIME_MAX_F: u32 = 2;
 #[allow(unused)]
-pub const FRAME_TIME_FACTOR: u32 = 3;
+pub const FRAME_TIME_FACTOR: u32 = 2;
 
 #[cfg(feature = "o3ds")]
 pub static mut RP_CONFIG_SAVED: RP_CONFIG = const_default();

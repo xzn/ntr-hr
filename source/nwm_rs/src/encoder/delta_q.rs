@@ -346,13 +346,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
         let comp_size = comp_size * mcusi * u8::BITS as f32;
 
         let (qos, qos_c) = if comp_size > 0f32 {
-            let qos_d = if qc.qb > comp_size {
-                qc.qb - comp_size
-            } else if qc.qc < comp_size {
-                qc.qc - comp_size
-            } else {
-                0f32
-            };
+            let qos_d = qc.qc - comp_size;
 
             let update_coefs = |qe: &mut DeltaQCoefs, rb: f32| {
                 let ri = 1f32 / rb;
@@ -398,7 +392,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let qd_1 = qc_1.f[0].d.max(0f32);
             let qos_c =
                 (qos_b + qd + qd_1 * frame_rate_1.min(frame_rate) * mcus_1 * mcusi / frame_rate)
-                    .max(comp_thres);
+                    .max(-comp_thres);
 
             (qos_c, qos_c)
         } else {
@@ -433,7 +427,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let mcus_thres: f32 = MCUS_THRES * mcusi;
             let qd_thres: f32 = QD_THRES / SCALE_QD_F * mcus_thres;
 
-            const Q_THRES_FRAME_RATE_F: f32 = 8f32;
+            const Q_THRES_FRAME_RATE_F: f32 = 15f32;
             qc.n = (qc.n.max(1f32)
                 * unsafe {
                     powf(
