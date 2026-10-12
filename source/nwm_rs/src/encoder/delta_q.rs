@@ -414,8 +414,11 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
 
         let (qd_1, qd_2) = {
             let q_steps_i = jpeg_screen.delta_q_params.q_steps_i;
+            const COMP_THRES: f32 = 4f32 / 3f32;
             let comp_d = if comp_size > 0f32 {
-                qos - comp_size
+                qos - (comp_size
+                    - COMP_THRES * u8::BITS as f32 * jpeg_screen.max_blocks_in_mcu as f32)
+                    .max(0f32)
             } else {
                 0f32
             };
@@ -460,7 +463,9 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                 qc.n = qc.n.max(1f32);
                 qc.d = cmp::max(qc.d, 1);
 
-                let q_thres = current_qos * (qd2_thres_f / RP_QOS_MAX as f32) * qc.d as f32 / qc.n;
+                let q_thres = (current_qos * (qd2_thres_f / RP_QOS_MAX as f32) * qc.d as f32
+                    / qc.n)
+                    .max(1f32);
                 qc.n *= unsafe {
                     powf(
                         core::f32::consts::SQRT_2,
