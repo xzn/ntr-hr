@@ -28,7 +28,6 @@ pub struct DeltaQManager {
     pub nbits: f32,
     pub qd: u8,
     pub n: f32,
-    pub d: f32,
 }
 
 #[derive(ConstDefault, Clone, Copy)]
@@ -48,7 +47,9 @@ pub struct DeltaQParams {
     pub m: f32,
 }
 
-pub const DELTA_Q_CACHE_COUNTS: [u8; MAX_COMPONENTS] = [8, 4, 4];
+// Lots of code for this but it doesn't really do much unfortunately;
+// mostly rely on previous frame's compressed size to calculate next q.
+pub const DELTA_Q_CACHE_COUNTS: [u8; MAX_COMPONENTS] = [4, 2, 2];
 pub const DELTA_Q_CACHE_MAX: u8 = {
     let mut max = 0;
     let mut i = 0;
@@ -342,7 +343,7 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
         };
 
         const COMP_THRES: f32 = 4f32 / 3f32;
-        let comp_thres = COMP_THRES * jpeg_screen.max_blocks_in_mcu as f32 * u8::BITS as f32;
+        let _comp_thres = COMP_THRES * jpeg_screen.max_blocks_in_mcu as f32 * u8::BITS as f32;
         let comp_size = comp_size * mcusi * u8::BITS as f32;
 
         let (qos, qos_c) = if comp_size > 0f32 {
@@ -370,10 +371,11 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                         qe.m = qe.m * wr + m * wri;
                     }
                 }
+
                 let qd_a = qe.d.abs();
                 let qd_b = qos_d.abs();
                 if qd_a * ri > qd_b || qd_b * ri > qd_a {
-                    qe.d = qos_d;
+                    qe.d = qos_d * ri;
                 } else {
                     qe.d = qe.d * r + qos_d * ri;
                 }
@@ -388,13 +390,15 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                 update_coefs(&mut qc.f[i], rr[i]);
             }
 
-            // let qd = qc.f[0].d.min(0f32);
             let qd = qos_d.min(0f32);
-            let qd_1 = qc_1.f[0].d.max(0f32);
-            let qos_c = (qos_b + qd).max(comp_thres - comp_size);
-            let qos = qos_c + qd_1 * frame_rate_1.min(frame_rate) * mcus_1 * mcusi / frame_rate;
 
-            (qos, qos_c)
+            let qd_1 = qc_1.f[0].d.max(0f32);
+            let qd_1 = qd_1 * frame_rate_1.min(frame_rate) / frame_rate;
+
+            let qos = qos_b + qd;
+            let qos = qos + qd_1 * mcus_1 * mcusi;
+
+            (qos, qos_b)
         } else {
             (qos_b, qos_b)
         };
@@ -421,25 +425,19 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
             let nd = qc.nbits - nbits;
             let qd_2 = nd * q_steps_i;
 
-            const QD_THRES: f32 = 4f32;
+            const QD_THRES: f32 = 5f32;
             const MCUS_THRES: f32 = 300f32;
             // clamp small values, but not too small for the powf in next step
             let mcus_thres: f32 = MCUS_THRES * mcusi;
             let qd_thres: f32 = QD_THRES / SCALE_QD_F * mcus_thres;
 
-            const Q_THRES_FRAME_RATE_F: f32 = 8f32;
-            qc.n = (qc.n.max(1f32)
-                * unsafe {
-                    powf(
-                        core::f32::consts::SQRT_2,
-                        TARGET_FRAME_RATE as f32 / Q_THRES_FRAME_RATE_F / frame_rate,
-                    )
-                })
-            .min(QD_THRES * QD_THRES);
-            qc.d = qc.d.max(1f32);
-
-            let qd_1 = if qd_1 < 0f32 && qd_2 >= 0f32 {
-                (qd_1 * mcus_thres * mcus_thres + qd_thres).min(0f32)
+            let qd_1 = if qd_1 < 0f32 {
+                // HACK for high mcus, make q not bounce too much
+                if qd_2 >= 0f32 {
+                    qd_1 * mcus_thres * mcus_thres
+                } else {
+                    qd_1
+                }
             } else {
                 qd_1
             };
@@ -458,44 +456,31 @@ impl<'a, 'b> JpegEncode<'a, 'b> {
                 }
             };
 
-            let mcus_scale = MCUS_THRES / mcus;
             // scaled so smaller values are even less significant,
             // then give extra boost to the predicted value (likely wrong, TODO maybe)
-            let p_1 = unsafe { powf(core::f32::consts::SQRT_2, mcus_scale) };
-            let p_2 = unsafe { powf(core::f32::consts::FRAC_1_SQRT_2, mcus_scale) };
-            let qd1 = scale_qd(qd_1, p_1, p_2, 1f32, 1f32);
-            let qd2 = scale_qd(qd_2, p_2, p_2, 1f32, 1f32);
+            let p_1 = unsafe { powf(core::f32::consts::SQRT_2, mcus_thres) };
+            let _p_2 = unsafe { powf(core::f32::consts::FRAC_1_SQRT_2, mcus_thres) };
+            let qd1 = scale_qd(qd_1, 1f32, p_1, 1f32, 1f32);
+            let qd2 = scale_qd(qd_2, 1f32, p_1, 1f32, 1f32);
 
+            let qd = qd1 + qd2;
+
+            const Q_THRES_FRAME_RATE_F: f32 = 0.25f32;
+            qc.n = (qc.n.max(1f32) * unsafe { powf(QD_THRES, Q_THRES_FRAME_RATE_F / frame_rate) })
+                .min(QD_THRES);
             let q_thres = (QD_THRES
                 * unsafe {
-                    sqrtf(current_qos * prev_delta_q as f32 / RP_QOS_MAX as f32 / SCALE_QD_F)
+                    powf(
+                        current_qos * prev_delta_q as f32 / RP_QOS_MAX as f32 / SCALE_QD_F,
+                        0.25f32,
+                    )
                 }
-                * qc.d
                 / qc.n)
                 .max(1f32);
 
-            let qd = qd1 + qd2;
-            if qc.q == 0f32
-                || qc.q <= q_thres && qd > 0f32
-                || qc.q >= q_thres && qd < 0f32
-                || qc.q < 0f32 && qd >= q_thres
-                || qc.q > 0f32 && qd <= q_thres
-            {
-                qc.q = qd;
-            } else {
-                qc.q = (qc.q + qd) * 0.5;
-            }
-
-            if qc.q.abs() >= q_thres && qd != 0f32 {
-                let qi = unsafe {
-                    if qd.abs() < 1f32 {
-                        if qd > 0f32 { 1 } else { -1 }
-                    } else {
-                        roundf(qd) as i32
-                    }
-                };
-                let q = (prev_delta_q as i32 + qi).clamp(0, qr as i32) as u8;
-                qc.d = (qi.abs() as f32).min(QD_THRES);
+            qc.q = (qc.q + qd) * 0.5;
+            if qc.q.abs() >= q_thres && qd.abs() >= 1f32 {
+                let q = (prev_delta_q as i32 + qd as i32).clamp(0, qr as i32) as u8;
                 *delta_q = q;
                 qc.qd = DELTA_Q_COUNT - 1 - q;
                 qc.nbits = nbits;
