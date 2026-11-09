@@ -166,7 +166,7 @@ int rtRecvSocket(u32 sockfd, u8 *buf, int size)
 			if (ret < 0) {
 				ret = errno;
 				if (ret == EWOULDBLOCK || ret == EAGAIN) {
-					if (++retries >= 10)
+					if (pos > 0 ? ++retries >= 10 : ++retries >= 20)
 						return -2;
 					svcSleepThread(50000000);
 					continue;

@@ -255,11 +255,18 @@ int nsPoll2(int s) {
 	pi[1].fd = nwm_recv_sock;
 	pi[1].events = pi[0].events = POLLIN;
 	pi[1].revents = pi[0].revents = 0;
-	nready = poll2(pi, 2, -1);
+	nready = poll2(pi, 2, 1000);
 	if (nready == 0)
 		return 0;
 	else if (nready < 0) {
 		showDbg("socket poll failed: %08"PRIx32, (u32)errno);
+		svcSleepThread(100000000);
+		return -1;
+	}
+	if (pi[1].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+		nsDbgPrint("socket poll error: revents %04x\n", pi[1].revents);
+		nsPoll2End();
+		svcSleepThread(100000000);
 		return -1;
 	}
 	if (pi[1].revents & (POLLIN)) {
@@ -268,6 +275,10 @@ int nsPoll2(int s) {
 			nsPoll2End();
 			return -1;
 		}
+	}
+	if (pi[0].revents & (POLLERR | POLLNVAL)) {
+		nsDbgPrint("socket poll error: revents %04x\n", pi[0].revents);
+		return 1;
 	}
 	if (pi[0].revents & (POLLIN | POLLHUP))
 		return 1;

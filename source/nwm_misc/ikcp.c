@@ -616,8 +616,9 @@ int ikcp_input(ikcpcb *kcp, char *data, int size)
 		u64 next_timing = svcGetSystemTick();
 		if ((next_timing - last_timing) / SYSCLOCK_ARM11 >= 1) {
 			last_timing = next_timing;
-			u64 mono_ns = max_timing * 1000000000 / SYSCLOCK_ARM11;
-			nsDbgPrint("kcp delay %u.%u", (unsigned)(mono_ns / 1000000 % 60000), (unsigned)(mono_ns % 1000000));
+			unsigned up_s = (unsigned)(max_timing / SYSCLOCK_ARM11 % 60000);
+			unsigned up_us = (unsigned)((max_timing % SYSCLOCK_ARM11) * 1000000 / SYSCLOCK_ARM11);
+			nsDbgPrint("kcp delay %u.%u", up_s, up_us);
 			max_timing = 0;
 		}
 	}

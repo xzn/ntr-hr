@@ -477,7 +477,7 @@ extern "C" fn nwmPause(shutdown: bool) {
     unsafe { RESTART_SHUTDOWN.store(shutdown, Ordering::Release) };
     unsafe { RESTART_PENDING.store(true, Ordering::Release) };
     set_reset_threads();
-    let res = unsafe { svcWaitSynchronization(RESTART_READY_EVENT, -1) };
+    let res = unsafe { svcWaitSynchronization(RESTART_READY_EVENT, 5_000_000_000) };
     if res != 0 {
         ns_dbg_print!(failed, c_str!("Wait restart event"), res);
     }

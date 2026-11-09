@@ -106,10 +106,11 @@ void nsDbgPrintVerboseVABuf(const char *file_name, int line_number, const char *
 
 		if (file_name && func_name) {
 			u64 ticks = svcGetSystemTick();
-			u64 mono_ns = ticks * 1000000000 / SYSCLOCK_ARM11;
+			u32 up_s = (u32)(ticks / SYSCLOCK_ARM11 % 60000);
+			u32 up_us = (u32)((ticks % SYSCLOCK_ARM11) * 1000000 / SYSCLOCK_ARM11);
 			u32 pid = getCurrentProcessId();
 
-			nsDbgPrintRawInternal(DBG_VERBOSE_TITLE, (u32)(mono_ns / 1000000 % 60000), (u32)(mono_ns % 1000000), pid, file_name, line_number, func_name);
+			nsDbgPrintRawInternal(DBG_VERBOSE_TITLE, up_s, up_us, pid, file_name, line_number, func_name);
 			nsDbgPrintRawInternal(" ");
 		}
 
@@ -428,10 +429,8 @@ static void nsMainLoop(u32 listenPort) {
 			}
 			nsContext->hSocket = sockfd;
 
-			if (listenPort == NS_MENU_LISTEN_PORT) {
-				tmp = fcntl(sockfd, F_GETFL, 0);
-				fcntl(sockfd, F_SETFL, tmp & ~O_NONBLOCK);
-			}
+			tmp = fcntl(sockfd, F_GETFL, 0);
+			fcntl(sockfd, F_SETFL, tmp | O_NONBLOCK);
 
 			WHILE_POLL2(sockfd) {
 				ret = rtRecvSocket(sockfd, (u8 *)&nsContext->packetBuf, sizeof(NS_PACKET));
