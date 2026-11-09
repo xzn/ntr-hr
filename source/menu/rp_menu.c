@@ -843,7 +843,7 @@ int remotePlayMenu(u32 localaddr) {
 				xsnprintf(qualityCaption, LOCAL_OPT_TEXT_BUF_SIZE, "JPEG Quality: %"PRId32, config.quality);
 				break;
 			case CompressionFormatLossless:
-				xsnprintf(qualityCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Color Quality Bias: %"PRId32, losslessData);
+				xsnprintf(qualityCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Color Quality Bias: %d", losslessData);
 				break;
 		}
 
