@@ -159,10 +159,19 @@ pub unsafe fn init_seg_mem_handles(qos: u32) -> Option<()> {
 #[cfg(not(feature = "o3ds"))]
 pub fn cleanup_seg_mem_handles() {
     unsafe {
-        let _ = svcCloseHandle(SEG_MEM_TERM_SEM);
+        if SEG_MEM_TERM_SEM != 0 {
+            let _ = svcCloseHandle(SEG_MEM_TERM_SEM);
+            SEG_MEM_TERM_SEM = 0;
+        }
 
-        let _ = svcCloseHandle(SEG_MEM_LOCK);
-        let _ = svcCloseHandle(SEG_MEM_SEM);
+        if SEG_MEM_LOCK != 0 {
+            let _ = svcCloseHandle(SEG_MEM_LOCK);
+            SEG_MEM_LOCK = 0;
+        }
+        if SEG_MEM_SEM != 0 {
+            let _ = svcCloseHandle(SEG_MEM_SEM);
+            SEG_MEM_SEM = 0;
+        }
     }
 }
 
@@ -280,7 +289,15 @@ extern "C" fn nsControlRecv(fd: c_int) -> c_int {
     let recv_bufs = if let Some(dst) = unsafe { rp_recv_data_buf() } {
         dst
     } else {
-        return -1;
+        const SCRATCH_SIZE: usize = 64;
+        let mut scratch: mem::MaybeUninit<[u8; SCRATCH_SIZE]> = mem::MaybeUninit::uninit();
+        loop {
+            let ret = unsafe { recv(fd, scratch.as_mut_ptr() as *mut _, SCRATCH_SIZE, 0) };
+            if ret <= 0 {
+                break;
+            }
+        }
+        return 0;
     };
 
     let mut recv_ret = 0;
@@ -300,7 +317,7 @@ extern "C" fn nsControlRecv(fd: c_int) -> c_int {
             break;
         } else if ret < 0 {
             let err = unsafe { *__errno() };
-            if err != ctru::EWOULDBLOCK as i32 || err != ctru::EAGAIN as i32 {
+            if err != ctru::EWOULDBLOCK as i32 && err != ctru::EAGAIN as i32 {
                 ns_dbg_print!(failed, c_str!("Nwm input"), err);
                 return -1;
             }
@@ -319,7 +336,8 @@ extern "C" fn nsControlRecv(fd: c_int) -> c_int {
     let nwm_lock = if let Some(l) = NwmCbLock::lock(cname!()) {
         l
     } else {
-        return -1;
+        set_reset_threads();
+        return 0;
     };
 
     match get_reliable_stream() {
@@ -337,7 +355,7 @@ extern "C" fn nsControlRecv(fd: c_int) -> c_int {
                     ns_dbg_print!(failed, c_str!("KCP input"), ret);
                 }
                 set_reset_threads();
-                return -1;
+                return 0;
             }
             drop(nwm_lock);
             let _ = unsafe { svcSignalEvent(RELIABLE_STREAM_CB_EVT) };

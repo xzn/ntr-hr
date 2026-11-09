@@ -351,23 +351,48 @@ pub unsafe fn cleanup_syn_handles(core_count: CoreCount) {
         for j in ThreadIndex::up_to(&thread_index_last(core_count)) {
             let thread = SYN_HANDLES.threads.get_mut(&j);
 
-            let _ = svcCloseHandle(thread.work_ready);
-            let _ = svcCloseHandle(thread.thread_ready);
+            if thread.work_ready != 0 {
+                let _ = svcCloseHandle(thread.work_ready);
+                thread.work_ready = 0;
+            }
+            if thread.thread_ready != 0 {
+                let _ = svcCloseHandle(thread.thread_ready);
+                thread.thread_ready = 0;
+            }
         }
 
         for i in WorkIndex::all() {
             let work = SYN_HANDLES.works.get_mut(&i);
 
-            let _ = svcCloseHandle(work.nwm_ready);
-            let _ = svcCloseHandle(work.nwm_done);
-            let _ = svcCloseHandle(work.work_done);
+            if work.nwm_ready != 0 {
+                let _ = svcCloseHandle(work.nwm_ready);
+                work.nwm_ready = 0;
+            }
+            if work.nwm_done != 0 {
+                let _ = svcCloseHandle(work.nwm_done);
+                work.nwm_done = 0;
+            }
+            if work.work_done != 0 {
+                let _ = svcCloseHandle(work.work_done);
+                work.work_done = 0;
+            }
         }
 
-        let _ = svcCloseHandle(SYN_HANDLES.screen_ready);
-        let _ = svcCloseHandle(SYN_HANDLES.nwm_ready);
+        if SYN_HANDLES.screen_ready != 0 {
+            let _ = svcCloseHandle(SYN_HANDLES.screen_ready);
+            SYN_HANDLES.screen_ready = 0;
+        }
+        if SYN_HANDLES.nwm_ready != 0 {
+            let _ = svcCloseHandle(SYN_HANDLES.nwm_ready);
+            SYN_HANDLES.nwm_ready = 0;
+        }
 
         for i in ScreenIndex::all() {
-            let _ = svcCloseHandle(*SYN_HANDLES.screens_port_ready.get(&i));
+            let port_ready = SYN_HANDLES.screens_port_ready.get_mut(&i);
+            if *port_ready != 0 {
+                let _ = svcCloseHandle(*port_ready);
+                *port_ready = 0;
+            }
         }
     }
 }

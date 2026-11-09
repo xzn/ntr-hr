@@ -157,6 +157,7 @@ int rtRecvSocket(u32 sockfd, u8 *buf, int size)
 {
 	int ret, pos = 0;
 	int tmpsize = size;
+	int retries = 0;
 
 	while(tmpsize)
 	{
@@ -165,6 +166,8 @@ int rtRecvSocket(u32 sockfd, u8 *buf, int size)
 			if (ret < 0) {
 				ret = errno;
 				if (ret == EWOULDBLOCK || ret == EAGAIN) {
+					if (++retries >= 10)
+						return -2;
 					svcSleepThread(50000000);
 					continue;
 				}
@@ -174,6 +177,7 @@ int rtRecvSocket(u32 sockfd, u8 *buf, int size)
 		}
 		pos += ret;
 		tmpsize -= ret;
+		retries = 0;
 	}
 
 	return size;
@@ -183,6 +187,7 @@ int rtSendSocket(u32 sockfd, u8 *buf, int size)
 {
 	int ret, pos = 0;
 	int tmpsize = size;
+	int retries = 0;
 
 	while(tmpsize)
 	{
@@ -190,6 +195,8 @@ int rtSendSocket(u32 sockfd, u8 *buf, int size)
 		{
 			ret = errno;
 			if (ret == EWOULDBLOCK || ret == EAGAIN) {
+				if (++retries >= 10)
+					return -2;
 				svcSleepThread(50000000);
 				continue;
 			}
@@ -197,6 +204,7 @@ int rtSendSocket(u32 sockfd, u8 *buf, int size)
 		}
 		pos += ret;
 		tmpsize -= ret;
+		retries = 0;
 	}
 
 	return size;

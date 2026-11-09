@@ -176,8 +176,15 @@ impl Init {
     fn init(#[cfg(not(feature = "o3ds"))] vars: InitVars) -> Option<Self> {
         #[cfg(not(feature = "o3ds"))]
         unsafe {
-            init_syn_handles(vars.core_count)?;
-            entries::thread_nwm::init_seg_mem_handles(vars.qos)?;
+            if init_syn_handles(vars.core_count).is_none() {
+                cleanup_syn_handles(vars.core_count);
+                return None;
+            }
+            if entries::thread_nwm::init_seg_mem_handles(vars.qos).is_none() {
+                entries::thread_nwm::cleanup_seg_mem_handles();
+                cleanup_syn_handles(vars.core_count);
+                return None;
+            }
         }
 
         #[cfg(not(feature = "o3ds"))]
@@ -317,43 +324,65 @@ fn main(_impl_: Impl, #[cfg(not(feature = "o3ds"))] s: &mut ThreadsStorage) -> O
 
     let use_dbg = unsafe { (*config_consts::NTR_CONFIG).ex.nsUseDbg != 0 };
 
-    let init = init(
+    let init = if let Some(init) = init(
         #[cfg(not(feature = "o3ds"))]
         &s.nwm_bufs,
-    )?;
+    ) {
+        init
+    } else {
+        ns_dbg_print!(msg, c_str!("Nwm init failed, retrying"));
+        sleep_thread(DurationNs::init(500_000_000));
+        return Some(());
+    };
     #[cfg(feature = "o3ds")]
     let _ = init;
     #[cfg(not(feature = "o3ds"))]
     let core_count = init.vars.core_count.get();
     {
         #[cfg(not(feature = "o3ds"))]
+        macro_rules! join_or_retry {
+            ($t:expr) => {
+                if reset_threads() {
+                    None
+                } else if let Some(t) = $t {
+                    Some(JoinThread::create(t))
+                } else {
+                    ns_dbg_print!(msg, c_str!("Nwm thread create failed, retrying"));
+                    set_reset_threads();
+                    sleep_thread(DurationNs::init(500_000_000));
+                    None
+                }
+            };
+        }
+
+        #[cfg(not(feature = "o3ds"))]
         let _aux1 = if core_count >= 2 {
-            Some(JoinThread::create(CreateThread::create(
+            join_or_retry!(CreateThread::create(
                 Some(entries::thread_aux::thread_aux),
                 1,
                 s.stacks.aux1,
                 init.vars.thread_prio as i32,
                 3,
-            )?))
+            ))
         } else {
             None
         };
 
         #[cfg(not(feature = "o3ds"))]
         let _aux2 = if core_count >= 3 {
-            Some(JoinThread::create(CreateThread::create(
+            join_or_retry!(CreateThread::create(
                 Some(entries::thread_aux::thread_aux),
                 2,
                 s.stacks.aux2,
                 RP_THREAD_PRIO_MAX as s32,
                 1,
-            )?))
+            ))
         } else {
             None
         };
 
         #[cfg(not(feature = "o3ds"))]
-        let _nwm = JoinThread::create(CreateThread::create(
+        let _nwm = join_or_retry!(CreateThread::create(
             Some(match entries::thread_nwm::get_reliable_stream() {
                 entries::thread_nwm::ReliableStream::None => entries::thread_nwm::thread_nwm,
                 entries::thread_nwm::ReliableStream::KCP => entries::thread_nwm::kcp_thread_nwm,
@@ -362,23 +391,22 @@ fn main(_impl_: Impl, #[cfg(not(feature = "o3ds"))] s: &mut ThreadsStorage) -> O
             s.stacks.nwm,
             RP_THREAD_PRIO_MIN as s32,
             RP_CORE_ID_MAIN,
-        )?);
+        ));
 
         #[cfg(not(feature = "o3ds"))]
-        let _screen = JoinThread::create(CreateThread::create(
+        let _screen = join_or_retry!(CreateThread::create(
             Some(entries::thread_screen::thread_screen),
             0,
             s.stacks.screen,
             RP_THREAD_PRIO_MIN as s32,
             RP_CORE_ID_MAIN,
-        )?);
+        ));
 
         // NTR-HR+ audio capture thread (opt-in via RP_CONFIG.audioEnable),
         // high priority so every dsp frame is captured
-        // audio is optional: a failed create must not kill remote play
         #[cfg(not(feature = "o3ds"))]
         let _audio = if unsafe { entries::thread_audio::AUDIO_ENABLE } {
-            CreateThread::create(
+            join_or_retry!(CreateThread::create(
                 if unsafe { entries::thread_audio::AUDIO_KCP } {
                     Some(entries::thread_audio::thread_audio_kcp)
                 } else {
@@ -388,8 +416,7 @@ fn main(_impl_: Impl, #[cfg(not(feature = "o3ds"))] s: &mut ThreadsStorage) -> O
                 s.stacks.audio,
                 RP_THREAD_PRIO_MIN as s32,
                 1,
-            )
-            .map(JoinThread::create)
+            ))
         } else {
             None
         };
@@ -401,11 +428,13 @@ fn main(_impl_: Impl, #[cfg(not(feature = "o3ds"))] s: &mut ThreadsStorage) -> O
             }
         }
 
-        let t = ThreadIndex::init(0);
-        unsafe {
-            entries::work_thread::work_thread_loop(t);
+        if !reset_threads() {
+            let t = ThreadIndex::init(0);
+            unsafe {
+                entries::work_thread::work_thread_loop(t);
+            }
+            set_reset_threads();
         }
-        set_reset_threads();
     }
 
     if use_dbg {

@@ -453,6 +453,7 @@ static void nsMainLoop(u32 listenPort) {
 
 end_listen:
 		closesocket(listen_sock);
+		svcSleepThread(500000000);
 	}
 
 	nsPoll2End();
