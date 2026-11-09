@@ -23,7 +23,7 @@ const AUDIO_PAYLOAD_BYTES: usize = AUDIO_REDUNDANCY * AUDIO_FRAME_BYTES;
 
 // poll well under the ~4.888 ms dsp frame so no mix frame is missed
 pub const AUDIO_POLL_NS: s64 =
-    1_000_000_000 * AUDIO_FRAME_SAMPLES as s64 / AUDIO_SAMPLE_RATE as s64 / 3;
+    1_000_000_000 * AUDIO_FRAME_SAMPLES as s64 / AUDIO_SAMPLE_RATE as s64 / 2;
 
 // fresher region by frame_counter (wrap-safe)
 fn newer_region(fc0: u16, fc1: u16) -> u32 {
