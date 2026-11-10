@@ -686,7 +686,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                 }
             };
 
-        let mut novsamp_nosamp = |b: *mut EncodeBuffer<0>| {
+        let mut nohsamp_novsamp = |b: *mut EncodeBuffer<0>| {
             process(b, 1, |f, i, #[allow(unused)] n| unsafe {
                 (&mut *f).lossless_pre_process_nohsamp_novsamp(&mut *i)
             });
@@ -737,7 +737,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                                 (&mut *f).pre_process_even_odd_novsamp::<1, false>(&mut *i, n)
                             });
                         } else {
-                            novsamp_nosamp(b);
+                            nohsamp_novsamp(b);
                         }
                     }
                 }
@@ -761,7 +761,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                                 (&mut *f).pre_process_full_novsamp::<1, false>(&mut *i, n)
                             });
                         } else {
-                            novsamp_nosamp(b);
+                            nohsamp_novsamp(b);
                         }
                     }
                 }
@@ -777,7 +777,13 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         #[cfg(not(feature = "o3ds"))]
         let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
         #[cfg(not(feature = "o3ds"))]
-        let bias = get_color_bias_from_format(bias, self.worker.data.info.color_space);
+        let bias = get_adjusted_color_bias_from_format(
+            rel_stream,
+            screen.chroma_ss,
+            screen.downsample,
+            bias,
+            self.worker.data.info.color_space,
+        );
 
         #[cfg(not(feature = "o3ds"))]
         if self.worker.data.shared.delta_prog {

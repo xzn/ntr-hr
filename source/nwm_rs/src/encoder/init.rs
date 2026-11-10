@@ -41,6 +41,7 @@ impl EncoderShared {
     #[allow(unused_macros)]
     fn init(
         &mut self,
+        hq: [u32; RP_SCREEN_COUNT as usize],
         downsample: [u32; RP_SCREEN_COUNT as usize],
         #[cfg(not(feature = "o3ds"))] rel_stream: bool,
         #[cfg(not(feature = "o3ds"))] delta_prog: bool,
@@ -92,10 +93,11 @@ impl EncoderShared {
             let screen = s.index_into_mut(&mut self.screens);
             let is_top = s.get() == RP_SCREEN_TOP as u32;
 
+            screen.chroma_ss = *s.index_into(&hq) as u8;
+            screen.downsample = *s.index_into(&downsample) as u8;
+
             #[cfg(not(feature = "mem3"))]
             {
-                screen.downsample = *s.index_into(&downsample) as u8;
-
                 if screen.downsample == RP_DOWNSAMPLE_CHECKER {
                     screen.width = downsample_checker_screen_dim(is_top) as u16;
                     screen.height = screen.width;
@@ -106,7 +108,6 @@ impl EncoderShared {
             }
             #[cfg(feature = "mem3")]
             {
-                screen.downsample = *s.index_into(&downsample) as u8;
                 screen.width = downsample_screen_width(screen.downsample) as u16;
                 screen.height = downsample_screen_height(screen.downsample, is_top) as u16;
             }
@@ -436,6 +437,7 @@ impl Encoder {
     ) -> Option<()> {
         self.lossless_shared.init(color_bias);
         self.shared.init(
+            hq,
             downsample,
             #[cfg(not(feature = "o3ds"))]
             rel_stream,

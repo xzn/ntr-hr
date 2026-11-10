@@ -291,8 +291,10 @@ impl WorkFrame {
     pub fn frame_release(self) -> Option<WorkAcquire> {
         let bctx = self.0.0.bctx();
         let downsample = unsafe { *is_top_index(bctx.is_top).index_into(&ENCODE_DOWNSAMPLE) } as u8;
+        let rel_stream =
+            entries::thread_nwm::get_reliable_stream() != entries::thread_nwm::ReliableStream::None;
         #[cfg(not(feature = "o3ds"))]
-        if entries::thread_nwm::get_reliable_stream() == entries::thread_nwm::ReliableStream::None {
+        if !rel_stream {
             if !unsafe {
                 entries::thread_nwm::nwm_done_acquire(
                     self.0.0.w,
@@ -327,7 +329,10 @@ impl WorkFrame {
         let chroma_ss = unsafe { *is_top_index(bctx.is_top).index_into(&ENCODE_CHROMA_SS) } as u8;
         let color_bias =
             unsafe { *is_top_index(bctx.is_top).index_into(&ENCODE_LOSSLESS_COLOR_BIAS) };
-        let color_bias = encoder::get_color_bias_from_format(
+        let color_bias = encoder::get_adjusted_color_bias_from_format(
+            rel_stream,
+            chroma_ss,
+            downsample,
             color_bias,
             encoder::get_color_space_from_format(bctx.format),
         );

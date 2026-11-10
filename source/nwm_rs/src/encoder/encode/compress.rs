@@ -669,7 +669,6 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let is_top = self.worker.data.info.is_top;
             let s = is_top_index(is_top);
             let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
-            let bias = get_color_bias_from_format(bias, self.worker.data.info.color_space);
             let screen = s.index_into(&self.worker.data.shared.screens);
             let input = &self.worker.data.bufs.prep;
             let need_hss = |ci| {
@@ -792,7 +791,6 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let is_top = self.worker.data.info.is_top;
             let s = is_top_index(is_top);
             let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
-            let bias = get_color_bias_from_format(bias, self.worker.data.info.color_space);
             let screen = s.index_into(&self.worker.data.shared.screens);
             let input = &self.worker.data.bufs.prep;
             let need_hss = |ci| {
@@ -957,7 +955,6 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let is_top = self.worker.data.info.is_top;
             let s = is_top_index(is_top);
             let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
-            let bias = get_color_bias_from_format(bias, self.worker.data.info.color_space);
             let screen = s.index_into(&self.worker.data.shared.screens);
             let input = &self.worker.data.bufs.prep;
             let need_hss = |ci| {
@@ -1092,8 +1089,14 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
     }
 }
 
-pub fn get_color_bias_from_format(bias: u8, format: ColorSpace) -> u8 {
-    if false {
+pub fn get_adjusted_color_bias_from_format(
+    rel_stream: bool,
+    chroma_ss: u8,
+    downsample: u8,
+    bias: u8,
+    format: ColorSpace,
+) -> u8 {
+    if !rel_stream && chroma_ss == RP_CHROMASS_444 && downsample != RP_DOWNSAMPLE_QUARTER {
         cmp::max(
             bias,
             match format {

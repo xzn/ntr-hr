@@ -120,6 +120,7 @@ pub struct LosslessShared {
 pub struct ScreenShared {
     pub max_h_samp_factor: usize,
     pub max_v_samp_factor: usize,
+    pub chroma_ss: u8,
     pub downsample: u8,
     pub width: u16,
     pub height: u16,
