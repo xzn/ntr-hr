@@ -9,7 +9,7 @@ typedef struct {
 	u32 downsample;
 	u32 dither;
 	u32 fpsLimit;
-	u32 noSkipFrame;
+	u32 skipDupFrame;
 } RP_SCREEN_CONFIG;
 
 typedef struct {

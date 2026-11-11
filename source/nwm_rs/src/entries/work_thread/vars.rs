@@ -221,9 +221,9 @@ impl WorkSync {
         };
 
         if RP_CONFIG
-            .no_skip_frame(is_top_index)
+            .skip_dup_frame(is_top_index)
             .load(Ordering::Acquire)
-            > 0
+            == 0
         {
             return Ok(WorkFrame(self.0, timing.get() as u32, frame_time));
         }

@@ -201,8 +201,8 @@ impl RpConfig {
         rp_config_screen_field!(fpsLimit, s)
     }
 
-    pub fn no_skip_frame(&self, s: ScreenIndex) -> &mut AtomicU32 {
-        rp_config_screen_field!(noSkipFrame, s)
+    pub fn skip_dup_frame(&self, s: ScreenIndex) -> &mut AtomicU32 {
+        rp_config_screen_field!(skipDupFrame, s)
     }
 }
 
