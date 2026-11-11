@@ -664,7 +664,13 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         }
     }
 
-    fn do_uncompressed_encode<const HSS: bool, const VSS: bool>(&mut self) {
+    pub fn uncompressed_encode(&mut self) {
+        let is_top = self.worker.data.info.is_top;
+        let s = is_top_index(is_top);
+        let screen = s.index_into(&self.worker.data.shared.screens);
+        let hss = screen.max_h_samp_factor == SAMP_FACTOR;
+        let vss = screen.max_v_samp_factor == SAMP_FACTOR;
+
         unsafe {
             let is_top = self.worker.data.info.is_top;
             let s = is_top_index(is_top);
@@ -672,7 +678,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let screen = s.index_into(&self.worker.data.shared.screens);
             let input = &self.worker.data.bufs.prep;
             let need_hss = |ci| {
-                HSS && if VSS {
+                hss && if vss {
                     need_subsamp_ci::<true, true>(ci)
                 } else {
                     need_subsamp_ci::<true, false>(ci)
@@ -684,8 +690,8 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let width = downsample_screen_width(screen.downsample);
             let width_x = ci_hss_x.map(|x| if x { width / SAMP_FACTOR } else { width });
 
-            let (bw_x, bh_x) = if HSS {
-                if VSS {
+            let (bw_x, bh_x) = if hss {
+                if vss {
                     ([SAMP_FACTOR, 1, 1], [SAMP_FACTOR, 1, 1])
                 } else {
                     ([SAMP_FACTOR, 1, 1], [1, 1, 1])
@@ -695,15 +701,15 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
 
             let in_x = match screen.downsample {
-                RP_DOWNSAMPLE_NONE => ci_x.map(|x| input.full.get(x, HSS, VSS).as_ptr()),
-                RP_DOWNSAMPLE_EVEN_ODD => ci_x.map(|x| input.even_odd.get(x, HSS, VSS).as_ptr()),
-                RP_DOWNSAMPLE_QUARTER => ci_x.map(|x| input.quarter.buf.get(x, HSS, VSS).as_ptr()),
+                RP_DOWNSAMPLE_NONE => ci_x.map(|x| input.full.get(x, hss, vss).as_ptr()),
+                RP_DOWNSAMPLE_EVEN_ODD => ci_x.map(|x| input.even_odd.get(x, hss, vss).as_ptr()),
+                RP_DOWNSAMPLE_QUARTER => ci_x.map(|x| input.quarter.buf.get(x, hss, vss).as_ptr()),
                 _ => todo!(),
             };
 
             match bias {
                 RP_COLOR_BIAS_NONE => {
-                    for x in 0..if HSS { width / SAMP_FACTOR } else { width } {
+                    for x in 0..if hss { width / SAMP_FACTOR } else { width } {
                         for c in CompIndex::all() {
                             let width_c = *c.index_into(&width_x);
                             let bw_c = *c.index_into(&bw_x) as usize;
@@ -736,7 +742,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                         true,
                     );
 
-                    for x in 0..if HSS { width / SAMP_FACTOR } else { width } {
+                    for x in 0..if hss { width / SAMP_FACTOR } else { width } {
                         for c in CompIndex::all() {
                             let bb_c = *c.index_into(&bb_x);
                             let width_c = *c.index_into(&width_x);
@@ -764,30 +770,16 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         }
     }
 
-    pub fn uncompressed_encode(&mut self) {
+    #[cfg(not(feature = "o3ds"))]
+    pub fn compressed_encode(&mut self, buf: *mut EncodeBuffer<0>, row_start: u32, i: usize) {
         let is_top = self.worker.data.info.is_top;
         let s = is_top_index(is_top);
         let screen = s.index_into(&self.worker.data.shared.screens);
         let hss = screen.max_h_samp_factor == SAMP_FACTOR;
         let vss = screen.max_v_samp_factor == SAMP_FACTOR;
-        if hss {
-            if vss {
-                self.do_uncompressed_encode::<true, true>();
-            } else {
-                self.do_uncompressed_encode::<true, false>();
-            }
-        } else {
-            self.do_uncompressed_encode::<false, false>();
-        }
-    }
+        let dither = screen.dither && screen.downsample == RP_DOWNSAMPLE_NONE;
+        let row_start = if dither { Some(row_start) } else { None };
 
-    #[cfg(not(feature = "o3ds"))]
-    fn do_compressed_encode<const HSS: bool, const VSS: bool>(
-        &mut self,
-        buf: *mut EncodeBuffer<0>,
-        row_start: Option<u32>,
-        i: usize,
-    ) {
         unsafe {
             let (dither, row_start) = if let Some(row_start) = row_start {
                 (true, row_start)
@@ -800,7 +792,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let screen = s.index_into(&self.worker.data.shared.screens);
             let input = &mut self.worker.data.bufs.prep;
             let need_hss = |ci| {
-                HSS && if VSS {
+                hss && if vss {
                     need_subsamp_ci::<true, true>(ci)
                 } else {
                     need_subsamp_ci::<true, false>(ci)
@@ -812,8 +804,8 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let width = downsample_screen_width(screen.downsample);
             let width_x = ci_hss_x.map(|x| if x { width / SAMP_FACTOR } else { width });
 
-            let (bw_x, bh_x) = if HSS {
-                if VSS {
+            let (bw_x, bh_x) = if hss {
+                if vss {
                     ([SAMP_FACTOR, 1, 1], [SAMP_FACTOR, 1, 1])
                 } else {
                     ([SAMP_FACTOR, 1, 1], [1, 1, 1])
@@ -823,12 +815,12 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
 
             let in_x = match screen.downsample {
-                RP_DOWNSAMPLE_NONE => ci_x.map(|x| input.full.get_mut(x, HSS, VSS).as_mut_ptr()),
+                RP_DOWNSAMPLE_NONE => ci_x.map(|x| input.full.get_mut(x, hss, vss).as_mut_ptr()),
                 RP_DOWNSAMPLE_EVEN_ODD => {
-                    ci_x.map(|x| input.even_odd.get_mut(x, HSS, VSS).as_mut_ptr())
+                    ci_x.map(|x| input.even_odd.get_mut(x, hss, vss).as_mut_ptr())
                 }
                 RP_DOWNSAMPLE_QUARTER => {
-                    ci_x.map(|x| input.quarter.buf.get_mut(x, HSS, VSS).as_mut_ptr())
+                    ci_x.map(|x| input.quarter.buf.get_mut(x, hss, vss).as_mut_ptr())
                 }
                 _ => todo!(),
             };
@@ -854,8 +846,8 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let n422 = dtbl.n422.params();
             let n444 = dtbl.n444.params();
 
-            let nt_x = if HSS {
-                if VSS {
+            let nt_x = if hss {
+                if vss {
                     [n444, n420, n420]
                 } else {
                     [n444, n422, n422]
@@ -865,11 +857,11 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
 
             let row_start = if dither {
-                row_start + i as u32 * if VSS { SAMP_FACTOR as u32 } else { 1 }
+                row_start + i as u32 * if vss { SAMP_FACTOR as u32 } else { 1 }
             } else {
                 row_start
             };
-            let rs_x = if VSS {
+            let rs_x = if vss {
                 [
                     row_start,
                     row_start / SAMP_FACTOR as u32,
@@ -895,7 +887,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                 let iy = (i % 2) * bh_c as usize;
                 for by in 0..bh_c {
                     let iy = iy + by;
-                    for ix in 0..if HSS { width / SAMP_FACTOR } else { width } * bw_c {
+                    for ix in 0..if hss { width / SAMP_FACTOR } else { width } * bw_c {
                         let in_c_c = in_c.add(iy * width_c + ix);
                         let in_t_c = if by > 0 {
                             in_c_c.sub(width_c)
@@ -1000,26 +992,6 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
     }
 
     #[cfg(not(feature = "o3ds"))]
-    pub fn compressed_encode(&mut self, buf: *mut EncodeBuffer<0>, row_start: u32, i: usize) {
-        let is_top = self.worker.data.info.is_top;
-        let s = is_top_index(is_top);
-        let screen = s.index_into(&self.worker.data.shared.screens);
-        let hss = screen.max_h_samp_factor == SAMP_FACTOR;
-        let vss = screen.max_v_samp_factor == SAMP_FACTOR;
-        let dither = screen.dither && screen.downsample == RP_DOWNSAMPLE_NONE;
-        let row_start = if dither { Some(row_start) } else { None };
-        if hss {
-            if vss {
-                self.do_compressed_encode::<true, true>(buf, row_start, i);
-            } else {
-                self.do_compressed_encode::<true, false>(buf, row_start, i);
-            }
-        } else {
-            self.do_compressed_encode::<false, false>(buf, row_start, i);
-        }
-    }
-
-    #[cfg(not(feature = "o3ds"))]
     pub fn compressed_delta_encode(
         &mut self,
         buf: *mut EncodeBuffer<0>,
@@ -1034,25 +1006,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         let vss = screen.max_v_samp_factor == SAMP_FACTOR;
         let dither = screen.dither && screen.downsample == RP_DOWNSAMPLE_NONE;
         let row_start = if dither { Some(row_start) } else { None };
-        if hss {
-            if vss {
-                self.do_compressed_delta_encode::<true, true>(buf, prev, row_start, i);
-            } else {
-                self.do_compressed_delta_encode::<true, false>(buf, prev, row_start, i);
-            }
-        } else {
-            self.do_compressed_delta_encode::<false, false>(buf, prev, row_start, i);
-        }
-    }
 
-    #[cfg(not(feature = "o3ds"))]
-    fn do_compressed_delta_encode<const HSS: bool, const VSS: bool>(
-        &mut self,
-        buf: *mut EncodeBuffer<0>,
-        prev: *mut u8,
-        row_start: Option<u32>,
-        i: usize,
-    ) {
         unsafe {
             let (dither, row_start) = if let Some(row_start) = row_start {
                 (true, row_start)
@@ -1065,22 +1019,22 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let screen = s.index_into(&self.worker.data.shared.screens);
             let input = &mut self.worker.data.bufs.prep;
             let need_hss = |ci| {
-                HSS && if VSS {
+                hss && if vss {
                     need_subsamp_ci::<true, true>(ci)
                 } else {
                     need_subsamp_ci::<true, false>(ci)
                 }
             };
-            let _h_samp = if HSS { SAMP_FACTOR } else { 1 };
-            let v_samp = if VSS { SAMP_FACTOR } else { 1 };
+            let _h_samp = if hss { SAMP_FACTOR } else { 1 };
+            let v_samp = if vss { SAMP_FACTOR } else { 1 };
             let i_x: [u32; 3] = core::array::from_fn(|i| i as u32);
             let ci_x = i_x.map(|x| CompIndex::init(x));
             let ci_hss_x = ci_x.map(|x| need_hss(x));
             let width = downsample_screen_width(screen.downsample);
             let width_x = ci_hss_x.map(|x| if x { width / SAMP_FACTOR } else { width });
 
-            let (bw_x, bh_x) = if HSS {
-                if VSS {
+            let (bw_x, bh_x) = if hss {
+                if vss {
                     ([SAMP_FACTOR, 1, 1], [SAMP_FACTOR, 1, 1])
                 } else {
                     ([SAMP_FACTOR, 1, 1], [1, 1, 1])
@@ -1090,12 +1044,12 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
 
             let in_x = match screen.downsample {
-                RP_DOWNSAMPLE_NONE => ci_x.map(|x| input.full.get_mut(x, HSS, VSS).as_mut_ptr()),
+                RP_DOWNSAMPLE_NONE => ci_x.map(|x| input.full.get_mut(x, hss, vss).as_mut_ptr()),
                 RP_DOWNSAMPLE_EVEN_ODD => {
-                    ci_x.map(|x| input.even_odd.get_mut(x, HSS, VSS).as_mut_ptr())
+                    ci_x.map(|x| input.even_odd.get_mut(x, hss, vss).as_mut_ptr())
                 }
                 RP_DOWNSAMPLE_QUARTER => {
-                    ci_x.map(|x| input.quarter.buf.get_mut(x, HSS, VSS).as_mut_ptr())
+                    ci_x.map(|x| input.quarter.buf.get_mut(x, hss, vss).as_mut_ptr())
                 }
                 _ => todo!(),
             };
@@ -1121,8 +1075,8 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let n422 = dtbl.n422.params();
             let n444 = dtbl.n444.params();
 
-            let nt_x = if HSS {
-                if VSS {
+            let nt_x = if hss {
+                if vss {
                     [n444, n420, n420]
                 } else {
                     [n444, n422, n422]
@@ -1132,11 +1086,11 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
 
             let row_start = if dither {
-                row_start + i as u32 * if VSS { SAMP_FACTOR as u32 } else { 1 }
+                row_start + i as u32 * if vss { SAMP_FACTOR as u32 } else { 1 }
             } else {
                 row_start
             };
-            let rs_x = if VSS {
+            let rs_x = if vss {
                 [
                     row_start,
                     row_start / SAMP_FACTOR as u32,
@@ -1171,7 +1125,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                 for by in 0..bh_c {
                     let iy = iy + by;
                     let prev = prev.add(by * width);
-                    for ix in (0..if HSS { width / SAMP_FACTOR } else { width } * bw_c)
+                    for ix in (0..if hss { width / SAMP_FACTOR } else { width } * bw_c)
                         .array_chunks::<DELTA_BLOCK_WIDTH_COUNT>()
                     {
                         let mut pred_len = 0;
