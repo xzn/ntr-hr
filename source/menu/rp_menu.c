@@ -431,7 +431,7 @@ static const char *getDownsampleDesc(int i) {
 		case RP_DOWNSAMPLE_EVEN_ODD:
 			return "Even/Odd: Alternate even/odd row\nevery other frame.\nNeed NTRViewer-HR.";
 		case RP_DOWNSAMPLE_QUARTER:
-			return "1/2x1/2: Quarter resoluion.";
+			return "1/2x1/2: Quarter resoluion.\nNeed NTRViewer-HR.";
 	}
 }
 

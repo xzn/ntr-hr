@@ -955,7 +955,7 @@ pub const fn lossless_tbl_name_from_bits(bits: u8) -> LosslessTblName {
 }
 
 #[cfg(not(feature = "o3ds"))]
-const NOISE_BITS: usize = BLUE_NOISE_INT_B;
+const NOISE_BITS: usize = 4;
 
 #[cfg(not(feature = "o3ds"))]
 const NOISE_DIM: usize = 2usize.pow(NOISE_BITS as u32);
@@ -988,11 +988,16 @@ where
     const H_DIM: usize = LosslessNoiseDim::<H_SAMP>::DIM;
     const V_DIM: usize = LosslessNoiseDim::<V_SAMP>::DIM;
 
-    pub fn params(&self) -> (*const u8, usize, usize) {
+    const H_MASK: usize = Self::H_DIM - 1;
+    const V_MASK: usize = Self::V_DIM - 1;
+    const H_BITS: usize = Self::H_DIM.ilog2() as usize;
+
+    pub fn params(&self) -> (*const u8, usize, usize, usize) {
         (
             unsafe { (*self.n.as_ptr()).as_ptr() },
-            Self::H_DIM,
-            Self::V_DIM,
+            Self::H_MASK,
+            Self::V_MASK,
+            Self::H_BITS,
         )
     }
 }
