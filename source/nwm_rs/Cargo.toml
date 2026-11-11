@@ -15,7 +15,6 @@ const-default = { path = "../../const_default", version = "1.0.0", features = [
     "derive",
     "unstable",
 ] }
-crunchy = "0.2.4"
 
 [build-dependencies]
 bindgen = "0.72.1"

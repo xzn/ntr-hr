@@ -2,7 +2,6 @@
 // See LICENSE-libjpeg-turbo.md at the project root for license details
 
 use super::*;
-use crunchy::unroll;
 
 impl<'a, 'b> JpegEncode<'a, 'b> {
     pub fn compress(
@@ -901,76 +900,73 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                 [row_start, row_start, row_start]
             };
 
-            const _: () = assert!(MAX_COMPONENTS == 3);
-            unroll! {
-                for c_i in 0..3 {
-                    let c = CompIndex::init_unchecked(c_i as u32);
-                    let bb_c = *c.index_into(&bb_x);
-                    let width_c = *c.index_into(&width_x);
-                    let bw_c = *c.index_into(&bw_x) as usize;
-                    let bh_c = *c.index_into(&bh_x) as usize;
-                    let in_c = *c.index_into(&in_x);
+            for c_i in 0..MAX_COMPONENTS {
+                let c = CompIndex::init_unchecked(c_i as u32);
+                let bb_c = *c.index_into(&bb_x);
+                let width_c = *c.index_into(&width_x);
+                let bw_c = *c.index_into(&bw_x) as usize;
+                let bh_c = *c.index_into(&bh_x) as usize;
+                let in_c = *c.index_into(&in_x);
 
-                    let dt_c = *c.index_into(&dt_x);
-                    let nt_c = *c.index_into(&nt_x);
-                    let rs_c = *c.index_into(&rs_x);
-                    let dither = dither && !dt_c.is_null();
+                let dt_c = *c.index_into(&dt_x);
+                let nt_c = *c.index_into(&nt_x);
+                let rs_c = *c.index_into(&rs_x);
+                let dither = dither && !dt_c.is_null();
 
-                    let iy = (i % 2) * bh_c as usize;
-                    for by in 0..bh_c {
-                        let iy = iy + by;
-                        for ix in 0..if HSS { width / SAMP_FACTOR } else { width } * bw_c {
-                            let in_c_c = in_c.add(iy * width_c + ix);
-                            let in_t_c = if by > 0 {
+                let iy = (i % 2) * bh_c as usize;
+                for by in 0..bh_c {
+                    let iy = iy + by;
+                    for ix in 0..if HSS { width / SAMP_FACTOR } else { width } * bw_c {
+                        let in_c_c = in_c.add(iy * width_c + ix);
+                        let in_t_c = if by > 0 {
+                            in_c_c.sub(width_c)
+                        } else if i > 0 {
+                            if i % 2 == 0 {
+                                in_c_c.add(width_c * (bh_c * 2 - 1))
+                            } else {
                                 in_c_c.sub(width_c)
-                            } else if i > 0 {
-                                if i % 2 == 0 {
-                                    in_c_c.add(width_c * (bh_c * 2 - 1))
+                            }
+                        } else {
+                            ptr::null_mut()
+                        };
+                        let (in_l_c, in_tl_c) = if ix > 0 {
+                            (
+                                in_c_c.sub(1),
+                                if !in_t_c.is_null() {
+                                    in_t_c.sub(1)
                                 } else {
-                                    in_c_c.sub(width_c)
-                                }
-                            } else {
-                                ptr::null_mut()
-                            };
-                            let (in_l_c, in_tl_c) = if ix > 0 {
-                                (
-                                    in_c_c.sub(1),
-                                    if !in_t_c.is_null() {
-                                        in_t_c.sub(1)
-                                    } else {
-                                        ptr::null_mut()
-                                    },
-                                )
-                            } else {
-                                (ptr::null_mut(), ptr::null_mut())
-                            };
-                            let (x, y) = if dither {
-                                let x = ix;
-                                let y = rs_c as usize + by;
-                                (x & nt_c.1, y & nt_c.2)
-                            } else {
-                                (0, 0)
-                            };
-                            let n = if dither {
-                                *nt_c.0.add((y << nt_c.3) + x)
-                            } else {
-                                0
-                            };
-                            let in_c = if dither {
-                                *in_c_c = *(*dt_c)
-                                    .t
-                                    .get_unchecked(*in_c_c as usize)
-                                    .get_unchecked(n as usize);
-                                Self::pred_pixel_dither(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
-                            } else {
-                                Self::pred_pixel(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
-                            };
-                            let name = lossless_tbl_name_from_bits(bb_c) as usize;
-                            (*(buf as *mut EncodeBuffer<0>)).put_bits(
-                                etbl.get_unchecked(name).ehufco[in_c as usize],
-                                etbl.get_unchecked(name).ehufsi[in_c as usize],
-                            );
-                        }
+                                    ptr::null_mut()
+                                },
+                            )
+                        } else {
+                            (ptr::null_mut(), ptr::null_mut())
+                        };
+                        let (x, y) = if dither {
+                            let x = ix;
+                            let y = rs_c as usize + by;
+                            (x & nt_c.1, y & nt_c.2)
+                        } else {
+                            (0, 0)
+                        };
+                        let n = if dither {
+                            *nt_c.0.add((y << nt_c.3) + x)
+                        } else {
+                            0
+                        };
+                        let in_c = if dither {
+                            *in_c_c = *(*dt_c)
+                                .t
+                                .get_unchecked(*in_c_c as usize)
+                                .get_unchecked(n as usize);
+                            Self::pred_pixel_dither(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
+                        } else {
+                            Self::pred_pixel(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
+                        };
+                        let name = lossless_tbl_name_from_bits(bb_c) as usize;
+                        (*(buf as *mut EncodeBuffer<0>)).put_bits(
+                            etbl.get_unchecked(name).ehufco[in_c as usize],
+                            etbl.get_unchecked(name).ehufsi[in_c as usize],
+                        );
                     }
                 }
             }
@@ -1197,116 +1193,113 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             let mut pred = mem::MaybeUninit::<[u8; DELTA_BLOCK_WIDTH_COUNT]>::uninit();
             let mut diff = mem::MaybeUninit::<[u8; DELTA_BLOCK_WIDTH_COUNT]>::uninit();
 
-            const _: () = assert!(MAX_COMPONENTS == 3);
-            unroll! {
-                for c_i in 0..3 {
-                    let c = CompIndex::init_unchecked(c_i as u32);
-                    let bb_c = *c.index_into(&bb_x);
-                    let width_c = *c.index_into(&width_x);
-                    let bw_c = *c.index_into(&bw_x) as usize;
-                    let bh_c = *c.index_into(&bh_x) as usize;
-                    let in_c = *c.index_into(&in_x);
+            for c_i in 0..MAX_COMPONENTS {
+                let c = CompIndex::init_unchecked(c_i as u32);
+                let bb_c = *c.index_into(&bb_x);
+                let width_c = *c.index_into(&width_x);
+                let bw_c = *c.index_into(&bw_x) as usize;
+                let bh_c = *c.index_into(&bh_x) as usize;
+                let in_c = *c.index_into(&in_x);
 
-                    let dt_c = *c.index_into(&dt_x);
-                    let nt_c = *c.index_into(&nt_x);
-                    let rs_c = *c.index_into(&rs_x);
-                    let dither = dither && !dt_c.is_null();
+                let dt_c = *c.index_into(&dt_x);
+                let nt_c = *c.index_into(&nt_x);
+                let rs_c = *c.index_into(&rs_x);
+                let dither = dither && !dt_c.is_null();
 
-                    let name = lossless_tbl_name_from_bits(bb_c) as usize;
-                    let tbl = etbl.get_unchecked(name);
-                    let prev = prev.add(v_samp * width * c.get() as usize);
+                let name = lossless_tbl_name_from_bits(bb_c) as usize;
+                let tbl = etbl.get_unchecked(name);
+                let prev = prev.add(v_samp * width * c.get() as usize);
 
-                    let iy = (i % 2) * bh_c as usize;
-                    for by in 0..bh_c {
-                        let iy = iy + by;
-                        let prev = prev.add(by * width);
-                        for ix in (0..if HSS { width / SAMP_FACTOR } else { width } * bw_c)
-                            .array_chunks::<DELTA_BLOCK_WIDTH_COUNT>()
-                        {
-                            let mut pred_len = 0;
-                            let mut diff_len = 0;
+                let iy = (i % 2) * bh_c as usize;
+                for by in 0..bh_c {
+                    let iy = iy + by;
+                    let prev = prev.add(by * width);
+                    for ix in (0..if HSS { width / SAMP_FACTOR } else { width } * bw_c)
+                        .array_chunks::<DELTA_BLOCK_WIDTH_COUNT>()
+                    {
+                        let mut pred_len = 0;
+                        let mut diff_len = 0;
 
-                            for (ip, ix) in (0..DELTA_BLOCK_WIDTH_COUNT).zip(ix) {
-                                let in_c_c = in_c.add(iy * width_c + ix);
-                                let in_t_c = if by > 0 {
+                        for (ip, ix) in (0..DELTA_BLOCK_WIDTH_COUNT).zip(ix) {
+                            let in_c_c = in_c.add(iy * width_c + ix);
+                            let in_t_c = if by > 0 {
+                                in_c_c.sub(width_c)
+                            } else if i > 0 {
+                                if i % 2 == 0 {
+                                    in_c_c.add(width_c * (bh_c * 2 - 1))
+                                } else {
                                     in_c_c.sub(width_c)
-                                } else if i > 0 {
-                                    if i % 2 == 0 {
-                                        in_c_c.add(width_c * (bh_c * 2 - 1))
-                                    } else {
-                                        in_c_c.sub(width_c)
-                                    }
-                                } else {
-                                    ptr::null_mut()
-                                };
-                                let (in_l_c, in_tl_c) = if ix > 0 {
-                                    (
-                                        in_c_c.sub(1),
-                                        if !in_t_c.is_null() {
-                                            in_t_c.sub(1)
-                                        } else {
-                                            ptr::null_mut()
-                                        },
-                                    )
-                                } else {
-                                    (ptr::null_mut(), ptr::null_mut())
-                                };
-                                let (x, y) = if dither {
-                                    let x = ix;
-                                    let y = rs_c as usize + by;
-                                    (x & nt_c.1, y & nt_c.2)
-                                } else {
-                                    (0, 0)
-                                };
-                                let n = if dither {
-                                    *nt_c.0.add((y << nt_c.3) + x)
-                                } else {
-                                    0
-                                };
-                                let in_c = if dither {
-                                    *in_c_c = *(*dt_c)
-                                        .t
-                                        .get_unchecked(*in_c_c as usize)
-                                        .get_unchecked(n as usize);
-                                    Self::pred_pixel_dither(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
-                                } else {
-                                    Self::pred_pixel(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
-                                };
-                                *(*pred.as_mut_ptr()).get_unchecked_mut(ip) = in_c;
-                                pred_len += tbl.ehufsi[in_c as usize] as usize;
-
-                                let prev = prev.add(ix);
-                                let diff_c = if dither {
-                                    let s = 8 - bb_c;
-                                    (((*in_c_c - *prev) << s) as s8 >> s) as u8 + 128
-                                } else if bb_c < 8 {
-                                    let s = 8 - bb_c;
-                                    ((((*in_c_c >> s) - (*prev >> s)) << s) as s8 >> s) as u8 + 128
-                                } else {
-                                    *in_c_c - *prev + 128
-                                };
-                                *prev = *in_c_c;
-                                *(*diff.as_mut_ptr()).get_unchecked_mut(ip) = diff_c;
-                                diff_len += tbl.ehufsi[diff_c as usize] as usize;
-                            }
-
-                            let buf = &mut *(buf as *mut EncodeBuffer<0>);
-                            if diff_len < pred_len {
-                                buf.put_bits(1, 1);
-                                for in_c in diff.assume_init_ref() {
-                                    buf.put_bits(
-                                        tbl.ehufco[*in_c as usize],
-                                        tbl.ehufsi[*in_c as usize],
-                                    );
                                 }
                             } else {
-                                buf.put_bits(0, 1);
-                                for in_c in pred.assume_init_ref() {
-                                    buf.put_bits(
-                                        tbl.ehufco[*in_c as usize],
-                                        tbl.ehufsi[*in_c as usize],
-                                    );
-                                }
+                                ptr::null_mut()
+                            };
+                            let (in_l_c, in_tl_c) = if ix > 0 {
+                                (
+                                    in_c_c.sub(1),
+                                    if !in_t_c.is_null() {
+                                        in_t_c.sub(1)
+                                    } else {
+                                        ptr::null_mut()
+                                    },
+                                )
+                            } else {
+                                (ptr::null_mut(), ptr::null_mut())
+                            };
+                            let (x, y) = if dither {
+                                let x = ix;
+                                let y = rs_c as usize + by;
+                                (x & nt_c.1, y & nt_c.2)
+                            } else {
+                                (0, 0)
+                            };
+                            let n = if dither {
+                                *nt_c.0.add((y << nt_c.3) + x)
+                            } else {
+                                0
+                            };
+                            let in_c = if dither {
+                                *in_c_c = *(*dt_c)
+                                    .t
+                                    .get_unchecked(*in_c_c as usize)
+                                    .get_unchecked(n as usize);
+                                Self::pred_pixel_dither(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
+                            } else {
+                                Self::pred_pixel(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
+                            };
+                            *(*pred.as_mut_ptr()).get_unchecked_mut(ip) = in_c;
+                            pred_len += tbl.ehufsi[in_c as usize] as usize;
+
+                            let prev = prev.add(ix);
+                            let diff_c = if dither {
+                                let s = 8 - bb_c;
+                                (((*in_c_c - *prev) << s) as s8 >> s) as u8 + 128
+                            } else if bb_c < 8 {
+                                let s = 8 - bb_c;
+                                ((((*in_c_c >> s) - (*prev >> s)) << s) as s8 >> s) as u8 + 128
+                            } else {
+                                *in_c_c - *prev + 128
+                            };
+                            *prev = *in_c_c;
+                            *(*diff.as_mut_ptr()).get_unchecked_mut(ip) = diff_c;
+                            diff_len += tbl.ehufsi[diff_c as usize] as usize;
+                        }
+
+                        let buf = &mut *(buf as *mut EncodeBuffer<0>);
+                        if diff_len < pred_len {
+                            buf.put_bits(1, 1);
+                            for in_c in diff.assume_init_ref() {
+                                buf.put_bits(
+                                    tbl.ehufco[*in_c as usize],
+                                    tbl.ehufsi[*in_c as usize],
+                                );
+                            }
+                        } else {
+                            buf.put_bits(0, 1);
+                            for in_c in pred.assume_init_ref() {
+                                buf.put_bits(
+                                    tbl.ehufco[*in_c as usize],
+                                    tbl.ehufsi[*in_c as usize],
+                                );
                             }
                         }
                     }
