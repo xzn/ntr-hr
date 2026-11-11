@@ -283,7 +283,7 @@ fn init(#[cfg(not(feature = "o3ds"))] nwm_bufs: &NwmBufs) -> Option<Init> {
 
         let encoder = &mut *encoder::ENCODER;
         let quality = RP_CONFIG.quality().load(Ordering::Acquire);
-        let (chroma_ss, downsample, quality) = encoder::jpeg_get_params(quality);
+        let (chroma_ss, downsample, quality, dither) = encoder::jpeg_get_params(quality);
         let color_bias = entries::thread_nwm::get_lossless_compression_bias();
         let color_bias = [color_bias, color_bias];
         #[cfg(not(feature = "o3ds"))]
@@ -293,12 +293,17 @@ fn init(#[cfg(not(feature = "o3ds"))] nwm_bufs: &NwmBufs) -> Option<Init> {
             chroma_ss,
             downsample,
             color_bias,
+            dither,
             entries::thread_nwm::get_reliable_stream() != entries::thread_nwm::ReliableStream::None,
             entries::thread_nwm::get_reliable_stream_delta_prog(),
         )?;
 
         #[cfg(feature = "o3ds")]
         encoder.init(quality, chroma_ss, downsample, color_bias)?;
+        #[cfg(feature = "o3ds")]
+        {
+            _ = dither;
+        }
         entries::work_thread::init(chroma_ss, downsample, color_bias);
 
         #[cfg(not(feature = "o3ds"))]

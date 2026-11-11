@@ -215,6 +215,7 @@ impl<'a> LosslessWorker<'a> {
         &'a mut self,
         dst: WorkerDst,
         src: &[u8],
+        row_start: u32,
         pre_progress: F,
         progress: G,
     ) -> Option<LosslessEncodeRet>
@@ -222,7 +223,7 @@ impl<'a> LosslessWorker<'a> {
         F: FnMut(),
         G: FnMut(usize),
     {
-        LosslessEncode { worker: self, dst }.lossless_encode(src, pre_progress, progress)
+        LosslessEncode { worker: self, dst }.lossless_encode(src, row_start, pre_progress, progress)
     }
 
     #[cfg(all(feature = "o3ds", not(feature = "mem3")))]

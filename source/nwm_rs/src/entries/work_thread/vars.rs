@@ -1004,8 +1004,8 @@ impl WorkAcquire {
         #[cfg(not(feature = "mem3"))]
         let lossless = entries::thread_nwm::get_lossless_compression();
         #[cfg(not(feature = "mem3"))]
-        let src = if downsample == RP_DOWNSAMPLE_CHECKER {
-            unsafe { slice::from_raw_parts(src, src_len) }
+        let (src, row_start) = if downsample == RP_DOWNSAMPLE_CHECKER {
+            (unsafe { slice::from_raw_parts(src, src_len) }, 0)
         } else {
             let (i_start, i_count) = {
                 let (s, c) = (*bctx.i_start.get(&t), *bctx.i_count.get(&t));
@@ -1036,11 +1036,21 @@ impl WorkAcquire {
             let j_start = mcu_size * pitch as usize * i_start as usize;
             let j_count = mcu_size * pitch as usize * i_count as usize;
 
-            unsafe {
-                slice::from_raw_parts(src, src_len)
-                    .get_unchecked(j_start..cmp::min(j_start + j_count, src_len))
-            }
+            let row_start = mcu_size * i_start as usize;
+
+            (
+                unsafe {
+                    slice::from_raw_parts(src, src_len)
+                        .get_unchecked(j_start..cmp::min(j_start + j_count, src_len))
+                },
+                row_start as u32,
+            )
         };
+
+        #[cfg(all(feature = "o3ds", not(feature = "mem3")))]
+        {
+            _ = row_start;
+        }
 
         #[cfg(not(feature = "o3ds"))]
         let pre_progress = || {
@@ -1091,6 +1101,8 @@ impl WorkAcquire {
             let lossless_ret = worker.encode_lossless(
                 dst,
                 src,
+                #[cfg(not(feature = "o3ds"))]
+                row_start,
                 #[cfg(feature = "mem3")]
                 bctx.pitch,
                 #[cfg(not(feature = "o3ds"))]

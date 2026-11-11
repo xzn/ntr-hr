@@ -25,6 +25,7 @@ enum {
 enum {
 	REMOTE_PLAY_ADVMENU_SCREEN_CHROMASS,
 	REMOTE_PLAY_ADVMENU_SCREEN_DOWNSAMPLE,
+	REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER,
 	REMOTE_PLAY_ADVMENU_SCREEN_FPS_LIMIT,
 	REMOTE_PLAY_ADVMENU_SCREEN_NO_SKIP_FRAME,
 
@@ -434,6 +435,14 @@ static const char *getDownsampleDesc(int i) {
 	}
 }
 
+static const char *getNoDitherName(int i) {
+	return i ? "Off" : "On";
+}
+
+static const char *getNoDitherDesc() {
+	return "Lossless reduced color bias dither.\nIgnored when downsampling.";
+}
+
 static const char *getFpsLimitName(int i) {
 	switch (i) {
 		default:
@@ -465,11 +474,11 @@ static const char *getFpsLimitName(int i) {
 }
 
 static const char *getNoSkipFrameName(int i) {
-	return i ? "On" : "Off";
+	return i ? "Off" : "On";
 }
 
 static const char *getNoSkipFrameDesc() {
-	return "Whether skip duplicate frame is\ndisabled.";
+	return "Whether to skip duplicate frames.";
 }
 
 static int getOtherScreenIndex(int screen_index) {
@@ -524,6 +533,7 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 
 		char chromaSSCaption[RP_SCREEN_COUNT][LOCAL_OPT_TEXT_BUF_SIZE] = { 0 };
 		char downsampleCaption[RP_SCREEN_COUNT][LOCAL_OPT_TEXT_BUF_SIZE] = { 0 };
+		char noDitherCaption[RP_SCREEN_COUNT][LOCAL_OPT_TEXT_BUF_SIZE] = { 0 };
 		char fpsLimitCaption[RP_SCREEN_COUNT][LOCAL_OPT_TEXT_BUF_SIZE] = { 0 };
 		char noSkipFrameCaption[RP_SCREEN_COUNT][LOCAL_OPT_TEXT_BUF_SIZE] = { 0 };
 
@@ -547,11 +557,16 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 			descs[count + REMOTE_PLAY_ADVMENU_SCREEN_DOWNSAMPLE] = getDownsampleDesc(config->screens[i].downsample);
 			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_DOWNSAMPLE] = config->screens[i].downsample != rpConfig->screens[i].downsample ? &changed_color : 0;
 
+			xsnprintf(noDitherCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Dither: %s", getNoDitherName(config->screens[i].noDither));
+			captions[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER] = noDitherCaption[i];
+			descs[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER] = getNoDitherDesc();
+			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER] = config->screens[i].noDither != rpConfig->screens[i].noDither ? &changed_color : 0;
+
 			xsnprintf(fpsLimitCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Max FPS: %s", getFpsLimitName(config->screens[i].fpsLimit));
 			captions[count + REMOTE_PLAY_ADVMENU_SCREEN_FPS_LIMIT] = fpsLimitCaption[i];
 			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_FPS_LIMIT] = config->screens[i].fpsLimit != rpConfig->screens[i].fpsLimit ? &changed_color : 0;
 
-			xsnprintf(noSkipFrameCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "No Skip Frame: %s", getNoSkipFrameName(config->screens[i].noSkipFrame));
+			xsnprintf(noSkipFrameCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Skip Dup Frames: %s", getNoSkipFrameName(config->screens[i].noSkipFrame));
 			captions[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_SKIP_FRAME] = noSkipFrameCaption[i];
 			descs[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_SKIP_FRAME] = getNoSkipFrameDesc();
 			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_SKIP_FRAME] = config->screens[i].noSkipFrame != rpConfig->screens[i].noSkipFrame ? &changed_color : 0;
@@ -636,6 +651,7 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 								for (int i = 1; i < RP_SCREEN_COUNT; ++i) {
 									config->screens[i].chromaSs = CLAMP(config->screens[0].chromaSs, RP_CHROMASS_MIN, RP_CHROMASS_MAX);
 									config->screens[i].downsample = CLAMP(config->screens[0].downsample, RP_DOWNSAMPLE_MIN, RP_DOWNSAMPLE_MAX);
+									config->screens[i].noDither = CLAMP(config->screens[0].noDither, false, true);
 									config->screens[i].fpsLimit = CLAMP(config->screens[0].fpsLimit, RP_FPS_LIMIT_MIN, RP_FPS_LIMIT_MAX);
 									config->screens[i].noSkipFrame = CLAMP(config->screens[0].noSkipFrame, false, true);
 								}
@@ -704,6 +720,24 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 								config->screens[screen_index].downsample = downsample;
 								if (!config->separateScreenConfig) {
 									config->screens[getOtherScreenIndex(screen_index)].downsample = downsample;
+								}
+							}
+							break;
+						}
+
+						case REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER: { /* no dither */
+							int noDither = config->screens[screen_index].noDither;
+							if (keys == KEY_X)
+								noDither = rpConfig->screens[screen_index].noDither;
+							else
+								menu_adjust_value_with_key(&noDither, keys, 1, 1);
+
+							noDither = CWRAP(noDither, false, true);
+
+							if (noDither != (int)config->screens[screen_index].noDither) {
+								config->screens[screen_index].noDither = noDither;
+								if (!config->separateScreenConfig) {
+									config->screens[getOtherScreenIndex(screen_index)].noDither = noDither;
 								}
 							}
 							break;
@@ -1201,6 +1235,7 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 	for (int i = 0; i < RP_SCREEN_COUNT; ++i) {
 		config->screens[i].chromaSs = CLAMP(config->screens[i].chromaSs, RP_CHROMASS_MIN, RP_CHROMASS_MAX);
 		config->screens[i].downsample = CLAMP(config->screens[i].downsample, RP_DOWNSAMPLE_MIN, RP_DOWNSAMPLE_MAX);
+		config->screens[i].noDither = CLAMP(config->screens[i].noDither, false, true);
 		config->screens[i].fpsLimit = CLAMP(config->screens[i].fpsLimit, RP_FPS_LIMIT_MIN, RP_FPS_LIMIT_MAX);
 		config->screens[i].noSkipFrame = CLAMP(config->screens[i].noSkipFrame, false, true);
 	}
@@ -1209,6 +1244,7 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 		for (int i = 1; i < RP_SCREEN_COUNT; ++i) {
 			config->screens[i].chromaSs = CLAMP(config->screens[0].chromaSs, RP_CHROMASS_MIN, RP_CHROMASS_MAX);
 			config->screens[i].downsample = CLAMP(config->screens[0].downsample, RP_DOWNSAMPLE_MIN, RP_DOWNSAMPLE_MAX);
+			config->screens[i].noDither = CLAMP(config->screens[0].noDither, false, true);
 			config->screens[i].fpsLimit = CLAMP(config->screens[0].fpsLimit, RP_FPS_LIMIT_MIN, RP_FPS_LIMIT_MAX);
 			config->screens[i].noSkipFrame = CLAMP(config->screens[0].noSkipFrame, false, true);
 		}

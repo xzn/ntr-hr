@@ -193,6 +193,10 @@ impl RpConfig {
         rp_config_screen_field!(downsample, s)
     }
 
+    pub fn no_dither(&self, s: ScreenIndex) -> &mut AtomicU32 {
+        rp_config_screen_field!(noDither, s)
+    }
+
     pub fn fps_limit(&self, s: ScreenIndex) -> &mut AtomicU32 {
         rp_config_screen_field!(fpsLimit, s)
     }

@@ -7,6 +7,7 @@
 typedef struct {
 	u32 chromaSs;
 	u32 downsample;
+	u32 noDither;
 	u32 fpsLimit;
 	u32 noSkipFrame;
 } RP_SCREEN_CONFIG;

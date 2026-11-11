@@ -122,6 +122,8 @@ pub struct ScreenShared {
     pub max_v_samp_factor: usize,
     pub chroma_ss: u8,
     pub downsample: u8,
+    #[cfg(not(feature = "o3ds"))]
+    pub dither: bool,
     pub width: u16,
     pub height: u16,
 }

@@ -43,6 +43,7 @@ impl EncoderShared {
         &mut self,
         hq: [u32; RP_SCREEN_COUNT as usize],
         downsample: [u32; RP_SCREEN_COUNT as usize],
+        #[cfg(not(feature = "o3ds"))] dither: [bool; RP_SCREEN_COUNT as usize],
         #[cfg(not(feature = "o3ds"))] rel_stream: bool,
         #[cfg(not(feature = "o3ds"))] delta_prog: bool,
         #[cfg(not(feature = "o3ds"))] core_count: CoreCount,
@@ -95,6 +96,10 @@ impl EncoderShared {
 
             screen.chroma_ss = *s.index_into(&hq) as u8;
             screen.downsample = *s.index_into(&downsample) as u8;
+            #[cfg(not(feature = "o3ds"))]
+            {
+                screen.dither = *s.index_into(&dither);
+            }
 
             #[cfg(not(feature = "mem3"))]
             {
@@ -432,6 +437,7 @@ impl Encoder {
         hq: [u32; RP_SCREEN_COUNT as usize],
         downsample: [u32; RP_SCREEN_COUNT as usize],
         color_bias: [u8; RP_SCREEN_COUNT as usize],
+        #[cfg(not(feature = "o3ds"))] dither: [bool; RP_SCREEN_COUNT as usize],
         #[cfg(not(feature = "o3ds"))] rel_stream: bool,
         #[cfg(not(feature = "o3ds"))] delta_prog: bool,
     ) -> Option<()> {
@@ -439,6 +445,8 @@ impl Encoder {
         self.shared.init(
             hq,
             downsample,
+            #[cfg(not(feature = "o3ds"))]
+            dither,
             #[cfg(not(feature = "o3ds"))]
             rel_stream,
             #[cfg(not(feature = "o3ds"))]

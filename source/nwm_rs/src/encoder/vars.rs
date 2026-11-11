@@ -987,6 +987,14 @@ where
 {
     const H_DIM: usize = LosslessNoiseDim::<H_SAMP>::DIM;
     const V_DIM: usize = LosslessNoiseDim::<V_SAMP>::DIM;
+
+    pub fn params(&self) -> (*const u8, usize, usize) {
+        (
+            unsafe { (*self.n.as_ptr()).as_ptr() },
+            Self::H_DIM,
+            Self::V_DIM,
+        )
+    }
 }
 
 #[cfg(not(feature = "o3ds"))]
@@ -1046,7 +1054,7 @@ impl LosslessDitherTbl {
 
                 let o = unsafe { ctru::floorf(f * scale + d) };
 
-                let o = (o as u32).clamp(0, b_max as u32);
+                let o = (o as u32).clamp(0, b_max as u32) as s32;
 
                 self.t[i][n] = o as u8;
             }
@@ -1331,6 +1339,7 @@ pub fn jpeg_get_params(
     [u32; SCREEN_COUNT as usize],
     [u32; SCREEN_COUNT as usize],
     [u32; SCREEN_COUNT as usize],
+    [bool; SCREEN_COUNT as usize],
 ) {
     let chroma_ss = [
         RP_CONFIG
@@ -1352,15 +1361,25 @@ pub fn jpeg_get_params(
         encoder::downsample_quality_scale(downsample[RP_SCREEN_TOP as usize] as u8, quality),
         encoder::downsample_quality_scale(downsample[RP_SCREEN_BOT as usize] as u8, quality),
     ];
+    let dither = [
+        RP_CONFIG
+            .no_dither(ScreenIndex::init(RP_SCREEN_TOP as u32))
+            .load(Ordering::Acquire)
+            == 0,
+        RP_CONFIG
+            .no_dither(ScreenIndex::init(RP_SCREEN_BOT as u32))
+            .load(Ordering::Acquire)
+            == 0,
+    ];
 
-    (chroma_ss, downsample, quality)
+    (chroma_ss, downsample, quality, dither)
 }
 
 #[named]
 pub unsafe fn jpeg_update_quality(q: u32) {
     let encoder = unsafe { &mut *ENCODER };
 
-    let (chroma_ss, _, quality) = jpeg_get_params(q);
+    let (chroma_ss, _, quality, _) = jpeg_get_params(q);
 
     encoder
         .jpeg_shared

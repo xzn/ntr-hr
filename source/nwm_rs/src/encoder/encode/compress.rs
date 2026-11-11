@@ -785,14 +785,20 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
     fn do_compressed_encode<const HSS: bool, const VSS: bool>(
         &mut self,
         buf: *mut EncodeBuffer<0>,
+        row_start: Option<u32>,
         i: usize,
     ) {
         unsafe {
+            let (dither, row_start) = if let Some(row_start) = row_start {
+                (true, row_start)
+            } else {
+                (false, 0)
+            };
             let is_top = self.worker.data.info.is_top;
             let s = is_top_index(is_top);
             let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
             let screen = s.index_into(&self.worker.data.shared.screens);
-            let input = &self.worker.data.bufs.prep;
+            let input = &mut self.worker.data.bufs.prep;
             let need_hss = |ci| {
                 HSS && if VSS {
                     need_subsamp_ci::<true, true>(ci)
@@ -817,9 +823,13 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
 
             let in_x = match screen.downsample {
-                RP_DOWNSAMPLE_NONE => ci_x.map(|x| input.full.get(x, HSS, VSS).as_ptr()),
-                RP_DOWNSAMPLE_EVEN_ODD => ci_x.map(|x| input.even_odd.get(x, HSS, VSS).as_ptr()),
-                RP_DOWNSAMPLE_QUARTER => ci_x.map(|x| input.quarter.buf.get(x, HSS, VSS).as_ptr()),
+                RP_DOWNSAMPLE_NONE => ci_x.map(|x| input.full.get_mut(x, HSS, VSS).as_mut_ptr()),
+                RP_DOWNSAMPLE_EVEN_ODD => {
+                    ci_x.map(|x| input.even_odd.get_mut(x, HSS, VSS).as_mut_ptr())
+                }
+                RP_DOWNSAMPLE_QUARTER => {
+                    ci_x.map(|x| input.quarter.buf.get_mut(x, HSS, VSS).as_mut_ptr())
+                }
                 _ => todo!(),
             };
 
@@ -831,6 +841,43 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
 
             let etbl = &self.worker.data.shared.encode_tbls.lossless_entropy_tbl;
+            let dtbl = &self.worker.data.shared.encode_tbls.lossless_dither_tbls;
+            let dt_x = bb_x.map(|x| match x {
+                8 => ptr::null::<LosslessDitherTbl>(),
+                6 => &dtbl.t6 as *const _,
+                5 => &dtbl.t5 as *const _,
+                4 => &dtbl.t4 as *const _,
+                _ => panic!(),
+            });
+
+            let n420 = dtbl.n420.params();
+            let n422 = dtbl.n422.params();
+            let n444 = dtbl.n444.params();
+
+            let nt_x = if HSS {
+                if VSS {
+                    [&n444, &n420, &n420]
+                } else {
+                    [&n444, &n422, &n422]
+                }
+            } else {
+                [&n444, &n444, &n444]
+            };
+
+            let row_start = if dither {
+                row_start + i as u32 * if VSS { SAMP_FACTOR as u32 } else { 1 }
+            } else {
+                row_start
+            };
+            let rs_x = if VSS {
+                [
+                    row_start,
+                    row_start / SAMP_FACTOR as u32,
+                    row_start / SAMP_FACTOR as u32,
+                ]
+            } else {
+                [row_start, row_start, row_start]
+            };
 
             for c in CompIndex::all() {
                 let bb_c = *c.index_into(&bb_x);
@@ -838,6 +885,11 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                 let bw_c = *c.index_into(&bw_x) as usize;
                 let bh_c = *c.index_into(&bh_x) as usize;
                 let in_c = *c.index_into(&in_x);
+
+                let dt_c = *c.index_into(&dt_x);
+                let nt_c = *c.index_into(&nt_x);
+                let rs_c = *c.index_into(&rs_x);
+                let dither = dither && !dt_c.is_null();
 
                 let iy = (i % 2) * bh_c as usize;
                 for by in 0..bh_c {
@@ -853,7 +905,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                                 in_c_c.sub(width_c)
                             }
                         } else {
-                            ptr::null()
+                            ptr::null_mut()
                         };
                         let (in_l_c, in_tl_c) = if ix > 0 {
                             (
@@ -861,13 +913,33 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                                 if !in_t_c.is_null() {
                                     in_t_c.sub(1)
                                 } else {
-                                    ptr::null()
+                                    ptr::null_mut()
                                 },
                             )
                         } else {
-                            (ptr::null(), ptr::null())
+                            (ptr::null_mut(), ptr::null_mut())
                         };
-                        let in_c = Self::pred_pixel(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c);
+                        let (x, y) = if dither {
+                            let x = ix;
+                            let y = rs_c as usize + by;
+                            (x % nt_c.1, y % nt_c.2)
+                        } else {
+                            (0, 0)
+                        };
+                        let n = if dither {
+                            *nt_c.0.add(y * nt_c.1 + x)
+                        } else {
+                            0
+                        };
+                        let in_c = if dither {
+                            *in_c_c = *(*dt_c)
+                                .t
+                                .get_unchecked(*in_c_c as usize)
+                                .get_unchecked(n as usize);
+                            Self::pred_pixel_dither(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
+                        } else {
+                            Self::pred_pixel(*in_c_c, in_t_c, in_l_c, in_tl_c, bb_c)
+                        };
                         let name = lossless_tbl_name_from_bits(bb_c) as usize;
                         (*(buf as *mut EncodeBuffer<0>)).put_bits(
                             etbl.get_unchecked(name).ehufco[in_c as usize],
@@ -884,6 +956,24 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         let max = cmp::max(cmp::max(a, b), c);
         let min = cmp::min(cmp::min(a, b), c);
         a + b + c - max - min
+    }
+
+    #[cfg(not(feature = "o3ds"))]
+    fn pred_pixel_dither(c: u8, t: *const u8, l: *const u8, tl: *const u8, b: u8) -> u8 {
+        unsafe {
+            let p = if t.is_null() {
+                if l.is_null() { 1 << (b - 1) } else { *l }
+            } else {
+                if l.is_null() {
+                    *t
+                } else {
+                    Self::median_3(*t, *l, *tl)
+                }
+            };
+
+            let s = 8 - b;
+            (((c - p) << s) as s8 >> s) as u8 + 128
+        }
     }
 
     #[cfg(not(feature = "o3ds"))]
@@ -909,38 +999,48 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
     }
 
     #[cfg(not(feature = "o3ds"))]
-    pub fn compressed_encode(&mut self, buf: *mut EncodeBuffer<0>, i: usize) {
+    pub fn compressed_encode(&mut self, buf: *mut EncodeBuffer<0>, row_start: u32, i: usize) {
         let is_top = self.worker.data.info.is_top;
         let s = is_top_index(is_top);
         let screen = s.index_into(&self.worker.data.shared.screens);
         let hss = screen.max_h_samp_factor == SAMP_FACTOR;
         let vss = screen.max_v_samp_factor == SAMP_FACTOR;
+        let dither = screen.dither && screen.downsample == RP_DOWNSAMPLE_NONE;
+        let row_start = if dither { Some(row_start) } else { None };
         if hss {
             if vss {
-                self.do_compressed_encode::<true, true>(buf, i);
+                self.do_compressed_encode::<true, true>(buf, row_start, i);
             } else {
-                self.do_compressed_encode::<true, false>(buf, i);
+                self.do_compressed_encode::<true, false>(buf, row_start, i);
             }
         } else {
-            self.do_compressed_encode::<false, false>(buf, i);
+            self.do_compressed_encode::<false, false>(buf, row_start, i);
         }
     }
 
     #[cfg(not(feature = "o3ds"))]
-    pub fn compressed_delta_encode(&mut self, buf: *mut EncodeBuffer<0>, prev: *mut u8, i: usize) {
+    pub fn compressed_delta_encode(
+        &mut self,
+        buf: *mut EncodeBuffer<0>,
+        prev: *mut u8,
+        row_start: u32,
+        i: usize,
+    ) {
         let is_top = self.worker.data.info.is_top;
         let s = is_top_index(is_top);
         let screen = s.index_into(&self.worker.data.shared.screens);
         let hss = screen.max_h_samp_factor == SAMP_FACTOR;
         let vss = screen.max_v_samp_factor == SAMP_FACTOR;
+        let dither = screen.dither && screen.downsample == RP_DOWNSAMPLE_NONE;
+        let row_start = if dither { Some(row_start) } else { None };
         if hss {
             if vss {
-                self.do_compressed_delta_encode::<true, true>(buf, prev, i);
+                self.do_compressed_delta_encode::<true, true>(buf, prev, row_start, i);
             } else {
-                self.do_compressed_delta_encode::<true, false>(buf, prev, i);
+                self.do_compressed_delta_encode::<true, false>(buf, prev, row_start, i);
             }
         } else {
-            self.do_compressed_delta_encode::<false, false>(buf, prev, i);
+            self.do_compressed_delta_encode::<false, false>(buf, prev, row_start, i);
         }
     }
 
@@ -949,9 +1049,15 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         &mut self,
         buf: *mut EncodeBuffer<0>,
         prev: *mut u8,
+        row_start: Option<u32>,
         i: usize,
     ) {
         unsafe {
+            let (dither, row_start) = if let Some(row_start) = row_start {
+                (true, row_start)
+            } else {
+                (false, 0)
+            };
             let is_top = self.worker.data.info.is_top;
             let s = is_top_index(is_top);
             let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
@@ -1001,6 +1107,12 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             const DELTA_BLOCK_WIDTH_COUNT: usize = 30;
             let mut pred = mem::MaybeUninit::<[u8; DELTA_BLOCK_WIDTH_COUNT]>::uninit();
             let mut diff = mem::MaybeUninit::<[u8; DELTA_BLOCK_WIDTH_COUNT]>::uninit();
+
+            let _row_start = if dither {
+                row_start + i as u32 * if VSS { SAMP_FACTOR as u32 } else { 1 }
+            } else {
+                row_start
+            };
 
             for c in CompIndex::all() {
                 let bb_c = *c.index_into(&bb_x);

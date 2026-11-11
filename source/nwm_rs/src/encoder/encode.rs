@@ -559,6 +559,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
     pub fn lossless_encode<F, G>(
         &mut self,
         #[cfg(not(feature = "mem3"))] src: &[u8],
+        #[cfg(not(feature = "o3ds"))] row_start: u32,
         #[cfg(feature = "mem3")] src: *const u8,
         #[cfg(feature = "mem3")] pitch: u32,
         #[cfg(not(feature = "o3ds"))] mut pre_progress: F,
@@ -666,6 +667,8 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                         unsafe {
                             prev.add(i * p_step)
                         },
+                        #[cfg(not(feature = "o3ds"))]
+                        row_start,
                         i,
                         |this| {
                             /* Pre-process */
@@ -802,6 +805,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         &mut self,
         buf: *mut EncodeBuffer<0>,
         #[cfg(not(feature = "o3ds"))] prev: *mut u8,
+        #[cfg(not(feature = "o3ds"))] row_start: u32,
         i: usize,
         do_pre_process: F,
         do_progress: G,
@@ -815,7 +819,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
 
         /* Compress and encode */
         #[cfg(not(feature = "o3ds"))]
-        self.do_process(buf, prev, i);
+        self.do_process(buf, prev, row_start, i);
 
         #[cfg(feature = "o3ds")]
         self.do_process(buf, i);
@@ -829,6 +833,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         &mut self,
         #[allow(unused)] buf: *mut EncodeBuffer<0>,
         #[cfg(not(feature = "o3ds"))] prev: *mut u8,
+        #[cfg(not(feature = "o3ds"))] row_start: u32,
         #[allow(unused)] i: usize,
     ) {
         unsafe {
@@ -852,11 +857,11 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                             return;
                         }
                     }
-                    self.compressed_delta_encode(buf, prev, i);
+                    self.compressed_delta_encode(buf, prev, row_start, i);
                     return;
                 }
 
-                self.compressed_encode(buf, i);
+                self.compressed_encode(buf, row_start, i);
                 return;
             }
 
