@@ -259,7 +259,7 @@ int nsPoll2(int s) {
 	if (nready == 0)
 		return 0;
 	else if (nready < 0) {
-		showDbg("socket poll failed: %08"PRIx32, (u32)errno);
+		nsDbgPrint("socket poll failed: %08"PRIx32, (u32)errno);
 		svcSleepThread(100000000);
 		return -1;
 	}
