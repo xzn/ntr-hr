@@ -417,7 +417,7 @@ impl Encoder {
         unsafe {
             ptr::write_bytes(self as *mut _ as *mut u8, 0, mem::size_of_val(self));
         }
-        self.shared.encode_tbls = EncodeTbls::once();
+        self.shared.encode_tbls.once();
         self.jpeg_shared.once();
         #[cfg(not(feature = "o3ds"))]
         self.common_shared_mut.once();
