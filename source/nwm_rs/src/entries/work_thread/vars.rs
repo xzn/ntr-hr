@@ -1161,11 +1161,14 @@ pub unsafe fn work_thread_loop(t: ThreadIndex) -> Option<()> {
         unsafe {
             let mut rp_config = RP_CONFIG_SAVED;
             rp_config.dstAddr = 0;
+            /* qos is ignored for o3ds, so do not restart if it changes */
+            rp_config.qos = (*config_consts::RP_CONFIG).qos;
             rp_config.quality = (*config_consts::RP_CONFIG).quality;
             if rp_config != *config_consts::RP_CONFIG {
                 set_reset_threads();
                 return None;
             }
+            RP_CONFIG_SAVED.qos = rp_config.qos;
             if RP_CONFIG_SAVED.quality != rp_config.quality {
                 RP_CONFIG_SAVED.quality = rp_config.quality;
                 encoder::jpeg_update_quality(rp_config.quality);
