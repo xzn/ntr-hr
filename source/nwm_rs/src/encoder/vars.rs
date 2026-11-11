@@ -1368,13 +1368,13 @@ pub fn jpeg_get_params(
     ];
     let dither = [
         RP_CONFIG
-            .no_dither(ScreenIndex::init(RP_SCREEN_TOP as u32))
+            .dither(ScreenIndex::init(RP_SCREEN_TOP as u32))
             .load(Ordering::Acquire)
-            == 0,
+            != 0,
         RP_CONFIG
-            .no_dither(ScreenIndex::init(RP_SCREEN_BOT as u32))
+            .dither(ScreenIndex::init(RP_SCREEN_BOT as u32))
             .load(Ordering::Acquire)
-            == 0,
+            != 0,
     ];
 
     (chroma_ss, downsample, quality, dither)

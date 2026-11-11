@@ -435,11 +435,11 @@ static const char *getDownsampleDesc(int i) {
 	}
 }
 
-static const char *getNoDitherName(int i) {
-	return i ? "Off" : "On";
+static const char *getDitherName(int i) {
+	return i ? "On" : "Off";
 }
 
-static const char *getNoDitherDesc() {
+static const char *getDitherDesc() {
 	return "Lossless reduced color bias dither.\nIgnored when downsampling.";
 }
 
@@ -557,10 +557,10 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 			descs[count + REMOTE_PLAY_ADVMENU_SCREEN_DOWNSAMPLE] = getDownsampleDesc(config->screens[i].downsample);
 			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_DOWNSAMPLE] = config->screens[i].downsample != rpConfig->screens[i].downsample ? &changed_color : 0;
 
-			xsnprintf(noDitherCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Dither: %s", getNoDitherName(config->screens[i].noDither));
+			xsnprintf(noDitherCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Dither: %s", getDitherName(config->screens[i].dither));
 			captions[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER] = noDitherCaption[i];
-			descs[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER] = getNoDitherDesc();
-			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER] = config->screens[i].noDither != rpConfig->screens[i].noDither ? &changed_color : 0;
+			descs[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER] = getDitherDesc();
+			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER] = config->screens[i].dither != rpConfig->screens[i].dither ? &changed_color : 0;
 
 			xsnprintf(fpsLimitCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Max FPS: %s", getFpsLimitName(config->screens[i].fpsLimit));
 			captions[count + REMOTE_PLAY_ADVMENU_SCREEN_FPS_LIMIT] = fpsLimitCaption[i];
@@ -651,7 +651,7 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 								for (int i = 1; i < RP_SCREEN_COUNT; ++i) {
 									config->screens[i].chromaSs = CLAMP(config->screens[0].chromaSs, RP_CHROMASS_MIN, RP_CHROMASS_MAX);
 									config->screens[i].downsample = CLAMP(config->screens[0].downsample, RP_DOWNSAMPLE_MIN, RP_DOWNSAMPLE_MAX);
-									config->screens[i].noDither = CLAMP(config->screens[0].noDither, false, true);
+									config->screens[i].dither = CLAMP(config->screens[0].dither, false, true);
 									config->screens[i].fpsLimit = CLAMP(config->screens[0].fpsLimit, RP_FPS_LIMIT_MIN, RP_FPS_LIMIT_MAX);
 									config->screens[i].noSkipFrame = CLAMP(config->screens[0].noSkipFrame, false, true);
 								}
@@ -726,18 +726,18 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 						}
 
 						case REMOTE_PLAY_ADVMENU_SCREEN_NO_DITHER: { /* no dither */
-							int noDither = config->screens[screen_index].noDither;
+							int dither = config->screens[screen_index].dither;
 							if (keys == KEY_X)
-								noDither = rpConfig->screens[screen_index].noDither;
+								dither = rpConfig->screens[screen_index].dither;
 							else
-								menu_adjust_value_with_key(&noDither, keys, 1, 1);
+								menu_adjust_value_with_key(&dither, keys, 1, 1);
 
-							noDither = CWRAP(noDither, false, true);
+							dither = CWRAP(dither, false, true);
 
-							if (noDither != (int)config->screens[screen_index].noDither) {
-								config->screens[screen_index].noDither = noDither;
+							if (dither != (int)config->screens[screen_index].dither) {
+								config->screens[screen_index].dither = dither;
 								if (!config->separateScreenConfig) {
-									config->screens[getOtherScreenIndex(screen_index)].noDither = noDither;
+									config->screens[getOtherScreenIndex(screen_index)].dither = dither;
 								}
 							}
 							break;
@@ -1235,7 +1235,7 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 	for (int i = 0; i < RP_SCREEN_COUNT; ++i) {
 		config->screens[i].chromaSs = CLAMP(config->screens[i].chromaSs, RP_CHROMASS_MIN, RP_CHROMASS_MAX);
 		config->screens[i].downsample = CLAMP(config->screens[i].downsample, RP_DOWNSAMPLE_MIN, RP_DOWNSAMPLE_MAX);
-		config->screens[i].noDither = CLAMP(config->screens[i].noDither, false, true);
+		config->screens[i].dither = CLAMP(config->screens[i].dither, false, true);
 		config->screens[i].fpsLimit = CLAMP(config->screens[i].fpsLimit, RP_FPS_LIMIT_MIN, RP_FPS_LIMIT_MAX);
 		config->screens[i].noSkipFrame = CLAMP(config->screens[i].noSkipFrame, false, true);
 	}
@@ -1244,7 +1244,7 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 		for (int i = 1; i < RP_SCREEN_COUNT; ++i) {
 			config->screens[i].chromaSs = CLAMP(config->screens[0].chromaSs, RP_CHROMASS_MIN, RP_CHROMASS_MAX);
 			config->screens[i].downsample = CLAMP(config->screens[0].downsample, RP_DOWNSAMPLE_MIN, RP_DOWNSAMPLE_MAX);
-			config->screens[i].noDither = CLAMP(config->screens[0].noDither, false, true);
+			config->screens[i].dither = CLAMP(config->screens[0].dither, false, true);
 			config->screens[i].fpsLimit = CLAMP(config->screens[0].fpsLimit, RP_FPS_LIMIT_MIN, RP_FPS_LIMIT_MAX);
 			config->screens[i].noSkipFrame = CLAMP(config->screens[0].noSkipFrame, false, true);
 		}
