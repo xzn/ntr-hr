@@ -782,29 +782,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
     }
 
     #[cfg(not(feature = "o3ds"))]
-    fn do_compressed_encode_bias<const HSS: bool, const VSS: bool>(
-        &mut self,
-        bias: u8,
-        buf: *mut EncodeBuffer<0>,
-        row_start: Option<u32>,
-        i: usize,
-    ) {
-        match bias {
-            RP_COLOR_BIAS_NONE => {
-                self.do_compressed_encode::<HSS, VSS, RP_COLOR_BIAS_NONE>(buf, row_start, i)
-            }
-            RP_COLOR_BIAS_1 => {
-                self.do_compressed_encode::<HSS, VSS, RP_COLOR_BIAS_1>(buf, row_start, i)
-            }
-            RP_COLOR_BIAS_2 => {
-                self.do_compressed_encode::<HSS, VSS, RP_COLOR_BIAS_2>(buf, row_start, i)
-            }
-            _ => panic!(),
-        };
-    }
-
-    #[cfg(not(feature = "o3ds"))]
-    fn do_compressed_encode<const HSS: bool, const VSS: bool, const BIAS: u8>(
+    fn do_compressed_encode<const HSS: bool, const VSS: bool>(
         &mut self,
         buf: *mut EncodeBuffer<0>,
         row_start: Option<u32>,
@@ -818,6 +796,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
             let is_top = self.worker.data.info.is_top;
             let s = is_top_index(is_top);
+            let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
             let screen = s.index_into(&self.worker.data.shared.screens);
             let input = &mut self.worker.data.bufs.prep;
             let need_hss = |ci| {
@@ -854,7 +833,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                 _ => todo!(),
             };
 
-            let bb_x = match BIAS {
+            let bb_x = match bias {
                 RP_COLOR_BIAS_NONE => [8, 8, 8],
                 RP_COLOR_BIAS_1 => [6, 5, 5],
                 RP_COLOR_BIAS_2 => [4, 4, 4],
@@ -1024,7 +1003,6 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
     pub fn compressed_encode(&mut self, buf: *mut EncodeBuffer<0>, row_start: u32, i: usize) {
         let is_top = self.worker.data.info.is_top;
         let s = is_top_index(is_top);
-        let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
         let screen = s.index_into(&self.worker.data.shared.screens);
         let hss = screen.max_h_samp_factor == SAMP_FACTOR;
         let vss = screen.max_v_samp_factor == SAMP_FACTOR;
@@ -1032,12 +1010,12 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         let row_start = if dither { Some(row_start) } else { None };
         if hss {
             if vss {
-                self.do_compressed_encode_bias::<true, true>(bias, buf, row_start, i);
+                self.do_compressed_encode::<true, true>(buf, row_start, i);
             } else {
-                self.do_compressed_encode_bias::<true, false>(bias, buf, row_start, i);
+                self.do_compressed_encode::<true, false>(buf, row_start, i);
             }
         } else {
-            self.do_compressed_encode_bias::<false, false>(bias, buf, row_start, i);
+            self.do_compressed_encode::<false, false>(buf, row_start, i);
         }
     }
 
@@ -1051,7 +1029,6 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
     ) {
         let is_top = self.worker.data.info.is_top;
         let s = is_top_index(is_top);
-        let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
         let screen = s.index_into(&self.worker.data.shared.screens);
         let hss = screen.max_h_samp_factor == SAMP_FACTOR;
         let vss = screen.max_v_samp_factor == SAMP_FACTOR;
@@ -1059,38 +1036,17 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
         let row_start = if dither { Some(row_start) } else { None };
         if hss {
             if vss {
-                self.do_compressed_delta_encode_bias::<true, true>(bias, buf, prev, row_start, i);
+                self.do_compressed_delta_encode::<true, true>(buf, prev, row_start, i);
             } else {
-                self.do_compressed_delta_encode_bias::<true, false>(bias, buf, prev, row_start, i);
+                self.do_compressed_delta_encode::<true, false>(buf, prev, row_start, i);
             }
         } else {
-            self.do_compressed_delta_encode_bias::<false, false>(bias, buf, prev, row_start, i);
+            self.do_compressed_delta_encode::<false, false>(buf, prev, row_start, i);
         }
     }
 
     #[cfg(not(feature = "o3ds"))]
-    fn do_compressed_delta_encode_bias<const HSS: bool, const VSS: bool>(
-        &mut self,
-        bias: u8,
-        buf: *mut EncodeBuffer<0>,
-        prev: *mut u8,
-        row_start: Option<u32>,
-        i: usize,
-    ) {
-        match bias {
-            RP_COLOR_BIAS_NONE => self.do_compressed_delta_encode::<HSS, VSS, RP_COLOR_BIAS_NONE>(
-                buf, prev, row_start, i,
-            ),
-            RP_COLOR_BIAS_1 => self
-                .do_compressed_delta_encode::<HSS, VSS, RP_COLOR_BIAS_1>(buf, prev, row_start, i),
-            RP_COLOR_BIAS_2 => self
-                .do_compressed_delta_encode::<HSS, VSS, RP_COLOR_BIAS_2>(buf, prev, row_start, i),
-            _ => panic!(),
-        };
-    }
-
-    #[cfg(not(feature = "o3ds"))]
-    fn do_compressed_delta_encode<const HSS: bool, const VSS: bool, const BIAS: u8>(
+    fn do_compressed_delta_encode<const HSS: bool, const VSS: bool>(
         &mut self,
         buf: *mut EncodeBuffer<0>,
         prev: *mut u8,
@@ -1105,6 +1061,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
             };
             let is_top = self.worker.data.info.is_top;
             let s = is_top_index(is_top);
+            let bias = *s.index_into(&self.worker.lossless_shared.color_bias);
             let screen = s.index_into(&self.worker.data.shared.screens);
             let input = &mut self.worker.data.bufs.prep;
             let need_hss = |ci| {
@@ -1143,7 +1100,7 @@ impl<'a, 'b> LosslessEncode<'a, 'b> {
                 _ => todo!(),
             };
 
-            let bb_x = match BIAS {
+            let bb_x = match bias {
                 RP_COLOR_BIAS_NONE => [8, 8, 8],
                 RP_COLOR_BIAS_1 => [6, 5, 5],
                 RP_COLOR_BIAS_2 => [4, 4, 4],
