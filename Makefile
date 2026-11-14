@@ -58,6 +58,9 @@ OBJ_MENU := $(addprefix obj/,$(notdir $(SRC_MENU_C:.c=.o)))
 SRC_PM_C := $(wildcard source/pm/*.c)
 OBJ_PM := $(addprefix obj/,$(notdir $(SRC_PM_C:.c=.o)))
 
+SRC_CSND_C := $(wildcard source/csnd/*.c)
+OBJ_CSND := $(addprefix obj/,$(notdir $(SRC_CSND_C:.c=.o)))
+
 SRC_GAME_C := $(wildcard source/game/*.c)
 OBJ_GAME := $(addprefix obj/,$(notdir $(SRC_GAME_C:.c=.o)))
 
@@ -72,11 +75,12 @@ OBJ_NWM_MISC := $(addprefix obj/,$(notdir $(SRC_NWM_MISC_C:.c=.o)))
 OBJ_NWM_MISC += $(addprefix obj/,$(notdir $(SRC_NWM_MISC_X:.cpp=.o)))
 
 OBJ := $(addprefix obj/,$(notdir $(SRC_C:.c=.o) $(SRC_S:.s=.o)))
-DEP := $(OBJ:.o=.d) $(OBJ_BOOT:.o=.d) $(OBJ_MENU:.o=.d) $(OBJ_PM:.o=.d) $(OBJ_GAME:.o=.d) $(OBJ_NWM:.o=.d) $(OBJ_NWM_O3DS:.o=.d) $(OBJ_NWM_MISC:.o=.d)
+DEP := $(OBJ:.o=.d) $(OBJ_BOOT:.o=.d) $(OBJ_MENU:.o=.d) $(OBJ_PM:.o=.d) $(OBJ_CSND:.o=.d) $(OBJ_GAME:.o=.d) $(OBJ_NWM:.o=.d) $(OBJ_NWM_O3DS:.o=.d) $(OBJ_NWM_MISC:.o=.d)
 
 NTR_BIN_BOOT := ntr.hr.boot.bin
 NTR_BIN_MENU := ntr.hr.menu.bin
 NTR_BIN_PM := ntr.hr.pm.bin
+NTR_BIN_CSND := ntr.hr.csnd.bin
 NTR_BIN_NWM := ntr.hr.nwm.bin
 NTR_BIN_NWM_O3DS := ntr.hr.nwm.o3ds.bin
 NTR_BIN_NWM_MEM3 := ntr.hr.nwm.mem3.bin
@@ -91,7 +95,7 @@ LIB_NWM_RS_O3DS := $(LIB_RS_DIR_O3DS)/libnwm_rs.a
 LIB_RS_DIR_MEM3 := target-mem3/armv6k-nintendo-3ds/release
 LIB_NWM_RS_MEM3 := $(LIB_RS_DIR_MEM3)/libnwm_rs.a
 
-PAYLOAD_BIN := $(NTR_BIN_BOOT) $(NTR_BIN_MENU) $(NTR_BIN_PM) $(NTR_BIN_NWM) $(NTR_BIN_NWM_O3DS) $(NTR_BIN_NWM_MEM3) $(NTR_BIN_GAME)
+PAYLOAD_BIN := $(NTR_BIN_BOOT) $(NTR_BIN_MENU) $(NTR_BIN_PM) $(NTR_BIN_CSND) $(NTR_BIN_NWM) $(NTR_BIN_NWM_O3DS) $(NTR_BIN_NWM_MEM3) $(NTR_BIN_GAME)
 PAYLOAD_TARGET_DIR := ../BootNTR-Bins/romfs
 PAYLOAD_TARGET_BIN := $(addprefix $(PAYLOAD_TARGET_DIR)/,$(PAYLOAD_BIN))
 
@@ -125,6 +129,9 @@ bin/$(NTR_BIN_MENU:.bin=.elf): $(OBJ) $(OBJ_MENU) libctru_ntr.a 3ds.ld | bin
 
 bin/$(NTR_BIN_PM:.bin=.elf): $(OBJ) $(OBJ_PM) libctru_ntr.a 3ds.ld | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(OBJ) $(OBJ_PM) $(LDLIBS)
+
+bin/$(NTR_BIN_CSND:.bin=.elf): $(OBJ) $(OBJ_CSND) libctru_ntr.a 3ds.ld | bin
+	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(OBJ) $(OBJ_CSND) $(LDLIBS)
 
 bin/$(NTR_BIN_GAME:.bin=.elf): $(OBJ) $(OBJ_GAME) libctru_ntr.a 3ds.ld | bin
 	$(CC) -flto=auto $(CFLAGS) -o $@ -T 3ds.ld $(LDFLAGS) $(OBJ) $(OBJ_GAME) $(LDLIBS)
@@ -172,10 +179,13 @@ obj/%.o: source/boot/%.c | obj
 	$(CC_CMD)
 
 obj/%.o: source/menu/%.c | obj
-	$(CC_CMD) -DNTR_BIN_PM=\"$(NTR_BIN_PM)\" -DNTR_BIN_NWM=\"$(NTR_BIN_NWM)\" -DNTR_BIN_NWM_O3DS=\"$(NTR_BIN_NWM_O3DS)\" -DNTR_BIN_NWM_MEM3=\"$(NTR_BIN_NWM_MEM3)\"
+	$(CC_CMD) -DNTR_BIN_PM=\"$(NTR_BIN_PM)\" -DNTR_BIN_CSND=\"$(NTR_BIN_CSND)\" -DNTR_BIN_NWM=\"$(NTR_BIN_NWM)\" -DNTR_BIN_NWM_O3DS=\"$(NTR_BIN_NWM_O3DS)\" -DNTR_BIN_NWM_MEM3=\"$(NTR_BIN_NWM_MEM3)\"
 
 obj/%.o: source/pm/%.c | obj
 	$(CC_CMD) -DNTR_BIN_GAME=\"$(NTR_BIN_GAME)\"
+
+obj/%.o: source/csnd/%.c | obj
+	$(CC_CMD)
 
 obj/%.o: source/game/%.c | obj
 	$(CC_CMD)

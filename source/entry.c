@@ -1,5 +1,5 @@
 #include "main.h"
 
-void c_entry(u32 *) {
+void __attribute__((weak)) c_entry(u32 *) {
 	main();
 }

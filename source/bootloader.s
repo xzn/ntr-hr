@@ -17,7 +17,7 @@ nop
 _Start:
 STMFD   SP!, {R0-R12, LR};
 MRS     R0, CPSR
-STMFD   SP!, {R0}
+STMFD   SP!, {R0, R1}
 
 LDR     R6, =_Reset
 ADR     R5, _Reset
@@ -48,7 +48,7 @@ nop
 mov     r0, sp
 bl      c_entry
 
-ldmfd   sp!, {r0}
+ldmfd   sp!, {r0, r1}
 msr     cpsr, r0
 ldmfd   SP!, {R0-R12, LR};
 

@@ -970,6 +970,66 @@ final:
 	return;
 }
 
+static u32 rpGetCsndRemotePC(Handle hProcess) {
+#define RP_CSND_HDR_SIZE (20)
+	u8 desiredHeader[RP_CSND_HDR_SIZE] = {
+		0x03, 0x4a, 0x91, 0x42, 0x01, 0xd1, 0x00, 0x20,
+		0x70, 0x47, 0x80, 0x68, 0x40, 0x18, 0x70, 0x47,
+		0xff, 0xff, 0x00, 0x00,
+	};
+
+	u8 buf[RP_CSND_HDR_SIZE] = { 0 };
+
+	u32 remotePC = 0x001034c8;
+	s32 ret = copyRemoteMemory(CUR_PROCESS_HANDLE, buf, hProcess, (void *)remotePC, RP_CSND_HDR_SIZE);
+	if (ret != 0) {
+		nsDbgPrint("Read csnd memory at %08"PRIx32" failed: %08"PRIx32"\n", remotePC, ret);
+	} else if (memcmp(buf, desiredHeader, RP_CSND_HDR_SIZE) == 0) {
+		return remotePC;
+	}
+
+	return 0;
+}
+
+static int injectCSND(Handle hProcess, u32 remotePC) {
+	NS_CONFIG cfg = { 0 };
+	cfg.ntrConfig = *ntrConfig;
+	cfg.startupInfo[11] = remotePC;
+
+	return nsAttachProcess(hProcess, remotePC, &cfg, 1, 0);
+}
+
+static int injectToCSND(void) {
+	u32 pid = 0x17; // CSND process on New3DS
+	s32 ret;
+	Handle hProcess;
+
+	ret = svcOpenProcess(&hProcess, pid);
+	if (ret != 0) {
+		nsDbgPrint("openProcess failed: %08"PRIx32"\n", ret);
+		return ret;
+	}
+
+	u32 remotePC = rpGetCsndRemotePC(hProcess);
+	if (!remotePC) {
+		nsDbgPrint("Remote PC for CSND not found.\n");
+		goto final;
+	}
+
+	int tries = 5;
+	while ((ret = injectCSND(hProcess, remotePC)) != 0) {
+		if (--tries == 0) {
+			nsDbgPrint("Injecting to CSND process failed.\n");
+			goto final;
+		}
+		svcSleepThread(1000000000);
+	}
+
+final:
+	svcCloseHandle(hProcess);
+	return ret;
+}
+
 void __system_initSyscalls(void);
 Result __sync_init(void);
 void mainThread(void *) {
@@ -1022,6 +1082,19 @@ void mainThread(void *) {
 		rtEnableHook(&HomeCardUpdateInitHook);
 
 		ret = injectToPM();
+		unloadPayloadBin();
+		if (ret != 0)
+			goto final;
+	}
+
+	if (ntrConfig->isNew3DS) {
+		ret = loadPayloadBin(NTR_BIN_CSND);
+		if (ret != 0) {
+			showDbg("Loading csnd payload failed.");
+			goto final;
+		}
+
+		ret = injectToCSND();
 		unloadPayloadBin();
 		if (ret != 0)
 			goto final;
