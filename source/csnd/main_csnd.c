@@ -1,8 +1,109 @@
 #include "global.h"
 
+#include <memory.h>
+
+static bool csnd_capture_enabled;
+
+#define CSND_CAP_REG ((void *)0x1EC03800)
+
+#define CSND_CAP_COUNT (2)
+
+struct csnd_cap_regs_t {
+	u32 ctl;
+	u32 rate;
+	u32 len;
+	u32 addr;
+};
+
+static struct csnd_cap_regs_t cap_reg_saved[CSND_CAP_COUNT];
+
+#define CSND_CAP_ADDR_COUNT_MAX (8)
+
+static int csnd_cap_addr_count;
+static u32 *csnd_cap_addrs[CSND_CAP_ADDR_COUNT_MAX];
+
+static void populate_cap_addrs(void)
+{
+	u32 codeStartAddress;
+	u32 codeEndAddress;
+	u32 codeTotalSize;
+
+	s64 textStartAddress, textTotalRoundedSize;
+	Handle processHandle = CUR_PROCESS_HANDLE;
+
+	svcGetProcessInfo(&textTotalRoundedSize, processHandle, 0x10002);
+
+	svcGetProcessInfo(&textStartAddress, processHandle, 0x10005);
+
+	codeTotalSize = (u32)textTotalRoundedSize;
+	codeStartAddress = (u32)textStartAddress;
+	codeEndAddress = codeStartAddress + codeTotalSize;
+
+	while (codeStartAddress < codeEndAddress) {
+		if (*(u32 *)codeStartAddress == (u32)CSND_CAP_REG) {
+			if (csnd_cap_addr_count < CSND_CAP_ADDR_COUNT_MAX) {
+				int ret = rtCheckMemory(codeStartAddress, sizeof(u32), MEMPERM_READWRITE | MEMPERM_EXECUTE);
+
+				if (ret) {
+					nsDbgPrint("Check memory failed for cap addr at %"PRIx32"\n", codeStartAddress);
+					continue;
+				}
+
+				csnd_cap_addrs[csnd_cap_addr_count] = (u32 *)codeStartAddress;
+				++csnd_cap_addr_count;
+				nsDbgPrint("Cap addr at %"PRIx32"\n", codeStartAddress);
+			} else {
+				nsDbgPrint("Cap addr count exceeded at %"PRIx32"\n", codeStartAddress);
+			}
+		}
+		codeStartAddress += sizeof(u32);
+	}
+
+	nsDbgPrint("Cap addr count: %d\n", csnd_cap_addr_count);
+}
+
+static void csnd_capture_enable(void)
+{
+	memcpy(cap_reg_saved, CSND_CAP_REG, sizeof(cap_reg_saved));
+
+	for (int i = 0; i < csnd_cap_addr_count; ++i)
+		*csnd_cap_addrs[i] = (u32)cap_reg_saved;
+
+	nsDbgPrint("Csnd capture enabled\n");
+}
+
+static void csnd_capture_disable(void)
+{
+	for (int i = 0; i < csnd_cap_addr_count; ++i)
+		*csnd_cap_addrs[i] = (u32)CSND_CAP_REG;
+
+	memcpy(CSND_CAP_REG, cap_reg_saved, sizeof(cap_reg_saved));
+
+	memset(cap_reg_saved, 0, sizeof(cap_reg_saved));
+
+	nsDbgPrint("Csnd capture disabled\n");
+}
+
+static void check_csnd_capture(void)
+{
+	bool audio_enabled = !!rpConfig->audioEnable;
+
+	if (audio_enabled != csnd_capture_enabled) {
+		if (audio_enabled) {
+			csnd_capture_enable();
+			csnd_capture_enabled = true;
+		} else {
+			csnd_capture_disable();
+			csnd_capture_enabled = false;
+		}
+	}
+}
+
 static RT_HOOK csndHook;
 static u32 csndHookFunc(u32 *param_1, u32 param_2)
 {
+	check_csnd_capture();
+
 	if (param_2 == 0x0000FFFF)
 		return 0;
 	return param_1[2] + param_2;
@@ -19,6 +120,7 @@ struct boot_hook_regs {
 
 void c_entry(struct boot_hook_regs *regs) {
 	startupInit();
+	populate_cap_addrs();
 
 	regs->r[0] = csndHookFunc((u32 *)regs->r[0], regs->r[1]);
 
