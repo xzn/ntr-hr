@@ -353,7 +353,7 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
     let mut staging_reprime = false;
 
     let mut last_fc: u16 = 0;
-    let mut have_last = false;
+    let mut have_last_dsp = false;
 
     while !reset_threads() {
         unsafe { svcSleepThread(AUDIO_POLL_NS) };
@@ -388,110 +388,142 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
             }
         }
 
-        /*
+        const HALF: u32 = 2;
+        const FRAME_ARM11_TICKS: u32 = SYSCLOCK_ARM11 / CSND_CAP_SAMPLE_RATE * AUDIO_FRAME_SAMPLES;
+        const HALF_FRAME_ARM11_TICKS: u32 = FRAME_ARM11_TICKS / HALF;
+        const FRAMES_COUNT: u32 = CSND_CAP_BUF_SAMPS / AUDIO_FRAME_SAMPLES;
+        const HALF_FRAMES_COUNT: u32 = FRAMES_COUNT * HALF;
+        let mut csnd_cap_avail = false;
+        let mut csnd_cap_hcount = 0;
+        const CSND_WAIT_HCOUNT: u16 = HALF as u16;
+        'csnd_cap: {
+            unsafe {
+                let mut csnd_cap = CSND_CAP.load(Ordering::Acquire);
+                if csnd_cap & (1 << 31) > 0 {
+                    loop {
+                        csnd_cap_enabled = csnd_cap & 1 > 0;
+
+                        match CSND_CAP.compare_exchange_weak(
+                            csnd_cap,
+                            csnd_cap & !(1 << 31),
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        ) {
+                            Ok(_) => break,
+                            Err(new) => csnd_cap = new,
+                        }
+                    }
+                }
+
+                if !csnd_cap_enabled {
+                    break 'csnd_cap;
+                }
+
+                let next_tick = get_system_tick();
+                let tick_diff = next_tick.get() - CSND_CAP_TICK.get();
+
+                let half_frames_count = tick_diff / HALF_FRAME_ARM11_TICKS as s64;
+                if half_frames_count < 0 || half_frames_count >= HALF_FRAMES_COUNT as s64 - 1 {
+                    rp_update_csnd_enabled(true);
+                    set_csnd_cap(false);
+
+                    staging_reprime = true;
+                    break 'csnd_cap;
+                }
+
+                csnd_cap_avail = true;
+                csnd_cap_hcount = half_frames_count as u16;
+
+                if csnd_cap_hcount <= CSND_WAIT_HCOUNT {
+                    break 'csnd_cap;
+                }
+            }
+        }
+
         let fc0 =
             unsafe { ptr::read_volatile((DSP_REGION0 + DSP_FRAME_COUNTER_OFF) as *const u16) };
         let fc1 =
             unsafe { ptr::read_volatile((DSP_REGION1 + DSP_FRAME_COUNTER_OFF) as *const u16) };
         let src = newer_region(fc0, fc1);
         let fc = if src == DSP_REGION1 { fc1 } else { fc0 };
-        */
 
-        const FRAMES_COUNT: u32 = CSND_CAP_BUF_SAMPS / AUDIO_FRAME_SAMPLES;
-        unsafe {
-            let mut csnd_cap = CSND_CAP.load(Ordering::Acquire);
-            if csnd_cap & (1 << 31) > 0 {
-                loop {
-                    csnd_cap_enabled = csnd_cap & 1 > 0;
-
-                    match CSND_CAP.compare_exchange_weak(
-                        csnd_cap,
-                        csnd_cap & !(1 << 31),
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    ) {
-                        Ok(_) => break,
-                        Err(new) => csnd_cap = new,
-                    }
-                }
-            }
-
-            if !csnd_cap_enabled {
-                continue;
-            }
-
-            let next_tick = get_system_tick();
-            let tick_diff = next_tick.get() - CSND_CAP_TICK.get();
-            const FRAME_ARM11_TICKS: u32 =
-                SYSCLOCK_ARM11 / CSND_CAP_SAMPLE_RATE * AUDIO_FRAME_SAMPLES;
-
-            let frames_count = tick_diff / FRAME_ARM11_TICKS as s64;
-            if frames_count < 0 || frames_count >= FRAMES_COUNT as s64 - 1 {
-                rp_update_csnd_enabled(true);
-                set_csnd_cap(false);
-
-                staging_reprime = true;
-                continue;
-            }
-
-            if frames_count <= 1 {
-                continue;
-            }
-
-            CSND_CAP_TICK = DurationTick::init(CSND_CAP_TICK.get() + FRAME_ARM11_TICKS as s64);
-        }
-        let mut mixed = mem::MaybeUninit::<
-            [u16; CSND_CAP_BUF_CHNS as usize * AUDIO_FRAME_SAMPLES as usize],
-        >::uninit();
-        unsafe {
-            let samp_count = CSND_CAP_FRAME_COUNT as usize * AUDIO_FRAME_SAMPLES as usize;
-            let pa = csndCapPa | 0x80000000;
-            let buf_0 = (pa as *const u16).add(samp_count);
-            let buf_1 = (pa as *const u16).add(CSND_CAP_BUF_SAMPS as usize + samp_count);
-
-            let mixed = (*mixed.as_mut_ptr()).as_mut_ptr();
-
-            for s in 0..AUDIO_FRAME_SAMPLES as usize {
-                *mixed.add(s * CSND_CAP_BUF_CHNS as usize) = *buf_0.add(s);
-                *mixed.add(s * CSND_CAP_BUF_CHNS as usize + 1) = *buf_1.add(s);
-            }
-
-            CSND_CAP_FRAME_COUNT += 1;
-            CSND_CAP_FRAME_COUNT %= FRAMES_COUNT as u8;
-        }
-        let src = unsafe { (*mixed.as_mut_ptr()).as_mut_ptr() } as u32 - DSP_FINAL_SAMPLES_OFF;
-
-        let fc = last_fc + 1;
-
+        let mut dsp_cap_avail = true;
         // skip if the mix hasn't advanced
-        if have_last && fc == last_fc {
+        if have_last_dsp && fc == last_fc {
+            dsp_cap_avail = false;
+        }
+
+        if dsp_cap_avail && have_last_dsp && fc - last_fc > 1 {
+            staging_reprime = true;
+        }
+
+        if !csnd_cap_avail && !dsp_cap_avail {
+            continue;
+        }
+        if csnd_cap_avail && csnd_cap_hcount <= CSND_WAIT_HCOUNT {
             continue;
         }
 
-        let fc_diff = if have_last {
-            (fc - last_fc) as usize
-        } else {
-            1
-        };
-        let fc_reprime = fc_diff > 1 || staging_reprime;
+        const DSP_WAIT_HCOUNT: u16 = CSND_WAIT_HCOUNT + 1;
+        if csnd_cap_hcount <= DSP_WAIT_HCOUNT && !dsp_cap_avail {
+            continue;
+        }
 
         unsafe {
-            let force = fc_reprime && staging_count > 0;
+            let force = staging_reprime && staging_count > 0;
             if !force {
-                ptr::copy_nonoverlapping(
-                    (src + DSP_FINAL_SAMPLES_OFF) as *const u8,
-                    staging_next,
-                    AUDIO_FRAME_BYTES,
-                );
+                let mixed = staging_next as *mut u16;
+                if csnd_cap_avail {
+                    let samp_count = CSND_CAP_FRAME_COUNT as usize * AUDIO_FRAME_SAMPLES as usize;
+                    let pa = csndCapPa | 0x80000000;
+                    let buf_0 = (pa as *const u16).add(samp_count);
+                    let buf_1 = (pa as *const u16).add(CSND_CAP_BUF_SAMPS as usize + samp_count);
+
+                    for s in 0..AUDIO_FRAME_SAMPLES as usize {
+                        if dsp_cap_avail {
+                            let dsp_src = (src + DSP_FINAL_SAMPLES_OFF) as *const u16;
+
+                            *mixed.add(s * CSND_CAP_BUF_CHNS as usize) = cmp::min(
+                                *buf_0.add(s) as u32
+                                    + *dsp_src.add(s * CSND_CAP_BUF_CHNS as usize) as u32,
+                                u16::MAX as u32,
+                            )
+                                as u16;
+                            *mixed.add(s * CSND_CAP_BUF_CHNS as usize + 1) = cmp::min(
+                                *buf_1.add(s) as u32
+                                    + *dsp_src.add(s * CSND_CAP_BUF_CHNS as usize + 1) as u32,
+                                u16::MAX as u32,
+                            )
+                                as u16
+                        } else {
+                            *mixed.add(s * CSND_CAP_BUF_CHNS as usize) = *buf_0.add(s);
+                            *mixed.add(s * CSND_CAP_BUF_CHNS as usize + 1) = *buf_1.add(s);
+                        }
+                    }
+
+                    CSND_CAP_FRAME_COUNT += 1;
+                    CSND_CAP_FRAME_COUNT %= FRAMES_COUNT as u8;
+
+                    CSND_CAP_TICK =
+                        DurationTick::init(CSND_CAP_TICK.get() + FRAME_ARM11_TICKS as s64);
+
+                    if dsp_cap_avail {
+                        last_fc = fc;
+                        have_last_dsp = true;
+                    }
+                } else if dsp_cap_avail {
+                    ptr::copy_nonoverlapping(
+                        (src + DSP_FINAL_SAMPLES_OFF) as *const u8,
+                        staging_next,
+                        AUDIO_FRAME_BYTES,
+                    );
+
+                    last_fc = fc;
+                    have_last_dsp = true;
+                }
+
                 staging_next = staging_next.add(AUDIO_FRAME_BYTES);
                 staging_count += 1;
-
-                last_fc = fc;
-                have_last = true;
-
-                if fc_reprime {
-                    staging_reprime = true;
-                }
             }
 
             let staging_left =
