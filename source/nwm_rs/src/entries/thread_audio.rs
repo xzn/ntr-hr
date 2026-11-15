@@ -422,11 +422,11 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
 
             let next_tick = get_system_tick();
             let tick_diff = next_tick.get() - CSND_CAP_TICK.get();
-            const FRAME_ARM11_TICKS: u32 = SYSCLOCK_ARM11 / CSND_CAP_SAMPLE_RATE;
+            const FRAME_ARM11_TICKS: u32 =
+                SYSCLOCK_ARM11 / CSND_CAP_SAMPLE_RATE * AUDIO_FRAME_SAMPLES;
 
             let frames_count = tick_diff / FRAME_ARM11_TICKS as s64;
             if frames_count < 0 || frames_count >= FRAMES_COUNT as s64 {
-                ns_dbg_print!(failed, c_str!("frames_count"), frames_count as s32);
                 rp_update_csnd_enabled(true);
                 set_csnd_cap(false);
 
@@ -445,8 +445,9 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
         >::uninit();
         unsafe {
             let samp_count = CSND_CAP_FRAME_COUNT as usize * AUDIO_FRAME_SAMPLES as usize;
-            let buf_0 = (csndCapPa as *const u16).add(samp_count);
-            let buf_1 = (csndCapPa as *const u16).add(CSND_CAP_BUF_SAMPS as usize + samp_count);
+            let pa = csndCapPa | 0x80000000;
+            let buf_0 = (pa as *const u16).add(samp_count);
+            let buf_1 = (pa as *const u16).add(CSND_CAP_BUF_SAMPS as usize + samp_count);
 
             let mixed = (*mixed.as_mut_ptr()).as_mut_ptr();
 

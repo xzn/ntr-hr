@@ -9,8 +9,6 @@ static bool csnd_capture_enabled;
 
 #define CSND_CAP_REG ((void *)0x1EC03800)
 
-#define CSND_CAP_COUNT (CSND_CAP_BUF_CHNS)
-
 struct csnd_cap_regs_t {
 	u32 ctl;
 	u32 rate;
@@ -18,7 +16,7 @@ struct csnd_cap_regs_t {
 	u32 addr;
 };
 
-static struct csnd_cap_regs_t cap_reg_saved[CSND_CAP_COUNT];
+static struct csnd_cap_regs_t cap_reg_saved[CSND_CAP_BUF_CHNS];
 
 #define CSND_CAP_ADDR_COUNT_MAX (8)
 
@@ -77,13 +75,13 @@ static void csnd_capture_enable(void)
 
 	memset((void *)(csndCapPa | 0x80000000), 0, CSND_CAP_BUF_SIZE);
 	struct csnd_cap_regs_t *regs = CSND_CAP_REG;
-	for (int i = 0; i < CSND_CAP_COUNT; ++i) {
+	for (int i = 0; i < CSND_CAP_BUF_CHNS; ++i) {
 		struct csnd_cap_regs_t *r = &regs[i];
 		r->ctl = 0;
 		r->rate = CSND_CAP_TIMER;
 		r->len = 0;
-		r->addr = csndCapPa + (CSND_CAP_BUF_SIZE / CSND_CAP_COUNT) * i;
-		r->len = CSND_CAP_BUF_SIZE / CSND_CAP_COUNT;
+		r->addr = csndCapPa + (CSND_CAP_BUF_SIZE / CSND_CAP_BUF_CHNS) * i;
+		r->len = CSND_CAP_BUF_SIZE / CSND_CAP_BUF_CHNS;
 		r->ctl = 1 << 15;
 	}
 
