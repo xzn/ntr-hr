@@ -626,6 +626,9 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 			}
 
 			case REMOTE_PLAY_ADVMENU_THREAD_PRIORITY: { /* encoder priority */
+				if (!isNew3DS)
+					goto scrn_cfg;
+
 				int threadPriority = config->threadPriority;
 				if (keys == KEY_X)
 					threadPriority = rpConfig->threadPriority;
@@ -853,6 +856,7 @@ int remotePlayMenu(u32 localaddr) {
 	u32 select = 0;
 	RP_CONFIG config = *rpConfig;
 	u8 *dstAddr4 = (u8 *)&config.dstAddr;
+	bool isNew3DS = ntrConfig->isNew3DS;
 
 	/* default values */
 	if (config.quality == 0) {
@@ -919,14 +923,20 @@ int remotePlayMenu(u32 localaddr) {
 		xsnprintf(dstPortCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Viewer Port: %"PRId32, config.dstPort & RP_CONFIG_PORT_MASK);
 
 		char audioCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		xsnprintf(audioCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Audio Capture: %s",
-			config.audioEnable >= 2 ? "On (RS)" :
-			config.audioEnable == 1 ? "On" : "Off");
+		if (isNew3DS)
+			xsnprintf(audioCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Audio Capture: %s",
+				config.audioEnable >= 2 ? "On (RS)" :
+				config.audioEnable == 1 ? "On" : "Off");
 
 		char topViewCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		xsnprintf(topViewCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Top View: %s",
-			config.fullWidth >= 2 ? "Both/Full" :
-			config.fullWidth == 1 ? "Right" : "Left");
+		if (isNew3DS)
+			xsnprintf(topViewCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Top View: %s",
+				config.fullWidth >= 2 ? "Both/Full" :
+				config.fullWidth == 1 ? "Right" : "Left");
+
+		const u32 rp_o3ds_off = 2;
+		u32 rp_menu_adv = isNew3DS ? REMOTE_PLAY_MENU_ADV : REMOTE_PLAY_MENU_ADV - rp_o3ds_off;
+		u32 rp_menu_apply = isNew3DS ? REMOTE_PLAY_MENU_APPLY : REMOTE_PLAY_MENU_APPLY - rp_o3ds_off;
 
 		const char *captions[REMOTE_PLAY_MENU_COUNT];
 		captions[REMOTE_PLAY_MENU_PRIORITY_SCREEN] = priorityScreenCaption;
@@ -938,8 +948,8 @@ int remotePlayMenu(u32 localaddr) {
 		captions[REMOTE_PLAY_MENU_COMP_FMT_PROT] = compFmtProtCaption;
 		captions[REMOTE_PLAY_MENU_AUDIO] = audioCaption;
 		captions[REMOTE_PLAY_MENU_TOP_VIEW] = topViewCaption;
-		captions[REMOTE_PLAY_MENU_ADV] = "Advanced Options";
-		captions[REMOTE_PLAY_MENU_APPLY] = "Apply";
+		captions[rp_menu_adv] = "Advanced Options";
+		captions[rp_menu_apply] = "Apply";
 
 		const char *descs[REMOTE_PLAY_MENU_COUNT] = { 0 };
 		descs[REMOTE_PLAY_MENU_PRIORITY_FACTOR] = "0: Priority screen only.";
@@ -963,10 +973,11 @@ int remotePlayMenu(u32 localaddr) {
 		colors[REMOTE_PLAY_MENU_AUDIO] = config.audioEnable != rpConfig->audioEnable ? &changed_color : 0;
 		colors[REMOTE_PLAY_MENU_TOP_VIEW] = config.fullWidth != rpConfig->fullWidth ? &changed_color : 0;
 		colors[REMOTE_PLAY_MENU_COMP_FMT_PROT] = (config.dstPort & RP_CONFIG_FLAGS) != (rpConfig->dstPort & RP_CONFIG_FLAGS) ? &changed_color : 0;
-		colors[REMOTE_PLAY_MENU_ADV] = memcmp(RP_CONFIG_ADV_CFG(&config), RP_CONFIG_ADV_CFG(rpConfig), RP_CONFIG_ADV_CFG_SIZE) != 0 ? &changed_color : 0;
+		colors[rp_menu_adv] = memcmp(RP_CONFIG_ADV_CFG(&config), RP_CONFIG_ADV_CFG(rpConfig), RP_CONFIG_ADV_CFG_SIZE) != 0 ? &changed_color : 0;
 
+		u32 rp_memu_count = isNew3DS ? REMOTE_PLAY_MENU_COUNT : REMOTE_PLAY_MENU_COUNT - rp_o3ds_off;
 		u32 keys;
-		select = showMenuEx3(titleCurrent, REMOTE_PLAY_MENU_COUNT, captions, descs, select, &keys, colors);
+		select = showMenuEx3(titleCurrent, rp_memu_count, captions, descs, select, &keys, colors);
 
 		if (keys == KEY_B) {
 			if (waitKeysOverride & KEY_B) {
@@ -1135,6 +1146,10 @@ int remotePlayMenu(u32 localaddr) {
 			}
 
 			case REMOTE_PLAY_MENU_AUDIO: { /* audio */
+				_Static_assert(REMOTE_PLAY_MENU_AUDIO == REMOTE_PLAY_MENU_ADV - rp_o3ds_off);
+				if (!isNew3DS)
+					goto menu_adv;
+
 				int audioEnable = config.audioEnable;
 				if (keys == KEY_X) {
 					audioEnable = rpConfig->audioEnable;
@@ -1151,6 +1166,10 @@ int remotePlayMenu(u32 localaddr) {
 			}
 
 			case REMOTE_PLAY_MENU_TOP_VIEW: { /* audio */
+				_Static_assert(REMOTE_PLAY_MENU_TOP_VIEW == REMOTE_PLAY_MENU_APPLY - rp_o3ds_off);
+				if (!isNew3DS)
+					goto menu_apply;
+
 				int fullWidth = config.fullWidth;
 				if (keys == KEY_X) {
 					fullWidth = rpConfig->fullWidth;
@@ -1193,11 +1212,13 @@ int remotePlayMenu(u32 localaddr) {
 				break;
 			}
 
+menu_adv:
 			case REMOTE_PLAY_MENU_ADV: if (keys == KEY_A) { /* advanced */
 				remotePlayAdvMenu(&config);
 			}
 				break;
 
+menu_apply:
 			case REMOTE_PLAY_MENU_APPLY: if (keys == KEY_A) { /* apply */
 				if (!remotePlayApply(&config))
 					break;
