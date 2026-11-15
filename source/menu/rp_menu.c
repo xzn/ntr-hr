@@ -510,28 +510,36 @@ const u8 changed_color[3] = { 63, 255, 63 };
 
 static int remotePlayAdvMenu(RP_CONFIG *config) {
 	s32 select = 0;
+	bool isNew3DS = ntrConfig->isNew3DS;
 
 	while (1) {
-		u32 count = REMOTE_PLAY_ADVMENU_COUNT;
+		u32 rp_advmenu_count = isNew3DS ? REMOTE_PLAY_ADVMENU_COUNT : 1;
+		u32 rp_advmenu_sep_scrn_cfg = isNew3DS ? REMOTE_PLAY_ADVMENU_SEPARATE_SCREEN_CONFIG : 0;
+
+		u32 count = rp_advmenu_count;
 		const char *captions[REMOTE_PLAY_ADVMENU_COUNT_MAX] = { 0 };
 		const char *descs[REMOTE_PLAY_ADVMENU_COUNT_MAX] = { 0 };
 		const u8 (*colors[REMOTE_PLAY_ADVMENU_COUNT_MAX])[3] = { 0 };
 
 		char coreCountCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		xsnprintf(coreCountCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Number of Encoding Cores: %"PRId32, config->coreCount);
-		captions[REMOTE_PLAY_ADVMENU_CORE_COUNT] = coreCountCaption;
-		colors[REMOTE_PLAY_ADVMENU_CORE_COUNT] = config->coreCount != rpConfig->coreCount ? &changed_color : 0;
+		if (isNew3DS) {
+			xsnprintf(coreCountCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Number of Encoding Cores: %"PRId32, config->coreCount);
+			captions[REMOTE_PLAY_ADVMENU_CORE_COUNT] = coreCountCaption;
+			colors[REMOTE_PLAY_ADVMENU_CORE_COUNT] = config->coreCount != rpConfig->coreCount ? &changed_color : 0;
+		}
 
 		char encoderPriorityCaption[LOCAL_OPT_TEXT_BUF_SIZE];
-		xsnprintf(encoderPriorityCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Encoder Priority: %"PRId32, config->threadPriority);
-		captions[REMOTE_PLAY_ADVMENU_THREAD_PRIORITY] = encoderPriorityCaption;
-		descs[REMOTE_PLAY_ADVMENU_THREAD_PRIORITY] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
-		colors[REMOTE_PLAY_ADVMENU_THREAD_PRIORITY] = config->threadPriority != rpConfig->threadPriority ? &changed_color : 0;
+		if (isNew3DS) {
+			xsnprintf(encoderPriorityCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Encoder Priority: %"PRId32, config->threadPriority);
+			captions[REMOTE_PLAY_ADVMENU_THREAD_PRIORITY] = encoderPriorityCaption;
+			descs[REMOTE_PLAY_ADVMENU_THREAD_PRIORITY] = "Higher value means lower priority.\nLower priority means less game/audio\nstutter possibly.";
+			colors[REMOTE_PLAY_ADVMENU_THREAD_PRIORITY] = config->threadPriority != rpConfig->threadPriority ? &changed_color : 0;
+		}
 
 		char separateScreenConfigCaption[LOCAL_OPT_TEXT_BUF_SIZE];
 		xsnprintf(separateScreenConfigCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Per Screen Options: %s", config->separateScreenConfig ? "On" : "Off");
-		captions[REMOTE_PLAY_ADVMENU_SEPARATE_SCREEN_CONFIG] = separateScreenConfigCaption;
-		colors[REMOTE_PLAY_ADVMENU_SEPARATE_SCREEN_CONFIG] = config->separateScreenConfig != rpConfig->separateScreenConfig ? &changed_color : 0;
+		captions[rp_advmenu_sep_scrn_cfg] = separateScreenConfigCaption;
+		colors[rp_advmenu_sep_scrn_cfg] = config->separateScreenConfig != rpConfig->separateScreenConfig ? &changed_color : 0;
 
 		char chromaSSCaption[RP_SCREEN_COUNT][LOCAL_OPT_TEXT_BUF_SIZE] = { 0 };
 		char downsampleCaption[RP_SCREEN_COUNT][LOCAL_OPT_TEXT_BUF_SIZE] = { 0 };
@@ -543,6 +551,8 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 		if (config->separateScreenConfig) {
 			screen_config_count = RP_SCREEN_COUNT;
 		}
+
+		u32 rp_advmenu_scrn_count = isNew3DS ? REMOTE_PLAY_ADVMENU_SCREEN_COUNT : 2;
 		for (int i = 0; i < screen_config_count; ++i) {
 			if (screen_config_count > 1) {
 				captions[count] = getScreenName(i);
@@ -560,20 +570,26 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_DOWNSAMPLE] = config->screens[i].downsample != rpConfig->screens[i].downsample ? &changed_color : 0;
 
 			xsnprintf(noDitherCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Dither: %s", getDitherName(config->screens[i].dither));
-			captions[count + REMOTE_PLAY_ADVMENU_SCREEN_DITHER] = noDitherCaption[i];
-			descs[count + REMOTE_PLAY_ADVMENU_SCREEN_DITHER] = getDitherDesc();
-			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_DITHER] = config->screens[i].dither != rpConfig->screens[i].dither ? &changed_color : 0;
+			if (isNew3DS) {
+				captions[count + REMOTE_PLAY_ADVMENU_SCREEN_DITHER] = noDitherCaption[i];
+				descs[count + REMOTE_PLAY_ADVMENU_SCREEN_DITHER] = getDitherDesc();
+				colors[count + REMOTE_PLAY_ADVMENU_SCREEN_DITHER] = config->screens[i].dither != rpConfig->screens[i].dither ? &changed_color : 0;
+			}
 
 			xsnprintf(fpsLimitCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Max FPS: %s", getFpsLimitName(config->screens[i].fpsLimit));
-			captions[count + REMOTE_PLAY_ADVMENU_SCREEN_FPS_LIMIT] = fpsLimitCaption[i];
-			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_FPS_LIMIT] = config->screens[i].fpsLimit != rpConfig->screens[i].fpsLimit ? &changed_color : 0;
+			if (isNew3DS) {
+				captions[count + REMOTE_PLAY_ADVMENU_SCREEN_FPS_LIMIT] = fpsLimitCaption[i];
+				colors[count + REMOTE_PLAY_ADVMENU_SCREEN_FPS_LIMIT] = config->screens[i].fpsLimit != rpConfig->screens[i].fpsLimit ? &changed_color : 0;
+			}
 
 			xsnprintf(noSkipFrameCaption[i], LOCAL_OPT_TEXT_BUF_SIZE, "Skip Dup Frames: %s", getSkipDupFrameName(config->screens[i].skipDupFrame));
-			captions[count + REMOTE_PLAY_ADVMENU_SCREEN_SKIP_DUP_FRAME] = noSkipFrameCaption[i];
-			descs[count + REMOTE_PLAY_ADVMENU_SCREEN_SKIP_DUP_FRAME] = getSkipDupFrameDesc();
-			colors[count + REMOTE_PLAY_ADVMENU_SCREEN_SKIP_DUP_FRAME] = config->screens[i].skipDupFrame != rpConfig->screens[i].skipDupFrame ? &changed_color : 0;
+			if (isNew3DS) {
+				captions[count + REMOTE_PLAY_ADVMENU_SCREEN_SKIP_DUP_FRAME] = noSkipFrameCaption[i];
+				descs[count + REMOTE_PLAY_ADVMENU_SCREEN_SKIP_DUP_FRAME] = getSkipDupFrameDesc();
+				colors[count + REMOTE_PLAY_ADVMENU_SCREEN_SKIP_DUP_FRAME] = config->screens[i].skipDupFrame != rpConfig->screens[i].skipDupFrame ? &changed_color : 0;
+			}
 
-			count += REMOTE_PLAY_ADVMENU_SCREEN_COUNT;
+			count += rp_advmenu_scrn_count;
 		}
 
 		const u32 REMOTE_PLAY_ADVMENU_BACK = count;
@@ -589,7 +605,12 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 		}
 
 		switch (select) {
-			case REMOTE_PLAY_ADVMENU_CORE_COUNT: { /* core count */
+			// case REMOTE_PLAY_ADVMENU_CORE_COUNT:
+			case 0: { /* core count */
+				_Static_assert(REMOTE_PLAY_ADVMENU_CORE_COUNT == 0);
+				if (!isNew3DS)
+					goto sep_scrn_cfg;
+
 				int coreCount = config->coreCount;
 				if (keys == KEY_X)
 					coreCount = rpConfig->coreCount;
@@ -620,6 +641,10 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 			}
 
 			case REMOTE_PLAY_ADVMENU_SEPARATE_SCREEN_CONFIG: {
+				if (!isNew3DS)
+					goto scrn_cfg;
+
+sep_scrn_cfg:
 				int separateScreenConfig = config->separateScreenConfig;
 				if (keys == KEY_X)
 					separateScreenConfig = rpConfig->separateScreenConfig;
@@ -635,8 +660,9 @@ static int remotePlayAdvMenu(RP_CONFIG *config) {
 			}
 
 			default: {
-				int screen_select = select - REMOTE_PLAY_ADVMENU_COUNT;
-				int screen_config_count = REMOTE_PLAY_ADVMENU_SCREEN_COUNT;
+scrn_cfg:
+				int screen_select = select - rp_advmenu_count;
+				int screen_config_count = rp_advmenu_scrn_count;
 				int screen_count = 1;
 				if (config->separateScreenConfig) {
 					++screen_config_count;

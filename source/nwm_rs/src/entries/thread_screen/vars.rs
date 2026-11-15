@@ -721,14 +721,12 @@ fn capture_screen(
         #[cfg(feature = "o3ds")]
         let w = WorkIndex::init(0);
 
-        let has_src_1 = is_top && !screen_info.src_1.is_null();
-
         let top_screen_width = entries::thread_screen::top_screen_width();
         let top_screen_right =
-            has_src_1 && top_screen_width == entries::thread_screen::TopScreenWidth::Right;
+            is_top && top_screen_width == entries::thread_screen::TopScreenWidth::Right;
         let top_screen_both =
-            has_src_1 && top_screen_width == entries::thread_screen::TopScreenWidth::Both;
-        let both_eyes = has_src_1 && top_screen_both && !screen_info.full_width;
+            is_top && top_screen_width == entries::thread_screen::TopScreenWidth::Both;
+        let both_eyes = is_top && top_screen_both && !screen_info.full_width;
 
         let phys_0 = if top_screen_right && !screen_info.full_width {
             screen_info.src_1
