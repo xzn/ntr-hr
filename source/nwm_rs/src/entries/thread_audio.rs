@@ -426,15 +426,15 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
                 SYSCLOCK_ARM11 / CSND_CAP_SAMPLE_RATE * AUDIO_FRAME_SAMPLES;
 
             let frames_count = tick_diff / FRAME_ARM11_TICKS as s64;
-            if frames_count < 0 || frames_count >= FRAMES_COUNT as s64 {
+            if frames_count < 0 || frames_count >= FRAMES_COUNT as s64 - 1 {
                 rp_update_csnd_enabled(true);
                 set_csnd_cap(false);
 
-                last_fc += 1;
+                staging_reprime = true;
                 continue;
             }
 
-            if frames_count == 0 {
+            if frames_count <= 1 {
                 continue;
             }
 
@@ -473,7 +473,7 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
         } else {
             1
         };
-        let fc_reprime = fc_diff > 1;
+        let fc_reprime = fc_diff > 1 || staging_reprime;
 
         unsafe {
             let force = fc_reprime && staging_count > 0;
