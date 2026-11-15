@@ -226,29 +226,59 @@ retry:
 		qtmPatched = 1;
 	}
 
-	if (!qtmDisabled) {
-		u32 branchDistance = qtmPayloadAddr - remotePC;
+	u32 pcDone = 0;
+	u32 pcTries = 20;
 
-		u32 replacementInst = (branchDistance / 4 - 2) | 0xea000000; // b inst
-
-		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &replacementInst, RP_QTM_HDR_SIZE);
+	while (!pcDone && pcTries) {
+		ret = nsCheckPCSafeToWrite(hProcess, remotePC);
 		if (ret != 0) {
-			showDbg("Write QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
-			goto final_unlock;
+			ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
+			if (ret != 0) {
+				showDbg("Unlocking QTM process failed: %08"PRIx32"\n", ret);
+				goto final;
+			}
+
+			svcSleepThread(50000000);
+			--pcTries;
+
+			ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 1, 0);
+			if (ret != 0) {
+				showDbg("Locking QTM failed: %08"PRIx32"\n", ret);
+				goto final;
+			}
+
+			continue;
 		}
 
-		qtmDisabled = 1;
-		showMsg("Patch QTM success");
-	} else {
-		ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, desiredHeader, RP_QTM_HDR_SIZE);
-		if (ret != 0) {
-			showDbg("Restore QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
-			goto final_unlock;
+		if (!qtmDisabled) {
+			u32 branchDistance = qtmPayloadAddr - remotePC;
+
+			u32 replacementInst = (branchDistance / 4 - 2) | 0xea000000; // b inst
+
+			ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, &replacementInst, RP_QTM_HDR_SIZE);
+			if (ret != 0) {
+				showDbg("Write QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
+				goto final_unlock;
+			}
+
+			qtmDisabled = 1;
+			showMsg("Patch QTM success");
+		} else {
+			ret = copyRemoteMemory(hProcess, (void *)remotePC, CUR_PROCESS_HANDLE, desiredHeader, RP_QTM_HDR_SIZE);
+			if (ret != 0) {
+				showDbg("Restore QTM memory at %08"PRIx32" failed: %08"PRIx32, remotePC, ret);
+				goto final_unlock;
+			}
+
+			qtmDisabled = 0;
+			showMsg("Restore QTM success");
 		}
 
-		qtmDisabled = 0;
-		showMsg("Restore QTM success");
+		pcDone = 1;
 	}
+
+	if (!pcDone)
+		showDbg("Patching QTM process failed\n");
 
 final_unlock:
 	ret = svcControlProcess(hProcess, PROCESSOP_SCHEDULE_THREADS, 0, 0);
