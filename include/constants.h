@@ -83,6 +83,7 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 // RP data ports
 #define RP_SRC_PORT (8000)
 #define RP_DST_PORT_DEFAULT (8001)
+#define RP_DST_DATA_DEFAULT (RP_COLOR_BIAS_MAX << RP_CONFIG_FLAG_LOSSLESS_DATA_SHIFT)
 #define RP_THREAD_PRIO_DEFAULT RP_THREAD_PRIO_MAX
 #define RP_CORE_COUNT_MIN (1)
 #define RP_CORE_COUNT_DEFAULT RP_CORE_COUNT_MAX
@@ -110,6 +111,10 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define RP_PORT_MAX (65535)
 #define RP_THREAD_PRIO_MIN (0x10)
 #define RP_THREAD_PRIO_MAX (0x3f)
+#define RP_AUDIO_MIN (0)
+#define RP_AUDIO_MAX (2)
+#define RP_TOP_VIEW_MIN (0)
+#define RP_TOP_VIEW_MAX (2)
 
 #define NWM_HDR_SIZE (0x2a + 8)
 #define DATA_HDR_SIZE (4)

@@ -40,6 +40,8 @@ enum {
 	REMOTE_PLAY_MENU_QOS,
 	REMOTE_PLAY_MENU_VIEWER_IP,
 	REMOTE_PLAY_MENU_VIEWER_PORT,
+	REMOTE_PLAY_MENU_AUDIO,
+	REMOTE_PLAY_MENU_TOP_VIEW,
 	REMOTE_PLAY_MENU_ADV,
 
 	REMOTE_PLAY_MENU_APPLY,
@@ -831,7 +833,7 @@ int remotePlayMenu(u32 localaddr) {
 		config.mode = 0x0102;
 		config.quality = RP_QUALITY_DEFAULT;
 		config.qos = RP_QOS_DEFAULT;
-		config.dstPort = RP_DST_PORT_DEFAULT;
+		config.dstPort = RP_DST_PORT_DEFAULT | RP_DST_DATA_DEFAULT;
 		config.coreCount = RP_CORE_COUNT_DEFAULT;
 		config.threadPriority = RP_THREAD_PRIO_DEFAULT;
 	}
@@ -890,6 +892,16 @@ int remotePlayMenu(u32 localaddr) {
 		char dstPortCaption[LOCAL_OPT_TEXT_BUF_SIZE];
 		xsnprintf(dstPortCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Viewer Port: %"PRId32, config.dstPort & RP_CONFIG_PORT_MASK);
 
+		char audioCaption[LOCAL_OPT_TEXT_BUF_SIZE];
+		xsnprintf(audioCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Audio Capture: %s",
+			config.audioEnable >= 2 ? "On (RS)" :
+			config.audioEnable == 1 ? "On" : "Off");
+
+		char topViewCaption[LOCAL_OPT_TEXT_BUF_SIZE];
+		xsnprintf(topViewCaption, LOCAL_OPT_TEXT_BUF_SIZE, "Top View: %s",
+			config.fullWidth >= 2 ? "Both/Full" :
+			config.fullWidth == 1 ? "Right" : "Left");
+
 		const char *captions[REMOTE_PLAY_MENU_COUNT];
 		captions[REMOTE_PLAY_MENU_PRIORITY_SCREEN] = priorityScreenCaption;
 		captions[REMOTE_PLAY_MENU_PRIORITY_FACTOR] = priorityFactorCaption;
@@ -898,6 +910,8 @@ int remotePlayMenu(u32 localaddr) {
 		captions[REMOTE_PLAY_MENU_VIEWER_IP] = dstAddrCaption;
 		captions[REMOTE_PLAY_MENU_VIEWER_PORT] = dstPortCaption;
 		captions[REMOTE_PLAY_MENU_COMP_FMT_PROT] = compFmtProtCaption;
+		captions[REMOTE_PLAY_MENU_AUDIO] = audioCaption;
+		captions[REMOTE_PLAY_MENU_TOP_VIEW] = topViewCaption;
 		captions[REMOTE_PLAY_MENU_ADV] = "Advanced Options";
 		captions[REMOTE_PLAY_MENU_APPLY] = "Apply";
 
@@ -920,6 +934,8 @@ int remotePlayMenu(u32 localaddr) {
 		colors[REMOTE_PLAY_MENU_QOS] = config.qos != rpConfig->qos ? &changed_color : 0;
 		colors[REMOTE_PLAY_MENU_VIEWER_IP] = config.dstAddr != rpConfig->dstAddr ? &changed_color : 0;
 		colors[REMOTE_PLAY_MENU_VIEWER_PORT] = (config.dstPort & RP_CONFIG_PORT_MASK) != (rpConfig->dstPort & RP_CONFIG_PORT_MASK) ? &changed_color : 0;
+		colors[REMOTE_PLAY_MENU_AUDIO] = config.audioEnable != rpConfig->audioEnable ? &changed_color : 0;
+		colors[REMOTE_PLAY_MENU_TOP_VIEW] = config.fullWidth != rpConfig->fullWidth ? &changed_color : 0;
 		colors[REMOTE_PLAY_MENU_COMP_FMT_PROT] = (config.dstPort & RP_CONFIG_FLAGS) != (rpConfig->dstPort & RP_CONFIG_FLAGS) ? &changed_color : 0;
 		colors[REMOTE_PLAY_MENU_ADV] = memcmp(RP_CONFIG_ADV_CFG(&config), RP_CONFIG_ADV_CFG(rpConfig), RP_CONFIG_ADV_CFG_SIZE) != 0 ? &changed_color : 0;
 
@@ -1092,6 +1108,38 @@ int remotePlayMenu(u32 localaddr) {
 				break;
 			}
 
+			case REMOTE_PLAY_MENU_AUDIO: { /* audio */
+				int audioEnable = config.audioEnable;
+				if (keys == KEY_X) {
+					audioEnable = rpConfig->audioEnable;
+				} else {
+					menu_adjust_value_with_key(&audioEnable, keys, 1, 1);
+				}
+
+				audioEnable = CLAMP(audioEnable, RP_AUDIO_MIN, RP_AUDIO_MAX);
+
+				if (audioEnable != (int)config.audioEnable) {
+					config.audioEnable = audioEnable;
+				}
+				break;
+			}
+
+			case REMOTE_PLAY_MENU_TOP_VIEW: { /* audio */
+				int fullWidth = config.fullWidth;
+				if (keys == KEY_X) {
+					fullWidth = rpConfig->fullWidth;
+				} else {
+					menu_adjust_value_with_key(&fullWidth, keys, 1, 1);
+				}
+
+				fullWidth = CLAMP(fullWidth, RP_TOP_VIEW_MIN, RP_TOP_VIEW_MAX);
+
+				if (fullWidth != (int)config.fullWidth) {
+					config.fullWidth = fullWidth;
+				}
+				break;
+			}
+
 			case REMOTE_PLAY_MENU_COMP_FMT_PROT: { /* reliable stream */
 				int dstPort = config.dstPort;
 				int dstFlag = dstPort & RP_CONFIG_FLAGS_DATA_MASK;
@@ -1198,11 +1246,13 @@ static void rpClampParamsInMenu(RP_CONFIG *config) {
 
 	config->dstAddr = 0; /* always update from nwm callback */
 
-	if (config->dstPort == 0) {
-		config->dstPort = rpConfig->dstPort;
-		if (config->dstPort == 0) {
-			config->dstPort = RP_DST_PORT_DEFAULT;
+	u32 dstPort = config->dstPort & RP_CONFIG_PORT_MASK;
+	if (dstPort == 0) {
+		dstPort = rpConfig->dstPort & RP_CONFIG_PORT_MASK;
+		if (dstPort == 0) {
+			dstPort = RP_DST_PORT_DEFAULT;
 		}
+		config->dstPort = dstPort | (config->dstPort & RP_CONFIG_FLAGS_DATA_MASK);
 	}
 
 	int dstFlag = config->dstPort & RP_CONFIG_FLAGS_DATA_MASK;

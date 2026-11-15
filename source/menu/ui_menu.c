@@ -351,7 +351,7 @@ s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], con
 	return showMenuEx3(title, entriesCount, captions, descriptions, selectOn, keysPressed, NULL);
 }
 
-#define MENU_ITEMS_MAX (10)
+#define MENU_ITEMS_MAX (11)
 #define MENU_ITEM_HEIGHT (CHAR_HEIGHT + 1)
 s32 showMenuEx3(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keysPressed, const u8 (*colors[])[3]) {
 	u32 i;
