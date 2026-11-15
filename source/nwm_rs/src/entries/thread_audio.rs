@@ -325,10 +325,26 @@ pub fn get_audio_kcp(timeout_ns: s64) -> *mut u8 {
     ptr::null_mut()
 }
 
+static mut CSND_CAP: AtomicU32 = const_default();
+static mut CSND_CAP_TICK: DurationTick = const_default();
+static mut CSND_CAP_FRAME_COUNT: u8 = const_default();
+
+pub fn set_csnd_cap(enabled: bool) {
+    unsafe {
+        CSND_CAP_TICK = get_system_tick();
+        CSND_CAP_FRAME_COUNT = 0;
+        CSND_CAP.store(enabled as u32 | (1 << 31), Ordering::Release);
+    }
+}
+
+#[named]
 pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
     unsafe {
         __system_initSyscalls();
     }
+
+    let mut csnd_enable: Option<CsndEnable> = None;
+    let mut csnd_cap_enabled = false;
 
     let mut staging: *mut c_char = ptr::null_mut();
     let mut staging_hdr2: *mut c_char = ptr::null_mut();
@@ -339,14 +355,19 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
     let mut last_fc: u16 = 0;
     let mut have_last = false;
 
-    while false && !reset_threads() {
+    while !reset_threads() {
         unsafe { svcSleepThread(AUDIO_POLL_NS) };
 
         let ready = unsafe { AUDIO_KCP }
             && entries::thread_nwm::nwm_send_ready()
             && entries::thread_nwm::nwm_session_alive();
         if !ready {
+            csnd_enable = None;
             continue;
+        }
+
+        if csnd_enable.is_none() {
+            csnd_enable = Some(CsndEnable::enable());
         }
 
         if staging.is_null() {
@@ -367,12 +388,79 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
             }
         }
 
+        /*
         let fc0 =
             unsafe { ptr::read_volatile((DSP_REGION0 + DSP_FRAME_COUNTER_OFF) as *const u16) };
         let fc1 =
             unsafe { ptr::read_volatile((DSP_REGION1 + DSP_FRAME_COUNTER_OFF) as *const u16) };
         let src = newer_region(fc0, fc1);
         let fc = if src == DSP_REGION1 { fc1 } else { fc0 };
+        */
+
+        const FRAMES_COUNT: u32 = CSND_CAP_BUF_SAMPS / AUDIO_FRAME_SAMPLES;
+        unsafe {
+            let mut csnd_cap = CSND_CAP.load(Ordering::Acquire);
+            if csnd_cap & (1 << 31) > 0 {
+                loop {
+                    csnd_cap_enabled = csnd_cap & 1 > 0;
+
+                    match CSND_CAP.compare_exchange_weak(
+                        csnd_cap,
+                        csnd_cap & !(1 << 31),
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    ) {
+                        Ok(_) => break,
+                        Err(new) => csnd_cap = new,
+                    }
+                }
+            }
+
+            if !csnd_cap_enabled {
+                continue;
+            }
+
+            let next_tick = get_system_tick();
+            let tick_diff = next_tick.get() - CSND_CAP_TICK.get();
+            const FRAME_ARM11_TICKS: u32 = SYSCLOCK_ARM11 / CSND_CAP_SAMPLE_RATE;
+
+            let frames_count = tick_diff / FRAME_ARM11_TICKS as s64;
+            if frames_count < 0 || frames_count >= FRAMES_COUNT as s64 {
+                ns_dbg_print!(failed, c_str!("frames_count"), frames_count as s32);
+                rp_update_csnd_enabled(true);
+                set_csnd_cap(false);
+
+                last_fc += 1;
+                continue;
+            }
+
+            if frames_count == 0 {
+                continue;
+            }
+
+            CSND_CAP_TICK = DurationTick::init(CSND_CAP_TICK.get() + FRAME_ARM11_TICKS as s64);
+        }
+        let mut mixed = mem::MaybeUninit::<
+            [u16; CSND_CAP_BUF_CHNS as usize * AUDIO_FRAME_SAMPLES as usize],
+        >::uninit();
+        unsafe {
+            let samp_count = CSND_CAP_FRAME_COUNT as usize * AUDIO_FRAME_SAMPLES as usize;
+            let buf_0 = (csndCapPa as *const u16).add(samp_count);
+            let buf_1 = (csndCapPa as *const u16).add(CSND_CAP_BUF_SAMPS as usize + samp_count);
+
+            let mixed = (*mixed.as_mut_ptr()).as_mut_ptr();
+
+            for s in 0..AUDIO_FRAME_SAMPLES as usize {
+                *mixed.add(s * CSND_CAP_BUF_CHNS as usize) = *buf_0.add(s);
+                *mixed.add(s * CSND_CAP_BUF_CHNS as usize + 1) = *buf_1.add(s);
+            }
+
+            CSND_CAP_FRAME_COUNT += 1;
+            CSND_CAP_FRAME_COUNT %= FRAMES_COUNT as u8;
+        }
+        let src = unsafe { (*mixed.as_mut_ptr()).as_mut_ptr() } as u32 - DSP_FINAL_SAMPLES_OFF;
+
+        let fc = last_fc + 1;
 
         // skip if the mix hasn't advanced
         if have_last && fc == last_fc {
@@ -505,4 +593,49 @@ unsafe fn rp_audio_data_buf_malloc() -> Option<*mut c_char> {
 #[unsafe(no_mangle)]
 unsafe fn rp_audio_data_buf_free(dst: *const ::libc::c_char) -> bool {
     unsafe { rp_audio_data_buf_free_base(dst.sub((NWM_HDR_SIZE + ARQ_OVERHEAD_SIZE) as usize)) }
+}
+
+#[named]
+unsafe fn rp_update_csnd_enabled(enabled: bool) {
+    unsafe {
+        let pid = 0x17 as u32; // CSND process on New3DS
+        let mut process = mem::MaybeUninit::<Handle>::uninit();
+
+        let ret = svcOpenProcess(process.as_mut_ptr(), pid);
+        if ret != 0 {
+            ns_dbg_print!(failed, c_str!("openProcess"), ret);
+            return;
+        }
+
+        let process = process.assume_init();
+        let enable = enabled as u32 | (1 << 31);
+
+        let ret = copyRemoteMemory(
+            process,
+            &mut (*config_consts::RP_CONFIG).audioEnable as *mut _ as *mut _,
+            CUR_PROCESS_HANDLE,
+            &enable as *const _ as *mut _,
+            mem::size_of::<u32>() as u32,
+        );
+        if ret != 0 {
+            ns_dbg_print!(failed, c_str!("Update csnd enable"), ret as s32);
+        }
+
+        let _ = svcCloseHandle(process);
+    }
+}
+
+struct CsndEnable(());
+
+impl CsndEnable {
+    fn enable() -> Self {
+        unsafe { rp_update_csnd_enabled(true) };
+        Self(())
+    }
+}
+
+impl Drop for CsndEnable {
+    fn drop(&mut self) {
+        unsafe { rp_update_csnd_enabled(false) };
+    }
 }

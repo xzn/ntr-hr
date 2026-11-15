@@ -1,6 +1,7 @@
 #include "global.h"
 
 #include "3ds/ipc.h"
+#include "3ds/services/csnd.h"
 
 #include <memory.h>
 
@@ -79,7 +80,7 @@ static void csnd_capture_enable(void)
 	for (int i = 0; i < CSND_CAP_COUNT; ++i) {
 		struct csnd_cap_regs_t *r = &regs[i];
 		r->ctl = 0;
-		r->rate = CSND_CAP_SAMPLE_RATE;
+		r->rate = CSND_CAP_TIMER;
 		r->len = 0;
 		r->addr = csndCapPa + (CSND_CAP_BUF_SIZE / CSND_CAP_COUNT) * i;
 		r->len = CSND_CAP_BUF_SIZE / CSND_CAP_COUNT;
@@ -118,18 +119,30 @@ static void rpSetCsndCap(bool enabled) {
 
 static void check_csnd_capture(void)
 {
-	bool audio_enabled = !!rpConfig->audioEnable;
+	u32 enabled = rpConfig->audioEnable;
+	bool enabled_changed;
+	u32 enabled_new;
+	do {
+		enabled_changed = enabled & (1 << 31);
+		if (!enabled_changed)
+			return;
+		enabled_new = enabled & ~(1 << 31);
+	} while (!__atomic_compare_exchange_n(&rpConfig->audioEnable, &enabled, enabled_new, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED));
 
-	if (audio_enabled != csnd_capture_enabled) {
-		if (audio_enabled) {
-			csnd_capture_enable();
-			csnd_capture_enabled = true;
-		} else {
+	if (enabled_changed) {
+		if (csnd_capture_enabled) {
 			csnd_capture_disable();
 			csnd_capture_enabled = false;
+
+			rpSetCsndCap(csnd_capture_enabled);
 		}
 
-		rpSetCsndCap(csnd_capture_enabled);
+		if (enabled_new) {
+			csnd_capture_enable();
+			csnd_capture_enabled = true;
+
+			rpSetCsndCap(csnd_capture_enabled);
+		}
 	}
 }
 

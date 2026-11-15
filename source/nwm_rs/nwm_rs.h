@@ -5,6 +5,7 @@ void __system_initSyscalls(void);
 #include "3ds/services/gspgpu.h"
 #include "3ds/result.h"
 #ifdef NEW_3DS
+#include "3ds/services/csnd.h"
 #include "../nwm_misc/ikcp.h"
 #include "../nwm_misc/fecal.h"
 #include "../nwm_misc/gf256.h"
@@ -14,6 +15,7 @@ void __system_initSyscalls(void);
 
 #ifdef NEW_3DS
 #define RP_RECV_BUF_N (2)
+const static u32 csnd_cap_timer = CSND_CAP_TIMER;
 
 struct rp_cb_locked {
 	struct IKCPCB ikcp;

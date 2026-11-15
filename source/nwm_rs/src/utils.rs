@@ -118,6 +118,7 @@ where
     }
 }
 
+#[derive(ConstDefault)]
 pub struct DurationTick(s64);
 
 impl DurationTick {
