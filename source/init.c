@@ -142,23 +142,27 @@ u32 plgGetMemoryUsage(void) {
 		return 0;
 }
 
-u32 plgRequestMemoryFromPool(u32 size, int pool) {
+static u32 plgRequestMemoryEx(u32 size, int pool, bool linear) {
 	if (pool == 0) {
 		if (!plgMemoryPoolEnd) {
 			plgMemoryPoolEnd = PLG_MEM_ADDR;
 		}
 
+		u32 op = linear ? MEMOP_ALLOC_LINEAR : MEMOP_ALLOC;
 		u32 ret, outAddr = 0, addr;
-		addr = plgMemoryPoolEnd;
+		addr = linear ? 0 : plgMemoryPoolEnd;
 		size = rtAlignToPageSize(size);
 		if (ntrConfig->memMode)
-			ret = svcControlMemoryEx(&outAddr, addr, addr, size, MEMOP_ALLOC | NTR_LOADER_REGION, MEMPERM_READWRITE, true);
+			ret = svcControlMemoryEx(&outAddr, addr, addr, size, op | NTR_LOADER_REGION, MEMPERM_READWRITE, true);
 		else
-			ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
-		if (ret != 0 || outAddr != addr) {
-			showDbg("Failed to allocate memory from pool for plugin at addr %08"PRIx32" for size %08"PRIx32": %08"PRIx32"\n", addr, size, ret);
+			ret = svcControlMemory(&outAddr, addr, addr, size, op, MEMPERM_READWRITE);
+		if (ret != 0 || (!linear && outAddr != addr)) {
+			showDbg("Failed to allocate memory from pool for plugin at addr %08"PRIx32" (%08"PRIx32") for size %08"PRIx32": %08"PRIx32"\n", addr, outAddr, size, ret);
 			return 0;
 		}
+
+		if (linear)
+			return outAddr;
 
 		plgMemoryPoolEnd += size;
 		// if (getCurrentProcessId() == RP_NWM_PROCESS) {
@@ -171,13 +175,14 @@ u32 plgRequestMemoryFromPool(u32 size, int pool) {
 			plgMemoryPoolBegin = PLG_MEM_ADDR;
 		}
 
+		u32 op = MEMOP_ALLOC;
 		u32 ret, outAddr = 0, addr;
 		size = rtAlignToPageSize(size);
 		addr = plgMemoryPoolBegin - size;
 		if (ntrConfig->memMode)
-			ret = svcControlMemoryEx(&outAddr, addr, addr, size, MEMOP_ALLOC | NTR_LOADER_REGION, MEMPERM_READWRITE, true);
+			ret = svcControlMemoryEx(&outAddr, addr, addr, size, op | NTR_LOADER_REGION, MEMPERM_READWRITE, true);
 		else
-			ret = svcControlMemory(&outAddr, addr, addr, size, MEMOP_ALLOC, MEMPERM_READWRITE);
+			ret = svcControlMemory(&outAddr, addr, addr, size, op, MEMPERM_READWRITE);
 		if (ret != 0 || outAddr != addr) {
 			showDbg("Failed to allocate memory from pool for payload at addr %08"PRIx32" for size %08"PRIx32": %08"PRIx32"\n", addr, size, ret);
 			return 0;
@@ -189,8 +194,16 @@ u32 plgRequestMemoryFromPool(u32 size, int pool) {
 	}
 }
 
+u32 plgRequestMemoryFromPool(u32 size, int pool) {
+	return plgRequestMemoryEx(size, pool, false);
+}
+
 u32 plgRequestMemory(u32 size) {
 	return plgRequestMemoryFromPool(size, 0);
+}
+
+u32 plgRequestMemoryLinear(u32 size){
+	return plgRequestMemoryEx(size, 0, true);
 }
 
 u32 arm11BinStart;
@@ -453,10 +466,10 @@ final_server:
 		u32 norm_param_count = (cmdbuf[0] >> 6) & 0x3F;
 		u32 trans_param_size = cmdbuf[0] & 0x3F;
 
-		handlePortCmd(cmd_id, norm_param_count, trans_param_size, cmdbuf + 1);
+		u32 cmd0 = handlePortCmd(cmd_id, norm_param_count, trans_param_size, cmdbuf + 1);
 
 		replyHandleIndex = receivedHandleIndex;
-		cmdbuf[0] = IPC_MakeHeader(cmd_id, 0, 0);
+		cmdbuf[0] = cmd0 ? cmd0 : IPC_MakeHeader(cmd_id, 0, 0);
 	}
 final:
 
@@ -466,4 +479,22 @@ final:
 		svcCloseHandle(hClient);
 
 	svcExitThread();
+}
+
+u32 csndCapPa;
+int ensureCsndCapPa(void) {
+	u32* cmdbuf = getThreadCommandBuffer();
+	cmdbuf[0] = IPC_MakeHeader(SVC_MENU_CMD_GET_CSND_CAP_BUF, 0, 0);
+
+	Handle hClient = menuGetPortHandle();
+	s32 ret = hClient ? svcSendSyncRequest(hClient) : -1;
+	if (ret == 0 && cmdbuf[1] == 0)
+		csndCapPa = cmdbuf[2];
+	else
+	 	return -1;
+
+	if (!csndCapPa)
+		return -1;
+
+	return 0;
 }

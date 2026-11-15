@@ -25,6 +25,7 @@ void clearPayloadBin(void);
 
 int plgEnsurePoolSize(u32 size, bool free);
 u32 plgRequestMemory(u32 size);
+u32 plgRequestMemoryLinear(u32 size);
 u32 plgRequestMemoryFromPool(u32 size, int pool);
 u32 plgGetMemoryUsage(void);
 
@@ -62,7 +63,10 @@ extern int plgOverlayStatus;
 extern int plgHasVRAMAccess;
 extern int plgHasOverlay;
 
-void handlePortCmd(u32 cmd_id, u32 norm_param_count, u32 trans_param_size, u32 *cmd_buf1);
+extern u32 csndCapPa;
+int ensureCsndCapPa(void);
+
+u32 handlePortCmd(u32 cmd_id, u32 norm_param_count, u32 trans_param_size, u32 *cmd_buf1);
 void handlePortThreadPre(void);
 void handlePortThread(void *arg);
 Handle rpGetPortHandle(void);

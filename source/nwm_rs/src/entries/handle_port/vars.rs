@@ -73,7 +73,7 @@ extern "C" fn handlePortCmd(
     norm_params_count: u32,
     trans_params_size: u32,
     cmd_buf1: *const u32,
-) {
+) -> u32 {
     unsafe {
         safe_impl::handle_port(
             Impl(()),

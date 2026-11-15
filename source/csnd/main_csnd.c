@@ -1,12 +1,14 @@
 #include "global.h"
 
+#include "3ds/ipc.h"
+
 #include <memory.h>
 
 static bool csnd_capture_enabled;
 
 #define CSND_CAP_REG ((void *)0x1EC03800)
 
-#define CSND_CAP_COUNT (2)
+#define CSND_CAP_COUNT (CSND_CAP_BUF_CHNS)
 
 struct csnd_cap_regs_t {
 	u32 ctl;
@@ -24,6 +26,9 @@ static u32 *csnd_cap_addrs[CSND_CAP_ADDR_COUNT_MAX];
 
 static void populate_cap_addrs(void)
 {
+	if (ensureCsndCapPa())
+		return;
+
 	u32 codeStartAddress;
 	u32 codeEndAddress;
 	u32 codeTotalSize;
@@ -68,6 +73,18 @@ static void csnd_capture_enable(void)
 
 	for (int i = 0; i < csnd_cap_addr_count; ++i)
 		*csnd_cap_addrs[i] = (u32)cap_reg_saved;
+
+	memset((void *)((u32)csndCapPa | 0x80000000), 0, CSND_CAP_BUF_SIZE);
+	struct csnd_cap_regs_t *regs = CSND_CAP_REG;
+	for (int i = 0; i < CSND_CAP_COUNT; ++i) {
+		struct csnd_cap_regs_t *r = &regs[i];
+		r->ctl = 0;
+		r->rate = 32728;
+		r->len = 0;
+		r->addr = csndCapPa + (CSND_CAP_BUF_SIZE / CSND_CAP_COUNT) * i;
+		r->len = CSND_CAP_BUF_SIZE / CSND_CAP_COUNT;
+		r->ctl = 1 << 15;
+	}
 
 	nsDbgPrint("Csnd capture enabled\n");
 }

@@ -729,7 +729,31 @@ done:
 static char sbuf_msg_title[LOCAL_TITLE_BUF_SIZE];
 static char sbuf_msg_msg[LOCAL_MSG_BUF_SIZE];
 
-void handlePortCmd(u32 cmd_id, u32, u32, u32 *) {
+static u32 csnd_cap_buf_addr;
+static u32 csnd_cap_buf_pa;
+
+static int ensureCsndCapBuf(void)
+{
+	if (!csnd_cap_buf_addr) {
+		csnd_cap_buf_addr = plgRequestMemoryLinear(CSND_CAP_BUF_SIZE);
+		if (!csnd_cap_buf_addr) {
+			nsDbgPrint("plgRequestMemoryLinear failed\n");
+			return -1;
+		}
+	}
+
+	if (!csnd_cap_buf_pa) {
+		csnd_cap_buf_pa = svcConvertVAToPA((void *)csnd_cap_buf_addr, false);
+		if (!csnd_cap_buf_pa) {
+			nsDbgPrint("svcConvertVAToPA failed\n");
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+u32 handlePortCmd(u32 cmd_id, u32, u32, u32 *cmd1) {
 	switch (cmd_id) {
 		case SVC_MENU_CMD_DBG_PRINT:
 			nsDbgPrint2(*sbuf_msg_title ? sbuf_msg_title : NULL, sbuf_msg_msg);
@@ -738,7 +762,24 @@ void handlePortCmd(u32 cmd_id, u32, u32, u32 *) {
 		case SVC_MENU_CMD_SHOW_MSG:
 			showMsgRaw2(*sbuf_msg_title ? sbuf_msg_title : NULL, sbuf_msg_msg);
 			break;
+
+		case SVC_MENU_CMD_GET_CSND_CAP_BUF:
+		{
+			u32 cmd0;
+			int res = ensureCsndCapBuf();
+			if (res) {
+				cmd1[1] = 0;
+			} else {
+				cmd1[1] = csnd_cap_buf_pa;
+			}
+
+			cmd0 = IPC_MakeHeader(cmd_id, 2, 0);
+			*cmd1 = res;
+			return cmd0;
+		}
 	}
+
+	return 0;
 }
 
 void handlePortThreadPre(void) {

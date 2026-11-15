@@ -1,7 +1,7 @@
 use super::*;
 
 #[named]
-pub fn handle_port(impl_: Impl, cmd_id: u32, norm_params: &[u32], trans_params: &[u32]) {
+pub fn handle_port(impl_: Impl, cmd_id: u32, norm_params: &[u32], trans_params: &[u32]) -> u32 {
     match cmd_id as u8 {
         SVC_NWM_CMD_OVERLAY_CALLBACK => {
             let is_top = *norm_params.get(0).unwrap_or(&u32::MAX);
@@ -29,5 +29,7 @@ pub fn handle_port(impl_: Impl, cmd_id: u32, norm_params: &[u32], trans_params: 
             impl_.set_game_pid(game_pid);
         }
         _ => (),
-    }
+    };
+
+    0
 }

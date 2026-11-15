@@ -131,6 +131,11 @@ static const u32 IoBasePdc = 0x10400000 + 0x80000000;
 #define RES_HANDLE_CLOSED (0xC920181A)
 #define RES_TIMEOUT (0x09401BFE)
 
+#define CSND_CAP_BUF_SAMPS (1024)
+#define CSND_CAP_BUF_CHNS (2)
+#define CSND_CAP_BUF_B (2)
+#define CSND_CAP_BUF_SIZE (CSND_CAP_BUF_SAMPS * CSND_CAP_BUF_CHNS * CSND_CAP_BUF_B)
+
 #define SVC_PORT_NWM "nwm:rp"
 #define SVC_PORT_MENU "menu:ns"
 
@@ -143,6 +148,7 @@ enum {
 enum {
 	SVC_MENU_CMD_DBG_PRINT = 1,
 	SVC_MENU_CMD_SHOW_MSG,
+	SVC_MENU_CMD_GET_CSND_CAP_BUF,
 };
 
 enum {
