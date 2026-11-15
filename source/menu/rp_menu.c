@@ -1137,32 +1137,10 @@ int remotePlayMenu(u32 localaddr) {
 	return 0;
 }
 
-static void rpUpdateCsndEnabled(RP_CONFIG *config) {
-	if (ntrConfig->isNew3DS) {
-		u32 pid = 0x17; // CSND process on New3DS
-		s32 ret;
-		Handle hProcess;
-
-		ret = svcOpenProcess(&hProcess, pid);
-		if (ret != 0) {
-			nsDbgPrint("openProcess failed: %08"PRIx32"\n", ret);
-			return;
-		}
-
-		ret = copyRemoteMemory(hProcess, &rpConfig->audioEnable, CUR_PROCESS_HANDLE, &config->audioEnable, sizeof(u32));
-		if (ret != 0)
-			nsDbgPrint("Update csnd enabled failed: %08"PRIx32"\n", ret);
-
-		svcCloseHandle(hProcess);
-	}
-}
-
 static int rpUpdatingParams;
 static int rpUpdateParamsFromMenu(RP_CONFIG *config) {
 	if (ATSR(&rpUpdatingParams))
 		return -1;
-
-	rpUpdateCsndEnabled(config);
 
 	s32 ret = 0;
 	if (ntrConfig->isNew3DS) {
@@ -1359,8 +1337,6 @@ final:
 			nsDbgPrint("Locking CPU clock to 804 MHz and L2 cache to enabled...\n");
 			setCpuClockLock(3, 1);
 		}
-
-		rpUpdateCsndEnabled(config);
 	}
 
 	if (hProcess)

@@ -74,12 +74,12 @@ static void csnd_capture_enable(void)
 	for (int i = 0; i < csnd_cap_addr_count; ++i)
 		*csnd_cap_addrs[i] = (u32)cap_reg_saved;
 
-	memset((void *)((u32)csndCapPa | 0x80000000), 0, CSND_CAP_BUF_SIZE);
+	memset((void *)(csndCapPa | 0x80000000), 0, CSND_CAP_BUF_SIZE);
 	struct csnd_cap_regs_t *regs = CSND_CAP_REG;
 	for (int i = 0; i < CSND_CAP_COUNT; ++i) {
 		struct csnd_cap_regs_t *r = &regs[i];
 		r->ctl = 0;
-		r->rate = 32728;
+		r->rate = CSND_CAP_SAMPLE_RATE;
 		r->len = 0;
 		r->addr = csndCapPa + (CSND_CAP_BUF_SIZE / CSND_CAP_COUNT) * i;
 		r->len = CSND_CAP_BUF_SIZE / CSND_CAP_COUNT;
@@ -101,6 +101,21 @@ static void csnd_capture_disable(void)
 	nsDbgPrint("Csnd capture disabled\n");
 }
 
+static void rpSetCsndCap(bool enabled) {
+	Handle hClient = rpGetPortHandle();
+	if (!hClient)
+		return;
+
+	u32* cmdbuf = getThreadCommandBuffer();
+	cmdbuf[0] = IPC_MakeHeader(SVC_NWM_CMD_SET_CSND_CAP, 1, 0);
+	cmdbuf[1] = enabled;
+
+	s32 ret = svcSendSyncRequest(hClient);
+	if (ret != 0) {
+		nsDbgPrint("Send port request failed: %08"PRIx32"\n", ret);
+	}
+}
+
 static void check_csnd_capture(void)
 {
 	bool audio_enabled = !!rpConfig->audioEnable;
@@ -113,6 +128,8 @@ static void check_csnd_capture(void)
 			csnd_capture_disable();
 			csnd_capture_enabled = false;
 		}
+
+		rpSetCsndCap(csnd_capture_enabled);
 	}
 }
 

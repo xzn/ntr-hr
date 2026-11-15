@@ -28,6 +28,9 @@ pub fn handle_port(impl_: Impl, cmd_id: u32, norm_params: &[u32], trans_params: 
             let game_pid = *norm_params.get(0).unwrap_or(&0);
             impl_.set_game_pid(game_pid);
         }
+        SVC_NWM_CMD_SET_CSND_CAP => {
+            let _csnd_cap = *norm_params.get(0).unwrap_or(&0) > 0;
+        }
         _ => (),
     };
 

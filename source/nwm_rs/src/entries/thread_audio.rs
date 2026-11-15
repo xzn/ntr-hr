@@ -16,6 +16,9 @@ const AUDIO_FRAME_BYTES: usize = 640; // 160 samples * 2 ch * 2 bytes (s16 LE)
 const AUDIO_HDR_TYPE: u8 = 4; // hdr[2]: NTR-HR+ audio packet type
 const AUDIO_FMT_PCM16: u8 = 0; // hdr[3]: payload format/version
 
+const _CSND_CAP_BUF_SAMPS_ASSERT: () = assert!(CSND_CAP_BUF_SAMPS % AUDIO_FRAME_SAMPLES == 0);
+const _CSND_CAP_SAMPLE_RATE_ASSERT: () = assert!(CSND_CAP_SAMPLE_RATE == AUDIO_SAMPLE_RATE);
+
 // each packet carries the previous and current frame so one lost packet
 // leaves no gap; hdr[0] is the newest frame's sequence number
 const AUDIO_REDUNDANCY: usize = 2;
@@ -75,6 +78,8 @@ pub fn once_audio() {
 
             (*AUDIO_WORK).lock = 0;
             (*AUDIO_WORK).sem = 0;
+
+            ensureCsndCapPa();
         }
     }
 }
@@ -334,7 +339,7 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
     let mut last_fc: u16 = 0;
     let mut have_last = false;
 
-    while !reset_threads() {
+    while false && !reset_threads() {
         unsafe { svcSleepThread(AUDIO_POLL_NS) };
 
         let ready = unsafe { AUDIO_KCP }

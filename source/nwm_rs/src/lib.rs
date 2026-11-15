@@ -10,6 +10,7 @@
 #![cfg_attr(not(feature = "o3ds"), feature(iter_array_chunks))]
 #![feature(array_ptr_get)]
 #![allow(static_mut_refs)]
+// #![cfg_attr(not(feature = "o3ds"), feature(explicit_tail_calls))]
 
 use ::libc::*;
 use const_default::{ConstDefault, const_default};

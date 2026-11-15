@@ -1153,15 +1153,15 @@ void mainThread(void *) {
 		goto final;
 	}
 
+	if (ntrConfig->isNew3DS)
+		createSvcHandleThread();
+
 	nsConfig->initMode = NS_INITMODE_FROMBOOT;
 	ret = nsStartup();
 	if (ret != 0) {
 		disp(100, DBG_CL_USE_DBG_FAIL);
 		goto final;
 	}
-
-	if (1 || ntrConfig->isNew3DS)
-		createSvcHandleThread();
 
 	plgInitScreenOverlayDirectly(*oldPC);
 
