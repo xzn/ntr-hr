@@ -524,6 +524,8 @@ pub extern "C" fn thread_audio_kcp(_: *mut c_void) {
         }
     }
 
+    drop(csnd_enable);
+
     unsafe { svcExitThread() }
 }
 
