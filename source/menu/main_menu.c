@@ -557,14 +557,15 @@ enum {
 	HOTKEY_ENTRIES_COUNT,
 };
 
-static int setHotkeyMenu() {
+static u32 menu_hotkey_map[HOTKEY_ENTRIES_COUNT] = {
+	[HOTKEY_ENTRY_X_Y] = MENU_HOTKEY_X_Y,
+	[HOTKEY_ENTRY_L_START] = MENU_HOTKEY_L_START,
+};
+static int setHotkeyMenu(void) {
 	char const *entries[HOTKEY_ENTRIES_COUNT];
 	entries[HOTKEY_ENTRY_X_Y] = "NTR Menu: X+Y";
 	entries[HOTKEY_ENTRY_L_START] = "NTR Menu: L+START";
 
-	u32 menu_hotkey_map[HOTKEY_ENTRIES_COUNT];
-	menu_hotkey_map[HOTKEY_ENTRY_X_Y] = MENU_HOTKEY_X_Y;
-	menu_hotkey_map[HOTKEY_ENTRY_L_START] = MENU_HOTKEY_L_START;
 	int r = 0;
 
 	for (int i = 0; i < HOTKEY_ENTRIES_COUNT; ++i) {
@@ -604,7 +605,7 @@ enum {
 #define CPU_MODE_ENTRY_CHECK_TEXT(v, t) \
 	(entries[v] = (cpuClockLocked && cpuClockLockValue == (v) ? t CPU_MODE_ENTRY_LOCKED_TEXT : selected == (v) ? t CPU_MODE_ENTRY_SELECTED_TEXT : t))
 
-static void ntrCPUModeMenu() {
+static void ntrCPUModeMenu(void) {
 	if (!ntrConfig->isNew3DS) {
 		showMsg("CPU mode is New 3DS only.");
 		return;
@@ -654,12 +655,62 @@ static void ntrCPUModeMenu() {
 };
 
 enum {
+	MANAGE_ENTRY_SAVE,
+	MANAGE_ENTRY_LOAD,
+	MANAGE_ENTRY_DELETE,
+	MANAGE_ENTRY_RESTORE,
+
+	MANAGE_ENTRIES_COUNT,
+};
+
+static void ntrOptionsManageMenu(void) {
+	char const *entries[MANAGE_ENTRIES_COUNT];
+	entries[MANAGE_ENTRY_SAVE] = plgTranslate("Save Options");
+	entries[MANAGE_ENTRY_LOAD] = plgTranslate("Load Options");
+	entries[MANAGE_ENTRY_DELETE] = plgTranslate("Delete Options");
+	entries[MANAGE_ENTRY_RESTORE] = plgTranslate("Restore Options");
+
+	const char *descs[MANAGE_ENTRIES_COUNT] = { 0 };
+	descs[MANAGE_ENTRY_SAVE] = "Save options to auto-apply on start.";
+	descs[MANAGE_ENTRY_LOAD] = "Load saved options.";
+	descs[MANAGE_ENTRY_DELETE] = "Delete saved options.";
+	descs[MANAGE_ENTRY_RESTORE] = "Restore options to default.\nApplied defaults are not saved.";
+
+	s32 r = 0;
+	while (1) {
+		r = showMenuEx("Manage Options", MANAGE_ENTRIES_COUNT, entries, descs, r);
+
+		switch (r) {
+			case MANAGE_ENTRY_SAVE:
+				ntrMenuSaveOptions();
+				break;
+
+			case MANAGE_ENTRY_LOAD:
+				ntrMenuLoadOptions();
+				break;
+
+			case MANAGE_ENTRY_DELETE:
+				ntrMenuDeleteOptions();
+				break;
+
+			case MANAGE_ENTRY_RESTORE:
+				ntrMenuRestoreOptions();
+				break;
+
+			default:
+				return;
+		}
+	}
+}
+
+enum {
 	MENU_ENTRY_REMOTETPLAY,
 	MENU_ENTRY_PLUGIN_LOADER,
 	MENU_ENTRY_HOTKEY,
 	MENU_ENTRY_CPU_MODE,
 	MENU_ENTRY_NFC_PATCH,
 	MENU_ENTRY_QTM_PATCH,
+	MENU_ENTRY_MANAGE_OPTIONS,
 
 	MENU_ENTRIES_COUNT,
 	MENU_ENTRY_GAME_PLUGIN = MENU_ENTRIES_COUNT,
@@ -687,6 +738,7 @@ static void showMainMenu(void) {
 		entries[MENU_ENTRY_CPU_MODE] = plgTranslate("CPU Clock & Cache");
 		entries[MENU_ENTRY_NFC_PATCH] = plgTranslate("NFC Patch");
 		entries[MENU_ENTRY_QTM_PATCH] = qtmDisabled ? plgTranslate("QTM Enable") : plgTranslate("QTM Disable");
+		entries[MENU_ENTRY_MANAGE_OPTIONS] = plgTranslate("Manage Options");
 		u32 count = MENU_ENTRIES_COUNT;
 
 		if (loadGamePluginMenu() == 0) {
@@ -748,12 +800,29 @@ static void showMainMenu(void) {
 				}
 				break;
 
+			case MENU_ENTRY_MANAGE_OPTIONS:
+				ntrOptionsManageMenu();
+				break;
+
 			default:
 				goto done;
 		}
 	}
 done:
 	releaseVideo();
+}
+
+void ntr_options_misc_save(struct ntr_options_misc_stage *stage)
+{
+	int r = 0;
+	for (int i = 0; i < HOTKEY_ENTRIES_COUNT; ++i) {
+		if (NTRMenuHotkey == menu_hotkey_map[i]) {
+			r = i;
+			break;
+		}
+	}
+	stage->menu_hotkey = r;
+	stage->qtm_disable = qtmDisabled;
 }
 
 static char sbuf_msg_title[LOCAL_TITLE_BUF_SIZE];
