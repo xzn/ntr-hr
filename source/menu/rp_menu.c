@@ -852,6 +852,18 @@ static int remotePlayApply(RP_CONFIG *config) {
 	return 1;
 }
 
+static void rpConfigDefault(RP_CONFIG *config)
+{
+	if (config->quality == 0) {
+		config->mode = 0x0102;
+		config->quality = RP_QUALITY_DEFAULT;
+		config->qos = RP_QOS_DEFAULT;
+		config->dstPort = RP_DST_PORT_DEFAULT | RP_DST_DATA_DEFAULT;
+		config->coreCount = RP_CORE_COUNT_DEFAULT;
+		config->threadPriority = RP_THREAD_PRIO_DEFAULT;
+	}
+}
+
 int remotePlayMenu(u32 localaddr) {
 	u32 select = 0;
 	RP_CONFIG config = *rpConfig;
@@ -859,14 +871,7 @@ int remotePlayMenu(u32 localaddr) {
 	bool isNew3DS = ntrConfig->isNew3DS;
 
 	/* default values */
-	if (config.quality == 0) {
-		config.mode = 0x0102;
-		config.quality = RP_QUALITY_DEFAULT;
-		config.qos = RP_QOS_DEFAULT;
-		config.dstPort = RP_DST_PORT_DEFAULT | RP_DST_DATA_DEFAULT;
-		config.coreCount = RP_CORE_COUNT_DEFAULT;
-		config.threadPriority = RP_THREAD_PRIO_DEFAULT;
-	}
+	rpConfigDefault(&config);
 	if (config.dstAddr == 0 && localaddr != 0) {
 		config.dstAddr = localaddr;
 		dstAddr4[3] = 1;
@@ -1454,5 +1459,15 @@ void rpCheckReliableStreamForNFC(void) {
 		}
 		config.dstPort = (config.dstPort & RP_CONFIG_PORT_MASK) | dstFlag;
 		rpStartupFromMenu(&config);
+	}
+}
+
+void ntr_options_rp_load(struct ntr_options_rp_stage *stage)
+{
+	rpConfigDefault(&stage->rp);
+	if (ALC(&rpStarted)) {
+		rpStartupFromMenu(&stage->rp);
+	} else {
+		*rpConfig = stage->rp;
 	}
 }

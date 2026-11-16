@@ -351,7 +351,8 @@ s32 showMenuEx2(const char *title, u32 entriesCount, const char *captions[], con
 	return showMenuEx3(title, entriesCount, captions, descriptions, selectOn, keysPressed, NULL);
 }
 
-#define MENU_ITEMS_MAX (11)
+#define MENU_ITEMS_MAX (10)
+#define MENU_ITEMS_NO_SCROLL_MAX (MENU_ITEMS_MAX + 1)
 #define MENU_ITEM_HEIGHT (CHAR_HEIGHT + 1)
 s32 showMenuEx3(const char *title, u32 entriesCount, const char *captions[], const char *descriptions[], u32 selectOn, u32 *keysPressed, const u8 (*colors[])[3]) {
 	u32 i;
@@ -378,8 +379,13 @@ s32 showMenuEx3(const char *title, u32 entriesCount, const char *captions[], con
 		print(title, x, pos, 255, 0, 0);
 		// print("http://44670.org/ntr", 10, 220, 0, 0, 255);
 		pos += 20;
-		drawStart = (select / MENU_ITEMS_MAX) * MENU_ITEMS_MAX;
-		drawEnd = drawStart + MENU_ITEMS_MAX;
+		if (entriesCount > MENU_ITEMS_NO_SCROLL_MAX) {
+			drawStart = (select / MENU_ITEMS_MAX) * MENU_ITEMS_MAX;
+			drawEnd = drawStart + MENU_ITEMS_MAX;
+		} else {
+			drawStart = 0;
+			drawEnd = drawStart + MENU_ITEMS_NO_SCROLL_MAX;
+		}
 		if (drawEnd > entriesCount) {
 			drawEnd = entriesCount;
 		}

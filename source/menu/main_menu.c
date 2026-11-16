@@ -686,7 +686,7 @@ static void ntrOptionsManageMenu(void) {
 				break;
 
 			case MANAGE_ENTRY_LOAD:
-				ntrMenuLoadOptions();
+				ntrMenuLoadOptions(false);
 				break;
 
 			case MANAGE_ENTRY_DELETE:
@@ -812,6 +812,14 @@ done:
 	releaseVideo();
 }
 
+void ntr_options_plg_load(struct ntr_options_plg_stage *stage)
+{
+	PLGLOADER_EX_INFO sav = *plgLoaderEx;
+	*plgLoaderEx = stage->plg;
+	plgLoaderEx->memSizeTotal = sav.memSizeTotal;
+	pluginLoaderConfigPropagate();
+}
+
 void ntr_options_misc_save(struct ntr_options_misc_stage *stage)
 {
 	int r = 0;
@@ -823,6 +831,17 @@ void ntr_options_misc_save(struct ntr_options_misc_stage *stage)
 	}
 	stage->menu_hotkey = r;
 	stage->qtm_disable = qtmDisabled;
+}
+
+void ntr_options_misc_load(struct ntr_options_misc_stage *stage)
+{
+	int r = 0;
+	if (stage->menu_hotkey < HOTKEY_ENTRIES_COUNT)
+		stage->menu_hotkey = r;
+	NTRMenuHotkey = menu_hotkey_map[r];
+
+	if (qtmDisabled != !!stage->qtm_disable)
+		rpDoQTMPatchAndToggle();
 }
 
 static char sbuf_msg_title[LOCAL_TITLE_BUF_SIZE];
@@ -1227,6 +1246,9 @@ void mainThread(void *) {
 			goto final;
 	}
 
+	if (ntrConfig->isNew3DS)
+		createSvcHandleThread();
+
 	if (ntrConfig->isNew3DS) {
 		ret = loadPayloadBin(NTR_BIN_CSND);
 		if (ret != 0) {
@@ -1252,9 +1274,6 @@ void mainThread(void *) {
 		goto final;
 	}
 
-	if (ntrConfig->isNew3DS)
-		createSvcHandleThread();
-
 	nsConfig->initMode = NS_INITMODE_FROMBOOT;
 	ret = nsStartup();
 	if (ret != 0) {
@@ -1265,6 +1284,8 @@ void mainThread(void *) {
 	plgInitScreenOverlayDirectly(*oldPC);
 
 	menuNotificationHook();
+
+	ntrMenuLoadOptions(true);
 
 	int waitCnt = 0;
 	while (1) {

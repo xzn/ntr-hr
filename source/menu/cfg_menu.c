@@ -93,12 +93,12 @@ static s32 appendFile(Handle file, u32 *offset, const char *str)
 	return 0;
 }
 
-static s32 ntrWriteOptionsToFile(Handle file)
+static s32 ntrSaveOptionsToFile(Handle file)
 {
 	struct ntr_options_stage options_stage;
 
 	options_stage.rp.rp = *rpConfig;
-	options_stage.plg.plg = ntrConfig->ex.plg;
+	options_stage.plg.plg = *plgLoaderEx;
 	ntr_options_misc_save(&options_stage.misc);
 
 	u32 offset = 0;
@@ -169,7 +169,7 @@ s32 ntrMenuSaveOptions(void)
 		goto final;
 	}
 
-	ret = ntrWriteOptionsToFile(file);
+	ret = ntrSaveOptionsToFile(file);
 	FSFILE_Close(file);
 	file = 0;
 
@@ -190,8 +190,281 @@ final:
 	return 0;
 }
 
-s32 ntrMenuLoadOptions(void)
+static char *find_chars_in_str(char *str, const char *chars)
 {
+	int chars_n = strlen(chars);
+	while (*str) {
+		for (int i = 0; i < chars_n; ++i) {
+			if (*str == chars[i])
+				return str;
+		}
+		++str;
+	}
+	return str;
+}
+
+static char *find_not_chars_in_str(char *str, const char *not_chars)
+{
+	int chars_n = strlen(not_chars);
+	while (*str) {
+		for (int i = 0; i < chars_n; ++i) {
+			if (*str != not_chars[i])
+				return str;
+		}
+		++str;
+	}
+	return str;
+}
+
+static s32 strToU32(const char *str, u32 *num)
+{
+	u64 out = 0;
+	while (*str) {
+		if (*str >= '0' && *str <= '9') {
+			out *= 10;
+			out += *str - '0';
+
+			if (out > UINT32_MAX)
+				return -2;
+		} else {
+			return -1;
+		}
+		++str;
+	}
+
+	*num = out;
+	return 0;
+}
+
+static s32 ntrLoadOptionsFromFile(Handle file, struct ntr_options_stage *options)
+{
+	u32 offset = 0;
+
+	char buf[LOCAL_OPT_TEXT_BUF_SIZE + 1];
+	u32 bytes_read;
+
+	enum {
+		SECTION_NONE,
+		SECTION_RP,
+		SECTION_RPS_T,
+		SECTION_RPS_B,
+		SECTION_PLG,
+		SECTION_MISC,
+		SECTION_UNKNOWN,
+	} section = SECTION_NONE;
+
+	while (1) {
+		s32 ret = FSFILE_Read(file, &bytes_read, offset, buf, LOCAL_OPT_TEXT_BUF_SIZE);
+		if (ret) {
+			showDbg("Failed to read file at offset %"PRIu32, offset);
+			return ret;
+		}
+
+		if (bytes_read == 0)
+			break;
+
+		buf[bytes_read] = 0;
+
+		const char *chars_newline = "\n";
+		char *const c_newline = find_chars_in_str(buf, chars_newline);
+
+		if (bytes_read == LOCAL_OPT_TEXT_BUF_SIZE && !*c_newline) {
+			char b;
+			u32 b_read;
+			s32 ret = FSFILE_Read(file, &b_read, offset + bytes_read, &b, 1);
+			if (ret) {
+				showDbg("Failed to read eof at offset %"PRIu32, offset + bytes_read);
+				return ret;
+			}
+			if (b_read != 0) {
+				showDbg("Failed to find newline at offset %"PRIu32, offset + bytes_read);
+				return -1;
+			}
+		}
+
+		*c_newline = 0;
+
+		const char *chars_whitespace = " \t\r";
+		char *trim_0 = find_not_chars_in_str(buf, chars_whitespace);
+
+		if (*trim_0 == ';' || *trim_0 == '#')
+			goto next;
+
+		if (*trim_0 == '[') {
+			char *sec_name = trim_0 + 1;
+			char *sec_name_end = find_chars_in_str(sec_name, "]");
+			if (!*sec_name_end) {
+				showDbg("Malformed section name \"%s\" at offset %"PRIu32, sec_name, offset + (sec_name_end - buf));
+				goto next;
+			}
+
+			sec_name = find_not_chars_in_str(sec_name, chars_whitespace);
+			char *sec_name_w_end = find_chars_in_str(sec_name, chars_whitespace);
+			if (sec_name_w_end < sec_name_end)
+				sec_name_end = sec_name_w_end;
+
+			*sec_name_end = 0;
+
+			if (!strcmp(sec_name, "remote_play"))
+				section = SECTION_RP;
+			else if (!strcmp(sec_name, "remote_play_screen.top"))
+				section = SECTION_RPS_T;
+			else if (!strcmp(sec_name, "remote_play_screen.bottom"))
+				section = SECTION_RPS_B;
+			else if (!strcmp(sec_name, "plg_loader"))
+				section = SECTION_PLG;
+			else if (!strcmp(sec_name, "misc"))
+				section = SECTION_MISC;
+			else {
+				showDbg("Unknown section name \"%s\" at offset %"PRIu32, sec_name, offset + (sec_name - buf));
+				section = SECTION_UNKNOWN;
+			}
+
+			goto next;
+		}
+
+		char *eq = find_chars_in_str(trim_0, "=");
+		if (!*eq) {
+			if (eq != trim_0)
+				showDbg("Missing k=v \"%s\" at offset %"PRIu32, trim_0, offset + (eq - buf));
+			goto next;
+		}
+
+		char *k_name = trim_0;
+		char *k_name_end = find_chars_in_str(k_name, chars_whitespace);
+		if (eq < k_name_end)
+			k_name_end = eq;
+		if (k_name == k_name_end) {
+			showDbg("Missing key at offset %"PRIu32, offset + (k_name_end - buf));
+			goto next;
+		}
+		*k_name_end = 0;
+
+		char *v_num = find_not_chars_in_str(eq + 1, chars_whitespace);
+		if (!*v_num) {
+			showDbg("Missing value at offset %"PRIu32, offset + (v_num - buf));
+			goto next;
+		}
+
+		*c_newline = '\n';
+		char *v_num_end = find_chars_in_str(v_num + 1, chars_whitespace);
+		*c_newline = 0;
+		if (v_num == v_num_end) {
+			showDbg("Missing value at offset %"PRIu32, offset + (v_num_end - buf));
+			goto next;
+		}
+		*v_num_end = 0;
+
+		u32 version = 0;
+		const struct settings_u32_key_t version_keys[] = { { "version", 0, }, SK_S };
+		void *stage;
+		const struct settings_u32_key_t *keys;
+		switch (section) {
+			case SECTION_NONE:
+				stage = &version;
+				keys = version_keys;
+				break;
+			case SECTION_RP:
+				stage = &options->rp.rp;
+				keys = rp_u32_keys;
+				break;
+			case SECTION_RPS_T:
+				stage = &options->rp.rp.screens[RP_SCREEN_TOP];
+				keys = rps_u32_keys;
+				break;
+			case SECTION_RPS_B:
+				stage = &options->rp.rp.screens[RP_SCREEN_BOT];
+				keys = rps_u32_keys;
+				break;
+			case SECTION_PLG:
+				stage = &options->plg.plg;
+				keys = plg_u32_keys;
+				break;
+			case SECTION_MISC:
+				stage = &options->misc;
+				keys = misc_u32_keys;
+				break;
+			case SECTION_UNKNOWN:
+				stage = NULL;
+				keys = NULL;
+				break;
+				break;
+		}
+
+		if (!stage || !keys)
+			goto next;
+
+		for (int i = 0; keys[i].name; ++i) {
+			if (!strcmp(k_name, keys[i].name)) {
+				u32 num;
+				s32 ret = strToU32(v_num, &num);
+				if (ret) {
+					showDbg("Malformed value \"%s\" at offset %"PRIu32, v_num, offset + (v_num - buf));
+					goto next;
+				}
+
+				*(u32 *)((char *)stage + keys[i].offset) = num;
+
+				goto next;
+			}
+		}
+		showDbg("Unknown key \"%s\" at offset %"PRIu32, k_name, offset + (k_name - buf));
+
+next:
+		offset += c_newline + 1 - buf;
+	}
+
+	return 0;
+}
+
+static s32 ntrApplyOptions(struct ntr_options_stage *options)
+{
+	ntr_options_misc_load(&options->misc);
+	ntr_options_plg_load(&options->plg);
+	ntr_options_rp_load(&options->rp);
+	return 0;
+}
+
+s32 ntrMenuLoadOptions(bool boot)
+{
+	s32 ret = open_sdmc_archive();
+	if (ret)
+		return ret;
+
+	char file_name[PATH_MAX];
+	ret = strnjoin(file_name, PATH_MAX, ntrConfig->ntrFilePath, SETTINGS_FILE_NAME);
+	if (ret != 0) {
+		showDbg("Settings file name too long: \"%s%s\"", ntrConfig->ntrFilePath, SETTINGS_FILE_NAME);
+		goto final;
+	}
+	FS_Path file_path = fsMakePath(PATH_ASCII, file_name);
+
+	Handle file;
+	ret = FSUSER_OpenFile(&file, sdmc_archive, file_path, FS_OPEN_READ, 0);
+	if (ret) {
+		if (!boot)
+			showDbg("Settings file \"%s\" cannot be opened: %"PRIx32, file_name, ret);
+		goto final;
+	}
+
+	struct ntr_options_stage options = { 0 };
+	ret = ntrLoadOptionsFromFile(file, &options);
+	FSFILE_Close(file);
+	file = 0;
+
+	if (ret)
+		goto final;
+
+	ret = ntrApplyOptions(&options);
+
+	if (ret)
+		goto final;
+
+	if (!boot)
+		showDbg("Settings loaded from file \"%s\"", file_name);
+
+final:
+	close_sdmc_archive();
 	return 0;
 }
 
@@ -233,5 +506,14 @@ final:
 
 s32 ntrMenuRestoreOptions(void)
 {
+	struct ntr_options_stage options= { 0 };
+
+	s32 ret = ntrApplyOptions(&options);
+	if (ret)
+		goto final;
+
+	showDbg("Settings restored to default.");
+
+final:
 	return 0;
 }

@@ -81,7 +81,7 @@ void plgInitScreenOverlayDirectly(u32 funcAddr);
 void plgSetBufferSwapHandle(u32 isDisplay1, u32 addr, u32 addrB, u32 stride, u32 format, u32 flushAlways);
 
 s32 ntrMenuSaveOptions(void);
-s32 ntrMenuLoadOptions(void);
+s32 ntrMenuLoadOptions(bool);
 s32 ntrMenuDeleteOptions(void);
 s32 ntrMenuRestoreOptions(void);
 
@@ -98,7 +98,11 @@ struct ntr_options_misc_stage {
 	u32 qtm_disable;
 };
 
+void ntr_options_rp_load(struct ntr_options_rp_stage *stage);
+void ntr_options_plg_load(struct ntr_options_plg_stage *stage);
+
 void ntr_options_misc_save(struct ntr_options_misc_stage *stage);
+void ntr_options_misc_load(struct ntr_options_misc_stage *stage);
 
 struct ntr_options_stage {
 	struct ntr_options_rp_stage rp;
